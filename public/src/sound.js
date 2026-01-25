@@ -35,15 +35,15 @@ async function loadAudioFile(url) {
 async function setupAudio() {
     // 並列でロードを開始（awaitを一括で待つことで高速化）
     const tasks = {
-        drop:           loadAudioFile('/DragEnd.mp3'),
-        item:           loadAudioFile('/PickUpItem.mp3'),
-        jump:           loadAudioFile('/Jump.mp3'),
-		enemyHit:       loadAudioFile('/Damage.mp3'),
+        drop:           loadAudioFile('public/DragEnd.mp3'),
+        item:           loadAudioFile('public/PickUpItem.mp3'),
+        jump:           loadAudioFile('public/Jump.mp3'),
+		enemyHit:       loadAudioFile('public/Damage.mp3'),
         // 🌟 ここでそれぞれのモンスターに合わせた音を指定してください
-        monster1Die:    loadAudioFile('/monster1_die.mp3'),      // 普通の音
-        monster2Die:    loadAudioFile('/monster1_die.mp3'),      // monster2も同じで良ければ同じファイル
-        monster3Die:    loadAudioFile('/monster1_die.mp3'),  // ボス用の豪華な音
-        bgm:            loadAudioFile('Floral_Life.mp3')
+        monster1Die:    loadAudioFile('public/monster1_die.mp3'),      // 普通の音
+        monster2Die:    loadAudioFile('public/monster1_die.mp3'),      // monster2も同じで良ければ同じファイル
+        monster3Die:    loadAudioFile('public/monster1_die.mp3'),  // ボス用の豪華な音
+        bgm:            loadAudioFile('public/Floral_Life.mp3')
     };
 
     // すべての結果を soundBuffers に格納
