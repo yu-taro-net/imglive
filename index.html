@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>imglive Chat2</title>
+    <style>
+        body { font-family: sans-serif; padding: 20px; background: #f0f0f0; }
+        #chat-box { width: 100%; height: 300px; border: 1px solid #ccc; background: white; overflow-y: scroll; margin-bottom: 10px; padding: 10px; }
+        #message-input { width: 80%; padding: 10px; }
+        #send-btn { width: 15%; padding: 10px; background: #007bff; color: white; border: none; cursor: pointer; }
+        ul { list-style: none; padding: 0; }
+        li { padding: 8px; border-bottom: 1px solid #eee; background: white; }
+    </style>
+</head>
+<body>
+    <h1>imglive Chat2</h1>
+    <div id="chat-box">
+        <ul id="messages"></ul>
+    </div>
+    <input type="text" id="message-input" placeholder="メッセージを入力...">
+    <button id="send-btn">送信</button>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script>
+        const socket = io();
+        const btn = document.getElementById('send-btn');
+        const input = document.getElementById('message-input');
+        const messagesContainer = document.getElementById('messages');
+
+        btn.onclick = () => {
+            if (input.value) {
+                socket.emit('chat message', input.value);
+                input.value = '';
+            }
+        };
+
+        // 【ここが重要！】届いたメッセージを画面に追加する命令です
+        socket.on('chat message', (msg) => {
+            const li = document.createElement('li');
+            li.textContent = msg;
+            messagesContainer.appendChild(li);
+            // 自動で一番下までスクロール
+            const chatBox = document.getElementById('chat-box');
+            chatBox.scrollTop = chatBox.scrollHeight;
+        });
+    </script>
+</body>
+</html>
