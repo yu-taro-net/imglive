@@ -336,10 +336,12 @@ function loadStaticImages() {
         }
 
         // --- 💀 Death (死亡) ---
+		/*
         for (let i = 0; i < (m.death || 0); i++) {
             sprites[m.name + 'Death'][i].src = `${basePath}/Dead/${fName}-Dead_${i}.png`;
         }
-
+        */
+		
         // --- 💤 Idle (待機) ---
         for (let i = 0; i < (m.idle || 0); i++) {
             sprites[m.name + 'Idle'][i].src = `${basePath}/Idle/${fName}-Idle_${i}.png`;
@@ -365,10 +367,12 @@ function loadStaticImages() {
     }
 
     // --- 👤 プレイヤー共通 ---
+	/*
     sprites.playerDown.src = '/player_down.png';
     for (let i = 0; i < 4; i++) {
         sprites.playerClimb[i].src = `/player_climb${i+1}.png`;
     }
+    */
 }
 
 /**
