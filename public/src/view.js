@@ -443,14 +443,19 @@ for (let g = 0; g < 16; g++) {
 
 // 🌟 キャラが必要になった時に呼び出す「画像読み込みの魔法」
 function loadCharFrames(groupIndex, variantIndex) {
-    // 🌟 【ここを追加】
-    return;
-	
+    // 🛡️ 修正ポイント：Group 05, Character 06 以外は何もしない（負荷軽減）
+    if (groupIndex !== 5 || variantIndex !== 6) {
+        return; 
+    }
+
     // 1. 🛑 異常な数値や読み込み済みチェック
-    // グループ番号(g)やバリエーション(v)が範囲外なら何もしない
     if (groupIndex < 0 || groupIndex >= 16 || variantIndex < 1 || variantIndex > 15) return;
-    // すでに読み込み済みなら、二重に読み込まないように終了する
-    if (playerSprites[groupIndex][variantIndex] !== null) return;
+    
+    // playerSpritesの階層が未定義なら作成する（エラー防止）
+    if (!playerSprites[groupIndex]) playerSprites[groupIndex] = {};
+    
+    // すでに読み込み済みなら終了
+    if (playerSprites[groupIndex][variantIndex] && Object.keys(playerSprites[groupIndex][variantIndex]).length > 0) return;
 
     // 2. 📂 フォルダ名の準備 (01, 02 のように2桁に揃える)
     playerSprites[groupIndex][variantIndex] = {};
@@ -461,29 +466,29 @@ function loadCharFrames(groupIndex, variantIndex) {
     ACTIONS.forEach(action => {
         playerSprites[groupIndex][variantIndex][action] = [];
         
-        // 枚数が不明なので、最大50枚まで順番にファイルがあるか試す
-        for (let i = 0; i < 50; i++) {
+        // 🛡️ 修正ポイント：50枚チェックは重いので、一旦「8枚」に制限（必要なら増やせます）
+        const maxFrames = 8; 
+
+        for (let i = 0; i < maxFrames; i++) {
             const img = new Image();
             const frameNum = String(i).padStart(2, '0');
             
-            // 🖼️ 画像の住所（パス）を組み立てる
-            // 例: char_assets/group_00/Character01/walk/Characters-Character01-walk_00.png
+            // 🖼️ 画像の住所（パス）
             img.src = `char_assets/group_${groupNum}/Character${varNum}/${action}/Characters-Character${varNum}-${action}_${frameNum}.png`;
 
             // 成功：画像が見つかった場合
             img.onload = () => {
-                // 配列の指定された番号に画像を保存
                 playerSprites[groupIndex][variantIndex][action][i] = img; 
             };
             
-            // 失敗：画像がなかった場合（例えば10枚目までしか無い時、11枚目以降はここを通る）
+            // 失敗：画像がなかった場合
             img.onerror = () => {
-                // 画面にエラーを出さず、静かに無視する（これで枚数不定でもOKになる）
+                // 静かに無視
             };
         }
     });
     
-    console.log(`✅ グループ${groupNum} キャラ${varNum} の全アクションを読み込み開始しました`);
+    console.log(`✅ 限定読み込み：グループ${groupNum} キャラ${varNum} の読み込みを開始しました`);
 }
 
 for (let g = 0; g < GROUP_COUNT; g++) {
