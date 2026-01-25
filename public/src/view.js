@@ -1452,46 +1452,54 @@ function drawItems(items, frame) {
     items.forEach(item => {
         ctx.save();
 
-        // 1. 浮遊アニメーションの計算
+        // 1. 浮遊アニメーションの計算（元の計算を維持）
         const offset = item.id || (item.x + item.y);
         const floatY = item.landed ? -Math.abs(Math.sin(frame * 0.05 + offset) * 12) : 0;
 
         // 2. 地面への着地高さの調整
         const itemY = (item.y > 500) ? (545 - 10) : item.y;
 
-        // 🌟 中央揃えの基準点へ移動（15を16にすると32x32の中心にピッタリ合います）
+        // 🌟 中央揃えの基準点へ移動
         ctx.translate(item.x + 16, itemY + 16 + floatY);
 
         // 3. JSONデータから設定を読み込む
         const config = ITEM_CONFIG[item.type] || ITEM_CONFIG["money1"]; 
         
-        let img;
-        if (config.isAnimated) {
-            // アニメーションする場合のコマ番号計算 (※10コマ送りの設定を維持しています)
-            const animIdx = Math.floor((frame + (offset * 10)) / 10) % 10; // 4コマなら %4
-            img = sprites.items[config.spriteKey][animIdx];
-        } else {
-            img = sprites.items[config.spriteKey];
+        let img = null;
+        // 🛡️ エラー回避のためのチェック：sprites.items[config.spriteKey] が存在するか確認
+        if (typeof sprites !== 'undefined' && sprites.items && sprites.items[config.spriteKey]) {
+            if (config.isAnimated) {
+                const animIdx = Math.floor((frame + (offset * 10)) / 10) % 10;
+                // さらにコマが存在するかチェック
+                img = sprites.items[config.spriteKey][animIdx];
+            } else {
+                img = sprites.items[config.spriteKey];
+            }
         }
 
-        // 3. 🌟 縦を32pxに固定し、横は比率を維持して中央揃えで描画
+        // 3. 🌟 描画処理
         if (img && (img.complete || img.naturalWidth > 0)) {
-            const nw = img.naturalWidth;  // 元の幅 (563など)
-            const nh = img.naturalHeight; // 元の高さ (564など)
-
-            const targetHeight = 32;      // 🌟 縦を32pxに固定
-            
-            // 🌟 元の画像の比率（幅 ÷ 高さ）を計算し、それに32を掛けて「新しい幅」を出す
-            // これにより、横が勝手に太くなるのを防ぎます
+            // --- 画像がある場合の処理（元の比率計算を維持） ---
+            const nw = img.naturalWidth;
+            const nh = img.naturalHeight;
+            const targetHeight = 32;
             const targetWidth = targetHeight * (nw / nh);
 
-            // --- 修正開始 ---
-            ctx.imageSmoothingEnabled = true; // 🌟 描画前にONにする
-
+            ctx.imageSmoothingEnabled = true;
             ctx.drawImage(img, -targetWidth / 2, -targetHeight / 2, targetWidth, targetHeight);
-
-            ctx.imageSmoothingEnabled = false; // 🌟 描き終わったらOFFに戻す
-            // --- 修正終了 ---
+            ctx.imageSmoothingEnabled = false;
+        } else {
+            // --- 🌟 【修正ポイント】画像がない場合、代わりに「小さな四角」を描画 ---
+            // これにより TypeError: undefined is not an object を防ぎます
+            ctx.fillStyle = "#fbbf24"; // アイテムっぽい金色
+            ctx.beginPath();
+            ctx.rect(-8, -8, 16, 16); // 16pxの正方形を中央に描く
+            ctx.fill();
+            
+            // 枠線をつけて見やすくします
+            ctx.strokeStyle = "white";
+            ctx.lineWidth = 1;
+            ctx.stroke();
         }
 
         ctx.restore();
