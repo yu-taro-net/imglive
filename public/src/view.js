@@ -315,9 +315,9 @@ function loadStaticImages() {
     loadItemImages();
 
     MONSTER_CONFIGS.forEach(m => {
-	    // 🛡️ 門番：Char01 以外のモンスターはここで無視する（負荷軽減）
-        if (m.id !== "Char01") {
-            return; // 次のモンスターの判定へ行く
+	    // 🌟 ここを修正：Char01 でも Char02 でもない場合（どちらも不一致なら）スキップ
+        if (m.id !== "Char01" && m.id !== "Char02") {
+            return; 
         }
         // 基本となるフォルダパスを作成
         // 例: /char_assets_enemy/Char01/
