@@ -313,11 +313,14 @@ MONSTER_CONFIGS.forEach(m => {
 function loadStaticImages() {
     // --- 💰 アイテム専用の読み込みエリア (ここを独立) ---
     loadItemImages();
+	
+	// 🛡️ 読み込みたいモンスターの ID リスト（ここに足すだけでOK）
+    const allowedIds = ["Char01", "Char02", "Char03"];
 
     MONSTER_CONFIGS.forEach(m => {
-	    // 🌟 ここを修正：Char01 でも Char02 でもない場合（どちらも不一致なら）スキップ
-        if (m.id !== "Char01" && m.id !== "Char02") {
-            return; 
+	    // 門番：リストに含まれていない ID なら無視（読み込まない）
+        if (!allowedIds.includes(m.id)) {
+            return;
         }
         // 基本となるフォルダパスを作成
         // 例: /char_assets_enemy/Char01/
