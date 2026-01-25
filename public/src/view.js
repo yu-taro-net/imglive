@@ -373,6 +373,9 @@ function loadStaticImages() {
  * 🌟 自動画像読み込み関数
  */
 function loadItemImages() {
+    // 🌟 【ここを追加】この一行で、アイテムの読み込みを全てスキップします
+    return;
+	
     Object.keys(ITEM_CONFIG).forEach(key => {
         const conf = ITEM_CONFIG[key];
         if (conf.isAnimated) {
