@@ -369,16 +369,20 @@ function loadStaticImages() {
 }
 
 /**
- * 🌟 自動画像読み込み関数
+ * 🌟 自動画像読み込み関数（404エラー防止版）
  */
 function loadItemImages() {
-    // 🌟 【ここを追加】この一行で、アイテムの読み込みを全てスキップします
-    //return;
-	
     Object.keys(ITEM_CONFIG).forEach(key => {
         const conf = ITEM_CONFIG[key];
+
+        // 🛡️ 修正ポイント：srcが空、または画像が指定されていない場合は何もしない
+        if (!conf || !conf.src || conf.src === "") {
+            console.log(`Skipping: ${key} (No image path specified)`);
+            return; // このアイテムの読み込みを飛ばす
+        }
+
         if (conf.isAnimated) {
-            // アニメーション用配列を作成
+            // アニメーション用
             sprites.items[key] = Array.from({ length: 10 }, (_, i) => {
                 const img = new Image();
                 img.src = `${conf.src}${i + 1}.png`;
