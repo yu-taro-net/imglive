@@ -467,7 +467,7 @@ function loadCharFrames(groupIndex, variantIndex) {
         playerSprites[groupIndex][variantIndex][action] = [];
         
         // 🛡️ 修正ポイント：50枚チェックは重いので、一旦「8枚」に制限（必要なら増やせます）
-        const maxFrames = 8; 
+        const maxFrames = 50; 
 
         for (let i = 0; i < maxFrames; i++) {
             const img = new Image();
