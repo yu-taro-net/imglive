@@ -33,6 +33,7 @@ async function loadAudioFile(url) {
  * 全ての音源を準備する
  */
 async function setupAudio() {
+    return;
     // 並列でロードを開始（awaitを一括で待つことで高速化）
     const tasks = {
         drop:           loadAudioFile('/DragEnd.mp3'),
