@@ -1466,20 +1466,21 @@ function drawItems(items, frame) {
         const config = ITEM_CONFIG[item.type] || ITEM_CONFIG["money1"]; 
         
         let img = null;
-        // 🛡️ エラー回避のためのチェック：sprites.items[config.spriteKey] が存在するか確認
+        // 🛡️ 画像の読み込み状況を確認
+        // loadItemImages() の return を消していれば、ここから画像が取得されます
         if (typeof sprites !== 'undefined' && sprites.items && sprites.items[config.spriteKey]) {
             if (config.isAnimated) {
+                // アニメーションのコマ数を計算（10枚設定を維持）
                 const animIdx = Math.floor((frame + (offset * 10)) / 10) % 10;
-                // さらにコマが存在するかチェック
                 img = sprites.items[config.spriteKey][animIdx];
             } else {
                 img = sprites.items[config.spriteKey];
             }
         }
 
-        // 3. 🌟 描画処理
+        // 4. 🌟 描画処理（画像優先、なければ四角）
         if (img && (img.complete || img.naturalWidth > 0)) {
-            // --- 画像がある場合の処理（元の比率計算を維持） ---
+            // ✅ 【画像がある場合】アップロードした素材を描画します
             const nw = img.naturalWidth;
             const nh = img.naturalHeight;
             const targetHeight = 32;
@@ -1489,14 +1490,12 @@ function drawItems(items, frame) {
             ctx.drawImage(img, -targetWidth / 2, -targetHeight / 2, targetWidth, targetHeight);
             ctx.imageSmoothingEnabled = false;
         } else {
-            // --- 🌟 【修正ポイント】画像がない場合、代わりに「小さな四角」を描画 ---
-            // これにより TypeError: undefined is not an object を防ぎます
-            ctx.fillStyle = "#fbbf24"; // アイテムっぽい金色
+            // ⚠️ 【画像がない/読込中の場合】エラーにならないよう、保険として四角を描画
+            ctx.fillStyle = "#fbbf24"; 
             ctx.beginPath();
-            ctx.rect(-8, -8, 16, 16); // 16pxの正方形を中央に描く
+            ctx.rect(-8, -8, 16, 16); 
             ctx.fill();
             
-            // 枠線をつけて見やすくします
             ctx.strokeStyle = "white";
             ctx.lineWidth = 1;
             ctx.stroke();
