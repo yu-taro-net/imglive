@@ -470,6 +470,8 @@ function loadCharFrames(groupIndex, variantIndex) {
         // 🌟 【ここを修正】ACTION_FRAMES からそのアクションの枚数を取得する
         // もしリストになければ、予備として 1 を使う設定です
         const maxFrames = ACTION_FRAMES[action] || 1;
+		
+		if (maxFrames <= 0) return;
 
         for (let i = 0; i < maxFrames; i++) {
             const img = new Image();
