@@ -110,6 +110,13 @@
   <script src="/src/view.js"></script>
   <script src="/src/sound.js"></script>
   <script>
+    // 画面（キャンバス）をクリックしたら攻撃を繰り出す設定
+  document.getElementById('stage').addEventListener('mousedown', () => {
+    // game.jsの中にある攻撃関数を呼び出す
+    if (typeof attack === 'function') {
+      attack(); 
+    }
+  });
     // 画面が開いたら自動的に「ゲスト」ボタンを押したことにする魔法
     window.onload = () => {
       if (typeof joinAsGuest === 'function') {
