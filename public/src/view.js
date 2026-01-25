@@ -416,7 +416,7 @@ let selectedCharVar = 6;   // 現在のキャラクター番号
 const ACTION_FRAMES = {
     "Dead":     45, 
     "Fly":      20, 
-    "Hit":      0, // 50
+    "Hit":      50, 
     "Idle":     20, 
     "Jump":     20, 
     "Roll":     0, // 8
