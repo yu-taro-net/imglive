@@ -313,9 +313,12 @@ MONSTER_CONFIGS.forEach(m => {
 function loadStaticImages() {
     // --- 💰 アイテム専用の読み込みエリア (ここを独立) ---
     loadItemImages();
-    // 🌟 【ここを追加】この下の return; がある限り、画像読み込みは動きません
-    return;
+
     MONSTER_CONFIGS.forEach(m => {
+	    // 🛡️ 門番：Char01 以外のモンスターはここで無視する（負荷軽減）
+        if (m.id !== "Char01") {
+            return; // 次のモンスターの判定へ行く
+        }
         // 基本となるフォルダパスを作成
         // 例: /char_assets_enemy/Char01/
         const basePath = `/char_assets_enemy/${m.id}`;
