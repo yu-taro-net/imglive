@@ -42,7 +42,7 @@ async function setupAudio() {
         // 🌟 ここでそれぞれのモンスターに合わせた音を指定してください
         monster1Die:    loadAudioFile('/monster1_die.mp3'),      // 普通の音
         monster2Die:    loadAudioFile('/monster1_die.mp3'),      // monster2も同じで良ければ同じファイル
-        monster3Die:    loadAudioFile('/monster3_die.mp3'),  // ボス用の豪華な音
+        monster3Die:    loadAudioFile('/monster1_die.mp3'),  // ボス用の豪華な音
         bgm:            loadAudioFile('/Floral_Life.mp3')
     };
 
