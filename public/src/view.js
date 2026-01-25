@@ -213,7 +213,7 @@ const ITEM_CONFIG = {
         "name": "100ゴールド",
         "spriteKey": "money3",
         "isAnimated": true,
-        "src": "/item_assets/money3_", // 数値と.pngは自動補完
+        //"src": "/item_assets/money3_", // 数値と.pngは自動補完
         "points": 100
     },
     "gold": {
@@ -234,7 +234,7 @@ const ITEM_CONFIG = {
         "name": "10ゴールド",
         "spriteKey": "money1",
         "isAnimated": true,
-        "src": "/item_assets/money1_",
+        //"src": "/item_assets/money1_",
         "points": 10
     },
 	"money5": {
