@@ -311,6 +311,8 @@ MONSTER_CONFIGS.forEach(m => {
 // 🚀 3. 画像の読み込み（新パス形式：自動処理）
 // ==========================================
 function loadStaticImages() {
+    // --- 💰 アイテム専用の読み込みエリア (ここを独立) ---
+    loadItemImages();
     // 🌟 【ここを追加】この下の return; がある限り、画像読み込みは動きません
     return;
     MONSTER_CONFIGS.forEach(m => {
@@ -364,9 +366,6 @@ function loadStaticImages() {
     for (let i = 0; i < 4; i++) {
         sprites.playerClimb[i].src = `/player_climb${i+1}.png`;
     }
-
-    // --- 💰 アイテム専用の読み込みエリア (ここを独立) ---
-    loadItemImages();
 }
 
 /**
