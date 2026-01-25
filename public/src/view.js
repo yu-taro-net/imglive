@@ -315,7 +315,7 @@ function loadStaticImages() {
     loadItemImages();
 	
 	// 🛡️ 読み込みたいモンスターの ID リスト（ここに足すだけでOK）
-    const allowedIds = ["Char01", "Char02", "Char03"];
+    const allowedIds = ["Char01", "Char02", "Char03", "Char16"];
 
     MONSTER_CONFIGS.forEach(m => {
 	    // 門番：リストに含まれていない ID なら無視（読み込まない）
