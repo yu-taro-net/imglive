@@ -97,19 +97,20 @@ function playEffect(buffer, volume = 0.5, rate = 1.0) {
 
 // --- 各アクションごとの関数 ---
 function playDropSound() {
-    playEffect(soundBuffers.drop, 0.5);
+    //playEffect(soundBuffers.drop, 0.5);
 }
 
 function playItemSound() {
-    playEffect(soundBuffers.item, 0.4);
+    //playEffect(soundBuffers.item, 0.4);
 }
 
 function playJumpSound() {
-    playEffect(soundBuffers.jump, 0.3, 1.1);
+    //playEffect(soundBuffers.jump, 0.3, 1.1);
 }
 
 // 敵に攻撃が当たった時の音
 function playEnemyHitSound(enemy) {
+    /*
     // サーバーの monster3 などの判定に合わせる
     const buffer = (enemy && enemy.type === 'monster3') ? soundBuffers.enemyHitBoss : soundBuffers.enemyHitNormal;
     
@@ -121,10 +122,12 @@ function playEnemyHitSound(enemy) {
         const randomRate = 0.9 + Math.random() * 0.2; 
         playEffect(finalBuffer, 0.4, randomRate);
     }
+	*/
 }
 
 // 敵が死んだ時に呼ばれる関数
 function playEnemyDieSound(enemy) {
+    /*
     let buffer;
 
     // 🌟 サーバーから送られてくる type に合わせて音を選ぶ
@@ -141,11 +144,13 @@ function playEnemyDieSound(enemy) {
         const volume = (enemy.type === 'monster3') ? 0.8 : 0.5; // ボスは少し大きく
         playEffect(buffer, volume);
     }
+	*/
 }
 
 let bgmSource = null;
 
 function playBGM() {
+    /*
     // 1. ロードが終わっていない場合は、0.5秒後にやり直す
     if (!soundBuffers.bgm) {
         console.log("⏳ BGMロード待ち...");
@@ -178,4 +183,5 @@ function playBGM() {
     
     bgmSource.start(0);
     console.log("🎵 BGM再生開始！");
+	*/
 }
