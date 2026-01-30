@@ -403,13 +403,10 @@ io.on('connection', socket => {
         });
         players[socket.id] = {
             id: socket.id,
-            name: n, x: 50, y: 500, dir: 1, score: 0, inventory: [], isAttacking: 0,
-
-            // 🌟 ここを以下のように書き換えます
+            name: n, x: 50, y: 500, dir: 1, score: 0, inventory: [], isAttacking: 0, level: 1, exp: 0, maxExp: 100,
             w: SETTINGS.PLAYER.DEFAULT_W * (SETTINGS.PLAYER.SCALE || 1.0),
             h: SETTINGS.PLAYER.DEFAULT_H * (SETTINGS.PLAYER.SCALE || 1.0),
             scale: SETTINGS.PLAYER.SCALE || 1.0,
-
             hp: SETTINGS.PLAYER.MAX_HP, maxHp: SETTINGS.PLAYER.MAX_HP
         };
     });
@@ -511,59 +508,62 @@ io.on('connection', socket => {
             });
 
             // --- 💀 死亡判定とドロップ処理 ---
-            if (nearest.hp <= 0) {
+            // 🌟 nearest.alive が true の時だけ実行することで、二重取得を防止します
+            if (nearest.hp <= 0 && nearest.alive) {
+
+                // 1. 【最優先】まず経験値を増やす！
+                p.exp = (p.exp || 0) + 10;
+                
+                // レベルアップの判定
+                if (p.exp >= 100) {
+                    p.level = (p.level || 1) + 1;
+                    p.exp = 0;
+                }
+
+                // 2. 🌟 敵を「死亡状態」に確定させる
+                // これを先にやることで、ラグによる2回目の判定をシャットアウトします
+                nearest.alive = false; 
                 nearest.hp = 0;
-                nearest.alive = false;
                 nearest.isFading = true;
                 nearest.deathFrame = 0;
 
-                // 1. 🌟 データベースから設定を読み込む
+                // 3. スコア加算
+                p.score = (p.score || 0) + 100;
+
+                // --- 💰 以下、ドロップアイテムの計算（順番を後にしました） ---
                 const setting = DROP_DATABASE[nearest.type] || { table: "small" };
                 const chances = DROP_CHANCE_TABLES[setting.table];
-
-                // 2. 🌟 抽選処理（パーセント方式に修正）
                 let itemsToDrop = [];
 
-                // 🌟 A. まず「何か落とすか（default）」を100基準で判定
                 const dropRoll = Math.random() * 100;
                 if (dropRoll <= (chances.default || 100)) {
-                    
-                    // 🌟 B. 各アイテムの当選判定も100基準で回す
                     for (let type in chances) {
                         if (type === "default") continue;
-
-                        const chancePercent = chances[type]; // ここが「20」なら20%
-                        if (Math.random() * 100 < chancePercent) {
-                            itemsToDrop.push(type); // 当選！
+                        if (Math.random() * 100 < chances[type]) {
+                            itemsToDrop.push(type);
                         }
                     }
                 }
 
-                // 3. 🌟 当選したアイテムを噴水状に飛ばす（演出ロジックは完全維持）
-                const dropCount = itemsToDrop.length;
-                // 足元から50px上の高さを計算
+                // アイテムを飛ばす演出
                 const fixedSpawnY = nearest.y + (nearest.h || 0) - 50;
-
-                for (let i = 0; i < dropCount; i++) {
-                    // 🌟 メイプル風：左右に広く散らばるように角度を設定 (-135度〜-45度の広い範囲)
-                    const angle = (-140 + (100 / (dropCount + 1)) * (i + 1)) * (Math.PI / 180);
-
-                    // 🌟 メイプル風：高さ（勢い）に少しだけランダムな幅を出す
-                    // 4〜8くらいの範囲でバラつかせると、ジャラジャラ感が出ます
+                itemsToDrop.forEach((type, i) => {
+                    const angle = (-140 + (100 / (itemsToDrop.length + 1)) * (i + 1)) * (Math.PI / 180);
                     const speed = 4 + Math.random() * 4;
-
                     droppedItems.push({
                         id: Date.now() + Math.random() + i,
-                        // x座標は敵の真ん中、y座標は「固定した高さ」を使用
                         x: nearest.x + nearest.w / 2,
                         y: fixedSpawnY,
                         vx: Math.cos(angle) * speed,
                         vy: Math.sin(angle) * speed,
-                        type: itemsToDrop[i],
+                        type: type,
                         phase: Math.random() * Math.PI * 2,
                         landed: false
                     });
-                }
+                });
+
+                // 🌟 4. 最後に return して攻撃処理を終わらせる
+                return; 
             }
 
             // 🌟 【ここが最重要！】

@@ -50,15 +50,29 @@ let ladderJumpTimer = 0; // 梯子からジャンプした直後に、すぐ梯�
 
 socket.on('state', s => {
   enemies = s.enemies; 
-  // 他のプレイヤーのインベントリも同期されるように
   others = s.players; 
-  platforms = s.platforms; ladders = s.ladders;
-  items = s.items.map(si => { const existing = items.find(it => it.id === si.id); return existing ? existing : si; });
+  platforms = s.platforms; 
+  ladders = s.ladders;
+  items = s.items.map(si => { 
+      const existing = items.find(it => it.id === si.id); 
+      return existing ? existing : si; 
+  });
   
-  // サーバー上の自分のデータを自分に同期（インベントリ同期に重要）
-  if (s.players[socket.id]) {
-      hero.inventory = s.players[socket.id].inventory;
-      hero.score = s.players[socket.id].score;
+  // 🌟 自分のデータを最新状態に「完全同期」させる
+  const myData = s.players[socket.id];
+  if (myData) {
+      // 既存のデータ
+      hero.inventory = myData.inventory || [];
+      hero.score = myData.score || 0;
+
+      // 🌟 ここが「たまらない」を直す重要ポイント！
+      // サーバーの最新値を強制的にheroに上書きします
+      hero.level = myData.level;
+      hero.exp = myData.exp;
+      hero.maxExp = myData.maxExp || 100;
+
+      // HPなども同期しておくと、より安定します
+      hero.hp = myData.hp;
   }
   delete others[socket.id];
 });

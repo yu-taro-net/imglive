@@ -1343,6 +1343,8 @@ function drawItemLogsUI() {
 }
 
 function drawUI(hero) {
+    if (!hero) return; // 🌟 heroが空っぽの時は何もしない（これでエラーを防ぐ）
+	
     // --- 基準となるバーの位置とサイズ ---
     const uiX = 20;
     const uiY = 40;
@@ -1435,6 +1437,34 @@ function drawUI(hero) {
     ctx.font = "bold 14px sans-serif";
     ctx.fillStyle = "white";
     ctx.fillText(`Bag: 🏆x${counts.gold} 💵x${counts.m1} 💰x${counts.m3}`, 780, 578);
+
+    // ==========================================
+    // 🌟 経験値（EXP）とレベルの表示
+    // ==========================================
+    const expBarX = 20;
+    const expBarY = 110; // HPバーやスコアと重ならないよう位置を調整
+    const expBarW = 200; // 🌟 hpのbarWと区別するために名前を変更
+    const expBarH = 12;
+
+    // 1. スコアとレベルの文字表示
+    ctx.textAlign = "left";
+    ctx.fillStyle = "white";
+    ctx.font = "bold 16px sans-serif";
+    ctx.fillText(`Score: ${hero.score || 0}`, expBarX, expBarY - 25);
+    ctx.fillText(`Lv. ${hero.level || 1}`, expBarX, expBarY - 5);
+
+    // 2. 経験値バーの土台（黒）
+    ctx.fillStyle = "black";
+    ctx.fillRect(expBarX, expBarY, expBarW, expBarH);
+
+    // 3. 経験値の計算
+    const currentExp = hero.exp || 0;
+    const maxExp = hero.maxExp || 100;
+    const expRate = Math.min(1, currentExp / maxExp); // 1を超えないようにガード
+
+    // 4. 経験値の中身（オレンジがかった黄色）
+    ctx.fillStyle = "#ffcc00"; 
+    ctx.fillRect(expBarX + 1, expBarY + 1, (expBarW - 2) * expRate, expBarH - 2);
 }
 
 // --- チャットの吹き出しを表示する仕組み ---
