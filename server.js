@@ -2,10 +2,31 @@
 // 📦 1. モジュールの読み込み
 // ==========================================
 const express = require('express');
+const mysql = require('mysql2');
 const app     = express();
 const http    = require('http').createServer(app);
 const io      = require('socket.io')(http);
 const path    = require('path'); // ファイルパス操作用（絶対パスの指定などに必要）
+
+// ==========================================
+// 🗄️ MySQLへの接続（ここが土田さんの言った部分です！）
+// ==========================================
+const connection = mysql.createConnection(process.env.MYSQL_URL || {
+    host: 'localhost',
+    port: 8889,      // 🌟 MAMPのMySQLは通常「8889」を使います
+    user: 'root',
+    password: 'root',  // 🌟 MAMPの初期パスワードは「root」です
+    database: 'my_game'   // 🌟 MAMPのphpMyAdminで「test」というDBを作っておく必要があります
+});
+
+// 🌟 つなぎっぱなしにするための設定（これを足すとエラーに強くなります）
+connection.connect(err => {
+  if (err) {
+    console.error('MySQLへの接続に失敗しました: ' + err.stack);
+    return;
+  }
+  console.log('MySQLに無事つながりました！');
+});
 
 // ==========================================
 // ⚙️ 2. サーバーの基本設定
@@ -366,6 +387,15 @@ io.on('connection', socket => {
 
     // プレイヤー参加
     socket.on('join', n => {
+	    // 🌟 データベース(player2)に名前を保存する処理を追加
+        const sql = 'INSERT INTO players2 (name) VALUES (?)';
+        connection.query(sql, [n], (err, result) => {
+            if (err) {
+                console.error('player2への保存に失敗しました:', err);
+            } else {
+                console.log(`✅ DB保存成功: ${n} さんを player2 に記録しました！`);
+            }
+        });
         players[socket.id] = {
             id: socket.id,
             name: n, x: 50, y: 500, dir: 1, score: 0, inventory: [], isAttacking: 0,
