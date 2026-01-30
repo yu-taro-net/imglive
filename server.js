@@ -11,6 +11,11 @@ const path    = require('path'); // ファイルパス操作用（絶対パス�
 // ==========================================
 // 🗄️ MySQLへの接続（ここが土田さんの言った部分です！）
 // ==========================================
+// 🌟 Railwayのデータベースに直接繋ぐ設定
+const railway_db_url = 'mysql://root:yWwJPVjrLsQDapTxfyBUHPkigNLFYpDg@ballast.proxy.rlwy.net:53684/railway';
+
+const connection = mysql.createConnection(process.env.MYSQL_URL || railway_db_url);
+/*
 const connection = mysql.createConnection(process.env.MYSQL_URL || {
     host: 'localhost',
     port: 8889,      // 🌟 MAMPのMySQLは通常「8889」を使います
@@ -18,7 +23,7 @@ const connection = mysql.createConnection(process.env.MYSQL_URL || {
     password: 'root',  // 🌟 MAMPの初期パスワードは「root」です
     database: 'my_game'   // 🌟 MAMPのphpMyAdminで「test」というDBを作っておく必要があります
 });
-
+*/
 // 🌟 つなぎっぱなしにするための設定（これを足すとエラーに強くなります）
 connection.connect(err => {
   if (err) {
