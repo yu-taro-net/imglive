@@ -120,6 +120,43 @@ receiveDamage(amount) {
 
     return grounded; // 地面か足場にいたら true を返す
   }
+  
+  // 🌟 追加：攻撃を開始するルール
+  startAttack() {
+    if (this.climbing) return;      // ハシゴ中は攻撃不可
+    if (this.isAttacking > 0) return; // 連続攻撃防止
+    
+    this.isAttacking = 20;          // 攻撃モーションの時間
+    this.attackStartFrame = frame;  // 現在のフレームを記録
+  }
+  
+  // 🌟 追加：敵に当たっているか判定する
+  checkHit(enemies) {
+    if (this.isAttacking !== 13) return null; // 13フレーム目（ヒットの瞬間）以外は何もしない
+
+    let targetsInRange = [];
+    enemies.forEach(en => {
+      if (!en.alive || en.isFading || en.hp <= 0) return;
+
+      const hitBoxX = (this.dir === -1) ? this.x - 40 : this.x + 80;
+      const hitBoxY = this.y; 
+      const currentEnemyY = en.y + (en.jumpY || 0);
+
+      const dx = hitBoxX - (en.x + en.w / 2);
+      const dy = hitBoxY - (currentEnemyY + en.h / 2);
+      const dist = Math.sqrt(dx * dx + dy * dy);
+
+      if (dist < GAME_SETTINGS.ATTACK_RANGE) { 
+        targetsInRange.push({ enemy: en, dist: dist });
+      }
+    });
+
+    if (targetsInRange.length > 0) {
+      targetsInRange.sort((a, b) => a.dist - b.dist);
+      return targetsInRange[0].enemy; // 一番近い敵を返す
+    }
+    return null;
+  }
 }
 
 // 自分のキャラをインスタンス化
@@ -201,6 +238,7 @@ socket.on('chat', data => {
   else if (others[data.id]) others[data.id].chat = chatData;
 });
 
+/*
 function attack() {
   if (hero.climbing) return; // 🌟 ハシゴ中なら、ここで処理を強制終了する
   if (hero.isAttacking > 0) return; // 連続攻撃防止
@@ -208,6 +246,7 @@ function attack() {
   hero.attackStartFrame = frame;   // 🌟 ここで「今」の時間を刻印！
   socket.emit('move', hero);       // 🌟 刻印した瞬間のデータを全員に送る
 }
+*/
 
 // ==========================================
 // ⌨️ キーボード操作を受け付ける専用の関数
@@ -329,18 +368,15 @@ if (keys['KeyW'] || keys['ArrowUp']) {
     }
 
     // --- E. 攻撃(Xキー) ---
-    if (keys['KeyX']) {
-      // 🌟 修正ポイント：条件に「!hero.climbing」を確実に含める
-      // これにより、ハシゴ中（climbing === true）は攻撃が発動しなくなります
-      if (hero.isAttacking === 0 && !zKeyPressed && !hero.climbing) { 
-        attack(); // 攻撃実行
-        hero.isAttacking = 20; 
-        hero.attackStartFrame = frame;
-        zKeyPressed = true;
-      }
-    } else {
-      zKeyPressed = false; 
-    }
+if (keys['KeyX']) {
+  if (!zKeyPressed) { 
+    // 🌟 クラスのメソッドを呼ぶ。「ハシゴ中か」「攻撃中か」の判定はメソッドがやってくれます。
+    hero.startAttack(); 
+    zKeyPressed = true;
+  }
+} else {
+  zKeyPressed = false; 
+}
 
     // G. アイテム取得 (Zキー)
     if (keys['KeyZ']) {
@@ -448,10 +484,27 @@ let isTouchingAnything = hero.applyPhysics(platforms);
   // 自分の攻撃モーション
   if (hero.isAttacking > 0) {
     hero.isAttacking--; 
-    // 指定フレーム（13）でヒット判定を出す
-    if (hero.isAttacking === 13) {
-      applyHammerDamage(); 
+    // 🌟 update関数の中の「攻撃ヒット判定」を修正
+if (hero.isAttacking === 13) {
+  let target = hero.checkHit(enemies); 
+  
+  if (target) {
+    // 1. ダメージ計算
+    const damage = Math.floor(Math.random() * 41) + 50; 
+    
+    // 2. 🔊 音を鳴らす処理をここに追加！
+    if (target.hp - damage <= 0) {
+        // 敵が倒れる時の音
+        if (typeof playEnemyDieSound === 'function') playEnemyDieSound(target);
+    } else {
+        // 敵が攻撃を食らった時の音
+        if (typeof playEnemyHitSound === 'function') playEnemyHitSound(target);
     }
+    
+    // 3. サーバーへ送信
+    socket.emit('attack', { id: target.id, power: damage, dir: hero.dir });
+  }
+}
   }
 
   // 敵からの接触ダメージ判定
@@ -538,6 +591,7 @@ let isTouchingAnything = hero.applyPhysics(platforms);
   requestAnimationFrame(update); // 次のフレームへ
 }
 
+/*
 function applyHammerDamage() {
   let targetsInRange = [];
 
@@ -598,8 +652,10 @@ if (targetsInRange.length > 0) {
     });
 }
 }
+*/
 
 // game.js のどこか（window.addEventListener('keydown', ... の中）に追加
+/*
 window.addEventListener('keydown', e => {
     window.keys[e.key] = true;
 
@@ -608,6 +664,7 @@ window.addEventListener('keydown', e => {
         attack(); 
     }
 });
+*/
 
 // 1. ⌨️ 名前を入力してもらう
 // prompt() で入力画面を出し、もし空欄やキャンセルなら "Guest" を代入します
