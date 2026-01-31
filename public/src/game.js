@@ -52,11 +52,73 @@ class Player {
     if (dx < 0) this.dir = -1;
   }
 
-  // ダメージを受ける処理もここに
-  receiveDamage(amount) {
-    if (this.invincible > 0) return;
+  // game.js の Playerクラスの中
+receiveDamage(amount) {
+    if (this.invincible > 0) return; // 無敵中なら何もしない
+
     this.hp -= amount;
-    this.invincible = 60; // 1秒間無敵など
+
+    // 🌟 追加：HPが0より小さくならないようにガードする
+    if (this.hp < 0) {
+        this.hp = 0;
+    }
+
+    this.invincible = 60; // 1秒間無敵
+    
+    console.log(`${this.name}は ${amount} のダメージを受けた！ 残りHP: ${this.hp}`);
+}
+
+// 🌟 追加：リスポーン（復活）のルールを定義する
+  respawn() {
+    this.hp = 100;    // HPを全回復
+    this.x = 50;     // 初期位置X
+    this.y = 390;    // 初期位置Y
+    this.climbing = false; // ハシゴ状態を解除
+    console.log(`${this.name}がリスポーンしました。`);
+  }
+  
+  // 🌟 修正版：足場データを受け取って、接地判定まで一気にやる
+  applyPhysics(platforms) {
+    if (!this.climbing) {
+      this.dy += GAME_SETTINGS.GRAVITY;
+    } else {
+      this.dy = 0;
+    }
+    this.y += this.dy;
+
+    let grounded = false;
+
+    // A. 地面の判定
+    if (this.y >= 540) {
+      this.y = 540;
+      this.dy = 0;
+      grounded = true;
+    }
+
+    // B. 足場の判定（メインループから引っ越してきた部分）
+    if (platforms && !this.climbing && this.dy >= 0) {
+      platforms.forEach(p => {
+        const currentHeight = 60; // プレイヤーの基本高さ
+        if (this.x + 40 > p.x && this.x + 20 < p.x + p.w) {
+          if (this.y + currentHeight >= p.y - 10 && this.y + currentHeight <= p.y + 30) {
+            this.y = p.y - currentHeight;
+            this.dy = 0;
+            grounded = true;
+          }
+        }
+      });
+    }
+
+    // C. ジャンプ・落下状態の更新
+    if (grounded) {
+      this.jumping = false;
+      this.jumpFrame = 0;
+    } else if (!this.climbing) {
+      this.jumping = true;
+      this.jumpFrame = (this.jumpFrame || 0) + 1;
+    }
+
+    return grounded; // 地面か足場にいたら true を返す
   }
 }
 
@@ -221,11 +283,13 @@ if ((isTouchingLadder || isAtLadderTop) && ladderJumpTimer === 0) {
         hero.jumping = false;   // ジャンプ状態を解除
 
         // 【3. 実際の移動処理】
-        if (keys['KeyW'] || keys['ArrowUp']) {
-            hero.y -= GAME_SETTINGS.LADDER_SPEED; // 上へ移動
-        } else if (keys['KeyS'] || keys['ArrowDown']) {
-            hero.y += GAME_SETTINGS.LADDER_SPEED; // 下へ移動
-        }
+if (keys['KeyW'] || keys['ArrowUp']) {
+    // 🌟 修正：上へ移動（xは0、yはマイナス方向）
+    hero.updatePosition(0, -GAME_SETTINGS.LADDER_SPEED); 
+} else if (keys['KeyS'] || keys['ArrowDown']) {
+    // 🌟 修正：下へ移動（xは0、yはプラス方向）
+    hero.updatePosition(0, GAME_SETTINGS.LADDER_SPEED); 
+}
 
     } else if (hero.climbing) {
         // キーを離しているがハシゴに掴まっている状態
@@ -373,55 +437,10 @@ if (hero.chat && hero.chat.timer > 0) {
   handlePlayerInput(hero, items, ladders, chatIn);
 
   // ==========================================
-// 5. 物理移動と接地判定（最終解決版）
+// 5. 物理移動と接地判定
 // ==========================================
-// 重力の適用（ハシゴ中は無効）
-if (!hero.climbing) {
-  // 以前の (typeof gravity !== 'undefined' ? gravity : 0.5) を GAME_SETTINGS に置き換えます
-  hero.dy += GAME_SETTINGS.GRAVITY; 
-} else {
-  hero.dy = 0; 
-}
-hero.y += hero.dy;
-
-  let isTouchingAnything = false; 
-
-  // --- A. 地面(y=540)の判定 ---
-  if (hero.y >= 540) {
-    hero.y = 540;
-    hero.dy = 0;
-    isTouchingAnything = true;
-  }
-
-  // --- B. 足場の着地チェック ---
-  platforms.forEach(p => {
-    // キャラ画像の高さに合わせて自動計算（デフォルト60）
-    const currentHeight = (hero.img && hero.img.height) ? hero.img.height : 60;
-
-    if (!hero.climbing && hero.dy >= 0) {
-      if (hero.x + 40 > p.x && hero.x + 20 < p.x + p.w) {
-        // 足場の上端判定
-        if (hero.y + currentHeight >= p.y - 10 && hero.y + currentHeight <= p.y + 30) {
-          hero.y = p.y - currentHeight; 
-          hero.dy = 0; 
-          isTouchingAnything = true;
-          // console.log("足場に着地しました"); 
-        }
-      }
-    }
-  });
-
-  // --- C. ジャンプ・落下状態の確定 ---
-  if (isTouchingAnything) {
-    hero.jumping = false; 
-    hero.dy = 0;          
-    hero.jumpFrame = 0;   // 🌟 追加：地面にいたら0固定
-  } 
-  else if (!hero.climbing) {
-    hero.jumping = true;  
-    // 🌟 追加：空中にいる間だけカウントを進める
-    hero.jumpFrame = (hero.jumpFrame || 0) + 1; 
-  }
+// 🌟 heroに「今ある足場」を教えて、計算を全部任せる
+let isTouchingAnything = hero.applyPhysics(platforms);
 
   // ==========================================
   // 6. 戦闘・当たり判定
@@ -484,8 +503,7 @@ hero.y += hero.dy;
       // 接触判定が成功した場合
       if (isHit) {
         const dmg = Math.floor(Math.random() * 8) + 8; 
-        hero.hp -= dmg; 
-        hero.invincible = 60; // 無敵時間
+        hero.receiveDamage(dmg);
 
         // ハシゴに乗っていない時だけノックバック
         if (!hero.climbing) {
@@ -496,10 +514,7 @@ hero.y += hero.dy;
         socket.emit('player_damaged', { val: dmg, newHp: hero.hp }); // 🌟 newHpも送るように修正
 
         if (hero.hp <= 0) { // 死亡・リスポーン
-          hero.hp = 100; 
-          hero.x = 50; 
-          hero.y = 390; 
-          hero.climbing = false; 
+          hero.respawn();
         }
       }
     });
