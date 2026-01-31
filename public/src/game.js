@@ -130,16 +130,18 @@ receiveDamage(amount) {
     this.attackStartFrame = frame;  // 現在のフレームを記録
   }
   
-  // 🌟 追加：敵に当たっているか判定する
+  // 🌟 追加：攻撃が当たっているか判定する
   checkHit(enemies) {
-    if (this.isAttacking !== 13) return null; // 13フレーム目（ヒットの瞬間）以外は何もしない
+    if (this.isAttacking !== 13) return null; // 13フレーム目以外は何もしない
 
     let targetsInRange = [];
     enemies.forEach(en => {
       if (!en.alive || en.isFading || en.hp <= 0) return;
 
+      // ハンマーの判定位置
       const hitBoxX = (this.dir === -1) ? this.x - 40 : this.x + 80;
       const hitBoxY = this.y; 
+
       const currentEnemyY = en.y + (en.jumpY || 0);
 
       const dx = hitBoxX - (en.x + en.w / 2);
@@ -156,6 +158,61 @@ receiveDamage(amount) {
       return targetsInRange[0].enemy; // 一番近い敵を返す
     }
     return null;
+  }
+  
+  // 🌟 追加：敵との接触をチェックして、当たっていればダメージを受ける
+  checkEnemyCollision(enemies) {
+    if (this.invincible > 0) {
+      this.invincible--;
+      return;
+    }
+
+    enemies.forEach(en => {
+      if (!en.alive || en.isFading) return;
+
+      const enemyVisualY = en.y + (en.jumpY || 0);
+      let hitW = en.w;
+      let hitH = en.h;
+      let offsetX = 0;
+
+      // 敵の攻撃中の当たり判定サイズ計算
+      if (en.isAttacking > 0 && typeof sprites !== 'undefined') {
+        const atkSprites = sprites[en.type + "Attack"];
+        if (atkSprites && atkSprites.length > 0) {
+          const progress = 22 - en.isAttacking;
+          const img = atkSprites[Math.max(0, Math.min(progress, atkSprites.length - 1))];
+          if (img) {
+            const s = en.scale || 1.0;
+            hitW = img.width * 0.2 * s;
+            hitH = img.height * 0.2 * s;
+            if (en.dir === -1) offsetX = -(hitW - en.w);
+          }
+        }
+      }
+
+      // 矩形による接触判定
+      const isHit = (
+        this.x < en.x + hitW + offsetX &&
+        this.x + 60 > en.x + offsetX &&
+        this.y < enemyVisualY + hitH &&
+        this.y + 60 > enemyVisualY
+      );
+
+      if (isHit) {
+        const dmg = Math.floor(Math.random() * 8) + 8;
+        this.receiveDamage(dmg); // クラス内の既存メソッドを呼び出す
+
+        // ノックバック処理
+        if (!this.climbing) {
+          this.dy = -8;
+          this.x += (this.x < en.x) ? -30 : 30;
+        }
+
+        // サーバー通信とリスポーン判定
+        socket.emit('player_damaged', { val: dmg, newHp: this.hp });
+        if (this.hp <= 0) this.respawn();
+      }
+    });
   }
 }
 
@@ -481,97 +538,25 @@ let isTouchingAnything = hero.applyPhysics(platforms);
   // ==========================================
   // 6. 戦闘・当たり判定
   // ==========================================
-  // 自分の攻撃モーション
+  // 自分の攻撃（ここはそのまま）
   if (hero.isAttacking > 0) {
     hero.isAttacking--; 
-    // 🌟 update関数の中の「攻撃ヒット判定」を修正
-if (hero.isAttacking === 13) {
-  let target = hero.checkHit(enemies); 
-  
-  if (target) {
-    // 1. ダメージ計算
-    const damage = Math.floor(Math.random() * 41) + 50; 
-    
-    // 2. 🔊 音を鳴らす処理をここに追加！
-    if (target.hp - damage <= 0) {
-        // 敵が倒れる時の音
-        if (typeof playEnemyDieSound === 'function') playEnemyDieSound(target);
-    } else {
-        // 敵が攻撃を食らった時の音
-        if (typeof playEnemyHitSound === 'function') playEnemyHitSound(target);
+    if (hero.isAttacking === 13) {
+      let target = hero.checkHit(enemies); 
+      if (target) {
+        const damage = Math.floor(Math.random() * 41) + 50; 
+        if (target.hp - damage <= 0) {
+          if (typeof playEnemyDieSound === 'function') playEnemyDieSound(target);
+        } else {
+          if (typeof playEnemyHitSound === 'function') playEnemyHitSound(target);
+        }
+        socket.emit('attack', { id: target.id, power: damage, dir: hero.dir });
+      }
     }
-    
-    // 3. サーバーへ送信
-    socket.emit('attack', { id: target.id, power: damage, dir: hero.dir });
-  }
-}
   }
 
-  // 敵からの接触ダメージ判定
-  if (hero.invincible > 0) {
-    hero.invincible--; 
-  } else {
-    enemies.forEach(en => {
-      if (!en.alive || en.isFading) return;
-      
-      // 🌟 1. 敵の見た目上のY座標（ジャンプ込み）を計算
-      const enemyVisualY = en.y + (en.jumpY || 0);
-      
-      // 🌟 2. 攻撃アニメーションに合わせた当たり判定サイズの決定
-      let hitW = en.w;
-      let hitH = en.h;
-      let offsetX = 0;
-
-      // 敵が攻撃中の場合のみ、サイズを拡張する
-      if (en.isAttacking > 0) {
-          const atkSprites = (typeof sprites !== 'undefined') ? sprites[en.type + "Attack"] : null;
-          if (atkSprites && atkSprites.length > 0) {
-              // 攻撃の進捗（22から1へカウントダウン）に合わせて現在のコマを特定
-              const progress = 22 - en.isAttacking;
-              const img = atkSprites[Math.max(0, Math.min(progress, atkSprites.length - 1))];
-              
-              if (img) {
-                  const s = en.scale || 1.0;
-                  // 画像本来のサイズを判定サイズにする（0.2は描画倍率）
-                  hitW = img.width * 0.2 * s;
-                  hitH = img.height * 0.2 * s;
-                  
-                  // 左向き（dir: -1）の場合は、増えた幅の分だけ左側にオフセットをずらす
-                  if (en.dir === -1) {
-                      offsetX = -(hitW - en.w);
-                  }
-              }
-          }
-      }
-
-      // 🌟 3. 四角形による接触判定（距離計算から、より正確な矩形判定へ変更）
-      // プレイヤーのサイズを 60x60 と仮定
-      const isHit = (
-        hero.x < en.x + hitW + offsetX &&
-        hero.x + 60 > en.x + offsetX &&
-        hero.y < enemyVisualY + hitH &&
-        hero.y + 60 > enemyVisualY
-      );
-      
-      // 接触判定が成功した場合
-      if (isHit) {
-        const dmg = Math.floor(Math.random() * 8) + 8; 
-        hero.receiveDamage(dmg);
-
-        // ハシゴに乗っていない時だけノックバック
-        if (!hero.climbing) {
-          hero.dy = -8; 
-          hero.x += (hero.x < en.x) ? -30 : 30; 
-        }
-
-        socket.emit('player_damaged', { val: dmg, newHp: hero.hp }); // 🌟 newHpも送るように修正
-
-        if (hero.hp <= 0) { // 死亡・リスポーン
-          hero.respawn();
-        }
-      }
-    });
-  }
+  // 🌟 これ1行で、無敵時間の管理もダメージ判定も完了！
+  hero.checkEnemyCollision(enemies);
 
   // ==========================================
   // 7. 同期と描画
