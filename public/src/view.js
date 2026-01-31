@@ -1465,6 +1465,27 @@ function drawUI(hero) {
     // 4. 経験値の中身（オレンジがかった黄色）
     ctx.fillStyle = "#ffcc00"; 
     ctx.fillRect(expBarX + 1, expBarY + 1, (expBarW - 2) * expRate, expBarH - 2);
+	
+	// 🌟 修正ポイント：p ではなく hero に書き換えます
+    ctx.fillStyle = "white";
+    ctx.font = "14px monospace";
+    ctx.fillText(`Raw EXP: ${hero.exp || 0}`, 20, 140); 
+    ctx.fillText(`Max EXP: ${hero.maxExp || 100}`, 20, 155);
+	
+	// 🔍 デバッグ用：画面の左上に今の経験値を無理やり表示する
+ctx.save(); // 今の描画設定を保存
+ctx.fillStyle = "rgba(0, 0, 0, 0.7)"; // 黒い背景
+ctx.fillRect(10, 150, 200, 60); // 表示場所
+
+ctx.fillStyle = "#00ff00"; // 蛍光グリーン（目立つ色）
+ctx.font = "bold 16px monospace";
+ctx.textAlign = "left";
+
+// 🌟 ここで hero.exp の中身を監視します
+ctx.fillText(`DEBUG hero.exp: ${hero.exp}`, 20, 175);
+ctx.fillText(`DEBUG hero.level: ${hero.level}`, 20, 195);
+
+ctx.restore(); // 描画設定を元に戻す
 }
 
 // --- チャットの吹き出しを表示する仕組み ---

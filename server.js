@@ -403,7 +403,7 @@ io.on('connection', socket => {
         });
         players[socket.id] = {
             id: socket.id,
-            name: n, x: 50, y: 500, dir: 1, score: 0, inventory: [], isAttacking: 0, level: 1, exp: 0, maxExp: 100,
+            name: n, x: 50, y: 500, dir: 1, score: 0, inventory: [], isAttacking: 0, level:(players[socket.id] ? players[socket.id].level : 1), exp: (players[socket.id] && players[socket.id].exp !== undefined) ? players[socket.id].exp : 0, maxExp: 100,
             w: SETTINGS.PLAYER.DEFAULT_W * (SETTINGS.PLAYER.SCALE || 1.0),
             h: SETTINGS.PLAYER.DEFAULT_H * (SETTINGS.PLAYER.SCALE || 1.0),
             scale: SETTINGS.PLAYER.SCALE || 1.0,
@@ -438,6 +438,9 @@ io.on('connection', socket => {
     socket.on('attack', data => {
         const p = players[socket.id];
         if (!p) return;
+		
+		// 🔍 捜査1：そもそも攻撃ボタンの信号が届いているか？
+            console.log(`[1.通信確認] ${p.name} が攻撃しました`);
 
         if (p.isClimbing) return;
 
@@ -481,6 +484,9 @@ io.on('connection', socket => {
             // ダメージ実行
             const damage = data.power || 20;
             nearest.hp -= damage;
+			
+			// 🔍 捜査2：ダメージ計算まで進んでいるか？
+                console.log(`[2.命中確認] ${nearest.type}に${damage}ダメージ。残りHP: ${nearest.hp}`);
 
             // 🌟 これを追加！一度でも攻撃されたら「怒りモード」を永続ONにする
             nearest.isEnraged = true;
@@ -508,63 +514,77 @@ io.on('connection', socket => {
             });
 
             // --- 💀 死亡判定とドロップ処理 ---
-            // 🌟 nearest.alive が true の時だけ実行することで、二重取得を防止します
-            if (nearest.hp <= 0 && nearest.alive) {
+                if (nearest.hp <= 0 && nearest.alive) {
+                    
+                    // 🛡️ 安全装置：即座にaliveをfalseにして「二度押し」による経験値リセットを防ぐ
+                    nearest.alive = false; 
 
-                // 1. 【最優先】まず経験値を増やす！
-                p.exp = (p.exp || 0) + 10;
-                
-                // レベルアップの判定
-                if (p.exp >= 100) {
-                    p.level = (p.level || 1) + 1;
-                    p.exp = 0;
-                }
+                    console.log(`[3.撃破確認] 経験値を加算します。前:${p.exp}`);
+                    
+                    // 1. 【最優先】経験値を加算（数字として確実に計算）
+                    p.exp = (Number(p.exp) || 0) + 10;
+                    p.maxExp = 100;
 
-                // 2. 🌟 敵を「死亡状態」に確定させる
-                // これを先にやることで、ラグによる2回目の判定をシャットアウトします
-                nearest.alive = false; 
-                nearest.hp = 0;
-                nearest.isFading = true;
-                nearest.deathFrame = 0;
+                    // 🌟 修正の核：加算したら「即座に」データベースへ保存する！
+                    // これにより、他の通信で数字が0や10に巻き戻されるのを防ぎます
+                    if (typeof savePlayerData === 'function') {
+                        savePlayerData(p); 
+                    } else {
+                        // もし専用の関数がない場合は、既存のUPDATE文などがあればそこを呼びます
+                        console.log(`[DEBUG] サーバー上のメモリに保存完了: ${p.name} EXP=${p.exp}`);
+                    }
 
-                // 3. スコア加算
-                p.score = (p.score || 0) + 100;
+                    // レベルアップ判定
+                    if (p.exp >= p.maxExp) {
+                        p.level = (Number(p.level) || 1) + 1;
+                        p.exp = 0;
+                        if (typeof savePlayerData === 'function') savePlayerData(p);
+                        console.log(`[LEVEL UP] ${p.name} が Lv.${p.level} になりました！`);
+                    }
 
-                // --- 💰 以下、ドロップアイテムの計算（順番を後にしました） ---
-                const setting = DROP_DATABASE[nearest.type] || { table: "small" };
-                const chances = DROP_CHANCE_TABLES[setting.table];
-                let itemsToDrop = [];
+                    // 2. 敵を死亡状態にする（残りの演出処理）
+                    nearest.hp = 0;
+                    nearest.isFading = true;
+                    nearest.deathFrame = 0;
 
-                const dropRoll = Math.random() * 100;
-                if (dropRoll <= (chances.default || 100)) {
-                    for (let type in chances) {
-                        if (type === "default") continue;
-                        if (Math.random() * 100 < chances[type]) {
-                            itemsToDrop.push(type);
+                    // 3. スコア加算
+                    p.score = (Number(p.score) || 0) + 100;
+
+                    // --- 💰 ドロップアイテムの計算 ---
+                    const setting = DROP_DATABASE[nearest.type] || { table: "small" };
+                    const chances = DROP_CHANCE_TABLES[setting.table];
+                    let itemsToDrop = [];
+
+                    const dropRoll = Math.random() * 100;
+                    if (dropRoll <= (chances.default || 100)) {
+                        for (let type in chances) {
+                            if (type === "default") continue;
+                            if (Math.random() * 100 < chances[type]) {
+                                itemsToDrop.push(type);
+                            }
                         }
                     }
-                }
 
-                // アイテムを飛ばす演出
-                const fixedSpawnY = nearest.y + (nearest.h || 0) - 50;
-                itemsToDrop.forEach((type, i) => {
-                    const angle = (-140 + (100 / (itemsToDrop.length + 1)) * (i + 1)) * (Math.PI / 180);
-                    const speed = 4 + Math.random() * 4;
-                    droppedItems.push({
-                        id: Date.now() + Math.random() + i,
-                        x: nearest.x + nearest.w / 2,
-                        y: fixedSpawnY,
-                        vx: Math.cos(angle) * speed,
-                        vy: Math.sin(angle) * speed,
-                        type: type,
-                        phase: Math.random() * Math.PI * 2,
-                        landed: false
+                    const fixedSpawnY = nearest.y + (nearest.h || 0) - 50;
+                    itemsToDrop.forEach((type, i) => {
+                        const angle = (-140 + (100 / (itemsToDrop.length + 1)) * (i + 1)) * (Math.PI / 180);
+                        const speed = 4 + Math.random() * 4;
+                        droppedItems.push({
+                            id: Date.now() + Math.random() + i,
+                            x: nearest.x + nearest.w / 2,
+                            y: fixedSpawnY,
+                            vx: Math.cos(angle) * speed,
+                            vy: Math.sin(angle) * speed,
+                            type: type,
+                            phase: Math.random() * Math.PI * 2,
+                            landed: false
+                        });
                     });
-                });
 
-                // 🌟 4. 最後に return して攻撃処理を終わらせる
-                return; 
-            }
+                    // 最後に現在のEXPをログに出して、保存が成功したか見届けます
+                    console.log(`[DEBUG] 最終確定EXP: ${p.exp}`);
+                    return; // ここで処理終了
+                }
 
             // 🌟 【ここが最重要！】
             // ダメージを与えたら、この瞬間に return して「attack」処理を完全に終わらせる。

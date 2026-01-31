@@ -1,4 +1,15 @@
 // ==========================================
+// ⚙️ 1. ゲーム全体の共通設定
+// ==========================================
+const GAME_SETTINGS = {
+    WALK_SPEED: 5,  // ← ここを 10 にすれば足が速くなる
+    GRAVITY: 0.5,
+    JUMP_POWER: -15, // ← ここを -20 にすれば高く跳べる
+    ATTACK_RANGE: 100,
+	LADDER_SPEED: 3  // 🌟 これを追加！
+};
+
+// ==========================================
 // 📡 1. 通信と基本設定
 // ==========================================
 // game.js の 1行目あたり
@@ -7,27 +18,50 @@ const socket = io({
     reconnectionAttempts: 5,   // 5回まで頑張る
     timeout: 10000             // 10秒待ってみる
 });
-const gravity = 0.5;    // 重力の強さ
-const jumpPower = -15;  // ジャンプする力
 
-// ==========================================
-// 👤 2. 自分のキャラクター(hero)のデータ
-// ==========================================
-let hero = { 
-  x: 50,          // 横位置
-  y: 540,         // 縦位置
-  dy: 0,          // 上下方向への移動速度
-  dir: 1,         // 向き (1:右, -1:左)
-  hp: 100,        // 体力
-  name: "",       // 名前
-  chat: null,     // チャット吹き出しの内容
-  jumping: true,  // ジャンプ中かどうか
-  isAttacking: 0, // 攻撃中タイマー (0なら攻撃していない)
-  attackStartFrame: -999, // 🌟 攻撃開始フレーム（ラグ対策用）
-  invincible: 0,  // 無敵時間タイマー
-  score: 0,       // スコア
-  inventory: []   // ★ 自分のカバン（所持アイテム）
-};
+class Player {
+  constructor(name = "") {
+    this.x = 50;
+    this.y = 540;
+    this.dy = 0;
+    this.dir = 1;
+    this.hp = 100;
+    this.name = name;
+    this.chat = null;
+    this.jumping = true;
+    this.isAttacking = 0;
+    this.attackStartFrame = -999;
+    this.invincible = 0;
+    this.score = 0;
+    this.inventory = [];
+  }
+
+  // 移動のロジックをここに持たせる
+  move(vx) {
+    this.x += vx;
+    if (vx > 0) this.dir = 1;
+    if (vx < 0) this.dir = -1;
+  }
+  
+  // 🌟 追加：位置を一気に更新するメソッド
+  updatePosition(dx, dy) {
+    this.x += dx;
+    this.y += dy;
+    // 向きの更新もついでにやってしまう
+    if (dx > 0) this.dir = 1;
+    if (dx < 0) this.dir = -1;
+  }
+
+  // ダメージを受ける処理もここに
+  receiveDamage(amount) {
+    if (this.invincible > 0) return;
+    this.hp -= amount;
+    this.invincible = 60; // 1秒間無敵など
+  }
+}
+
+// 自分のキャラをインスタンス化
+let hero = new Player("なまえ");
 
 // ==========================================
 // 🌍 3. 世界の状態（他のプレイヤー・敵・マップ）
@@ -124,21 +158,21 @@ function handlePlayerInput(hero, items, ladders, chatIn) {
     hero.isDown = (!hero.climbing && !hero.jumping && (keys['KeyS'] || keys['ArrowDown']));
 
     // C. 左右移動（ハシゴ中・伏せ中でない時）
-    if (!hero.climbing && !hero.isDown) {
-        if (keys['ArrowLeft']) {
-            hero.x -= 5;
-            hero.dir = -1;
-            hero.vx = -5;
-        } else if (keys['ArrowRight']) {
-            hero.x += 5;
-            hero.dir = 1;
-            hero.vx = 5;
-        } else {
-            hero.vx = 0;
-        }
+if (!hero.climbing && !hero.isDown) {
+    if (keys['ArrowLeft']) {
+        // 🌟 修正：メソッドを使って「左に歩け」と命令する
+        hero.updatePosition(-GAME_SETTINGS.WALK_SPEED, 0);
+        hero.vx = -GAME_SETTINGS.WALK_SPEED; 
+    } else if (keys['ArrowRight']) {
+        // 🌟 修正：メソッドを使って「右に歩け」と命令する
+        hero.updatePosition(GAME_SETTINGS.WALK_SPEED, 0);
+        hero.vx = GAME_SETTINGS.WALK_SPEED; 
     } else {
         hero.vx = 0;
     }
+} else {
+    hero.vx = 0;
+}
 
     // D. 🪜 ハシゴ操作
     const l = (ladders && ladders.length > 0) ? ladders[0] : null;
@@ -188,9 +222,9 @@ if ((isTouchingLadder || isAtLadderTop) && ladderJumpTimer === 0) {
 
         // 【3. 実際の移動処理】
         if (keys['KeyW'] || keys['ArrowUp']) {
-            hero.y -= 4; // 上へ移動
+            hero.y -= GAME_SETTINGS.LADDER_SPEED; // 上へ移動
         } else if (keys['KeyS'] || keys['ArrowDown']) {
-            hero.y += 4; // 下へ移動
+            hero.y += GAME_SETTINGS.LADDER_SPEED; // 下へ移動
         }
 
     } else if (hero.climbing) {
@@ -212,7 +246,7 @@ if ((isTouchingLadder || isAtLadderTop) && ladderJumpTimer === 0) {
                 ladderJumpTimer = 15;
                 if (keys['ArrowLeft']) { hero.x -= 25; hero.dir = -1; }
                 else { hero.x += 25; hero.dir = 1; }
-                hero.dy = jumpPower;
+                hero.dy = GAME_SETTINGS.JUMP_POWER;
                 hero.jumping = true;
                 hero.jumpFrame = 0; // 🌟 追加：ハシゴからのジャンプリセット
                 hero.climbing = false;
@@ -221,7 +255,7 @@ if ((isTouchingLadder || isAtLadderTop) && ladderJumpTimer === 0) {
         } else if (!hero.jumping && !cKeyPressed) {
             if (typeof playJumpSound === 'function') playJumpSound();
             hero.y -= 5;
-            hero.dy = jumpPower;
+            hero.dy = GAME_SETTINGS.JUMP_POWER;
             hero.jumping = true;
             hero.jumpFrame = 0; // 🌟 追加：地面からのジャンプリセット
             cKeyPressed = true;
@@ -339,15 +373,16 @@ if (hero.chat && hero.chat.timer > 0) {
   handlePlayerInput(hero, items, ladders, chatIn);
 
   // ==========================================
-  // 5. 物理移動と接地判定（最終解決版）
-  // ==========================================
-  // 重力の適用（ハシゴ中は無効）
-  if (!hero.climbing) {
-    hero.dy += (typeof gravity !== 'undefined' ? gravity : 0.5); 
-  } else {
-    hero.dy = 0; 
-  }
-  hero.y += hero.dy;
+// 5. 物理移動と接地判定（最終解決版）
+// ==========================================
+// 重力の適用（ハシゴ中は無効）
+if (!hero.climbing) {
+  // 以前の (typeof gravity !== 'undefined' ? gravity : 0.5) を GAME_SETTINGS に置き換えます
+  hero.dy += GAME_SETTINGS.GRAVITY; 
+} else {
+  hero.dy = 0; 
+}
+hero.y += hero.dy;
 
   let isTouchingAnything = false; 
 
@@ -511,7 +546,7 @@ function applyHammerDamage() {
     const dist = Math.sqrt(dx * dx + dy * dy);
 
     // 距離が100以内なら「射程内」
-    if (dist < 100) { 
+    if (dist < GAME_SETTINGS.ATTACK_RANGE) { 
       targetsInRange.push({ enemy: en, dist: dist });
     }
   });
