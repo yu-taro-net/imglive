@@ -3,18 +3,18 @@
 // ==========================================
 const canvas = document.getElementById('stage');
 const ctx = canvas.getContext('2d');
-
-// ✨ ドット絵をくっきり表示させる設定
-// 拡大・縮小したときに画像をぼかさず、ドットの質感を保持します
-ctx.imageSmoothingEnabled = false;       // 標準設定
-ctx.webkitImageSmoothingEnabled = false; // Safariや古いブラウザ用
-ctx.msImageSmoothingEnabled = false;     // Internet Explorer用
-
 // 🌟 ここから追加：高画質化（Retina/高画素ディスプレイ対応）
 const dpr = window.devicePixelRatio || 1;
+
 canvas.width = 800 * dpr;  // 本来の幅(800) × 密度
 canvas.height = 600 * dpr; // 本来の高さ(600) × 密度
+canvas.style.width = '800px';
+canvas.style.height = '600px';
 ctx.scale(dpr, dpr);       // 描画全体を拡大して帳尻を合わせる
+
+// ✨ ドット絵をくっきりさせる設定
+// canvas.width を変えるとリセットされることがあるので、最後に1回書く
+ctx.imageSmoothingEnabled = false;
 
 // ==========================================
 // 📋 2. 表示に関する基本設定（VIEW_CONFIG）
@@ -22,9 +22,22 @@ ctx.scale(dpr, dpr);       // 描画全体を拡大して帳尻を合わせる
 // ==========================================
 const VIEW_CONFIG = {
   playerSize: 60,         // プレイヤーの基本サイズ
-  groundY: 580,           // 地面とみなすY座標の基準
+  //groundY: 580,           // 地面とみなすY座標の基準
   chatTimer: 180,         // チャットの吹き出しを表示しておく時間（フレーム数）
-  isGroundedMargin: 5     // 接地判定（地面に触れているか）の許容誤差
+  isGroundedMargin: 5,     // 接地判定（地面に触れているか）の許容誤差
+  groundY: 565,           // 地面の見た目上の高さ
+  groundThreshold: 500,   // 地面にいると判定するしきい値
+  defaultCharHeight: 60,  // キャラクターの基本の高さ
+  hpBar: {
+    width: 40,
+    height: 5,
+    offsetY: 25
+  },
+  playerName: {
+    fontSize: "14px",
+    offsetY_ground: 48,
+    offsetY_air: 83
+  }
 };
 
 // ==========================================
@@ -656,9 +669,11 @@ function drawPlayerObj(p, isMe, id) {
     if (!isMe) {
         const barW = 40, barH = 5;               // バーの横幅と高さ
         const barX = p.x + 20 - barW / 2;        // 横位置：キャラの中央に合わせる
-        // 足元の基準点（地面なら565、空中ならp.y + 画像の高さ）
-        // p.yが500より大きければ地面にいるとみなす簡易判定
-        const currentBaseY = (p.y > 500) ? 565 : (p.y + 60); 
+        // --- 修正後 ---
+        // 足元の基準点（地面の高さ、または空中なら現在の座標 + キャラクターの高さ）
+        const currentBaseY = (p.y > VIEW_CONFIG.groundThreshold) 
+            ? VIEW_CONFIG.groundY 
+            : (p.y + VIEW_CONFIG.defaultCharHeight);
     
         // キャラの高さ（基本サイズ60に、ジャンプなどの補正 jumpY があれば加味）
         const currentDrawH = 60; 
@@ -685,7 +700,12 @@ function drawPlayerObj(p, isMe, id) {
     const nameText = p.name || "Player";
 
     // 地面（y > 530）にいるかどうかで、名前を出す高さを微調整する
-    let nameY = p.y + ((p.y > 530) ? 48 : 83);
+    // --- 修正後 ---
+    let nameY = p.y + (
+        (p.y > VIEW_CONFIG.groundThreshold) 
+        ? VIEW_CONFIG.playerName.offsetY_ground 
+        : VIEW_CONFIG.playerName.offsetY_air
+    );
     if (nameY < 25) nameY = 25; // 画面の一番上からはみ出さないようにガード
 
     // 3. 🏷️ 名前の背景（黒い半透明の四角）を描く
@@ -930,8 +950,9 @@ function drawEnemies(enemies, hero, frame) {
 
             // 4. 🌍 基準となる「地面の高さ」の計算
             // 地面にいる時は565pxのラインで固定し、空中の時は当たり判定の下側に合わせます
-            const baseY = (en.type === 'monster3' || en.y > 500)
-                ? 565
+            // 修正前：const baseY = (en.type === 'monster3' || en.y > 500) ? 565 : (en.y + en.h + enemyFootOffset);
+            const baseY = (en.type === 'monster3' || en.y > VIEW_CONFIG.groundThreshold)
+                ? VIEW_CONFIG.groundY
                 : (en.y + en.h + enemyFootOffset);
 
             // ジャンプ中の上下移動（jumpY）を最後に加えます
