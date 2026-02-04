@@ -89,10 +89,11 @@ receiveDamage(amount) {
     let grounded = false;
 
     // A. 地面の判定
-    if (this.y >= 540) {
-      this.y = 540;
-      this.dy = 0;
-      grounded = true;
+    const GROUND_Y_LIMIT = GLOBAL_SETTINGS.SYSTEM.GROUND_Y; 
+    if (this.y >= GROUND_Y_LIMIT) {
+        this.y = GROUND_Y_LIMIT;
+        this.dy = 0;
+        grounded = true;
     }
 
     // B. 足場の判定（メインループから引っ越してきた部分）
@@ -576,80 +577,43 @@ let isTouchingAnything = hero.applyPhysics(platforms);
   requestAnimationFrame(update); // 次のフレームへ
 }
 
-/*
-function applyHammerDamage() {
-  let targetsInRange = [];
+// 🌟 キャラクター切り替え (Q/E)
+window.addEventListener('keydown', (e) => {
+    // ✅ 追加：もし入力欄（チャット等）を触っていたら、ここで処理を中断する
+    if (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA') return;
 
-  enemies.forEach(en => {
-    if (!en.alive || en.isFading || en.hp <= 0) return;
-
-    // 自分のハンマーの判定位置
-    const hitBoxX = (hero.dir === -1) ? hero.x - 40 : hero.x + 80;
-    const hitBoxY = hero.y; 
-
-    // 🌟 大事な修正ポイント
-    // 敵の「現在の高さ」をジャンプ分(jumpY)を含めて計算します
-    const currentEnemyY = en.y + (en.jumpY || 0);
-
-    // 横の距離
-    const dx = hitBoxX - (en.x + en.w / 2);
-    // 縦の距離（地面の en.y ではなく、今の高さ currentEnemyY を使う）
-    const dy = hitBoxY - (currentEnemyY + en.h / 2);
-    
-    // 三平方の定理で正確な距離を出す
-    const dist = Math.sqrt(dx * dx + dy * dy);
-
-    // 距離が100以内なら「射程内」
-    if (dist < GAME_SETTINGS.ATTACK_RANGE) { 
-      targetsInRange.push({ enemy: en, dist: dist });
+    let changed = false;
+    if (e.key === 'q' || e.key === 'Q') {
+        selectedCharVar = selectedCharVar <= 1 ? 15 : selectedCharVar - 1;
+        changed = true;
     }
-  });
-
-  // 1. 🌟 攻撃範囲内にターゲット（敵）がいるかチェック
-if (targetsInRange.length > 0) {
-    
-    // 2. 📍 一番近い敵を特定する
-    // 距離(dist)が短い順に並べ替えて、0番目（最短）の敵を選びます
-    targetsInRange.sort((a, b) => a.dist - b.dist);
-    const targetEnemy = targetsInRange[0].enemy;
-
-    // 3. 🎲 ダメージ量の計算
-    // 50 ～ 90 の間でランダムな数字を作ります
-    // (Math.random() * 41 は 0～40、それに 50 を足すので 50～90 になります)
-    const damage = Math.floor(Math.random() * 41) + 50; 
-    
-    // 4. 🔊 効果音の判定
-    // 敵の残りHPとダメージを比較して、鳴らす音を切り替えます
-    if (targetEnemy.hp - damage <= 0) {
-        // 敵が倒れる時の音（関数が存在する場合のみ実行）
-        if (typeof playEnemyDieSound === 'function') playEnemyDieSound(targetEnemy);
-    } else {
-        // 敵が攻撃を食らった時の音（関数が存在する場合のみ実行）
-        if (typeof playEnemyHitSound === 'function') playEnemyHitSound(targetEnemy);
+    if (e.key === 'e' || e.key === 'E') {
+        selectedCharVar = selectedCharVar >= 15 ? 1 : selectedCharVar + 1;
+        changed = true;
     }
-
-    // 5. 📡 サーバーへ攻撃情報を送信
-    // 「どの敵に」「どれだけのパワーで」「どの向きから」攻撃したかを送ります
-    socket.emit('attack', { 
-        id: targetEnemy.id, 
-        power: damage, 
-        dir: hero.dir 
-    });
-}
-}
-*/
-
-// game.js のどこか（window.addEventListener('keydown', ... の中）に追加
-/*
-window.addEventListener('keydown', e => {
-    window.keys[e.key] = true;
-
-    // 🌟 修正：Xキーが押された「その瞬間」に攻撃関数を呼ぶ
-    if (e.key.toLowerCase() === 'x') {
-        attack(); 
+    if (changed) {
+        socket.emit('change_char', { charVar: selectedCharVar });
     }
 });
-*/
+
+// 🌟 グループ切り替え (R/T)
+window.addEventListener('keydown', (e) => {
+    // ✅ 追加：入力欄を触っていたら無視
+    if (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA') return;
+
+    let groupChanged = false;
+    if (e.key === 'r' || e.key === 'R') {
+        selectedGroup = selectedGroup <= 0 ? 15 : selectedGroup - 1;
+        groupChanged = true;
+    }
+    if (e.key === 't' || e.key === 'T') {
+        selectedGroup = selectedGroup >= 15 ? 0 : selectedGroup + 1;
+        groupChanged = true;
+    }
+    if (groupChanged) {
+        socket.emit('change_group', { group: selectedGroup });
+    }
+});
 
 // 1. ⌨️ 名前を入力してもらう
 // prompt() で入力画面を出し、もし空欄やキャンセルなら "Guest" を代入します

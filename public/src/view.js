@@ -32,7 +32,9 @@ const VIEW_CONFIG = {
     drawW: 300,           // 描画時の幅（旧マジックナンバー）
     drawH: 190,           // 描画時の高さ（旧マジックナンバー）
     hitboxW: 40,          // 当たり判定の幅
-    hitboxH: 65           // 当たり判定の高さ
+    hitboxH: 65,           // 当たり判定の高さ
+	visualOffset: 30,       // 基本の高さ調整
+    groundExtraOffset: -35  // 地面（最下層）にいる時の追加調整
   },
 
   // --- UI・エフェクト ---
@@ -42,10 +44,13 @@ const VIEW_CONFIG = {
     height: 5,
     offsetY: 25           //
   },
+  
   playerName: {
     fontSize: "14px",
     offsetY_ground: 48,
-    offsetY_air: 83       //
+    offsetY_air: 83,
+    safeMargin: 25,    // ← 25 という数字に名前をつける
+    paddingW: 10	//
   },
   
   // --- 獲得ログ ---
@@ -113,14 +118,63 @@ const VIEW_CONFIG = {
   
   // --- 📊 メインUI (Main Player Status UI) ---
   ui: {
+    paddingX: 20,           // ✨ 追加：左端からの余白
+    paddingY: 40,           // ✨ 追加：上端からの余白
+    panelW: 160,            // ✨ 追加：背景パネルの幅
+    panelH: 55,             // ✨ 追加：背景パネルの高さ
+    borderRadius: 10,       // ✨ 追加：角の丸み
     panelColor: "rgba(15, 23, 42, 0.8)",
     hpBarWidth: 160,
     hpBarHeight: 16,
-    hpEaseSpeed: 0.5,             // HPバーがゆっくり減る追従速度
+    hpEaseSpeed: 0.5,
     expBarWidth: 200,
     expBarHeight: 12,
-    expBarColor: "#ffcc00",       // 経験値の色
-    inventoryPanelPos: { x: 550, y: 555, w: 240, h: 35 } // カバン表示の位置
+    expBarColor: "#ffcc00",
+    inventoryPanelPos: { x: 550, y: 555, w: 240, h: 35 }
+  },
+  
+  // 👣 足元の高さ調整
+  groupOffsets: {
+    0:  -4, // あひる
+    1:  -3, // あらいぐま
+    2:  -4, // いぬ
+    3:  -5, // うさぎ
+    4:  -3, // カピバラ
+    5:  -3, // きのこ
+    6:  -6, // くま
+    7:  -7, // コアラ
+    8:   0, // ねこ
+    9:  -8, // パンダ
+    10: -3, // ビーバー
+    11: -6, // ひよこ
+    12: -5, // ぶた
+    13:  0, // ペンギン
+    14: -1, // ラクーン
+    15: -3,  // りす
+	// 👾 モンスター（ここに追加！）
+    'monster1': -7,
+    'monster3': -60,
+    'monster5': -65
+  },
+  
+  // 🏃 アニメーション枚数
+  actionFrames: {
+    "Dead":     45, 
+    "Fly":      20, 
+    "Hit":      50, 
+    "Idle":     20, 
+    "Jump":     20, 
+    "Roll":     0, // 8
+    "Stuned":   24, 
+    "Throwing": 0, // 40
+    "Walk":     20
+  },
+  
+  // 🛠️ 開発・デバッグ用設定（ここに追加）
+  debug: {
+    onlyLoadSpecificChar: true, // 特定のキャラだけ読み込むかどうかのスイッチ
+    targetGroup: 5,             // あひるグループ
+    targetVar: 6                // 特定のバリエーション
   },
 };
 
@@ -161,6 +215,8 @@ const AnimUtils = {
     }
 };
 
+let displayExp = 0; // 🌟 経験値をなめらかに表示するための変数
+
 /**
  * 特定のアクション（Walk, Idleなど）の現在のフレームを1枚返すだけの便利関数
  */
@@ -179,28 +235,6 @@ canvas.style.width = VIEW_CONFIG.SCREEN_WIDTH + 'px';
 // Before: canvas.style.height = '600px';
 canvas.style.height = VIEW_CONFIG.SCREEN_HEIGHT + 'px';
 ctx.scale(dpr, dpr);       // 描画全体を拡大して帳尻を合わせる
-
-// ==========================================
-// 👣 足元の高さ調整 (のめり込むならマイナスを大きくする)
-// ==========================================
-const GROUP_OFFSETS = {
-    0:  -4, // あひる
-    1:  -3, // あらいぐま
-    2:  -4, // いぬ
-    3:  -5, // うさぎ
-    4:  -3, // カピバラ
-    5:  -3, // きのこ
-    6:  -6, // くま
-    7:  -7, // コアラ
-    8:   0, // ねこ
-    9:  -8, // パンダ
-    10: -3, // ビーバー
-    11: -6, // ひよこ
-    12: -5, // ぶた
-    13:  0, // ペンギン
-    14: -1, // ラクーン
-    15: -3  // りす
-};
 
 // ==========================================
 // 📦 画像コンテナの自動生成
@@ -348,23 +382,8 @@ const VAR_COUNT     = 15;  // 各グループ内のキャラ数 (01〜15)
 let selectedGroup   = 5;   // 現在のグループ
 let selectedCharVar = 6;   // 現在のキャラクター番号
 
-// ==========================================
-// 🏃 アクションとアニメーション枚数
-// ==========================================
-const ACTION_FRAMES = {
-    "Dead":     45, 
-    "Fly":      20, 
-    "Hit":      50, 
-    "Idle":     20, 
-    "Jump":     20, 
-    "Roll":     0, // 8
-    "Stuned":   24, 
-    "Throwing": 0, // 40
-    "Walk":     20
-};
-
 // アクション名だけのリストを作成 ( ["Dead", "Fly", ... ] )
-const ACTIONS = Object.keys(ACTION_FRAMES);
+const ACTIONS = Object.keys(VIEW_CONFIG.actionFrames);
 
 // ==========================================
 // 📜 システム設定（ログなど）
@@ -381,9 +400,12 @@ for (let g = 0; g < 16; g++) {
 
 // 🌟 キャラが必要になった時に呼び出す「画像読み込みの魔法」
 function loadCharFrames(groupIndex, variantIndex) {
-    // 🛡️ 修正ポイント：Group 05, Character 06 以外は何もしない（負荷軽減）
-    if (groupIndex !== 5 || variantIndex !== 6) {
-        return; 
+    // 🛡️ 修正：設定を見て、読み込みを制限するか決める
+    if (VIEW_CONFIG.debug.onlyLoadSpecificChar) {
+        if (groupIndex !== VIEW_CONFIG.debug.targetGroup || 
+            variantIndex !== VIEW_CONFIG.debug.targetVar) {
+            return; 
+        }
     }
 
     // 1. 🛑 異常な数値や読み込み済みチェック
@@ -407,7 +429,7 @@ function loadCharFrames(groupIndex, variantIndex) {
         // 🛡️ 修正ポイント：50枚チェックは重いので、一旦「8枚」に制限（必要なら増やせます）
         // 🌟 【ここを修正】ACTION_FRAMES からそのアクションの枚数を取得する
         // もしリストになければ、予備として 1 を使う設定です
-        const maxFrames = ACTION_FRAMES[action] || 1;
+        const maxFrames = VIEW_CONFIG.actionFrames[action] || 1;
 		
 		if (maxFrames <= 0) return;
 
@@ -433,37 +455,6 @@ function loadCharFrames(groupIndex, variantIndex) {
     console.log(`✅ 限定読み込み：グループ${groupNum} キャラ${varNum} の読み込みを開始しました`);
 }
 
-/*
-for (let g = 0; g < GROUP_COUNT; g++) {
-
-	if (g !== 8) continue;
-    // 🌟 ここにあった 「if (g !== 8) continue;」 を削除！
-    // これで 00 から 15 まで全部読み込みに行きます。
-
-    playerSprites[g] = [];
-	// 🌟 【ここを追加】ここで止めることで、画像1枚1枚の読み込みをスキップします
-    continue;
-    for (let v = 1; v <= VAR_COUNT; v++) {
-        playerSprites[g][v] = {}; 
-        
-        const groupNum = String(g).padStart(2, '0');
-        const varNum = String(v).padStart(2, '0');
-
-        ACTIONS.forEach(action => {
-            playerSprites[g][v][action] = [];
-            const count = ACTION_FRAMES[action];
-            for (let i = 0; i < count; i++) {
-                const img = new Image();
-                const frameNum = String(i).padStart(2, '0');
-                // パスも自動的に group_00, group_01... と切り替わります
-                img.src = `char_assets/group_${groupNum}/Character${varNum}/${action}/Characters-Character${varNum}-${action}_${frameNum}.png`;
-                playerSprites[g][v][action].push(img);
-            }
-        });
-    }
-}
-*/
-
 let chatMessages = [];
 let pickingUpEffects = []; // 🌟 吸い込まれるアニメーションを管理するリスト
 socket.on('chat', data => {
@@ -485,6 +476,15 @@ function drawGame(hero, others, enemies, items, platforms, ladders, damageTexts,
     updateTimers();
     updateUIState(hero); // ✨ ここに追加！描画の前にHPなどの計算を済ませます
 	
+	// 🌟 【ここを追加】表示用経験値を実際の経験値に近づける
+    // (目標のexp - 現在の表示exp) * 0.1 ずつ近づけることで、なめらかに動きます
+    const diff = hero.exp - displayExp;
+    if (Math.abs(diff) > 0.1) {
+        displayExp += diff * 0.1;
+    } else {
+        displayExp = hero.exp; // 差が小さくなったらピッタリ合わせる
+    }
+	
     // 2. 画面のリセット
     ctx.clearRect(0, 0, VIEW_CONFIG.SCREEN_WIDTH, VIEW_CONFIG.SCREEN_HEIGHT);
 
@@ -499,6 +499,44 @@ function drawGame(hero, others, enemies, items, platforms, ladders, damageTexts,
 
     // 6. UI（最前面）の描画
     drawUIOverlay(hero);
+}
+
+/**
+ * サーバーからの通知（アイテム取得など）を処理する専門の関数
+ */
+function handleServerEvents(data) {
+    if (!data.lastPickedItems || data.lastPickedItems.length === 0) return;
+
+    data.lastPickedItems.forEach(picked => {
+        // ① 吸い込みエフェクトの追加
+        pickingUpEffects.push({
+            type: picked.type,
+            timer: VIEW_CONFIG.pickupEffect.duration,
+            startX: picked.x,
+            startY: (picked.y > VIEW_CONFIG.groundThreshold) 
+                ? (VIEW_CONFIG.groundY - 20) 
+                : picked.y,
+            targetPlayerId: picked.pickerId 
+        });
+
+        // ② アイテム取得ログ（自分が拾った時だけ）
+        if (picked.pickerId === socket.id) {
+            const config = ITEM_CONFIG[picked.type] || { name: 'アイテム' };
+            itemLogs.push({
+                text: `Bag: ${config.name} を手に入れました`,
+                timer: VIEW_CONFIG.log.displayTime
+            });
+            
+            if (itemLogs.length > VIEW_CONFIG.log.maxCount) {
+                itemLogs.shift();
+            }
+        }
+
+        // ③ 取得音の再生
+        if (typeof playItemSound === 'function') {
+            playItemSound();
+        }
+    });
 }
 
 /**
@@ -637,8 +675,8 @@ function calculatePlayerVisuals(p, g, isMe) {
     const pH = VIEW_CONFIG.player.hitboxH;
 
     // 足元の高さ調整ロジックを継承
-    let footOffset = 30 + (GROUP_OFFSETS[g] || 0);
-    if (p.y > VIEW_CONFIG.groundThreshold) footOffset -= 35;
+    let footOffset = VIEW_CONFIG.player.visualOffset + (VIEW_CONFIG.groupOffsets[g] || 0);
+    if (p.y > VIEW_CONFIG.groundThreshold) footOffset += VIEW_CONFIG.player.groundExtraOffset;
 
     const drawX = p.x + (pW / 2) - (drawW / 2);
     const drawY = p.y + pH - drawH + footOffset;
@@ -664,68 +702,6 @@ function renderPlayerSprite(ctx, p, img, vData) {
     }
     ctx.restore();
 }
-
-/**
- * 🏃 アニメーション判定専門（既存のロジックを完全踏襲）
- */
-// 重複
-/*
-function getPlayerCurrentImg(p, g, v, frame, sprites, playerSprites, isMe) {
-    const speed = isMe ? (typeof hero !== 'undefined' ? hero.vx : 0) : (p.vx || 0);
-    const isMoving = Math.abs(speed) > 0.1;
-    const isGrounded = !p.jumping;
-    const characterData = (playerSprites[g] && playerSprites[g][v]);
-
-    // 1. ⚔️ 攻撃中 (最優先)
-    if (p.isAttacking > 0) {
-        const frames = characterData ? characterData["Hit"] : null;
-        if (frames && frames.length > 0) {
-            const maxDuration = 20;
-            const currentStep = maxDuration - p.isAttacking;
-            let progress = currentStep / maxDuration;
-            let easingProgress = Math.pow(progress, 0.8);
-            let atkIdx = Math.floor(easingProgress * (frames.length - 1));
-            atkIdx = Math.max(0, Math.min(atkIdx, frames.length - 1));
-            return frames[atkIdx];
-        }
-    }
-
-    // 2. 🌀 ダウン中
-    if (p.isDown) {
-        return AnimUtils.getFrame(characterData?.["Roll"], 0, sprites.playerDown);
-    }
-
-    // 3. 🪜 ハシゴ登り
-    if (p.climbing) {
-        const frames = characterData?.["Fly"];
-        const isMovingClimb = (Math.abs(p.vy || 0) > 0.1);
-        const idx = isMovingClimb ? AnimUtils.getIdx(frame, 5, frames?.length || 0) : 0;
-        return AnimUtils.getFrame(frames, idx, sprites.playerClimb[0]);
-    }
-
-    // 4. 💫 無敵（スタン）状態
-    if (p.invincible > 0) {
-        const frames = characterData?.["Stuned"];
-        return AnimUtils.getFrame(frames, AnimUtils.getIdx(frame, 3, frames?.length || 0), sprites.playerA);
-    }
-
-    // 5. 🚀 ジャンプ中（空中）
-    if (!isGrounded) {
-        const frames = characterData?.["Jump"];
-        const jf = p.jumpFrame || 0;
-        const jumpIdx = (p.vy < 0) ? (Math.floor(jf / 6) % 10) : (10 + (Math.floor(jf / 6) % 10));
-        return AnimUtils.getFrame(frames, jumpIdx, sprites.playerA);
-    }
-
-    // 6. 🏃 移動中 (歩き)
-    if (isMoving) {
-        return AnimUtils.getFrame(characterData?.["Walk"], AnimUtils.getIdx(frame, 1, characterData?.["Walk"]?.length || 0), sprites.playerA);
-    }
-
-    // 7. 🧘 待機状態 (Idle)
-    return AnimUtils.getFrame(characterData?.["Idle"], AnimUtils.getIdx(frame, 6, characterData?.["Idle"]?.length || 0), sprites.playerA);
-}
-*/
 
 /**
  * プレイヤーの状態に基づいて、表示する画像(currentImg)を決定する専門の関数
@@ -801,10 +777,12 @@ function getPlayerCurrentImg(p, g, v, frame, sprites, playerSprites, isMe) {
  */
 function drawPlayerUI(ctx, p, isMe, pW, frame) {
     if (!isMe) {
-        const barW = 40, barH = 5;
-        // Before: const barX = p.x + 20 - barW / 2;
-        const barX = p.x + (VIEW_CONFIG.player.hitboxW / 2) - (VIEW_CONFIG.hpBar.width / 2);
-        const currentBaseY = (p.y > VIEW_CONFIG.groundThreshold) ? VIEW_CONFIG.groundY : (p.y + VIEW_CONFIG.defaultCharHeight);
+        const barW = VIEW_CONFIG.hpBar.width; 
+        const barH = VIEW_CONFIG.hpBar.height;
+        const barX = p.x + (VIEW_CONFIG.player.hitboxW / 2) - (barW / 2);
+        const currentBaseY = (p.y > VIEW_CONFIG.groundThreshold) 
+            ? VIEW_CONFIG.groundY 
+            : (p.y + VIEW_CONFIG.player.drawH * 0.4);
         const currentDrawH = 60; 
         const barY = currentBaseY - currentDrawH - (p.jumpY || 0) - 25;
         const hpRate = Math.max(0, Math.min(1, p.hp / 100));
@@ -816,9 +794,9 @@ function drawPlayerUI(ctx, p, isMe, pW, frame) {
     }
     const nameText = p.name || "Player";
     let nameY = p.y + ((p.y > VIEW_CONFIG.groundThreshold) ? VIEW_CONFIG.playerName.offsetY_ground : VIEW_CONFIG.playerName.offsetY_air);
-    if (nameY < 25) nameY = 25;
-    ctx.font = "bold 14px Arial";
-    const nameW = ctx.measureText(nameText).width + 10;
+    if (nameY < VIEW_CONFIG.playerName.safeMargin) nameY = VIEW_CONFIG.playerName.safeMargin;
+    ctx.font = `bold ${VIEW_CONFIG.playerName.fontSize} Arial`; // ついでにフォントサイズも設定から取得
+    const nameW = ctx.measureText(nameText).width + VIEW_CONFIG.playerName.paddingW;
     ctx.fillStyle = "rgba(0, 0, 0, 0.5)";
     ctx.fillRect(p.x + pW / 2 - nameW / 2, nameY - 15, nameW, 20);
     ctx.fillStyle = "white";
@@ -857,10 +835,9 @@ function drawEnemies(enemies, hero, frame) {
             const baseX = en.x + en.w / 2;
 
             let enemyFootOffset = 0;
-            if (en.y > 500) {
-                if (en.type === 'monster3') enemyFootOffset = -60;
-                else if (en.type === 'monster5') enemyFootOffset = -65;
-                else enemyFootOffset = -7;
+            if (en.y > VIEW_CONFIG.groundThreshold) {
+                // 設定リストから取得し、なければ -7 を使う
+                enemyFootOffset = VIEW_CONFIG.groupOffsets[en.type] || -7;
             }
 
             const baseY = (en.type === 'monster3' || en.y > VIEW_CONFIG.groundThreshold)
@@ -968,12 +945,10 @@ function getEnemyVisualData(en, sprites, frame, hero) {
     // --- 5. 🤕 ダメージを受けている ---
     if (isDamaged) {
         img = sprites[en.type + "Damage"];
-        if (en.type === 'monster3') {
-            drawW = 258;
-            drawH = 172;
-        } else if (img) {
-            drawW = img.width * 0.2;
-            drawH = img.height * 0.2;
+        if (img && img.complete) {
+            // monster3も、他の敵も、画像本来のサイズに 0.2倍（VIEW_CONFIG.enemy.defaultScale）をかける方式に統一
+            drawW = img.width * VIEW_CONFIG.enemy.defaultScale;
+            drawH = img.height * VIEW_CONFIG.enemy.defaultScale;
         }
         return { img, drawW, drawH };
     }
@@ -1143,8 +1118,8 @@ function drawItemLogsUI() {
 
         // 🌟 ここが修正ポイント！
         // canvas.width (1600等) を使わず、固定の 800 と 600 を基準にします
-        const x = 800 - 20; 
-        const y = 600 - 70 - ((itemLogs.length - 1 - i) * 25); 
+        const x = VIEW_CONFIG.SCREEN_WIDTH - 20; 
+        const y = VIEW_CONFIG.SCREEN_HEIGHT - 70 - ((itemLogs.length - 1 - i) * 25);
 
         let alpha = (log.timer > 560) ? (600 - log.timer) / 40 : (log.timer < 150 ? log.timer / 150 : 1.0);
         ctx.globalAlpha = Math.max(0, Math.min(1, alpha));
@@ -1198,8 +1173,8 @@ function drawUI(hero) {
 
 /** 1. HPバー関連（元のコードの2〜8番に相当） */
 function drawPlayerHP(hero) {
-    const uiX = 20;
-    const uiY = 40;
+    const uiX = VIEW_CONFIG.ui.paddingX;
+    const uiY = VIEW_CONFIG.ui.paddingY;
     const barW = VIEW_CONFIG.ui.hpBarWidth;
     const barH = VIEW_CONFIG.ui.hpBarHeight;
 
@@ -1210,7 +1185,15 @@ function drawPlayerHP(hero) {
     // 2. 背景のパネル
     ctx.fillStyle = VIEW_CONFIG.ui.panelColor; 
     ctx.beginPath();
-    ctx.roundRect(uiX - 10, uiY - 25, barW + 20, 55, 10);
+
+    // マジックナンバーを VIEW_CONFIG の項目に置き換え
+    ctx.roundRect(
+        uiX - 10,                     // パネルの開始位置（少し左に広げる）
+        uiY - 25,                     // パネルの開始位置（少し上に広げる）
+        VIEW_CONFIG.ui.panelW,        // 設定した幅 (160 + 20 = 180 くらいが目安)
+        VIEW_CONFIG.ui.panelH,        // 設定した高さ (55)
+        VIEW_CONFIG.ui.borderRadius   // 設定した角丸 (10)
+    );
     ctx.fill();
 
     // 3. "PLAYER HP" の文字
@@ -1299,10 +1282,10 @@ function drawExpAndDebug(hero) {
     ctx.fillStyle = "black";
     ctx.fillRect(expBarX, expBarY, expBarW, expBarH);
 
-    // 3. 経験値の計算
-    const currentExp = hero.exp || 0;
+    // 3. 経験値の計算（なめらかに動く displayExp を使う）
+    const currentExp = displayExp || 0; // 🌟 ここを hero.exp から displayExp に変更
     const maxExp = hero.maxExp || 100;
-    const expRate = Math.min(1, currentExp / maxExp); 
+    const expRate = Math.min(1, currentExp / maxExp);
 
     // 4. 経験値の中身
     ctx.fillStyle = VIEW_CONFIG.ui.expBarColor;  
@@ -1428,52 +1411,14 @@ let lastItemsData = []; // ✨ 前回のアイテム状態を保持
 // ==========================================
 socket.on('state', (data) => {
     if (!data) return;
+	
+	handleServerEvents(data);
 
     // --- A. 基本データの準備 ---
     const currentItems = data.items || [];
     const currentEnemies = data.enemies || []; // 敵データも取得
     const myHero = data.players[socket.id];
-
-    // ==========================================
-    // 🎁 1. アイテム取得時の特殊演出（エフェクト・ログ・音）
-    // ==========================================
-    if (data.lastPickedItems && data.lastPickedItems.length > 0) {
-        data.lastPickedItems.forEach(picked => {
-            
-            // ① 吸い込みエフェクトの追加
-            pickingUpEffects.push({
-                type: picked.type,
-                timer: 25,
-                startX: picked.x,
-                // Before: startY: (picked.y > 500) ? 545 : picked.y,
-                startY: (picked.y > VIEW_CONFIG.groundThreshold) ? (VIEW_CONFIG.groundY - 20) : picked.y,
-                targetPlayerId: picked.pickerId // 拾った人の位置へ飛んでいく
-            });
-
-            // ② アイテム取得ログの表示（自分が拾った時だけ）
-if (picked.pickerId === socket.id) {
-    // 🌟 ITEM_CONFIG から名前を取得（見つからない場合は 'アイテム' とする）
-    const config = ITEM_CONFIG[picked.type] || { name: 'アイテム' };
-    const itemName = config.name;
-    
-    itemLogs.push({
-        text: `Bag: ${itemName} を手に入れました`,
-        timer: 600 // 表示時間
-    });
-    
-    // 🌟 ログが溜まりすぎないように調整（最新5件まで）
-    if (itemLogs.length > 5) {
-        itemLogs.shift();
-    }
-}
-
-            // ③ 🔔 アイテム取得音（最重要：絶対保持）
-            if (typeof playItemSound === 'function') {
-                playItemSound();
-            }
-        });
-    }
-
+	
     // --- B. 次回の判定用にデータをバックアップ ---
     lastItemCount = currentItems.length;
     lastItemsData = JSON.parse(JSON.stringify(currentItems));
@@ -1503,43 +1448,5 @@ if (picked.pickerId === socket.id) {
             damageTexts || [],    // ダメージテキスト（あれば）
             Math.floor(Date.now() / 16) // 現在のフレーム相当
         ); 
-    }
-});
-
-// 🌟 キャラクター切り替え (Q/E)
-window.addEventListener('keydown', (e) => {
-    // ✅ 追加：もし入力欄（チャット等）を触っていたら、ここで処理を中断する
-    if (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA') return;
-
-    let changed = false;
-    if (e.key === 'q' || e.key === 'Q') {
-        selectedCharVar = selectedCharVar <= 1 ? 15 : selectedCharVar - 1;
-        changed = true;
-    }
-    if (e.key === 'e' || e.key === 'E') {
-        selectedCharVar = selectedCharVar >= 15 ? 1 : selectedCharVar + 1;
-        changed = true;
-    }
-    if (changed) {
-        socket.emit('change_char', { charVar: selectedCharVar });
-    }
-});
-
-// 🌟 グループ切り替え (R/T)
-window.addEventListener('keydown', (e) => {
-    // ✅ 追加：入力欄を触っていたら無視
-    if (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA') return;
-
-    let groupChanged = false;
-    if (e.key === 'r' || e.key === 'R') {
-        selectedGroup = selectedGroup <= 0 ? 15 : selectedGroup - 1;
-        groupChanged = true;
-    }
-    if (e.key === 't' || e.key === 'T') {
-        selectedGroup = selectedGroup >= 15 ? 0 : selectedGroup + 1;
-        groupChanged = true;
-    }
-    if (groupChanged) {
-        socket.emit('change_group', { group: selectedGroup });
     }
 });

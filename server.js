@@ -11,10 +11,6 @@ const path    = require('path'); // ファイルパス操作用（絶対パス�
 // ==========================================
 // 🗄️ MySQLへの接続（ここが土田さんの言った部分です！）
 // ==========================================
-// 🌟 Railwayのデータベースに直接繋ぐ設定
-const railway_db_url = 'mysql://root:yWwJPVjrLsQDapTxfyBUHPkigNLFYpDg@ballast.proxy.rlwy.net:53684/railway';
-
-const connection = mysql.createConnection(process.env.MYSQL_URL || railway_db_url);
 /*
 const connection = mysql.createConnection(process.env.MYSQL_URL || {
     host: 'localhost',
@@ -24,14 +20,43 @@ const connection = mysql.createConnection(process.env.MYSQL_URL || {
     database: 'my_game'   // 🌟 MAMPのphpMyAdminで「test」というDBを作っておく必要があります
 });
 */
-// 🌟 つなぎっぱなしにするための設定（これを足すとエラーに強くなります）
-connection.connect(err => {
-  if (err) {
-    console.error('MySQLへの接続に失敗しました: ' + err.stack);
-    return;
-  }
-  console.log('MySQLに無事つながりました！');
-});
+// ==========================================
+// 🗄️ MySQLへの接続（改良版：自動再接続つき）
+// ==========================================
+
+// 1. 接続情報を変数にまとめる（Railwayの環境変数を優先）
+const dbConfig = process.env.MYSQL_URL || 'mysql://root:yWwJPVjrLsQDapTxfyBUHPkigNLFYpDg@ballast.proxy.rlwy.net:53684/railway';
+
+let connection;
+
+function handleDisconnect() {
+  // 接続の作成
+  connection = mysql.createConnection(dbConfig);
+
+  // 接続実行
+  connection.connect(err => {
+    if (err) {
+      console.error('MySQL接続エラー。2秒後に再試行します...:', err.stack);
+      setTimeout(handleDisconnect, 2000); // 失敗したら2秒後にやり直し
+      return;
+    }
+    console.log('MySQLに無事つながりました！');
+  });
+
+  // 🌟 接続中のエラー（突然の切断など）を監視
+  connection.on('error', err => {
+    console.error('MySQL実行時エラー:', err);
+    if (err.code === 'PROTOCOL_CONNECTION_LOST') {
+      console.log('接続が切れました。再接続を開始します...');
+      handleDisconnect(); // 切断されたら自動で繋ぎ直す
+    } else {
+      throw err; // それ以外の重大なエラーは投げる
+    }
+  });
+}
+
+// 最初の呼び出し
+handleDisconnect();
 
 // ==========================================
 // ⚙️ 2. サーバーの基本設定
@@ -59,19 +84,26 @@ const SETTINGS = {
     GROUND_Y: 565,        // 一番下の地面の高さ
     GRAVITY: 0.5,         // 重力の強さ
     FRICTION: 0.98,       // 空中摩擦（1に近いほど止まらない）
-    TICK_RATE: 40         // 更新間隔（ミリ秒）
+    TICK_RATE: 40,         // 更新間隔（ミリ秒）
+	// --- 🌟 追加：敵の移動制限範囲 ---
+    ENEMY_MIN_X: 400,
+    ENEMY_MAX_X: 800
   },
   PLAYER: {
     DEFAULT_W: 300,        // キャラクターの幅
     DEFAULT_H: 190,        // キャラクターの高さ
     SCALE: 1.0,
     MAX_HP: 100,          // 最大体力
-    ATTACK_FRAME: 10      // 攻撃の持続時間
+    ATTACK_FRAME: 10,      // 攻撃の持続時間
+	ATTACK_RANGE_X: 80,  // 横方向のリーチ
+    ATTACK_RANGE_Y: 100  // 縦方向の判定幅
   },
   ITEM: {
     SIZE: 32,             // アイテムの見た目サイズ
     COLLISION_OFFSET: 15, // 当たり判定の幅（半分）
-    SINK_Y: 0            // 地面に少し埋まる深さ（大きくすると深く埋まる）
+    SINK_Y: 0,            // 地面に少し埋まる深さ（大きくすると深く埋まる）
+	PICKUP_RANGE_X: 60,   // 横方向にどのくらい近づけば拾えるか
+    PICKUP_RANGE_Y: 40    // 縦方向にどのくらい近づけば拾えるか
   }
 };
 
@@ -130,6 +162,10 @@ class Enemy {
 
     // this.platIndex: この敵がどの足場（プラットフォーム）に出現するか、その番号を保存します
     this.platIndex = platIndex; 
+	
+	this.jumpY = 0;     // ジャンプによる高さのズレ
+    this.jumpV = 0;     // ジャンプの垂直速度
+    this.jumpFrame = 0; // ジャンプアニメーションのコマ数
 
     // this.reset(): 敵の体力(HP)や位置(x, y)を初期状態に戻すための別の関数を呼び出しています
     // これにより、死んだ後に復活させたり、最初に配置したりするのが楽になります
@@ -234,10 +270,12 @@ class Enemy {
     }
 	
     // === 🌟 3. ジャンプの物理計算 (エラー修正済み) ===
+	/*
     if (this.jumpY === undefined) this.jumpY = 0;
     if (this.jumpV === undefined) this.jumpV = 0;
     if (this.jumpFrame === undefined) this.jumpFrame = 0;
-
+    */
+	
     // 地面にいない、または上向きの速度がある場合（ジャンプ中）
     if (this.jumpY < 0 || this.jumpV !== 0) {
       this.jumpV += 0.5; // 重力
@@ -302,10 +340,16 @@ class Enemy {
       } 
       // --- 🌟 B. 通常状態（巡回モード） ---
       else if (this.platIndex === null) {
-        // 地面の巡回（400-800）
+        // 地面の巡回（設定値を使用）
         this.x += this.speed * this.dir;
-        if (this.x < 400)          { this.x = 400;         this.dir =  1; }
-        if (this.x > 800 - this.w) { this.x = 800 - this.w; this.dir = -1; }
+        if (this.x < SETTINGS.SYSTEM.ENEMY_MIN_X) { 
+            this.x = SETTINGS.SYSTEM.ENEMY_MIN_X; 
+            this.dir = 1; 
+        }
+        if (this.x > SETTINGS.SYSTEM.ENEMY_MAX_X - this.w) { 
+            this.x = SETTINGS.SYSTEM.ENEMY_MAX_X - this.w; 
+            this.dir = -1; 
+        }
       } else {
         // 足場の巡回
         const p = MAP_DATA.platforms[this.platIndex];
@@ -385,216 +429,205 @@ const DROP_CHANCE_TABLES = {
   "small": { "gold_heart": 40, "money6": 50,  "default": 50 }
 };
 
-io.on('connection', socket => {
-    // --- ★追加：接続した瞬間に、そのプレイヤー本人にIDを教える ---
-    socket.emit('your_id', socket.id);
-    console.log(`User connected: ${socket.id}`);
+// 🌟 経験値を加算してレベルアップをチェックする専用の関数
+function addExperience(player, amount) {
+    if (!player) return;
 
-    // プレイヤー参加
-    socket.on('join', n => {
-	    // 🌟 データベース(player2)に名前を保存する処理を追加
-        const sql = 'INSERT INTO players2 (name) VALUES (?)';
-        connection.query(sql, [n], (err, result) => {
-            if (err) {
-                console.error('player2への保存に失敗しました:', err);
-            } else {
-                console.log(`✅ DB保存成功: ${n} さんを player2 に記録しました！`);
+    // 経験値を加算
+    player.exp = (Number(player.exp) || 0) + amount;
+    player.maxExp = 100;
+
+    console.log(`[EXP] ${player.name}: +${amount} (Total: ${player.exp})`);
+
+    // レベルアップ判定
+    if (player.exp >= player.maxExp) {
+        player.level = (Number(player.level) || 1) + 1;
+        player.exp = 0;
+        console.log(`[LEVEL UP] ${player.name} が Lv.${player.level} になりました！`);
+    }
+
+    // 本来ならここでDB保存関数を呼ぶとさらにスッキリします
+}
+
+// 💰 敵を倒した時にアイテムを生成する専用の関数
+function spawnDropItems(enemy) {
+    const setting = DROP_DATABASE[enemy.type] || { table: "small" };
+    const chances = DROP_CHANCE_TABLES[setting.table];
+    let itemsToDrop = [];
+
+    const dropRoll = Math.random() * 100;
+    if (dropRoll <= (chances.default || 100)) {
+        for (let type in chances) {
+            if (type === "default") continue;
+            if (Math.random() * 100 < chances[type]) {
+                itemsToDrop.push(type);
             }
+        }
+    }
+
+    const fixedSpawnY = enemy.y + (enemy.h || 0) - 50;
+    itemsToDrop.forEach((type, i) => {
+        const angle = (-140 + (100 / (itemsToDrop.length + 1)) * (i + 1)) * (Math.PI / 180);
+        const speed = 4 + Math.random() * 4;
+        droppedItems.push({
+            id: Date.now() + Math.random() + i,
+            x: enemy.x + enemy.w / 2,
+            y: fixedSpawnY,
+            vx: Math.cos(angle) * speed,
+            vy: Math.sin(angle) * speed,
+            type: type,
+            phase: Math.random() * Math.PI * 2,
+            landed: false
         });
-        players[socket.id] = {
-            id: socket.id,
-            name: n, x: 50, y: 500, dir: 1, score: 0, inventory: [], isAttacking: 0, level:(players[socket.id] ? players[socket.id].level : 1), exp: (players[socket.id] && players[socket.id].exp !== undefined) ? players[socket.id].exp : 0, maxExp: 100,
-            w: SETTINGS.PLAYER.DEFAULT_W * (SETTINGS.PLAYER.SCALE || 1.0),
-            h: SETTINGS.PLAYER.DEFAULT_H * (SETTINGS.PLAYER.SCALE || 1.0),
-            scale: SETTINGS.PLAYER.SCALE || 1.0,
-            hp: SETTINGS.PLAYER.MAX_HP, maxHp: SETTINGS.PLAYER.MAX_HP
-        };
     });
+}
 
-    // 🌟 キャラクター番号の変更を受け取る
-    socket.on('change_char', (data) => {
-        if (players[socket.id]) {
-            players[socket.id].charVar = data.charVar;
-            // 全員に「この人のキャラが変わったよ」と即座に伝えるなら以下（任意）
-            io.emit('update_players', players);
+// ==========================================
+// 📞 イベントハンドラ（各アクションの具体的な中身）
+// ==========================================
+
+// 1. プレイヤーが参加したときの処理
+function handleJoin(socket, name) {
+    // 🌟 データベースに名前を保存
+    const sql = 'INSERT INTO players2 (name) VALUES (?)';
+    connection.query(sql, [name], (err, result) => {
+        if (err) {
+            console.error('player2への保存に失敗しました:', err);
+        } else {
+            console.log(`✅ DB保存成功: ${name} さんを記録しました！`);
         }
     });
 
-    // 🌟 グループ番号の変更を受け取る
-    socket.on('change_group', (data) => {
-        if (players[socket.id]) {
-            players[socket.id].group = data.group;
-            io.emit('update_players', players);
-        }
-    });
+    // 🌟 プレイヤーデータの作成
+    players[socket.id] = {
+        id: socket.id,
+        name: name,
+        x: 50,
+        y: 500,
+        dir: 1,
+        score: 0,
+        inventory: [],
+        isAttacking: 0,
+        level: (players[socket.id] ? players[socket.id].level : 1),
+        exp: (players[socket.id] && players[socket.id].exp !== undefined) ? players[socket.id].exp : 0,
+        maxExp: 100,
+        w: SETTINGS.PLAYER.DEFAULT_W * (SETTINGS.PLAYER.SCALE || 1.0),
+        h: SETTINGS.PLAYER.DEFAULT_H * (SETTINGS.PLAYER.SCALE || 1.0),
+        scale: SETTINGS.PLAYER.SCALE || 1.0,
+        hp: SETTINGS.PLAYER.MAX_HP,
+        maxHp: SETTINGS.PLAYER.MAX_HP
+    };
+}
 
-    // 移動同期
-    socket.on('move', d => { if (players[socket.id]) Object.assign(players[socket.id], d); });
+/**
+ * 2. プレイヤーが攻撃したときの処理
+ */
+function handleAttack(socket, data) {
+    const p = players[socket.id];
+    if (!p) return; // プレイヤーがいなければ中止
 
-    // 攻撃処理
-    // ⚔️ 攻撃処理（一番近い敵1体だけに当たるバージョン）
-    // ⚔️ 攻撃イベント：一番近い敵1体を狙い撃ちする
-    // ⚔️ 攻撃イベント：【決定版】絶対に1回につき1体しか叩かない設定
-    socket.on('attack', data => {
-        const p = players[socket.id];
-        if (!p) return;
-		
-		// 🔍 捜査1：そもそも攻撃ボタンの信号が届いているか？
-            console.log(`[1.通信確認] ${p.name} が攻撃しました`);
+    // 【ログ】ボタンが押されたことをサーバーが認識
+    console.log(`[1.通信確認] ${p.name} が攻撃しました`);
 
-        if (p.isClimbing) return;
+    // ハシゴを登っている間は攻撃できない
+    if (p.isClimbing) return;
 
-        // ラグ対策：攻撃の「余韻」の時間は、新しいダメージ計算を拒否する
-        if (p.isAttacking > 0 && p.isAttacking < SETTINGS.PLAYER.ATTACK_FRAME) return;
-        if (p.isAttacking === SETTINGS.PLAYER.ATTACK_FRAME) return; // 🌟この行を「一時的に」追加してチェック
+    // 【二重攻撃防止】攻撃アニメーションが終わるまでは、次のダメージ計算をしない（ラグ対策）
+    //if (p.isAttacking > 0 && p.isAttacking < SETTINGS.PLAYER.ATTACK_FRAME) return;
+    //if (p.isAttacking === SETTINGS.PLAYER.ATTACK_FRAME) return;
+	if (p.isAttacking > SETTINGS.PLAYER.ATTACK_FRAME - 5) return;
 
-        // 攻撃開始！タイマーをセット
-        p.isAttacking = SETTINGS.PLAYER.ATTACK_FRAME;
+    // 🚩 サーバー側で「攻撃アニメーション中」のフラグを立てる
+    p.isAttacking = SETTINGS.PLAYER.ATTACK_FRAME;
 
-        let targetsInRange = [];
+    let targetsInRange = [];
 
-        // --- ① 範囲内の敵をリストアップ ---
-        enemies.forEach((target) => {
-            if (target.alive && !target.isFading) {
-                // 🌟 敵の中心点を計算（target.wが小さくなっているので、ここも自動で調整されます）
-                const enemyCenterX = target.x;
-                const enemyCenterY = target.y;
-                const dx = enemyCenterX - p.x;
-                const dy = Math.abs(p.y - enemyCenterY);
+    // --- ① 範囲内の敵をリストアップ ---
+    enemies.forEach((target) => {
+        // 敵が生きていて、消えかかっていない場合のみ計算
+        if (target.alive && !target.isFading) {
+            const enemyCenterX = target.x;
+            const enemyCenterY = target.y;
+            const dx = enemyCenterX - p.x; // 横の距離
+            const dy = Math.abs(p.y - enemyCenterY); // 縦の距離
 
-                // 🌟 【ここが重要】攻撃判定を広げます
-                // 自分の幅(p.w)は変えず、後ろに足す固定値を「+80」くらいに大きくします
-                const hitRangeX = (p.w / 2) + 80;
-                const hitRangeY = 100; // 高さは100あれば十分当たります
+            // 攻撃が届く「箱」の大きさを設定
+            const hitRangeX = (p.w / 2) + SETTINGS.PLAYER.ATTACK_RANGE_X;
+            const hitRangeY = SETTINGS.PLAYER.ATTACK_RANGE_Y;
 
-                // 🌟 前方にいるかどうかの判定（30px程度の余裕を持たせる）
-                const isFront = (p.dir === 1 && dx > -30) || (p.dir === -1 && dx < 30);
+            // ちゃんと敵の方を向いているか判定（右向きなら右に、左向きなら左に敵がいるか）
+            const isFront = (p.dir === 1 && dx > -30) || (p.dir === -1 && dx < 30);
 
-                if (Math.abs(dx) < hitRangeX && dy < hitRangeY && isFront) {
-                    targetsInRange.push({ enemy: target, dist: Math.abs(dx) });
-                }
+            // 「縦・横・向き」がすべて一致したら、攻撃対象リストに入れる
+            if (Math.abs(dx) < hitRangeX && dy < hitRangeY && isFront) {
+                targetsInRange.push({ enemy: target, dist: Math.abs(dx) });
             }
+        }
+    });
+
+    // --- ② 最も近い敵「だけ」にダメージを与える ---
+    if (targetsInRange.length > 0) {
+        // 距離が近い順に並び替えて、一番近い敵を選ぶ
+        targetsInRange.sort((a, b) => a.dist - b.dist);
+        const nearest = targetsInRange[0].enemy;
+
+        // ダメージを計算（指定がなければ基本20ダメージ）
+        const damage = data.power || 20;
+        nearest.hp -= damage; // 敵のHPを減らす
+        
+        console.log(`[2.命中確認] ${nearest.type}に${damage}ダメージ。残りHP: ${nearest.hp}`);
+
+        // 攻撃された敵を「怒り状態」にして反撃の準備をさせる
+        nearest.isEnraged = true;
+
+        // 1秒後に敵が反撃してくる予約
+        if (nearest.isAttacking <= 0) {
+            setTimeout(() => {
+                if (nearest && nearest.hp > 0) {
+                    nearest.isAttacking = 22;
+                }
+            }, 1000);
+        }
+
+        // 敵をノックバック（後ろに弾き飛ばす）
+        nearest.kbV = p.dir * (nearest.type === 'monster3' ? 6 : 12);
+        nearest.dir = (p.x < nearest.x) ? -1 : 1; // 敵をプレイヤーの方に向かせる
+
+        // 画面に「バシッ！」というダメージエフェクトを送る
+        io.emit('damage_effect', {
+            x: nearest.x + nearest.w / 2,
+            y: nearest.y,
+            val: damage,
+            isCritical: damage >= 85,
+            type: 'enemy_hit'
         });
 
-        // --- ② 最も近い敵「だけ」にダメージを与える ---
-        if (targetsInRange.length > 0) {
-            targetsInRange.sort((a, b) => a.dist - b.dist);
-            const nearest = targetsInRange[0].enemy;
-
-            // ダメージ実行
-            const damage = data.power || 20;
-            nearest.hp -= damage;
-			
-			// 🔍 捜査2：ダメージ計算まで進んでいるか？
-                console.log(`[2.命中確認] ${nearest.type}に${damage}ダメージ。残りHP: ${nearest.hp}`);
-
-            // 🌟 これを追加！一度でも攻撃されたら「怒りモード」を永続ONにする
-            nearest.isEnraged = true;
-
-            // 🌟 ダメージを受けてから攻撃するまでの「タメ」を作る
-            // すぐに攻撃せず、少しの間（例：10フレーム＝約0.4秒）をおいてから
-            // 攻撃モーションに入るように予約します
-            if (nearest.isAttacking <= 0) {
-                setTimeout(() => {
-                    if (nearest && nearest.hp > 0) {
-                        nearest.isAttacking = 22;
-                    }
-                }, 1000); // 400ミリ秒（0.4秒）待ってから攻撃開始
-            }
-
-            nearest.kbV = p.dir * (nearest.type === 'golem' ? 6 : 12);
-            nearest.dir = (p.x < nearest.x) ? -1 : 1;
-
-            io.emit('damage_effect', {
-                x: nearest.x + nearest.w / 2,
-                y: nearest.y,
-                val: damage,
-                isCritical: damage >= 85,
-                type: 'enemy_hit'
-            });
-
-            // --- 💀 死亡判定とドロップ処理 ---
-                if (nearest.hp <= 0 && nearest.alive) {
-                    
-                    // 🛡️ 安全装置：即座にaliveをfalseにして「二度押し」による経験値リセットを防ぐ
-                    nearest.alive = false; 
-
-                    console.log(`[3.撃破確認] 経験値を加算します。前:${p.exp}`);
-                    
-                    // 1. 【最優先】経験値を加算（数字として確実に計算）
-                    p.exp = (Number(p.exp) || 0) + 10;
-                    p.maxExp = 100;
-
-                    // 🌟 修正の核：加算したら「即座に」データベースへ保存する！
-                    // これにより、他の通信で数字が0や10に巻き戻されるのを防ぎます
-                    if (typeof savePlayerData === 'function') {
-                        savePlayerData(p); 
-                    } else {
-                        // もし専用の関数がない場合は、既存のUPDATE文などがあればそこを呼びます
-                        console.log(`[DEBUG] サーバー上のメモリに保存完了: ${p.name} EXP=${p.exp}`);
-                    }
-
-                    // レベルアップ判定
-                    if (p.exp >= p.maxExp) {
-                        p.level = (Number(p.level) || 1) + 1;
-                        p.exp = 0;
-                        if (typeof savePlayerData === 'function') savePlayerData(p);
-                        console.log(`[LEVEL UP] ${p.name} が Lv.${p.level} になりました！`);
-                    }
-
-                    // 2. 敵を死亡状態にする（残りの演出処理）
-                    nearest.hp = 0;
-                    nearest.isFading = true;
-                    nearest.deathFrame = 0;
-
-                    // 3. スコア加算
-                    p.score = (Number(p.score) || 0) + 100;
-
-                    // --- 💰 ドロップアイテムの計算 ---
-                    const setting = DROP_DATABASE[nearest.type] || { table: "small" };
-                    const chances = DROP_CHANCE_TABLES[setting.table];
-                    let itemsToDrop = [];
-
-                    const dropRoll = Math.random() * 100;
-                    if (dropRoll <= (chances.default || 100)) {
-                        for (let type in chances) {
-                            if (type === "default") continue;
-                            if (Math.random() * 100 < chances[type]) {
-                                itemsToDrop.push(type);
-                            }
-                        }
-                    }
-
-                    const fixedSpawnY = nearest.y + (nearest.h || 0) - 50;
-                    itemsToDrop.forEach((type, i) => {
-                        const angle = (-140 + (100 / (itemsToDrop.length + 1)) * (i + 1)) * (Math.PI / 180);
-                        const speed = 4 + Math.random() * 4;
-                        droppedItems.push({
-                            id: Date.now() + Math.random() + i,
-                            x: nearest.x + nearest.w / 2,
-                            y: fixedSpawnY,
-                            vx: Math.cos(angle) * speed,
-                            vy: Math.sin(angle) * speed,
-                            type: type,
-                            phase: Math.random() * Math.PI * 2,
-                            landed: false
-                        });
-                    });
-
-                    // 最後に現在のEXPをログに出して、保存が成功したか見届けます
-                    console.log(`[DEBUG] 最終確定EXP: ${p.exp}`);
-                    return; // ここで処理終了
-                }
-
-            // 🌟 【ここが最重要！】
-            // ダメージを与えたら、この瞬間に return して「attack」処理を完全に終わらせる。
-            // これにより、たとえリストに他の敵が残っていても、2体目を叩くことは物理的に不可能になります。
-            return;
+        // --- 💀 死亡判定と報酬処理 ---
+        if (nearest.hp <= 0 && nearest.alive) {
+            nearest.alive = false; // 死亡フラグ
+            
+            // 🌟 経験値を10追加（ここが土田さんの頑張ったポイント！）
+            addExperience(p, 10); 
+            
+            // アイテムを地面に落とす
+            spawnDropItems(nearest);
+            
+            nearest.hp = 0;
+            nearest.isFading = true; // 徐々に消える演出
+            nearest.deathFrame = 0;
+            
+            // スコアを加算
+            p.score = (Number(p.score) || 0) + 100;
+            
+            console.log(`[DEBUG] 最終確定EXP: ${p.exp}`);
         }
-    });
+    }
+}
 
-    // --- 💰 アイテム拾得（pickup）の処理（修正完了版） ---
-socket.on('pickup', itemId => {
+/**
+ * 3. アイテムを拾ったときの処理
+ */
+function handlePickup(socket, itemId) {
     const player = players[socket.id];
     if (!player) return;
 
@@ -603,53 +636,146 @@ socket.on('pickup', itemId => {
 
     // 🌟 アイテムが見つかった（まだ誰にも拾われていない）場合のみ実行
     if (idx !== -1) {
-        // 2. ✂️ 即座にリストから抜き取る（これで物理的に2回目は発生しません）
-        const item = droppedItems.splice(idx, 1)[0];
+        // --- 🌟 追加：距離のチェック（設定値を使用） ---
+        const item = droppedItems[idx];
+        const dx = Math.abs(player.x - item.x);
+        const dy = Math.abs(player.y - item.y);
 
-        if (item) {
-            // 3. 📝 演出用に記録
+        // 設定した範囲（PICKUP_RANGE）より遠ければ、何もせず終了する
+        if (dx > SETTINGS.ITEM.PICKUP_RANGE_X || dy > SETTINGS.ITEM.PICKUP_RANGE_Y) {
+            return;
+        }
+        // ------------------------------------------
+
+        // 2. ✂️ 即座にリストから抜き取る（二重取得を防止）
+        const removedItem = droppedItems.splice(idx, 1)[0];
+
+        if (removedItem) {
+            // 3. 📝 演出用に記録（state送信時に使う）
             lastPickedItems.push({
-                type: item.type,
-                x: item.x,
-                y: item.y,
+                type: removedItem.type,
+                x: removedItem.x,
+                y: removedItem.y,
                 pickerId: socket.id
             });
 
             // 4. 🎁 報酬を与える
-            player.inventory.push(item.type);
-            const points = (item.type === 'gold') ? 500 : (item.type === 'money3' ? 100 : 10);
+            player.inventory.push(removedItem.type);
+            const points = (removedItem.type === 'gold') ? 500 : (removedItem.type === 'money3' ? 100 : 10);
             player.score += points;
             
-            // 5. 📡 【ここを修正】正しい変数名（MAP_DATA）を使って全員に通知
-            // これによりエラーが出なくなり、アイテムが画面からパッと消えるようになります
-            io.emit('state', { 
-                players: players, 
-                items: droppedItems, 
-                enemies: enemies, 
-                platforms: MAP_DATA.platforms, // 🌟 変数名を修正
-                ladders: MAP_DATA.ladders      // 🌟 変数名を修正
-            });
+            // 5. 📡 全員に最新状態を通知（アイテムが消えたことを即座に知らせる）
+            sendState();
         }
     }
-});
+}
 
-    // ダメージ同期
-    socket.on('player_damaged', data => {
+/**
+ * 4. プレイヤーのダメージ同期と復活処理
+ */
+function handlePlayerDamaged(socket, data) {
+    const p = players[socket.id];
+    if (!p) return;
+
+    // HPを更新
+    p.hp = data.newHp;
+
+    // 🌟 【追加】もしHPが0以下になったら復活させる
+    if (p.hp <= 0) {
+        console.log(`[RESPAWN] ${p.name} が倒れましたが、復活しました！`);
+        p.hp = 100;     // HPを満タンにする
+        p.x = 50;       // スタート地点に戻す
+        p.y = 500;      // スタート地点に戻す
+        
+        // 画面に「復活したよ」と通知するために、すぐに最新状態を送る
+        sendState();
+    }
+
+    // ダメージエフェクトの表示
+    io.emit('damage_effect', { 
+        x: p.x + 30, 
+        y: p.y, 
+        val: data.val, 
+        isCritical: false, 
+        type: 'player_hit' 
+    });
+}
+
+/**
+ * 5. チャット送信
+ */
+function handleChat(socket, text) {
+    const p = players[socket.id];
+    io.emit('chat', { 
+        id: socket.id, 
+        name: p?.name || "Guest", 
+        text: text 
+    });
+}
+
+/**
+ * 状態送信用の共通関数（pickup以外でも使えるように）
+ */
+function sendState() {
+    io.emit('state', { 
+        players: players, 
+        items: droppedItems, 
+        enemies: enemies, 
+        platforms: MAP_DATA.platforms,
+        ladders: MAP_DATA.ladders
+    });
+}
+
+io.on('connection', socket => {
+    // 接続時にIDを通知
+    socket.emit('your_id', socket.id);
+    console.log(`User connected: ${socket.id}`);
+
+    // 1. 参加
+    socket.on('join', n => handleJoin(socket, n));
+
+    // 2. 移動 (座標と向きだけを更新するように修正)
+    socket.on('move', d => { 
         if (players[socket.id]) {
-            players[socket.id].hp = data.newHp;
-            io.emit('damage_effect', { x: players[socket.id].x + 30, y: players[socket.id].y, val: data.val, isCritical: false, type: 'player_hit' });
+            // exp や level は上書きせず、位置情報だけを受け取る
+            players[socket.id].x = d.x;
+            players[socket.id].y = d.y;
+            players[socket.id].dir = d.dir;
+            // もしハシゴなどの状態があれば追加
+            if (d.isClimbing !== undefined) players[socket.id].isClimbing = d.isClimbing;
         }
     });
 
-    // チャット（名前を含めて全員に送信）
-    socket.on('chat', text => {
-        io.emit('chat', { id: socket.id, name: players[socket.id]?.name || "Guest", text: text });
-    });
+    // 3. 攻撃
+    socket.on('attack', data => handleAttack(socket, data));
 
-    // 切断処理
+    // 4. アイテム拾得
+    socket.on('pickup', itemId => handlePickup(socket, itemId));
+
+    // 5. 被ダメージ
+    socket.on('player_damaged', data => handlePlayerDamaged(socket, data));
+
+    // 6. チャット
+    socket.on('chat', text => handleChat(socket, text));
+
+    // 7. 切断
     socket.on('disconnect', () => {
         console.log(`User disconnected: ${socket.id}`);
         delete players[socket.id];
+    });
+
+    // --- 既存のキャラ変更・グループ変更を維持する場合 ---
+    socket.on('change_char', data => {
+        if (players[socket.id]) {
+            players[socket.id].charVar = data.charVar;
+            io.emit('update_players', players);
+        }
+    });
+    socket.on('change_group', data => {
+        if (players[socket.id]) {
+            players[socket.id].group = data.group;
+            io.emit('update_players', players);
+        }
     });
 });
 
