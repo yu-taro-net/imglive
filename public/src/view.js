@@ -216,6 +216,7 @@ const AnimUtils = {
 };
 
 let displayExp = 0; // 🌟 経験値をなめらかに表示するための変数
+let lastExp = 0; // 🌟 これを書き足す：前回の経験値を覚えておくための変数
 
 /**
  * 特定のアクション（Walk, Idleなど）の現在のフレームを1枚返すだけの便利関数
@@ -505,6 +506,25 @@ function drawGame(hero, others, enemies, items, platforms, ladders, damageTexts,
  * サーバーからの通知（アイテム取得など）を処理する専門の関数
  */
 function handleServerEvents(data) {
+    /*
+    const hero = data.players[socket.id];
+    if (hero) {
+        // 前回の記録があり、かつ増えている場合だけログを出す
+        if (lastExp !== 0 && hero.exp > lastExp) {
+            const diff = hero.exp - lastExp;
+            itemLogs.push({
+                text: `Exp: 経験値を ${diff} 獲得した！`,
+                timer: VIEW_CONFIG.log.displayTime
+            });
+
+            if (itemLogs.length > VIEW_CONFIG.log.maxCount) {
+                itemLogs.shift();
+            }
+        }
+        lastExp = hero.exp; // 今回の経験値を記憶する
+    }
+	*/
+	
     if (!data.lastPickedItems || data.lastPickedItems.length === 0) return;
 
     data.lastPickedItems.forEach(picked => {
@@ -1448,5 +1468,27 @@ socket.on('state', (data) => {
             damageTexts || [],    // ダメージテキスト（あれば）
             Math.floor(Date.now() / 16) // 現在のフレーム相当
         ); 
+    }
+});
+
+// view.js の一番最後
+
+// 🌟 修正：itemLogs を「window.itemLogs」として扱うとより確実です
+socket.on('exp_log', (data) => {
+    console.log("経験値の電波を受信しました！", data);
+    
+    // アイテムログを表示する「本物の箱」にデータを入れます
+    if (typeof itemLogs !== 'undefined') {
+        itemLogs.push({
+            text: `✨ Exp: 経験値を ${data.amount} 獲得した！`,
+            timer: 500 // 3秒間
+        });
+
+        // ログが溜まりすぎないように調整
+        if (itemLogs.length > 5) {
+            itemLogs.shift();
+        }
+        
+        console.log("ログの箱に入れました。現在の数:", itemLogs.length);
     }
 });

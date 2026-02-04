@@ -606,8 +606,12 @@ function handleAttack(socket, data) {
         if (nearest.hp <= 0 && nearest.alive) {
             nearest.alive = false; // 死亡フラグ
             
+			socket.emit('exp_log', { amount: 10 }); 
+
             // 🌟 経験値を10追加（ここが土田さんの頑張ったポイント！）
-            addExperience(p, 10); 
+            addExperience(p, 10);
+			
+			console.log(`[EXP DEBUG] ログ送信完了: ${p.name} に 10 EXP`);
             
             // アイテムを地面に落とす
             spawnDropItems(nearest);
@@ -734,18 +738,19 @@ io.on('connection', socket => {
     // 1. 参加
     socket.on('join', n => handleJoin(socket, n));
 
-    // 2. 移動 (座標と向きだけを更新するように修正)
-    socket.on('move', d => { 
-        if (players[socket.id]) {
-            // exp や level は上書きせず、位置情報だけを受け取る
-            players[socket.id].x = d.x;
-            players[socket.id].y = d.y;
-            players[socket.id].dir = d.dir;
-            // もしハシゴなどの状態があれば追加
-            if (d.isClimbing !== undefined) players[socket.id].isClimbing = d.isClimbing;
-        }
-    });
-
+    // server.js 内の socket.on('move') を修正
+socket.on('move', d => { 
+    if (players[socket.id]) {
+        // 🌟 修正：ブラウザから受け取るのは「位置」と「移動速度」と「向き」だけにする
+        // isAttacking はサーバー側で管理するため、ここからは除外します
+        const { x, y, dir, vx, vy, isJumping, isClimbing } = d;
+        
+        Object.assign(players[socket.id], { 
+            x, y, dir, vx, vy, isJumping, isClimbing
+        });
+    }
+});
+	
     // 3. 攻撃
     socket.on('attack', data => handleAttack(socket, data));
 
