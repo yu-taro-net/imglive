@@ -10,14 +10,24 @@ const GAME_SETTINGS = {
 };
 
 // ==========================================
-// 📡 1. 通信と基本設定
+// 📡 1. 通信と基本設定（ローカル・本番自動切り替え版）
 // ==========================================
-// game.js の 1行目あたり
-const socket = io({
-    reconnection: true,        // 自動再接続を有効にする
-    reconnectionAttempts: 5,   // 5回まで頑張る
-    timeout: 10000             // 10秒待ってみる
+
+// 今開いているドメインが 'localhost' かどうかを判定
+const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+
+// ローカルなら自分のPC、そうでなければRailwayのURLを使う
+const SOCKET_URL = isLocal 
+    ? "http://localhost:3000" 
+    : "https://satisfied-nourishment-production.up.railway.app";
+
+const socket = io(SOCKET_URL, {
+    reconnection: true,
+    reconnectionAttempts: 5,
+    timeout: 10000
 });
+
+console.log(`接続先: ${SOCKET_URL}`); // 確認用にコンソールに表示
 
 class Player {
   constructor(name = "") {

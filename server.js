@@ -5,7 +5,18 @@ const express = require('express');
 const mysql = require('mysql2');
 const app     = express();
 const http    = require('http').createServer(app);
-const io      = require('socket.io')(http);
+const io = require('socket.io')(http, {
+  cors: {
+    // ロリポップのURLと、ローカルテスト用のURLを両方許可する
+    origin: [
+        "https://imglive.net", 
+        "http://localhost:3000",
+        "http://127.0.0.1:3000"
+    ],
+    methods: ["GET", "POST"],
+    credentials: true
+  }
+});
 const path    = require('path'); // ファイルパス操作用（絶対パスの指定などに必要）
 
 // ==========================================

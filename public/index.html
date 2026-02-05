@@ -2,7 +2,20 @@
 <html>
 <head>
   <title>Action Game - Gold Base 800</title>
-  <script src="/socket.io/socket.io.js"></script>
+  <script>
+    // 今開いている場所がローカルか判別
+    const isLocalHost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+    
+    // スクリプトタグを動的に作成
+    const script = document.createElement('script');
+    
+    // ローカルなら自分のPCから、それ以外（ロリポップなど）ならRailwayから読み込む
+    script.src = isLocalHost 
+      ? "/socket.io/socket.io.js" 
+      : "https://satisfied-nourishment-production.up.railway.app/socket.io/socket.io.js";
+      
+    document.head.appendChild(script);
+  </script>
   <style>
     body {
       margin: 0;
