@@ -1426,14 +1426,14 @@ function drawInventoryGrid(ctx, inventory) {
     const startX = 20;
     const startY = 130;
 
-    // 🌟 すべてのアイテムの重複を防ぐための記録
+    // 🌟 重複チェック用のSetはそのまま使いますが、使い方を変えます
     const alreadyDrawn = new Set();
 
     for (let i = 0; i < 10; i++) {
         const x = startX + (slotSize + padding) * i;
         const y = startY;
 
-        // 1. 枠の描画
+        // 枠の描画（ここは変更なし）
         ctx.strokeStyle = "rgba(255, 255, 255, 0.8)";
         ctx.lineWidth = 2;
         ctx.fillStyle = "rgba(0, 0, 0, 0.4)";
@@ -1441,23 +1441,24 @@ function drawInventoryGrid(ctx, inventory) {
         ctx.strokeRect(x, y, slotSize, slotSize);
 
         const itemData = inventory[i];
-        if (itemData) {
-            let type = typeof itemData === 'object' ? itemData.type : String(itemData);
-            let count = itemData.count || 1;
+        
+        // 🌟 ここから修正
+        if (itemData && itemData.type) {
+            let type = itemData.type;
+            let count = itemData.count || 0;
 
-            // 🌟 【ここが解決の鍵！】
-            // goldに限らず、すべてのアイテムについて「すでに描画済み」ならスキップします。
-            // これにより、通信ラグでShieldが複数スロットに重複して届いても、1つしか描きません。
-            if (type && alreadyDrawn.has(type)) {
-                continue; 
-            }
-            if (type) {
-                alreadyDrawn.add(type);
+            // 1. まず、個数が0以下の不正なデータなら無視する
+            if (count <= 0) continue;
+
+            // 2. 装備品（Shieldなど）は重複を許し、Goldだけ重複をチェックする
+            // もしくは、一度描画したらその「スロット位置」を信頼する形にします
+            if (type === 'gold') {
+                if (alreadyDrawn.has('gold')) continue;
+                alreadyDrawn.add('gold');
             }
 
             const config = ITEM_CONFIG[type];
             if (config) {
-                // --- 以下、描画処理はそのまま ---
                 let displayImg = config.isAnimated ? (config.images ? config.images[0] : null) : config.image;
 
                 if (!displayImg && config.src) {
@@ -1468,11 +1469,13 @@ function drawInventoryGrid(ctx, inventory) {
                     displayImg = config._tempImg;
                 }
 
+                // 描画実行
                 if (displayImg && displayImg.complete && displayImg.width > 0) {
                     const m = 5;
                     ctx.drawImage(displayImg, x + m, y + m, slotSize - m * 2, slotSize - m * 2);
                     
-                    if (count > 1) {
+                    // 個数の表示（Shieldなども1以上の場合は表示されます）
+                    if (count >= 1) {
                         ctx.fillStyle = "white";
                         ctx.strokeStyle = "black";
                         ctx.lineWidth = 2;
