@@ -1542,14 +1542,18 @@ socket.on('state', (data) => {
 
     if (!myHero) return; 
 
-    // 🌟 【チラつき・残像ガード修正版】
-    // サーバーから「空っぽ」という確定情報が届いたら、迷わず表示（バッファ）も空にします。
-    if (!myHero.inventory || myHero.inventory.length === 0) {
-        // 捨てた瞬間、ここを通ることで画面からアイテム画像が即座に消えます。
+    // 🌟 【残像ガード：修正版】
+    // Goldだけでなく、Shield（配列スロット）の残像も消すための強化判定
+    const isInventoryEmpty = !myHero.inventory || 
+                             myHero.inventory.length === 0 || 
+                             myHero.inventory.every(slot => !slot || slot.count <= 0);
+
+    if (isInventoryEmpty) {
+        // 🌟 ここで記憶を完全にリセット！
+        // これでShieldを捨てた瞬間も、スロットがパッと空になります。
         inventoryVisualBuffer = []; 
         myHero.inventory = [];
     } 
-    // サーバーからちゃんと中身（1個以上）が届いたら、それを新しい表示用バッファにします。
     else if (myHero.inventory && myHero.inventory.length > 0) {
         inventoryVisualBuffer = JSON.parse(JSON.stringify(myHero.inventory));
     }
