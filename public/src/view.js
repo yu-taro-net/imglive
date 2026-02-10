@@ -1531,8 +1531,7 @@ socket.on('state', (data) => {
     
     handleServerEvents(data);
 
-    // 🌟 修正ポイント：サーバーから届いた「生きているアイテムリスト」から、
-    // すでに誰かが拾い始めた（isPickedUp）ものを即座に除外して、描画させないようにします。
+    // 🌟 1. 地面のアイテム：拾われ中のものは即除外
     const currentItems = (data.items || []).filter(it => !it.isPickedUp);
     
     const currentEnemies = data.enemies || [];
@@ -1540,19 +1539,37 @@ socket.on('state', (data) => {
 
     if (!myHero) return; 
 
+    // 🌟 2. インベントリの「一瞬の残像」を物理的に消去する
+    // サーバーから届いたインベントリの中で、中身が空(null)や0個のものを、
+    // 描画バッファに入れる前に「無かったこと」にします。
+    if (myHero.inventory) {
+        myHero.inventory = myHero.inventory.filter(slot => 
+            slot && slot.type !== null && slot.type !== undefined && slot.count > 0
+        );
+    }
+
     // --- インベントリの残像ガード ---
     const isActuallyEmpty = !myHero.inventory || 
-                            myHero.inventory.length === 0 || 
-                            myHero.inventory.every(slot => !slot || !slot.type || slot.count <= 0);
+                            myHero.inventory.length === 0;
 
     if (isActuallyEmpty) {
         inventoryVisualBuffer = [];
         myHero.inventory = [];
     } else {
+        // 有効なアイテムだけが残った状態でコピーされるので、残像が出なくなります
         inventoryVisualBuffer = JSON.parse(JSON.stringify(myHero.inventory));
     }
 
-    // --- 中略 ---
+    // --- バックアップ処理 ---
+    lastItemCount = currentItems.length;
+    lastItemsData = JSON.parse(JSON.stringify(currentItems));
+
+    const others = {};
+    for (let id in data.players) {
+        if (id !== socket.id) {
+            others[id] = data.players[id];
+        }
+    }
 
     // 🎨 2. 描画実行
     if (typeof drawGame === 'function') {
@@ -1560,7 +1577,7 @@ socket.on('state', (data) => {
             myHero,            
             others,
             currentEnemies,
-            currentItems, // 🌟 フィルタリングされた「本当に地面にあるアイテム」だけを渡す
+            currentItems,
             data.platforms || [],
             data.ladders || [],
             damageTexts || [],
