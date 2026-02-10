@@ -1426,8 +1426,7 @@ function drawInventoryGrid(ctx, inventory) {
     const startX = 20;
     const startY = 130;
 
-    // 🌟 【一瞬の隣表示を防止】
-    // すでに描画したアイテムの名前を記録して、2回目は描かないようにします
+    // 🌟 すべてのアイテムの重複を防ぐための記録
     const alreadyDrawn = new Set();
 
     for (let i = 0; i < 10; i++) {
@@ -1446,16 +1445,19 @@ function drawInventoryGrid(ctx, inventory) {
             let type = typeof itemData === 'object' ? itemData.type : String(itemData);
             let count = itemData.count || 1;
 
-            // 🌟 【ここが核心】
-            // もし「gold」がすでに前のスロットで描画されていたら、
-            // このスロット（新しい方）では無視して描きません。
-            if (type === 'gold' && alreadyDrawn.has(type)) {
+            // 🌟 【ここが解決の鍵！】
+            // goldに限らず、すべてのアイテムについて「すでに描画済み」ならスキップします。
+            // これにより、通信ラグでShieldが複数スロットに重複して届いても、1つしか描きません。
+            if (type && alreadyDrawn.has(type)) {
                 continue; 
             }
-            alreadyDrawn.add(type);
+            if (type) {
+                alreadyDrawn.add(type);
+            }
 
             const config = ITEM_CONFIG[type];
             if (config) {
+                // --- 以下、描画処理はそのまま ---
                 let displayImg = config.isAnimated ? (config.images ? config.images[0] : null) : config.image;
 
                 if (!displayImg && config.src) {
