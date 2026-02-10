@@ -1474,8 +1474,10 @@ function drawInventoryGrid(ctx, inventory) {
                     const m = 5;
                     ctx.drawImage(displayImg, x + m, y + m, slotSize - m * 2, slotSize - m * 2);
                     
-                    // ⭕️ 修正後：1個より多く、かつ gold の時だけ数字を出す
-                    if (count > 1 && type === 'gold') {
+                    // 🌟 修正：goldなら1個以上、それ以外なら2個以上で数字を出す設定
+                    // (count >= 1 && type === 'gold') ⇒ goldなら1以上で表示
+                    // (count > 1) ⇒ gold以外でも、もし2個以上重なることがあれば表示
+                    if ((type === 'gold' && count >= 1) || count > 1) {
                         ctx.fillStyle = "white";
                         ctx.strokeStyle = "black";
                         ctx.lineWidth = 2;
