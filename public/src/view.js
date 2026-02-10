@@ -217,6 +217,7 @@ const AnimUtils = {
 
 let displayExp = 0; // 🌟 経験値をなめらかに表示するための変数
 let lastExp = 0; // 🌟 これを書き足す：前回の経験値を覚えておくための変数
+let recentlyPickedIds = new Set();
 
 /**
  * 特定のアクション（Walk, Idleなど）の現在のフレームを1枚返すだけの便利関数
@@ -1530,41 +1531,36 @@ socket.on('state', (data) => {
     
     handleServerEvents(data);
 
-    const currentItems = data.items || [];
+    // 🌟 修正ポイント：サーバーから届いた「生きているアイテムリスト」から、
+    // すでに誰かが拾い始めた（isPickedUp）ものを即座に除外して、描画させないようにします。
+    const currentItems = (data.items || []).filter(it => !it.isPickedUp);
+    
     const currentEnemies = data.enemies || [];
     const myHero = data.players[socket.id];
 
     if (!myHero) return; 
 
-    // 🌟 【チラつき完全ガード】
-    // 1. サーバーから届いたインベントリが空っぽ、かつ、さっきまで何か持っていた場合
-    //    ⇒ サーバーが更新されるまでの「ほんの数フレーム」だけ、前の表示を維持する
-    if ((!myHero.inventory || myHero.inventory.length === 0) && inventoryVisualBuffer) {
-        myHero.inventory = inventoryVisualBuffer;
-    } 
-    // 2. サーバーからちゃんと中身が届いたら、それを新しい「表示用バッファ」にする
-    else if (myHero.inventory && myHero.inventory.length > 0) {
+    // --- インベントリの残像ガード ---
+    const isActuallyEmpty = !myHero.inventory || 
+                            myHero.inventory.length === 0 || 
+                            myHero.inventory.every(slot => !slot || !slot.type || slot.count <= 0);
+
+    if (isActuallyEmpty) {
+        inventoryVisualBuffer = [];
+        myHero.inventory = [];
+    } else {
         inventoryVisualBuffer = JSON.parse(JSON.stringify(myHero.inventory));
     }
 
-    // --- バックアップ処理 ---
-    lastItemCount = currentItems.length;
-    lastItemsData = JSON.parse(JSON.stringify(currentItems));
-
-    const others = {};
-    for (let id in data.players) {
-        if (id !== socket.id) {
-            others[id] = data.players[id];
-        }
-    }
+    // --- 中略 ---
 
     // 🎨 2. 描画実行
     if (typeof drawGame === 'function') {
         drawGame(
-            myHero,            // 🌟 補正されたデータが渡される
+            myHero,            
             others,
             currentEnemies,
-            currentItems,
+            currentItems, // 🌟 フィルタリングされた「本当に地面にあるアイテム」だけを渡す
             data.platforms || [],
             data.ladders || [],
             damageTexts || [],
