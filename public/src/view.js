@@ -1542,23 +1542,20 @@ socket.on('state', (data) => {
 
     if (!myHero) return; 
 
-    // 🌟 【残像完全ガード：Shield対応版】
-    // 配列が存在していても、その中身（slot）が空なら「空」とみなす判定を作ります
-    const isActuallyEmpty = !myHero.inventory || 
-                            myHero.inventory.length === 0 || 
-                            myHero.inventory.every(slot => !slot || !slot.type || slot.count <= 0);
-
-    if (isActuallyEmpty) {
-        // 🌟 Shieldを捨ててスロットが空（null）になった瞬間にここを通り、記憶を消去します
-        inventoryVisualBuffer = []; 
-        myHero.inventory = [];
+    // 🌟 【残像・Shield完全消去ガード】
+    // サーバーから inventory という項目自体が届かない、または中身が空の場合
+    // それは「アイテムを捨てて何も持っていない状態」を意味します。
+    if (!myHero.hasOwnProperty('inventory') || !myHero.inventory || myHero.inventory.length === 0) {
+        // 強制的に表示バッファを空にして、Shieldの残像を消します
+        inventoryVisualBuffer = [];
+        myHero.inventory = []; 
     } 
-    // ちゃんとアイテム（Goldや有効なShield）を持っている時だけバッファを更新
+    // アイテム（ShieldやGold）を確実に持っている時だけ、表示を記憶する
     else {
         inventoryVisualBuffer = JSON.parse(JSON.stringify(myHero.inventory));
     }
 
-    // --- 以下、元のコードと同じ ---
+    // --- バックアップ処理 ---
     lastItemCount = currentItems.length;
     lastItemsData = JSON.parse(JSON.stringify(currentItems));
 
