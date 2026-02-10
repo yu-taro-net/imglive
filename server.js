@@ -650,12 +650,19 @@ function handlePickup(socket, itemId) {
 
     if (idx !== -1) {
         const item = droppedItems[idx];
+		
+		// すでに誰かが拾い始めている（isPickedUpフラグがある）なら、何もしない
+		if (item.isPickedUp) return;
+		
         const dx = Math.abs(player.x - item.x);
         const dy = Math.abs(player.y - item.y);
 
         if (dx > SETTINGS.ITEM.PICKUP_RANGE_X || dy > SETTINGS.ITEM.PICKUP_RANGE_Y) {
             return;
         }
+		
+		// これにより、通信のラグでコンマ数秒後にまた判定が来ても、無視されます
+        item.isPickedUp = true;
 
         const removedItem = droppedItems.splice(idx, 1)[0];
 
