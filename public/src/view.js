@@ -572,19 +572,20 @@ function updateTimers() {
  * 🏃 キャラクターやアイテムなどの「動くもの」を一括管理
  */
 function drawEntities(hero, others, enemies, items, frame) {
-    // アイテム（地面に落ちているもの）
-    drawItems(items, frame);
+    // 1. 敵（モンスター）を一番奥に描く
+    drawEnemies(enemies, hero, frame);
 
-    // 他のプレイヤー
+    // 2. 他のプレイヤー
     for (let id in others) {
         if (others[id]) drawPlayerObj(others[id], false, id);
     }
 
-    // 自分自身（他人の上に重なるように後に描画）
+    // 3. 自分自身（他人の上に重なるように描画）
     drawPlayerObj(hero, true);
 
-    // 敵（モンスター）
-    drawEnemies(enemies, hero, frame);
+    // 🌟 4. アイテム（地面に落ちているもの）を一番「手前」に描く！
+    // これにより、自分の足元に落ちたアイテムがキャラに隠れず見えるようになります。
+    drawItems(items, frame);
 }
 
 /**
@@ -1371,44 +1372,47 @@ function drawItems(items, frame) {
     if (!items || !Array.isArray(items)) return;
 
     items.forEach(item => {
-        // 🌟 【修正ポイント：拾った瞬間の残像消去】
-        // サーバー側で修正した「item.isPickedUp = true」をここでチェックします。
-        // 誰かが拾い始めたアイテムは、通信でリストから消えるのを待たずに、今すぐ描画をスキップします。
-        if (item.isPickedUp) {
-            return; 
-        }
+        if (item.isPickedUp) return; 
 
         ctx.save();
 
-        // 1. 浮遊アニメーションの計算
+        // 1. 浮遊アニメーション
         const offset = item.id || (item.x + item.y);
         const floatY = item.landed ? -Math.abs(Math.sin(frame * VIEW_CONFIG.item.floatSpeed + offset) * VIEW_CONFIG.item.floatAmplitude) : 0;
 
-        // 2. 地面への着地高さの調整
+        // 2. 座標とサイズの準備
         const itemY = item.y;
+        const drawSize = VIEW_CONFIG.item.drawSize; // 32
+        const halfSize = drawSize / 2;
 
-        // 中央揃えの基準点へ移動
-        const halfSize = VIEW_CONFIG.item.drawSize / 2;
-        ctx.translate(item.x + halfSize, itemY + halfSize + floatY);
+        // 🌟 判定：一番下の地面(565)の近くにいるかどうか
+        // 地面(SETTINGS.SYSTEM.GROUND_Y - 32 = 533)に近い場合は「地面モード」
+        const isOnGround = itemY > 500; 
 
-        // 3. 設定読み込み
-        const config = ITEM_CONFIG[item.type] || ITEM_CONFIG["money1"]; 
-        
-        let img = null;
-        if (typeof sprites !== 'undefined' && sprites.items && sprites.items[config.spriteKey]) {
-            if (config.isAnimated) {
-                const animIdx = Math.floor((frame + (offset * 10)) / 10) % 10;
-                img = sprites.items[config.spriteKey][animIdx];
-            } else {
-                img = sprites.items[config.spriteKey];
-            }
+        let adjustY = 0;
+        if (isOnGround) {
+            // A. 地面の場合：土田さんの今の「完璧な地面」の計算式
+            adjustY = itemY - halfSize - 3;
+        } else {
+            // B. 足場の場合：地面より少しだけ下にずらす（+10など）
+            // この「+ 10」を増やすと足場に沈み、減らすと浮きます。
+            adjustY = itemY - halfSize + 28; 
         }
 
-        // 4. 描画処理
-        if (img && (img.complete || img.naturalWidth > 0)) {
-            const targetHeight = VIEW_CONFIG.item.drawSize;
-            const targetWidth = targetHeight * (img.naturalWidth / img.naturalHeight);
+        // 3. 移動と描画
+        ctx.translate(item.x + halfSize, adjustY + floatY);
 
+        const config = ITEM_CONFIG[item.type] || ITEM_CONFIG["money1"]; 
+        let img = null;
+        if (typeof sprites !== 'undefined' && sprites.items && sprites.items[config.spriteKey]) {
+            img = config.isAnimated 
+                  ? sprites.items[config.spriteKey][Math.floor((frame + (offset * 10)) / 10) % 10] 
+                  : sprites.items[config.spriteKey];
+        }
+
+        if (img && (img.complete || img.naturalWidth > 0)) {
+            const targetHeight = drawSize;
+            const targetWidth = targetHeight * (img.naturalWidth / img.naturalHeight);
             ctx.imageSmoothingEnabled = true;
             ctx.drawImage(img, -targetWidth / 2, -targetHeight / 2, targetWidth, targetHeight);
             ctx.imageSmoothingEnabled = false;

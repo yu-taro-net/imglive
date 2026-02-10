@@ -831,31 +831,54 @@ socket.on('move', d => {
             io.emit('update_players', players);
         }
     });
-	socket.on('dropItem', (index) => {
+	// 📥 クライアントから「アイテムを捨てたよ（dropItem）」という通知が来た時の処理
+socket.on('dropItem', (index) => {
+    // 🔍 1. 通信を送ってきたプレイヤーが誰かを探します
     const player = players[socket.id];
+    
+    // 🛡️ ガード：プレイヤーが存在しない、またはカバンが空なら何もしません
     if (!player || !player.inventory) return;
 
+    // ✅ 2. 指定された番号（index）のアイテムが、カバンの中に本当にあるか確認します
     if (player.inventory[index]) {
+        // 📦 捨てる予定のアイテム情報を一時的にキープします
         const itemToDrop = player.inventory[index];
 
-        // 🌟 徹底的に「初期アイテム」のふりをする
+        // 🌟 3. 地面に置くための「新しいアイテムデータ」をゼロから作成します
+        // 初期配置アイテムと同じ形式にすることで、エラーを防ごうとしています
         const newItem = {
-            // IDを数字だけにしてみる（もし初期アイテムがそうなら）
+            // 🆔 ID：重ならないように、0〜100万の間のランダムな数字を名札にします
             id: Math.floor(Math.random() * 1000000), 
+            
+            // 🏷️ 種類：カバンに入っていた種類（例：'money3'）をそのまま引き継ぎます
             type: itemToDrop.type,
-            x: player.x + 60, 
+            
+            // 📍 横の位置(X)：プレイヤーの現在位置から「右に60ピクセル」ずらした場所に置きます
+            // これでプレイヤーと重なりすぎないようにしています
+            //x: player.x + 60, 
+            x: player.x,
+            
+            // 📍 縦の位置(Y)：プレイヤーと同じ高さに置きます
             y: player.y,
-            // 初期アイテムが必要としているかもしれない項目を全部入れる
+            
+            // 💰 価値：お金(money3)なら100、それ以外なら10という値を設定しています
             value: (itemToDrop.type === 'money3' ? 100 : 10),
-            isStatic: true // 「動かないアイテム」という設定がある場合
+            
+            // ⚓ 固定設定：物理計算をさせず、その場に固定(Static)して置く設定です
+            isStatic: true 
         };
 
+        // 🗺️ 4. 作成したデータを、世界の「落ちているアイテムリスト」に追加します
         if (Array.isArray(droppedItems)) {
             droppedItems.push(newItem);
+            // ログを出して、サーバー側で正しく置けたか確認できるようにします
             console.log("地面に追加完了:", newItem);
         }
 
+        // ✂️ 5. プレイヤーのカバン(inventory)から、捨てたアイテムを削除します
         player.inventory.splice(index, 1);
+
+        // 📢 6. 最後に、世界の状態（state）を全員に送り直して、画面を更新させます
         sendState();
     }
 });
