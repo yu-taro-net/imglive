@@ -431,12 +431,12 @@ const DROP_DATABASE = {
   "monster1":  { table: "small"},
   "monster2":  { table: "small"  },
   "monster3":  { table: "small"  },
-  "monster20": { table: "big"  },
+  "monster20": { table: "big2"  },
 };
 
 const DROP_CHANCE_TABLES = {
   "big":   { "gold_heart": 40, "money5": 20, "gold_one": 5, "default": 50 }, // 50%でドロップ、そのうち20%で金塊
-  "big2":  { "shield": 90, "money5": 80, "default": 50 },
+  "big2":  { "shield": 90, "gold": 80, "default": 100 },
   "small": { "gold_heart": 40, "money6": 50,  "default": 50 }
 };
 
@@ -646,27 +646,20 @@ function handlePickup(socket, itemId) {
     const player = players[socket.id];
     if (!player) return;
 
-    // 1. 🔍 地面のアイテムリストから対象を探す
     const idx = droppedItems.findIndex(it => it.id === itemId);
 
-    // 🌟 アイテムが見つかった（まだ誰にも拾われていない）場合のみ実行
     if (idx !== -1) {
-        // --- 🌟 追加：距離のチェック（設定値を使用） ---
         const item = droppedItems[idx];
         const dx = Math.abs(player.x - item.x);
         const dy = Math.abs(player.y - item.y);
 
-        // 設定した範囲（PICKUP_RANGE）より遠ければ、何もせず終了する
         if (dx > SETTINGS.ITEM.PICKUP_RANGE_X || dy > SETTINGS.ITEM.PICKUP_RANGE_Y) {
             return;
         }
-        // ------------------------------------------
 
-        // 2. ✂️ 即座にリストから抜き取る（二重取得を防止）
         const removedItem = droppedItems.splice(idx, 1)[0];
 
         if (removedItem) {
-            // 3. 📝 演出用に記録（state送信時に使う）
             lastPickedItems.push({
                 type: removedItem.type,
                 x: removedItem.x,
@@ -674,12 +667,48 @@ function handlePickup(socket, itemId) {
                 pickerId: socket.id
             });
 
-            // 4. 🎁 報酬を与える
-            player.inventory.push(removedItem.type);
-            const points = (removedItem.type === 'gold') ? 500 : (removedItem.type === 'money3' ? 100 : 10);
-            player.score += points;
+            // --- 🎁 報酬を与える処理 (server.js) ---
+if (!player.inventory) player.inventory = [];
+
+if (removedItem.type === 'shield' || removedItem.type === 'gold') {
+    
+    // 🌟 1. まず「スタックできるか」だけを徹底的に調べる
+    let stacked = false;
+    
+    if (removedItem.type === 'gold') {
+        const goldIndex = player.inventory.findIndex(slot => {
+            if (!slot) return false;
+            const type = (typeof slot === 'object') ? slot.type : slot;
+            return type === 'gold';
+        });
+
+        if (goldIndex !== -1) {
+            // 見つかった！既存の場所を更新するだけ
+            let existing = player.inventory[goldIndex];
+            if (typeof existing !== 'object') {
+                player.inventory[goldIndex] = { type: 'gold', count: 2 };
+            } else {
+                player.inventory[goldIndex].count = (player.inventory[goldIndex].count || 1) + 1;
+            }
+            stacked = true; // スタック完了フラグ
+            console.log(`[Stack OK] スロット ${goldIndex} にまとめました`);
+        }
+    }
+
+    // 🌟 2. 【重要】スタックされなかった場合のみ、かつ、カバンに空きがある時だけ push する
+    if (!stacked) {
+        if (player.inventory.length < 10) {
+            player.inventory.push({ type: removedItem.type, count: 1 });
+            console.log(`[New Item] 新しいスロットに格納しました`);
+        }
+    }
+
+} else {
+    // スコアアイテム
+    const points = (removedItem.type === 'money3' ? 100 : 10);
+    player.score += points;
+}
             
-            // 5. 📡 全員に最新状態を通知（アイテムが消えたことを即座に知らせる）
             sendState();
         }
     }
@@ -793,6 +822,34 @@ socket.on('move', d => {
             io.emit('update_players', players);
         }
     });
+	socket.on('dropItem', (index) => {
+    const player = players[socket.id];
+    if (!player || !player.inventory) return;
+
+    if (player.inventory[index]) {
+        const itemToDrop = player.inventory[index];
+
+        // 🌟 徹底的に「初期アイテム」のふりをする
+        const newItem = {
+            // IDを数字だけにしてみる（もし初期アイテムがそうなら）
+            id: Math.floor(Math.random() * 1000000), 
+            type: itemToDrop.type,
+            x: player.x + 60, 
+            y: player.y,
+            // 初期アイテムが必要としているかもしれない項目を全部入れる
+            value: (itemToDrop.type === 'money3' ? 100 : 10),
+            isStatic: true // 「動かないアイテム」という設定がある場合
+        };
+
+        if (Array.isArray(droppedItems)) {
+            droppedItems.push(newItem);
+            console.log("地面に追加完了:", newItem);
+        }
+
+        player.inventory.splice(index, 1);
+        sendState();
+    }
+});
 });
 
 // ==========================================

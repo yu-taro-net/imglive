@@ -601,6 +601,11 @@ function drawEffects(damageTexts, hero, others) {
 function drawUIOverlay(hero) {
     drawItemLogsUI(); // 画面右下の取得ログ
     drawUI(hero);     // 左上のステータスバー
+    
+    // 🌟 ここに追加！
+    if (hero && hero.inventory) {
+        drawInventoryGrid(ctx, hero.inventory);
+    }
 }
 
 // ==========================================
@@ -1314,19 +1319,19 @@ function drawExpAndDebug(hero) {
     // --- デバッグとRaw表示 ---
     ctx.fillStyle = "white";
     ctx.font = "14px monospace";
-    ctx.fillText(`Raw EXP: ${hero.exp || 0}`, 20, 140); 
-    ctx.fillText(`Max EXP: ${hero.maxExp || 100}`, 20, 155);
+    //ctx.fillText(`Raw EXP: ${hero.exp || 0}`, 20, 140); 
+    //ctx.fillText(`Max EXP: ${hero.maxExp || 100}`, 20, 155);
     
     ctx.save(); 
     ctx.fillStyle = "rgba(0, 0, 0, 0.7)"; 
-    ctx.fillRect(10, 150, 200, 60); 
+    //ctx.fillRect(10, 150, 200, 60); 
 
     ctx.fillStyle = "#00ff00"; 
     ctx.font = "bold 16px monospace";
     ctx.textAlign = "left";
 
-    ctx.fillText(`DEBUG hero.exp: ${hero.exp}`, 20, 175);
-    ctx.fillText(`DEBUG hero.level: ${hero.level}`, 20, 195);
+    //ctx.fillText(`DEBUG hero.exp: ${hero.exp}`, 20, 175);
+    //ctx.fillText(`DEBUG hero.level: ${hero.level}`, 20, 195);
 
     ctx.restore(); 
 }
@@ -1418,6 +1423,98 @@ function drawItems(items, frame) {
     });
 }
 
+function drawInventoryGrid(ctx, inventory) {
+    if (!ctx || !inventory) return;
+
+    const slotSize = 40;
+    const padding = 8;
+    const startX = 20;
+    const startY = 130;
+
+    // 🌟 【一瞬の隣表示を防止】
+    // すでに描画したアイテムの名前を記録して、2回目は描かないようにします
+    const alreadyDrawn = new Set();
+
+    for (let i = 0; i < 10; i++) {
+        const x = startX + (slotSize + padding) * i;
+        const y = startY;
+
+        // 1. 枠の描画
+        ctx.strokeStyle = "rgba(255, 255, 255, 0.8)";
+        ctx.lineWidth = 2;
+        ctx.fillStyle = "rgba(0, 0, 0, 0.4)";
+        ctx.fillRect(x, y, slotSize, slotSize);
+        ctx.strokeRect(x, y, slotSize, slotSize);
+
+        const itemData = inventory[i];
+        if (itemData) {
+            let type = typeof itemData === 'object' ? itemData.type : String(itemData);
+            let count = itemData.count || 1;
+
+            // 🌟 【ここが核心】
+            // もし「gold」がすでに前のスロットで描画されていたら、
+            // このスロット（新しい方）では無視して描きません。
+            if (type === 'gold' && alreadyDrawn.has(type)) {
+                continue; 
+            }
+            alreadyDrawn.add(type);
+
+            const config = ITEM_CONFIG[type];
+            if (config) {
+                let displayImg = config.isAnimated ? (config.images ? config.images[0] : null) : config.image;
+
+                if (!displayImg && config.src) {
+                    if (!config._tempImg) {
+                        config._tempImg = new Image();
+                        config._tempImg.src = config.src;
+                    }
+                    displayImg = config._tempImg;
+                }
+
+                if (displayImg && displayImg.complete && displayImg.width > 0) {
+                    const m = 5;
+                    ctx.drawImage(displayImg, x + m, y + m, slotSize - m * 2, slotSize - m * 2);
+                    
+                    if (count > 1) {
+                        ctx.fillStyle = "white";
+                        ctx.strokeStyle = "black";
+                        ctx.lineWidth = 2;
+                        ctx.font = "bold 14px Arial";
+                        ctx.textAlign = "right";
+                        ctx.strokeText(count, x + slotSize - 3, y + slotSize - 3);
+                        ctx.fillText(count, x + slotSize - 3, y + slotSize - 3);
+                        ctx.textAlign = "left";
+                    }
+                }
+            }
+        }
+    }
+}
+
+// view.js の一番下などに追加
+canvas.addEventListener('mousedown', (event) => {
+    // 1. クリックされた場所（座標）を取得
+    const rect = canvas.getBoundingClientRect();
+    const clickX = event.clientX - rect.left;
+    const clickY = event.clientY - rect.top;
+
+    // 2. インベントリの範囲内かチェック (y座標が 130～170 の間くらい)
+    if (clickY >= 130 && clickY <= 170) {
+        const slotSize = 40;
+        const padding = 8;
+        const startX = 20;
+
+        // 3. 何番目のスロットをクリックしたか計算
+        const index = Math.floor((clickX - startX) / (slotSize + padding));
+
+        // 0番目〜9番目の範囲内なら、サーバーに通知
+        if (index >= 0 && index < 10) {
+            console.log(index + "番目のアイテムを捨てます");
+            socket.emit('dropItem', index); // サーバーに「この番号を捨てて」と送る
+        }
+    }
+});
+
 // ==========================================
 // 判定用の変数（データの比較に使用）
 // ==========================================
@@ -1429,24 +1526,37 @@ let lastItemsData = []; // ✨ 前回のアイテム状態を保持
 // ==========================================
 // 📡 サーバーからのデータ（state）を受け取る窓口
 // ==========================================
+// view.js の socket.on('state', ...) の部分をこれに差し替えてください
+
+// 🌟 関数の外側に「一瞬前のデータ」を保存する場所を作ります
+let inventoryVisualBuffer = null;
+
 socket.on('state', (data) => {
     if (!data) return;
-	
-	handleServerEvents(data);
+    
+    handleServerEvents(data);
 
-    // --- A. 基本データの準備 ---
     const currentItems = data.items || [];
-    const currentEnemies = data.enemies || []; // 敵データも取得
+    const currentEnemies = data.enemies || [];
     const myHero = data.players[socket.id];
-	
-    // --- B. 次回の判定用にデータをバックアップ ---
+
+    if (!myHero) return; 
+
+    // 🌟 【チラつき完全ガード】
+    // 1. サーバーから届いたインベントリが空っぽ、かつ、さっきまで何か持っていた場合
+    //    ⇒ サーバーが更新されるまでの「ほんの数フレーム」だけ、前の表示を維持する
+    if ((!myHero.inventory || myHero.inventory.length === 0) && inventoryVisualBuffer) {
+        myHero.inventory = inventoryVisualBuffer;
+    } 
+    // 2. サーバーからちゃんと中身が届いたら、それを新しい「表示用バッファ」にする
+    else if (myHero.inventory && myHero.inventory.length > 0) {
+        inventoryVisualBuffer = JSON.parse(JSON.stringify(myHero.inventory));
+    }
+
+    // --- バックアップ処理 ---
     lastItemCount = currentItems.length;
     lastItemsData = JSON.parse(JSON.stringify(currentItems));
 
-    // 自分自身のデータがない場合はここで終了
-    if (!myHero) return; 
-
-    // --- C. 他人のリストを作成（自分を除外） ---
     const others = {};
     for (let id in data.players) {
         if (id !== socket.id) {
@@ -1454,24 +1564,20 @@ socket.on('state', (data) => {
         }
     }
 
-    // ==========================================
-    // 🎨 2. ゲーム画面の描画実行
-    // ==========================================
+    // 🎨 2. 描画実行
     if (typeof drawGame === 'function') {
         drawGame(
-            myHero,            // 自分のデータ
-            others,            // 他人のデータ
-            currentEnemies,     // 敵のデータ
-            currentItems,       // アイテムのデータ
-            data.platforms || [], // 足場のデータ
-            data.ladders || [],   // ハシゴのデータ
-            damageTexts || [],    // ダメージテキスト（あれば）
-            Math.floor(Date.now() / 16) // 現在のフレーム相当
+            myHero,            // 🌟 補正されたデータが渡される
+            others,
+            currentEnemies,
+            currentItems,
+            data.platforms || [],
+            data.ladders || [],
+            damageTexts || [],
+            Math.floor(Date.now() / 16)
         ); 
     }
 });
-
-// view.js の一番最後
 
 // 🌟 修正：itemLogs を「window.itemLogs」として扱うとより確実です
 socket.on('exp_log', (data) => {
