@@ -1367,23 +1367,30 @@ function drawChatBubble(p, text) {
 }
 
 function drawItems(items, frame) {
+    if (!items || !Array.isArray(items)) return;
+
     items.forEach(item => {
+        // 🌟 【修正ポイント：拾った瞬間の残像消去】
+        // サーバー側で修正した「item.isPickedUp = true」をここでチェックします。
+        // 誰かが拾い始めたアイテムは、通信でリストから消えるのを待たずに、今すぐ描画をスキップします。
+        if (item.isPickedUp) {
+            return; 
+        }
+
         ctx.save();
 
-        // 1. 浮遊アニメーションの計算（VIEW_CONFIGを使用）
+        // 1. 浮遊アニメーションの計算
         const offset = item.id || (item.x + item.y);
-        // 0.05 -> floatSpeed, 12 -> floatAmplitude
         const floatY = item.landed ? -Math.abs(Math.sin(frame * VIEW_CONFIG.item.floatSpeed + offset) * VIEW_CONFIG.item.floatAmplitude) : 0;
 
         // 2. 地面への着地高さの調整
-        // 500 -> groundThreshold, 20 -> groundOffset
-        const itemY = (item.y > VIEW_CONFIG.groundThreshold) ? (VIEW_CONFIG.groundY - VIEW_CONFIG.item.groundOffset) : item.y;
+        const itemY = item.y;
 
-        // 🌟 中央揃えの基準点へ移動 (32 / 2 = 16 なので、drawSize / 2 を使用)
+        // 中央揃えの基準点へ移動
         const halfSize = VIEW_CONFIG.item.drawSize / 2;
         ctx.translate(item.x + halfSize, itemY + halfSize + floatY);
 
-        // 3. JSONデータから設定を読み込む
+        // 3. 設定読み込み
         const config = ITEM_CONFIG[item.type] || ITEM_CONFIG["money1"]; 
         
         let img = null;
@@ -1396,27 +1403,14 @@ function drawItems(items, frame) {
             }
         }
 
-        // 4. 🌟 描画処理
+        // 4. 描画処理
         if (img && (img.complete || img.naturalWidth > 0)) {
-            const nw = img.naturalWidth;
-            const nh = img.naturalHeight;
-            const targetHeight = VIEW_CONFIG.item.drawSize; // 32
-            const targetWidth = targetHeight * (nw / nh);
+            const targetHeight = VIEW_CONFIG.item.drawSize;
+            const targetWidth = targetHeight * (img.naturalWidth / img.naturalHeight);
 
             ctx.imageSmoothingEnabled = true;
             ctx.drawImage(img, -targetWidth / 2, -targetHeight / 2, targetWidth, targetHeight);
             ctx.imageSmoothingEnabled = false;
-        } else {
-            // 保険の四角形描画 (サイズ 16 は drawSize 32 の半分として計算)
-            const fallbackSize = VIEW_CONFIG.item.drawSize / 2;
-            ctx.fillStyle = "#fbbf24"; 
-            ctx.beginPath();
-            ctx.rect(-fallbackSize / 2, -fallbackSize / 2, fallbackSize, fallbackSize); 
-            ctx.fill();
-            
-            ctx.strokeStyle = "white";
-            ctx.lineWidth = 1;
-            ctx.stroke();
         }
 
         ctx.restore();
@@ -1542,16 +1536,14 @@ socket.on('state', (data) => {
 
     if (!myHero) return; 
 
-    // 🌟 【残像・Shield完全消去ガード】
-    // サーバーから inventory という項目自体が届かない、または中身が空の場合
-    // それは「アイテムを捨てて何も持っていない状態」を意味します。
-    if (!myHero.hasOwnProperty('inventory') || !myHero.inventory || myHero.inventory.length === 0) {
-        // 強制的に表示バッファを空にして、Shieldの残像を消します
-        inventoryVisualBuffer = [];
-        myHero.inventory = []; 
+    // 🌟 【チラつき完全ガード】
+    // 1. サーバーから届いたインベントリが空っぽ、かつ、さっきまで何か持っていた場合
+    //    ⇒ サーバーが更新されるまでの「ほんの数フレーム」だけ、前の表示を維持する
+    if ((!myHero.inventory || myHero.inventory.length === 0) && inventoryVisualBuffer) {
+        myHero.inventory = inventoryVisualBuffer;
     } 
-    // アイテム（ShieldやGold）を確実に持っている時だけ、表示を記憶する
-    else {
+    // 2. サーバーからちゃんと中身が届いたら、それを新しい「表示用バッファ」にする
+    else if (myHero.inventory && myHero.inventory.length > 0) {
         inventoryVisualBuffer = JSON.parse(JSON.stringify(myHero.inventory));
     }
 
@@ -1569,7 +1561,7 @@ socket.on('state', (data) => {
     // 🎨 2. 描画実行
     if (typeof drawGame === 'function') {
         drawGame(
-            myHero,            
+            myHero,            // 🌟 補正されたデータが渡される
             others,
             currentEnemies,
             currentItems,
