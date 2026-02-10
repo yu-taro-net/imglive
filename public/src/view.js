@@ -1542,23 +1542,23 @@ socket.on('state', (data) => {
 
     if (!myHero) return; 
 
-    // 🌟 【残像ガード：修正版】
-    // Goldだけでなく、Shield（配列スロット）の残像も消すための強化判定
-    const isInventoryEmpty = !myHero.inventory || 
-                             myHero.inventory.length === 0 || 
-                             myHero.inventory.every(slot => !slot || slot.count <= 0);
+    // 🌟 【残像完全ガード：Shield対応版】
+    // 配列が存在していても、その中身（slot）が空なら「空」とみなす判定を作ります
+    const isActuallyEmpty = !myHero.inventory || 
+                            myHero.inventory.length === 0 || 
+                            myHero.inventory.every(slot => !slot || !slot.type || slot.count <= 0);
 
-    if (isInventoryEmpty) {
-        // 🌟 ここで記憶を完全にリセット！
-        // これでShieldを捨てた瞬間も、スロットがパッと空になります。
+    if (isActuallyEmpty) {
+        // 🌟 Shieldを捨ててスロットが空（null）になった瞬間にここを通り、記憶を消去します
         inventoryVisualBuffer = []; 
         myHero.inventory = [];
     } 
-    else if (myHero.inventory && myHero.inventory.length > 0) {
+    // ちゃんとアイテム（Goldや有効なShield）を持っている時だけバッファを更新
+    else {
         inventoryVisualBuffer = JSON.parse(JSON.stringify(myHero.inventory));
     }
 
-    // --- バックアップ処理 ---
+    // --- 以下、元のコードと同じ ---
     lastItemCount = currentItems.length;
     lastItemsData = JSON.parse(JSON.stringify(currentItems));
 
@@ -1572,7 +1572,7 @@ socket.on('state', (data) => {
     // 🎨 2. 描画実行
     if (typeof drawGame === 'function') {
         drawGame(
-            myHero,            // 🌟 修正された最新のデータが渡されます
+            myHero,            
             others,
             currentEnemies,
             currentItems,
