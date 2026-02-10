@@ -1474,8 +1474,8 @@ function drawInventoryGrid(ctx, inventory) {
                     const m = 5;
                     ctx.drawImage(displayImg, x + m, y + m, slotSize - m * 2, slotSize - m * 2);
                     
-                    // 個数の表示（Shieldなども1以上の場合は表示されます）
-                    if (count >= 1) {
+                    // ⭕️ 修正後：1個より多く、かつ gold の時だけ数字を出す
+                    if (count > 1 && type === 'gold') {
                         ctx.fillStyle = "white";
                         ctx.strokeStyle = "black";
                         ctx.lineWidth = 2;
