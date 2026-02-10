@@ -646,24 +646,26 @@ function handlePickup(socket, itemId) {
     const player = players[socket.id];
     if (!player) return;
 
+    // 🌟 1. find ではなく、直接そのアイテムを見つける
+    const item = droppedItems.find(it => it.id === itemId);
+
+    // 🌟 2. アイテムが存在しない、または「すでに拾われ中」なら即終了
+    if (!item || item.isPickedUp) return;
+
+    const dx = Math.abs(player.x - item.x);
+    const dy = Math.abs(player.y - item.y);
+
+    if (dx > SETTINGS.ITEM.PICKUP_RANGE_X || dy > SETTINGS.ITEM.PICKUP_RANGE_Y) {
+        return;
+    }
+
+    // 🌟 3. 【最重要】ここで即座にロックをかける！
+    // splice で消えるのを待たずに、このメモリ上のオブジェクトを「使用済み」にします。
+    item.isPickedUp = true;
+
+    // 🌟 4. その後でリストから削除する
     const idx = droppedItems.findIndex(it => it.id === itemId);
-
     if (idx !== -1) {
-        const item = droppedItems[idx];
-		
-		// すでに誰かが拾い始めている（isPickedUpフラグがある）なら、何もしない
-		if (item.isPickedUp) return;
-		
-        const dx = Math.abs(player.x - item.x);
-        const dy = Math.abs(player.y - item.y);
-
-        if (dx > SETTINGS.ITEM.PICKUP_RANGE_X || dy > SETTINGS.ITEM.PICKUP_RANGE_Y) {
-            return;
-        }
-		
-		// これにより、通信のラグでコンマ数秒後にまた判定が来ても、無視されます
-        item.isPickedUp = true;
-
         const removedItem = droppedItems.splice(idx, 1)[0];
 
         if (removedItem) {
