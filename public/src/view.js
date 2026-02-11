@@ -3,6 +3,18 @@
 // ==========================================
 const canvas = document.getElementById('stage');
 const ctx = canvas.getContext('2d');
+let mouseX = 0;
+let mouseY = 0;
+
+// マウスが動いた時に、画面の左上に座標を出すだけのテスト
+canvas.addEventListener('mousemove', (e) => {
+    const rect = canvas.getBoundingClientRect();
+    mouseX = e.clientX - rect.left;
+    mouseY = e.clientY - rect.top;
+
+    // 🌟 これを追加：コンソールではなく、画面に直接「今のマウス位置」を出します
+    //document.title = `Mouse: ${Math.round(mouseX)}, ${Math.round(mouseY)}`;
+});
 // 🌟 ここから追加：高画質化（Retina/高画素ディスプレイ対応）
 const dpr = window.devicePixelRatio || 1;
 
@@ -599,14 +611,67 @@ function drawEffects(damageTexts, hero, others) {
 
 /**
  * 📊 画面に固定される情報（HPバーやログ）
+ * クリック判定（startX=25, startY=135）と完全に同期させた最新版です。
  */
 function drawUIOverlay(hero) {
-    drawItemLogsUI(); // 画面右下の取得ログ
-    drawUI(hero);     // 左上のステータスバー
+    drawItemLogsUI(); 
+    drawUI(hero);     
     
-    // 🌟 ここに追加！
     if (hero && hero.inventory) {
         drawInventoryGrid(ctx, hero.inventory);
+
+        // --- 🎯 土田さんが見つけた黄金比 ---
+        const startX = 20; 
+        const startY = 130; 
+        const slotSize = 40;
+        const spacing = 8; 
+
+        hero.inventory.forEach((slot, index) => {
+            if (!slot || !slot.type || slot.count <= 0) return;
+
+            const x = startX + (index * (slotSize + spacing));
+            const y = startY;
+
+            // 🖱️ 判定（赤枠と100%連動）
+            if (mouseX >= x && mouseX <= (x + slotSize) &&
+                mouseY >= y && mouseY <= (y + slotSize)) {
+                
+                ctx.save();
+                
+                // 🌟 【ここが犯人でした！】表示する文字を組み立て直します
+                let text = "";
+                if (slot.type === 'shield') {
+                    // シールドの時は「シールド1 (防御力:5)」にする
+                    const def = slot.defense || 5;
+                    text = `シールド1 (防御力:${def})`;
+                } else if (slot.type === 'gold') {
+                    text = `ゴールド (${slot.count})`;
+                } else {
+                    // それ以外は元のまま
+                    text = `${slot.type} (${slot.count})`;
+                }
+
+                ctx.font = 'bold 14px sans-serif';
+                const textWidth = ctx.measureText(text).width;
+                const popupX = mouseX + 10;
+                const popupY = mouseY - 30;
+
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.9)';
+                ctx.beginPath();
+                ctx.roundRect(popupX, popupY, textWidth + 16, 26, 5);
+                ctx.fill();
+                
+                ctx.fillStyle = '#ffffff';
+                ctx.textBaseline = 'middle';
+                ctx.fillText(text, popupX + 8, popupY + 13);
+                
+                // 枠線の装飾
+                ctx.strokeStyle = '#ffff00';
+                ctx.lineWidth = 1;
+                ctx.stroke();
+                ctx.restore();
+            }
+        });
     }
 }
 
@@ -1400,7 +1465,20 @@ function drawItems(items, frame) {
         }
 
         // 3. 移動と描画
+        // 1. アイテムの中心位置に移動
         ctx.translate(item.x + halfSize, adjustY + floatY);
+
+        // 2. 回転の処理
+        // item.landed はサーバーが「地面や足場に着いた」と判断した時に true になります
+        if (item.rotateSpeed && item.rotateSpeed !== 0 && !item.landed) {
+            // 空中にいる間（landed が false）だけ回転させる
+            item.angle = (item.angle || 0) + item.rotateSpeed;
+            ctx.rotate(item.angle);
+        } else {
+            // 着地した、あるいは最初から回転設定がない場合は真っ直ぐ（0度）
+            item.angle = 0;
+            ctx.rotate(0);
+        }
 
         const config = ITEM_CONFIG[item.type] || ITEM_CONFIG["money1"]; 
         let img = null;
@@ -1517,6 +1595,10 @@ canvas.addEventListener('mousedown', (event) => {
         if (index >= 0 && index < 10) {
             console.log(index + "番目のアイテムを捨てます");
             socket.emit('dropItem', index); // サーバーに「この番号を捨てて」と送る
+			if (typeof playDropSound === 'function') {
+			    // stateで音が鳴るのでコメントアウト
+                //playDropSound();
+            }
         }
     }
 });
@@ -1538,43 +1620,58 @@ let lastItemsData = []; // ✨ 前回のアイテム状態を保持
 let inventoryVisualBuffer = null;
 
 socket.on('state', (data) => {
+    // 1. 受信確認（これは表示されるはずです）
+    console.log("🔥 受信チェック！");
     if (!data) return;
     
     handleServerEvents(data);
 
-    // 🌟 1. 地面のアイテム：拾われ中のものは即除外
-    const currentItems = (data.items || []).filter(it => !it.isPickedUp);
-    
-    const currentEnemies = data.enemies || [];
+    // 🌟 【最優先】アイテムの判定を「myHero」のチェックより上で行う！
+    // これにより、自分のデータが届いていなくても音の判定だけは確実に行われます。
+    const allItemsFromServer = data.items || [];
+    const currentItems = allItemsFromServer.filter(it => !it.isPickedUp);
+    const currentTotalCount = allItemsFromServer.length;
+
+    // 初回のみ window.lastCount を今の数で初期化
+    if (typeof window.lastCount === 'undefined') {
+        window.lastCount = currentTotalCount;
+    }
+
+    // 🌟 判定：数が増えていたら文字を出す
+    if (currentTotalCount > window.lastCount) {
+        console.log("🌟 AAA：アイテムドロップ検知！"); 
+        if (typeof playDropSound === 'function') {
+            playDropSound();
+        }
+    }
+    // 記憶を更新
+    window.lastCount = currentTotalCount;
+
+    // --------------------------------------------------
+    // ✋ ここから下は「自分のデータがある時だけ」実行する（ブレーキ）
+    // --------------------------------------------------
     const myHero = data.players[socket.id];
+    if (!myHero) {
+        // 自分のデータがない場合、描画はできませんが、音の処理は終わっているのでここで終了してOK
+        return; 
+    }
 
-    if (!myHero) return; 
-
-    // 🌟 2. インベントリの「一瞬の残像」を物理的に消去する
-    // サーバーから届いたインベントリの中で、中身が空(null)や0個のものを、
-    // 描画バッファに入れる前に「無かったこと」にします。
+    // インベントリの残像処理（土田さんの元のロジックを維持）
     if (myHero.inventory) {
         myHero.inventory = myHero.inventory.filter(slot => 
             slot && slot.type !== null && slot.type !== undefined && slot.count > 0
         );
     }
-
-    // --- インベントリの残像ガード ---
-    const isActuallyEmpty = !myHero.inventory || 
-                            myHero.inventory.length === 0;
-
+    const isActuallyEmpty = !myHero.inventory || myHero.inventory.length === 0;
     if (isActuallyEmpty) {
         inventoryVisualBuffer = [];
         myHero.inventory = [];
     } else {
-        // 有効なアイテムだけが残った状態でコピーされるので、残像が出なくなります
         inventoryVisualBuffer = JSON.parse(JSON.stringify(myHero.inventory));
     }
 
-    // --- バックアップ処理 ---
-    lastItemCount = currentItems.length;
-    lastItemsData = JSON.parse(JSON.stringify(currentItems));
-
+    // 描画用のデータ準備
+    const currentEnemies = data.enemies || [];
     const others = {};
     for (let id in data.players) {
         if (id !== socket.id) {
@@ -1582,7 +1679,7 @@ socket.on('state', (data) => {
         }
     }
 
-    // 🎨 2. 描画実行
+    // 🎨 描画実行
     if (typeof drawGame === 'function') {
         drawGame(
             myHero,            

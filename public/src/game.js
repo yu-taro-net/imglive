@@ -455,7 +455,10 @@ if (keys['KeyX']) {
             });
             if (target) {
                 socket.emit('pickup', target.id);
-                hero.inventory.push(target.type);
+                // 🌟 これが「ユニーク化」への第一歩！
+                // target.type（名前）だけを入れるのではなく、
+                // target（情報の箱）をまるごと自分の持ち物リストに追加します。
+                //hero.inventory.push(target);
                 if (typeof playItemSound === 'function') playItemSound();
             }
             zKeyPressed = true;

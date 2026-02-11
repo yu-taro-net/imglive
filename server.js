@@ -480,7 +480,9 @@ function spawnDropItems(enemy) {
     itemsToDrop.forEach((type, i) => {
         const angle = (-140 + (100 / (itemsToDrop.length + 1)) * (i + 1)) * (Math.PI / 180);
         const speed = 4 + Math.random() * 4;
-        droppedItems.push({
+
+        // 🌟 ここから「個体差」を作るための準備
+        const newItem = {
             id: Date.now() + Math.random() + i,
             x: enemy.x + enemy.w / 2,
             y: fixedSpawnY,
@@ -489,7 +491,15 @@ function spawnDropItems(enemy) {
             type: type,
             phase: Math.random() * Math.PI * 2,
             landed: false
-        });
+        };
+
+        // 🛡️ 盾（shield）だった場合だけ、5〜15の間でランダムな防御力を付与する
+        if (type === 'shield') {
+            newItem.defense = Math.floor(Math.random() * 11) + 5; 
+            console.log(`[DROP] 防御力 ${newItem.defense} の盾がドロップしました！`);
+        }
+
+        droppedItems.push(newItem);
     });
 }
 
@@ -526,7 +536,8 @@ function handleJoin(socket, name) {
         h: SETTINGS.PLAYER.DEFAULT_H * (SETTINGS.PLAYER.SCALE || 1.0),
         scale: SETTINGS.PLAYER.SCALE || 1.0,
         hp: SETTINGS.PLAYER.MAX_HP,
-        maxHp: SETTINGS.PLAYER.MAX_HP
+        maxHp: SETTINGS.PLAYER.MAX_HP,
+		lastPickupTime: 0,
     };
 }
 
@@ -646,6 +657,13 @@ function handlePickup(socket, itemId) {
     const player = players[socket.id];
     if (!player) return;
 
+    // 🌟 魔法のコード：クールタイム（待ち時間）のチェック
+    // 前に拾った時間から 200ミリ秒 経っていない場合は、ここで処理を終了します
+    const now = Date.now();
+    if (player.lastPickupTime && (now - player.lastPickupTime < 200)) {
+        return; 
+    }
+
     // 🌟 1. find ではなく、直接そのアイテムを見つける
     const item = droppedItems.find(it => it.id === itemId);
 
@@ -660,8 +678,10 @@ function handlePickup(socket, itemId) {
     }
 
     // 🌟 3. 【最重要】ここで即座にロックをかける！
-    // splice で消えるのを待たずに、このメモリ上のオブジェクトを「使用済み」にします。
     item.isPickedUp = true;
+
+    // 🌟 拾った時間を「今」に更新して、次の取得まで間隔を空ける
+    player.lastPickupTime = now;
 
     // 🌟 4. その後でリストから削除する
     const idx = droppedItems.findIndex(it => it.id === itemId);
@@ -669,54 +689,54 @@ function handlePickup(socket, itemId) {
         const removedItem = droppedItems.splice(idx, 1)[0];
 
         if (removedItem) {
+            // 🌟 サーバー側で「拾った人の場所」を記録
             lastPickedItems.push({
                 type: removedItem.type,
-                x: removedItem.x,
-                y: removedItem.y,
+                x: (removedItem.x && removedItem.x !== 0) ? removedItem.x : player.x,
+                y: (removedItem.y && removedItem.y !== 0) ? removedItem.y : player.y,
                 pickerId: socket.id
             });
 
-            // --- 🎁 報酬を与える処理 (server.js) ---
-if (!player.inventory) player.inventory = [];
+            // --- 🎁 報酬を与える処理 ---
+            if (!player.inventory) player.inventory = [];
 
-if (removedItem.type === 'shield' || removedItem.type === 'gold') {
-    
-    // 🌟 1. まず「スタックできるか」だけを徹底的に調べる
-    let stacked = false;
-    
-    if (removedItem.type === 'gold') {
-        const goldIndex = player.inventory.findIndex(slot => {
-            if (!slot) return false;
-            const type = (typeof slot === 'object') ? slot.type : slot;
-            return type === 'gold';
+            if (removedItem.type === 'shield' || removedItem.type === 'gold') {
+                let stacked = false;
+                
+                if (removedItem.type === 'gold') {
+                    const goldIndex = player.inventory.findIndex(slot => {
+                        if (!slot) return false;
+                        const type = (typeof slot === 'object') ? slot.type : slot;
+                        return type === 'gold';
+                    });
+
+                    if (goldIndex !== -1) {
+                        let existing = player.inventory[goldIndex];
+                        if (typeof existing !== 'object') {
+                            player.inventory[goldIndex] = { type: 'gold', count: 2 };
+                        } else {
+                            player.inventory[goldIndex].count = (player.inventory[goldIndex].count || 1) + 1;
+                        }
+                        stacked = true;
+                        console.log(`[Stack OK] スロット ${goldIndex} にまとめました`);
+                    }
+                }
+
+                if (!stacked) {
+    if (player.inventory.length < 10) {
+        // 🌟 removedItem.defense（落ちていた時の防御力）も一緒にカバンに保存する
+        player.inventory.push({ 
+            type: removedItem.type, 
+            count: 1,
+            defense: removedItem.defense // これを追加！
         });
-
-        if (goldIndex !== -1) {
-            // 見つかった！既存の場所を更新するだけ
-            let existing = player.inventory[goldIndex];
-            if (typeof existing !== 'object') {
-                player.inventory[goldIndex] = { type: 'gold', count: 2 };
-            } else {
-                player.inventory[goldIndex].count = (player.inventory[goldIndex].count || 1) + 1;
-            }
-            stacked = true; // スタック完了フラグ
-            console.log(`[Stack OK] スロット ${goldIndex} にまとめました`);
-        }
     }
-
-    // 🌟 2. 【重要】スタックされなかった場合のみ、かつ、カバンに空きがある時だけ push する
-    if (!stacked) {
-        if (player.inventory.length < 10) {
-            player.inventory.push({ type: removedItem.type, count: 1 });
-            console.log(`[New Item] 新しいスロットに格納しました`);
-        }
-    }
-
-} else {
-    // スコアアイテム
-    const points = (removedItem.type === 'money3' ? 100 : 10);
-    player.score += points;
 }
+
+            } else {
+                const points = (removedItem.type === 'money3' ? 100 : 10);
+                player.score += points;
+            }
             
             sendState();
         }
@@ -844,41 +864,37 @@ socket.on('dropItem', (index) => {
         // 📦 捨てる予定のアイテム情報を一時的にキープします
         const itemToDrop = player.inventory[index];
 
-        // 🌟 3. 地面に置くための「新しいアイテムデータ」をゼロから作成します
-        // 初期配置アイテムと同じ形式にすることで、エラーを防ごうとしています
+        // 🌟 3. 地面に置くための「新しいアイテムデータ」を作成
         const newItem = {
-            // 🆔 ID：重ならないように、0〜100万の間のランダムな数字を名札にします
             id: Math.floor(Math.random() * 1000000), 
-            
-            // 🏷️ 種類：カバンに入っていた種類（例：'money3'）をそのまま引き継ぎます
             type: itemToDrop.type,
-            
-            // 📍 横の位置(X)：プレイヤーの現在位置から「右に60ピクセル」ずらした場所に置きます
-            // これでプレイヤーと重なりすぎないようにしています
-            //x: player.x + 60, 
             x: player.x,
-            
-            // 📍 縦の位置(Y)：プレイヤーと同じ高さに置きます
             y: player.y,
             
-            // 💰 価値：お金(money3)なら100、それ以外なら10という値を設定しています
+            // 🛡️ ここが最重要！ 🛡️
+            // カバンに入っていた防御力（itemToDrop.defense）を地面のデータにコピーします。
+            // これがないと、拾い直したときに「5」に戻ってしまいます。
+            defense: itemToDrop.defense, 
+
+            // 💰 個数や価値も引き継ぎます
+            count: itemToDrop.count || 1,
             value: (itemToDrop.type === 'money3' ? 100 : 10),
             
-            // ⚓ 固定設定：物理計算をさせず、その場に固定(Static)して置く設定です
-            isStatic: true 
+            isStatic: true,
+            angle: 0,
+            rotateSpeed: 0.15
         };
 
-        // 🗺️ 4. 作成したデータを、世界の「落ちているアイテムリスト」に追加します
+        // 🗺️ 4. 作成したデータを、世界の「落ちているアイテムリスト」に追加
         if (Array.isArray(droppedItems)) {
             droppedItems.push(newItem);
-            // ログを出して、サーバー側で正しく置けたか確認できるようにします
-            console.log("地面に追加完了:", newItem);
+            console.log(`[DROP SUCCESS] 防御力 ${newItem.defense} の盾を地面に置きました`);
         }
 
-        // ✂️ 5. プレイヤーのカバン(inventory)から、捨てたアイテムを削除します
+        // ✂️ 5. プレイヤーのカバンから削除
         player.inventory.splice(index, 1);
 
-        // 📢 6. 最後に、世界の状態（state）を全員に送り直して、画面を更新させます
+        // 📢 6. 全員に画面更新を通知
         sendState();
     }
 });
