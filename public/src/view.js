@@ -5,6 +5,9 @@ const canvas = document.getElementById('stage');
 const ctx = canvas.getContext('2d');
 let mouseX = 0;
 let mouseY = 0;
+// 1. 状態を保存する変数
+let selectedSlotIndex = -1; 
+let inventoryVisualBuffer = [];
 
 // マウスが動いた時に、画面の左上に座標を出すだけのテスト
 canvas.addEventListener('mousemove', (e) => {
@@ -12,8 +15,30 @@ canvas.addEventListener('mousemove', (e) => {
     mouseX = e.clientX - rect.left;
     mouseY = e.clientY - rect.top;
 
-    // 🌟 これを追加：コンソールではなく、画面に直接「今のマウス位置」を出します
-    //document.title = `Mouse: ${Math.round(mouseX)}, ${Math.round(mouseY)}`;
+    // 🌟 以下を追加：カーソルの見た目を自動で切り替える
+    
+    // 1. アイテムを現在掴んでいる（ホバー中）の場合
+    if (selectedSlotIndex !== -1) {
+        canvas.style.cursor = "grabbing"; // 「握った手」のマーク
+    } 
+    // 2. 何も掴んでいないが、バッグ（130〜170px）の上にマウスがある場合
+    else if (mouseY >= 130 && mouseY <= 170) {
+        const hoverIndex = Math.floor((mouseX - 20) / 48);
+        
+        // そのスロットにアイテムが存在するかチェック
+        if (hoverIndex >= 0 && hoverIndex < 10 && inventoryVisualBuffer[hoverIndex]) {
+            canvas.style.cursor = "grab"; // 「指マーク」
+        } else {
+            canvas.style.cursor = "default"; // アイテムがなければ普通
+        }
+    } 
+    // 3. それ以外の場所（フィールドなど）
+    else {
+        canvas.style.cursor = "default"; // 普通の矢印
+    }
+
+    // 🌟 マウス位置の表示（必要に応じてコメントアウトを解除してください）
+    // document.title = `Mouse: ${Math.round(mouseX)}, ${Math.round(mouseY)}`;
 });
 // 🌟 ここから追加：高画質化（Retina/高画素ディスプレイ対応）
 const dpr = window.devicePixelRatio || 1;
@@ -384,6 +409,27 @@ function loadItemImages() {
 
 // 実行（これで読み込みが始まります）
 loadStaticImages();
+
+// view.js の冒頭
+const itemImages = {};
+
+// 🌟 ソースから直接入力（ここを修正すれば確実に動きます）
+const imageSources = {
+    'gold': '/item_assets/gold.png',
+    'shield': '/item_assets/shield.png',
+    'money3': '/item_assets/money3.png',
+    'money1': '/item_assets/money1.png'
+};
+
+// 画像を一斉にロード
+for (const key in imageSources) {
+    const img = new Image();
+    img.src = imageSources[key];
+    itemImages[key] = img;
+    
+    // 🐞 確認用：もし画像が届かなかったらコンソールに通知
+    img.onerror = () => console.error(`⚠️ 画像が見つかりません: ${img.src}`);
+}
 
 // ==========================================
 // 👤 プレイヤー・キャラクター設定
@@ -1576,7 +1622,8 @@ function drawInventoryGrid(ctx, inventory) {
 }
 
 // view.js の一番下などに追加
-canvas.addEventListener('mousedown', (event) => {
+/*
+canvas.addEventListener('dblclick', (event) => {
     // 1. クリックされた場所（座標）を取得
     const rect = canvas.getBoundingClientRect();
     const clickX = event.clientX - rect.left;
@@ -1602,6 +1649,7 @@ canvas.addEventListener('mousedown', (event) => {
         }
     }
 });
+*/
 
 // ==========================================
 // 判定用の変数（データの比較に使用）
@@ -1617,11 +1665,11 @@ let lastItemsData = []; // ✨ 前回のアイテム状態を保持
 // view.js の socket.on('state', ...) の部分をこれに差し替えてください
 
 // 🌟 関数の外側に「一瞬前のデータ」を保存する場所を作ります
-let inventoryVisualBuffer = null;
+//let inventoryVisualBuffer = null;
 
 socket.on('state', (data) => {
     // 1. 受信確認（これは表示されるはずです）
-    console.log("🔥 受信チェック！");
+    //console.log("🔥 受信チェック！");
     if (!data) return;
     
     handleServerEvents(data);
@@ -1646,6 +1694,8 @@ socket.on('state', (data) => {
     }
     // 記憶を更新
     window.lastCount = currentTotalCount;
+	
+	console.log("⭐️確認の表示1");
 
     // --------------------------------------------------
     // ✋ ここから下は「自分のデータがある時だけ」実行する（ブレーキ）
@@ -1655,7 +1705,10 @@ socket.on('state', (data) => {
         // 自分のデータがない場合、描画はできませんが、音の処理は終わっているのでここで終了してOK
         return; 
     }
-
+	
+	//console.log("⭐️確認の表示2");
+	
+	/*
     // インベントリの残像処理（土田さんの元のロジックを維持）
     if (myHero.inventory) {
         myHero.inventory = myHero.inventory.filter(slot => 
@@ -1679,7 +1732,7 @@ socket.on('state', (data) => {
         }
     }
 
-    // 🎨 描画実行
+    // 🎨 106行目付近：描画実行
     if (typeof drawGame === 'function') {
         drawGame(
             myHero,            
@@ -1691,7 +1744,35 @@ socket.on('state', (data) => {
             damageTexts || [],
             Math.floor(Date.now() / 16)
         ); 
+
+        // 🐞 描画側のデバッグログ
+        if (selectedSlotIndex !== -1) {
+            console.log("描画チェック開始: 選択スロット =" + selectedSlotIndex);
+            
+            if (myHero && myHero.inventory) {
+                const item = myHero.inventory[selectedSlotIndex];
+                if (item) {
+                    console.log("アイテム発見！描画します: " + item.type);
+                    
+                    ctx.save();
+                    ctx.setTransform(1, 0, 0, 1, 0, 0); // 座標をリセット
+                    ctx.globalAlpha = 0.8;
+                    ctx.fillStyle = "red"; // 確実に見えるように一旦「赤」
+                    ctx.fillRect(mouseX - 15, mouseY - 15, 30, 30);
+                    
+                    ctx.fillStyle = "white";
+                    ctx.font = "bold 16px Arial";
+                    ctx.fillText(item.type, mouseX + 20, mouseY);
+                    ctx.restore();
+                } else {
+                    console.log("選択したスロットは空です");
+                }
+            } else {
+                console.log("myHero または inventory が見つかりません");
+            }
+        }
     }
+	*/
 });
 
 // 🌟 修正：itemLogs を「window.itemLogs」として扱うとより確実です
@@ -1713,3 +1794,143 @@ socket.on('exp_log', (data) => {
         console.log("ログの箱に入れました。現在の数:", itemLogs.length);
     }
 });
+
+socket.on('inventory_update', (newInventory) => {
+    console.log("アイテム専用窓口で更新を受け取りました！");
+    inventoryVisualBuffer = newInventory; 
+});
+
+// ==========================================
+// 🖱️ デバッグ機能付き：アイテム操作
+// ==========================================
+
+canvas.addEventListener('mousedown', (event) => {
+    const rect = canvas.getBoundingClientRect();
+    const clickX = event.clientX - rect.left;
+    const clickY = event.clientY - rect.top;
+
+    // 🌟 1. バッグの座標（130〜170px）の中をクリックした場合
+    if (clickY >= 130 && clickY <= 170) {
+        const index = Math.floor((clickX - 20) / 48);
+
+        if (index >= 0 && index < 10) {
+            
+            // 🔄 A. 移動・入れ替えロジック
+            if (selectedSlotIndex !== -1 && selectedSlotIndex !== index) {
+                console.log(`移動/入れ替え命令: ${selectedSlotIndex}番 -> ${index}番`);
+                
+                socket.emit('swapItems', { from: selectedSlotIndex, to: index });
+
+                // 🔊 離した（置いた）音を鳴らす
+                playDropSound();
+
+                selectedSlotIndex = -1;
+                canvas.style.cursor = "grab"; 
+            } 
+            
+            // ↩️ B. 再クリックで解除ロジック
+            else if (selectedSlotIndex === index) {
+                selectedSlotIndex = -1; 
+                canvas.style.cursor = "grab";
+                
+                // 🔊 離した音を鳴らす
+                playDropSound();
+                console.log("選択を解除しました");
+            } 
+            
+            // ✊ C. 新しくアイテムを掴むロジック
+            else if (inventoryVisualBuffer[index]) {
+                selectedSlotIndex = index; 
+                canvas.style.cursor = "grabbing"; 
+                
+                // 🔊 掴んだ音（ホバー音）を鳴らす
+                playHoverSound();
+                console.log("アイテムを掴みました:", inventoryVisualBuffer[index].type);
+            }
+        }
+    } 
+    // 🗑️ 2. バッグ外をクリックした場合（捨てる）
+    else {
+        if (selectedSlotIndex !== -1) {
+            socket.emit('dropItem', selectedSlotIndex);
+            
+            // 🔊 捨てた（地面に放した）音を鳴らす
+            //playDropSound();
+
+            selectedSlotIndex = -1;
+            canvas.style.cursor = "default";
+        }
+    }
+});
+
+/*
+// ダブルクリック（dblclick）
+canvas.addEventListener('dblclick', (event) => {
+    console.log("ダブルクリックを検知しました！");
+    const rect = canvas.getBoundingClientRect();
+    const clickX = event.clientX - rect.left;
+    const clickY = event.clientY - rect.top;
+
+    if (clickY >= 130 && clickY <= 170) {
+        const index = Math.floor((clickX - 20) / 48);
+        if (index >= 0 && index < 10) {
+            console.log(`${index}番のアイテムをサーバーへ捨てるリクエスト送信`);
+            socket.emit('dropItem', index); 
+            selectedSlotIndex = -1;
+        }
+    }
+});
+*/
+
+// 🌟 サーバーの通信とは「別ルート」でホバーを描画する専用ループ
+// view.js 内の drawItemHoverLoop を修正
+function drawItemHoverLoop() {
+    if (selectedSlotIndex === -1) {
+        requestAnimationFrame(drawItemHoverLoop);
+        return;
+    }
+
+    const item = inventoryVisualBuffer[selectedSlotIndex];
+    if (item) {
+        ctx.save();
+        
+        // 🌟 ここで透明度を設定（0.0が透明、1.0が不透明）
+        // 0.6 にすると、後ろが少し透けて「掴んでいる感」が出ます
+        ctx.globalAlpha = 0.6;
+
+        const displaySize = 30; 
+        const itemImg = itemImages[item.type];
+
+        if (itemImg && itemImg.complete && itemImg.width > 0) {
+            // 中心を合わせて描画
+            ctx.drawImage(
+                itemImg, 
+                mouseX - (displaySize / 2), 
+                mouseY - (displaySize / 2), 
+                displaySize, 
+                displaySize
+            );
+        } else {
+            // 予備の枠も少し薄く出す
+            ctx.strokeStyle = "rgba(255, 255, 255, 0.5)";
+            ctx.strokeRect(mouseX - 15, mouseY - 15, 30, 30);
+        }
+
+        // 📝 文字も少しだけ薄くして、画像に合わせます
+        ctx.globalAlpha = 0.8; 
+        ctx.fillStyle = "white";
+        ctx.font = "bold 14px Arial";
+        ctx.textAlign = "center";
+        ctx.shadowBlur = 4;
+        ctx.shadowColor = "black";
+        ctx.fillText(item.type, mouseX, mouseY + 30);
+        
+        ctx.restore(); // 🌟 restoreを呼ぶことで、他の描画まで薄くなるのを防ぎます
+    }
+    requestAnimationFrame(drawItemHoverLoop);
+}
+
+// 🌟 そして一番最後に、このループを最初に1回だけ動かします
+drawItemHoverLoop();
+
+//inventoryVisualBuffer[0] = { type: 'My Sword', defense: 50 };

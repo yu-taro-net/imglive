@@ -16,17 +16,23 @@ const MONSTER_CONFIGS = [
     { 
         name: 'monster1', 
         move: 4, death: 3, idle: 1, 
-        attack: 0, jump: 0, walk: 0 
+        attack: 0, jump: 0, walk: 0,
+        hp: 20,  // 🌟 ついでにHPもここで管理すると緻密になります
+        def: 2   // 🌟 ここに防御力を追加！
     },
     { 
         name: 'monster2', 
         move: 4, death: 4, idle: 3, 
-        attack: 0, jump: 0, walk: 0 
+        attack: 0, jump: 0, walk: 0,
+        hp: 50,
+        def: 5   // 🌟 monster2は少し硬め
     },
     { 
         name: 'monster3', 
         move: 4, death: 7, idle: 3, 
-        attack: 0, jump: 0, walk: 0 
+        attack: 0, jump: 0, walk: 0,
+        hp: 200,
+        def: 15  // 🌟 monster3（ボス級）はかなり硬い
     },
     { 
         name: 'monster4', 

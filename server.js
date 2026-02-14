@@ -118,6 +118,19 @@ const SETTINGS = {
   }
 };
 
+// ==========================================
+// 📊 Tier（階級）別・基準ステータス表
+// ==========================================
+const TIER_STATS = {
+    tier1: { hp: 20,    str: 2,   def: 1,   speed: 1.0, exp: 10,   money: 5 },   // 素材3種
+    tier2: { hp: 100,   str: 10,  def: 5,   speed: 1.2, exp: 35,   money: 20 },  // 素材4種
+    tier3: { hp: 500,   str: 25,  def: 12,  speed: 1.5, exp: 120,  money: 100 }, // 素材3種
+    tier4: { hp: 1200,  str: 45,  def: 25,  speed: 1.8, exp: 300,  money: 250 }, // 素材4種
+    tier5: { hp: 3000,  str: 80,  def: 40,  speed: 2.0, exp: 850,  money: 600 }, // 素材3種
+    tier6: { hp: 7000,  str: 150, def: 80,  speed: 2.5, exp: 2000, money: 1500 },// 素材3種
+    tier7: { hp: 20000, str: 400, def: 150, speed: 0.8, exp: 5000, money: 5000 } // 素材1種（魔王はあえて遅く、威圧的に）
+};
+
 // マップの構造データ
 const MAP_DATA = {
   platforms: [
@@ -188,16 +201,16 @@ class Enemy {
   // ==========================================
   reset() {
     // 1. 🌟 表示・生存に関するフラグ
-    this.alive        = true;   // 生存フラグ
-    this.opacity      = 1;      // 不透明度（1 = はっきり見える）
-    this.spawnAlpha   = 0;      // 出現時のフェードイン用
-    this.isFading     = false;  // 死亡時の消滅アニメ中か
-    this.deathFrame   = 0;      // 死亡アニメーションの経過
+    this.alive         = true;   // 生存フラグ
+    this.opacity       = 1;      // 不透明度（1 = はっきり見える）
+    this.spawnAlpha    = 0;      // 出現時のフェードイン用
+    this.isFading      = false;  // 死亡時の消滅アニメ中か
+    this.deathFrame    = 0;      // 死亡アニメーションの経過
 
     // 2. 🌟 動作・タイマーに関する設定
-    this.kbV          = 0;      // ノックバック速度
-    this.isAttacking  = 0;      // 攻撃アニメーションの残り時間
-    this.isEnraged    = false;  // 怒り状態か
+    this.kbV           = 0;      // ノックバック速度
+    this.isAttacking   = 0;      // 攻撃アニメーションの残り時間
+    this.isEnraged     = false;  // 怒り状態か
     this.respawnTimer = 0;      // 復活までの待ち時間
     this.waitTimer    = 0;      // 移動の合間の待機時間
     this.offset       = 0;      // 足場内での相対位置
@@ -207,10 +220,22 @@ class Enemy {
     // カタログに自分のIDがなければ1番のデータを予備として使う
     const config = ENEMY_CATALOG[this.id] || ENEMY_CATALOG[1];
 
-    this.type  = config.type;              // 敵の種類（名前）
-    this.scale = config.scale || 0.2;      // 表示倍率
-    this.hp    = config.hp;                // 体力
-    this.speed = config.speed;             // 移動スピード
+    // --- ⚔️ Tier（階級）システムとの連携 ---
+    const tierName = config.tier || 'tier1';   // カタログに設定がない場合は tier1 を使う
+    const stats    = TIER_STATS[tierName];    // 貼り付けた Tier 表から能力値を参照
+
+    this.type  = config.type;                  // 敵の種類（名前）
+    this.scale = config.scale || 0.2;          // 表示倍率
+
+    // 🌟 Tier 表に基づいた緻密なステータス設定
+    this.maxHp = config.hp    || stats.hp;    // 最大体力（カタログ個別設定を優先、なければ Tier 基準）
+    this.hp    = config.hp    || stats.hp;    // 現在の体力
+    this.str   = config.str   || stats.str;   // 攻撃力
+    this.def   = config.def   || stats.def;   // 防御力
+    this.speed = config.speed || stats.speed; // 移動スピード
+    this.exp   = config.exp   || stats.exp;   // 獲得経験値
+    this.money = config.money || stats.money; // ドロップ金額
+    // ------------------------------------
 
     // 4. 🌟 サイズの計算（倍率を考慮）
     // scaleだけでなく、さらに0.2を掛けて微調整しています
@@ -520,25 +545,32 @@ function handleJoin(socket, name) {
     });
 
     // 🌟 プレイヤーデータの作成
-    players[socket.id] = {
-        id: socket.id,
-        name: name,
-        x: 50,
-        y: 500,
-        dir: 1,
-        score: 0,
-        inventory: [],
-        isAttacking: 0,
-        level: (players[socket.id] ? players[socket.id].level : 1),
-        exp: (players[socket.id] && players[socket.id].exp !== undefined) ? players[socket.id].exp : 0,
-        maxExp: 100,
-        w: SETTINGS.PLAYER.DEFAULT_W * (SETTINGS.PLAYER.SCALE || 1.0),
-        h: SETTINGS.PLAYER.DEFAULT_H * (SETTINGS.PLAYER.SCALE || 1.0),
-        scale: SETTINGS.PLAYER.SCALE || 1.0,
-        hp: SETTINGS.PLAYER.MAX_HP,
-        maxHp: SETTINGS.PLAYER.MAX_HP,
-		lastPickupTime: 0,
-    };
+players[socket.id] = {
+    id: socket.id,
+    name: name,
+    x: 50,
+    y: 500,
+    dir: 1,
+    score: 0,
+    inventory: [],
+    isAttacking: 0,
+    level: (players[socket.id] ? players[socket.id].level : 1),
+    exp: (players[socket.id] && players[socket.id].exp !== undefined) ? players[socket.id].exp : 0,
+    maxExp: 100,
+
+    // --- ⚔️ 今日決めた緻密なステータスを追加 ⚔️ ---
+    str: 4,      // 初期攻撃力
+    dex: 4,      // 初期命中率
+    ap: 0,       // 振り分け可能な能力ポイント
+    // ------------------------------------------
+
+    w: SETTINGS.PLAYER.DEFAULT_W * (SETTINGS.PLAYER.SCALE || 1.0),
+    h: SETTINGS.PLAYER.DEFAULT_H * (SETTINGS.PLAYER.SCALE || 1.0),
+    scale: SETTINGS.PLAYER.SCALE || 1.0,
+    hp: SETTINGS.PLAYER.MAX_HP,
+    maxHp: SETTINGS.PLAYER.MAX_HP,
+    lastPickupTime: 0,
+};
 }
 
 /**
@@ -657,17 +689,13 @@ function handlePickup(socket, itemId) {
     const player = players[socket.id];
     if (!player) return;
 
-    // 🌟 魔法のコード：クールタイム（待ち時間）のチェック
-    // 前に拾った時間から 200ミリ秒 経っていない場合は、ここで処理を終了します
+    // クールタイムのチェック
     const now = Date.now();
     if (player.lastPickupTime && (now - player.lastPickupTime < 200)) {
         return; 
     }
 
-    // 🌟 1. find ではなく、直接そのアイテムを見つける
     const item = droppedItems.find(it => it.id === itemId);
-
-    // 🌟 2. アイテムが存在しない、または「すでに拾われ中」なら即終了
     if (!item || item.isPickedUp) return;
 
     const dx = Math.abs(player.x - item.x);
@@ -677,19 +705,14 @@ function handlePickup(socket, itemId) {
         return;
     }
 
-    // 🌟 3. 【最重要】ここで即座にロックをかける！
     item.isPickedUp = true;
-
-    // 🌟 拾った時間を「今」に更新して、次の取得まで間隔を空ける
     player.lastPickupTime = now;
 
-    // 🌟 4. その後でリストから削除する
     const idx = droppedItems.findIndex(it => it.id === itemId);
     if (idx !== -1) {
         const removedItem = droppedItems.splice(idx, 1)[0];
 
         if (removedItem) {
-            // 🌟 サーバー側で「拾った人の場所」を記録
             lastPickedItems.push({
                 type: removedItem.type,
                 x: (removedItem.x && removedItem.x !== 0) ? removedItem.x : player.x,
@@ -697,48 +720,60 @@ function handlePickup(socket, itemId) {
                 pickerId: socket.id
             });
 
-            // --- 🎁 報酬を与える処理 ---
-            if (!player.inventory) player.inventory = [];
+            if (!player.inventory) player.inventory = Array(10).fill(null); // 最初から10個の空き地を確保
 
             if (removedItem.type === 'shield' || removedItem.type === 'gold') {
                 let stacked = false;
-                
+                const actualCount = removedItem.count || removedItem.amount || 1;
+
+                // --- 重ね合わせ(Stack)の処理 ---
                 if (removedItem.type === 'gold') {
                     const goldIndex = player.inventory.findIndex(slot => {
                         if (!slot) return false;
-                        const type = (typeof slot === 'object') ? slot.type : slot;
-                        return type === 'gold';
+                        return slot.type === 'gold';
                     });
 
                     if (goldIndex !== -1) {
-                        let existing = player.inventory[goldIndex];
-                        if (typeof existing !== 'object') {
-                            player.inventory[goldIndex] = { type: 'gold', count: 2 };
-                        } else {
-                            player.inventory[goldIndex].count = (player.inventory[goldIndex].count || 1) + 1;
-                        }
+                        player.inventory[goldIndex].count = (player.inventory[goldIndex].count || 0) + actualCount;
                         stacked = true;
-                        console.log(`[Stack OK] スロット ${goldIndex} にまとめました`);
+                        console.log(`[Stack OK] ゴールドをスロット ${goldIndex} にまとめました`);
                     }
                 }
 
+                // --- 🌟 新規格納の処理（ここを修正！） ---
                 if (!stacked) {
-    if (player.inventory.length < 10) {
-        // 🌟 removedItem.defense（落ちていた時の防御力）も一緒にカバンに保存する
-        player.inventory.push({ 
-            type: removedItem.type, 
-            count: 1,
-            defense: removedItem.defense // これを追加！
-        });
-    }
-}
+                    // 0番目から順に見て、最初の「空き地(null)」を探す
+                    let emptySlotIndex = -1;
+                    for (let i = 0; i < 10; i++) {
+                        if (player.inventory[i] === null || player.inventory[i] === undefined) {
+                            emptySlotIndex = i;
+                            break;
+                        }
+                    }
+
+                    // 空き地が見つかった場合のみ入れる
+                    if (emptySlotIndex !== -1) {
+                        player.inventory[emptySlotIndex] = { 
+                            type: removedItem.type, 
+                            count: actualCount, 
+                            defense: removedItem.defense || 0
+                        };
+                        console.log(`[PICKUP OK] スロット ${emptySlotIndex} に格納しました`);
+                    } else {
+                        console.log("カバンがいっぱいです！");
+                        // アイテムを拾えなかった場合は地面に戻すなどの処理が必要な場合はここに書きます
+                    }
+                }
 
             } else {
                 const points = (removedItem.type === 'money3' ? 100 : 10);
                 player.score += points;
             }
+
+            // 本人に直送便
+            socket.emit('inventory_update', player.inventory);
             
-            sendState();
+            sendState(); 
         }
     }
 }
@@ -807,19 +842,18 @@ io.on('connection', socket => {
     // 1. 参加
     socket.on('join', n => handleJoin(socket, n));
 
-    // server.js 内の socket.on('move') を修正
-socket.on('move', d => { 
-    if (players[socket.id]) {
-        // 🌟 修正：ブラウザから受け取るのは「位置」と「移動速度」と「向き」だけにする
-        // isAttacking はサーバー側で管理するため、ここからは除外します
-        const { x, y, dir, vx, vy, isJumping, isClimbing } = d;
-        
-        Object.assign(players[socket.id], { 
-            x, y, dir, vx, vy, isJumping, isClimbing
-        });
-    }
-});
-	
+    // 2. 移動 (server.js 内の socket.on('move'))
+    socket.on('move', d => {
+        if (players[socket.id]) {
+            // 🌟 修正：ブラウザから受け取るのは「位置」と「移動速度」と「向き」だけにする
+            const { x, y, dir, vx, vy, isJumping, isClimbing } = d;
+
+            Object.assign(players[socket.id], {
+                x, y, dir, vx, vy, isJumping, isClimbing
+            });
+        }
+    });
+
     // 3. 攻撃
     socket.on('attack', data => handleAttack(socket, data));
 
@@ -845,17 +879,19 @@ socket.on('move', d => {
             io.emit('update_players', players);
         }
     });
+
     socket.on('change_group', data => {
         if (players[socket.id]) {
             players[socket.id].group = data.group;
             io.emit('update_players', players);
         }
     });
-	// 📥 クライアントから「アイテムを捨てたよ（dropItem）」という通知が来た時の処理
+
+    // 📥 クライアントから「アイテムを捨てたよ（dropItem）」という通知が来た時の処理
 socket.on('dropItem', (index) => {
     // 🔍 1. 通信を送ってきたプレイヤーが誰かを探します
     const player = players[socket.id];
-    
+
     // 🛡️ ガード：プレイヤーが存在しない、またはカバンが空なら何もしません
     if (!player || !player.inventory) return;
 
@@ -866,20 +902,16 @@ socket.on('dropItem', (index) => {
 
         // 🌟 3. 地面に置くための「新しいアイテムデータ」を作成
         const newItem = {
-            id: Math.floor(Math.random() * 1000000), 
+            id: Math.floor(Math.random() * 1000000),
             type: itemToDrop.type,
             x: player.x,
             y: player.y,
-            
-            // 🛡️ ここが最重要！ 🛡️
-            // カバンに入っていた防御力（itemToDrop.defense）を地面のデータにコピーします。
-            // これがないと、拾い直したときに「5」に戻ってしまいます。
-            defense: itemToDrop.defense, 
 
-            // 💰 個数や価値も引き継ぎます
+            // 🛡️ カバンに入っていた防御力などを地面のデータにコピー
+            defense: itemToDrop.defense,
             count: itemToDrop.count || 1,
             value: (itemToDrop.type === 'money3' ? 100 : 10),
-            
+
             isStatic: true,
             angle: 0,
             rotateSpeed: 0.15
@@ -888,14 +920,41 @@ socket.on('dropItem', (index) => {
         // 🗺️ 4. 作成したデータを、世界の「落ちているアイテムリスト」に追加
         if (Array.isArray(droppedItems)) {
             droppedItems.push(newItem);
-            console.log(`[DROP SUCCESS] 防御力 ${newItem.defense} の盾を地面に置きました`);
+            console.log(`[DROP] 防御力 ${newItem.defense} のアイテムを地面に置きました`);
         }
 
-        // ✂️ 5. プレイヤーのカバンから削除
-        player.inventory.splice(index, 1);
+        // ✂️ 5. プレイヤーのカバンから削除（詰めないように null を代入）
+        // これで、他のアイテムが勝手に移動しなくなります
+        player.inventory[index] = null;
 
-        // 📢 6. 全員に画面更新を通知
+        // 🌟 6. 【本人への直送便】バッグが空いたことを即座に通知
+        socket.emit('inventory_update', player.inventory);
+
+        // 📢 7. 全員に画面更新を通知
         sendState();
+    }
+});
+// server.js に追加
+socket.on('swapItems', (data) => {
+    const player = players[socket.id];
+    if (!player || !player.inventory) return;
+
+    const from = data.from;
+    const to = data.to;
+
+    // 範囲チェック
+    if (from >= 0 && from < 10 && to >= 0 && to < 10) {
+        // 🔄 変数の入れ替え（スワップ）
+        const temp = player.inventory[from];
+        player.inventory[from] = player.inventory[to];
+        player.inventory[to] = temp;
+
+        // 📢 本人に直送便
+        socket.emit('inventory_update', player.inventory);
+        // 全員に通知
+        sendState();
+        
+        console.log(`[SWAP] ${from}番と${to}番を入れ替えました`);
     }
 });
 });
@@ -903,99 +962,99 @@ socket.on('dropItem', (index) => {
 // ==========================================
 // 🔄 メイン更新ループ（時間経過による変化を全プレイヤーに同期）
 // ==========================================
-setInterval(() => { 
-  
-  // --- 👾 1. 敵(Enemies)の状態更新 ---
-  enemies.forEach(e => {
-    // 動きの計算を実行
-    e.update();
-    
-    // ダメージを受けた時の「点滅タイマー」を1ずつ減らす
-    if (e.damageTimer > 0) {
-      e.damageTimer--;
-    }
+setInterval(() => {
 
-    // 攻撃アニメーションの管理
-    if (e.isAttacking > 0) {
-      // 攻撃中ならタイマーを減らす
-      e.isAttacking--;
-    } else if (e.isEnraged) {
-      // 🌟 怒り状態なら、1%の確率でランダムに攻撃を開始する
-      if (Math.random() < 0.01) e.isAttacking = 22;
-    }
-  });
-  
-  // --- 👤 2. プレイヤー(Players)のタイマー管理 ---
-  for (let id in players) {
-    // 攻撃後の硬直時間（余韻）を1ずつ減らす
-    if (players[id].isAttacking > 0) {
-      players[id].isAttacking--;
-    }
-  }
-  
-  // --- 💎 3. 落ちているアイテム(Items)の物理計算 ---
-  droppedItems.forEach(it => {
-    if (!it.landed) {
-      // 空中にある場合は移動と重力を計算
-      it.x += it.vx; 
-      it.y += it.vy; 
-      it.vy += SETTINGS.SYSTEM.GRAVITY; // 重力で下に加速
-      it.vx *= SETTINGS.SYSTEM.FRICTION; // 空気抵抗で横移動を減速
+    // --- 👾 1. 敵(Enemies)の状態更新 ---
+    enemies.forEach(e => {
+        // 動きの計算を実行
+        e.update();
 
-      // 【判定 A】足場(Platforms)との着地
-      MAP_DATA.platforms.forEach(p => {
-        if (it.vy > 0 && 
-            it.x + SETTINGS.ITEM.COLLISION_OFFSET > p.x && 
-            it.x < p.x + p.w && 
-            it.y + SETTINGS.ITEM.SIZE >= p.y && 
-            it.y + SETTINGS.ITEM.SIZE <= p.y + 10) { 
-          
-          // 着地位置を固定し、動きを止める
-          it.y = p.y - SETTINGS.ITEM.SIZE + SETTINGS.ITEM.SINK_Y; 
-          it.landed = true; 
-          it.vy = 0; 
-          it.vx = 0;
+        // ダメージを受けた時の「点滅タイマー」を1ずつ減らす
+        if (e.damageTimer > 0) {
+            e.damageTimer--;
         }
-      });
 
-      // 【判定 B】一番下の地面(Ground)との着地
-      if (!it.landed && it.y + SETTINGS.ITEM.SIZE >= SETTINGS.SYSTEM.GROUND_Y) { 
-        it.y = SETTINGS.SYSTEM.GROUND_Y - SETTINGS.ITEM.SIZE + SETTINGS.ITEM.SINK_Y; 
-        it.landed = true; 
-        it.vy = 0; 
-        it.vx = 0; 
-      }
+        // 攻撃アニメーションの管理
+        if (e.isAttacking > 0) {
+            // 攻撃中ならタイマーを減らす
+            e.isAttacking--;
+        } else if (e.isEnraged) {
+            // 🌟 怒り状態なら、1%の確率でランダムに攻撃を開始する
+            if (Math.random() < 0.01) e.isAttacking = 22;
+        }
+    });
+
+    // --- 👤 2. プレイヤー(Players)のタイマー管理 ---
+    for (let id in players) {
+        // 攻撃後の硬直時間（余韻）を1ずつ減らす
+        if (players[id].isAttacking > 0) {
+            players[id].isAttacking--;
+        }
     }
-  });
 
-  // --- 📡 4. 全プレイヤーへ最新の状態を一斉送信(Broadcast) ---
-// 'state' という名前の電波（イベント）に乗せて、ゲームの状況をパケットにして送ります
-io.emit('state', { 
-    // 👥 プレイヤー情報：全員の座標、名前、HPなど
-    players: players,
+    // --- 💎 3. 落ちているアイテム(Items)の物理計算 ---
+    droppedItems.forEach(it => {
+        if (!it.landed) {
+            // 空中にある場合は移動と重力を計算
+            it.x += it.vx;
+            it.y += it.vy;
+            it.vy += SETTINGS.SYSTEM.GRAVITY;  // 重力で下に加速
+            it.vx *= SETTINGS.SYSTEM.FRICTION; // 空気抵抗で横移動を減速
 
-    // 💰 アイテム情報：地面に落ちているすべてのドロップアイテム
-    items: droppedItems,
+            // 【判定 A】足場(Platforms)との着地
+            MAP_DATA.platforms.forEach(p => {
+                if (it.vy > 0 &&
+                    it.x + SETTINGS.ITEM.COLLISION_OFFSET > p.x &&
+                    it.x < p.x + p.w &&
+                    it.y + SETTINGS.ITEM.SIZE >= p.y &&
+                    it.y + SETTINGS.ITEM.SIZE <= p.y + 10) {
 
-    // 👾 モンスター情報：
-    // .map を使って、送信する直前に「ジャンプの状態」を計算して付け足しています
-    enemies: enemies.map(en => ({
-        ...en,                 // 既存のステータス（id, x, y, hpなど）をすべてコピー
-        jumpY: en.jumpY || 0,  // 現在のジャンプの高さ（データがなければ0）
-        isJumping: (en.jumpY || 0) !== 0 // 0以外なら「ジャンプ中である」という判定をその場で作る
-    })),
+                    // 着地位置を固定し、動きを止める
+                    it.y = p.y - SETTINGS.ITEM.SIZE + SETTINGS.ITEM.SINK_Y;
+                    it.landed = true;
+                    it.vy = 0;
+                    it.vx = 0;
+                }
+            });
 
-    // 🗺️ マップ構造：足場とハシゴの配置データ
-    platforms: MAP_DATA.platforms, 
-    ladders: MAP_DATA.ladders,
+            // 【判定 B】一番下の地面(Ground)との着地
+            if (!it.landed && it.y + SETTINGS.ITEM.SIZE >= SETTINGS.SYSTEM.GROUND_Y) {
+                it.y = SETTINGS.SYSTEM.GROUND_Y - SETTINGS.ITEM.SIZE + SETTINGS.ITEM.SINK_Y;
+                it.landed = true;
+                it.vy = 0;
+                it.vx = 0;
+            }
+        }
+    });
 
-    // 🎁 アイテム取得確定情報：
-    // 誰かがアイテムを拾ったという最新の確定通知
-    lastPickedItems: lastPickedItems 
-});
+    // --- 📡 4. 全プレイヤーへ最新の状態を一斉送信(Broadcast) ---
+    // 'state' という名前の電波（イベント）に乗せて、ゲームの状況をパケットにして送ります
+    io.emit('state', {
+        // 👥 プレイヤー情報：全員の座標、名前、HPなど
+        players: players,
 
-  // 🌟 送信が終わったら、取得情報をリセット
-  lastPickedItems = []; 
+        // 💰 アイテム情報：地面に落ちているすべてのドロップアイテム
+        items: droppedItems,
+
+        // 👾 モンスター情報：
+        // .map を使って、送信する直前に「ジャンプの状態」を計算して付け足しています
+        enemies: enemies.map(en => ({
+            ...en,                          // 既存のステータス（id, x, y, hpなど）をすべてコピー
+            jumpY: en.jumpY || 0,           // 現在のジャンプの高さ（データがなければ0）
+            isJumping: (en.jumpY || 0) !== 0 // 0以外なら「ジャンプ中である」という判定をその場で作る
+        })),
+
+        // 🗺️ マップ構造：足場とハシゴの配置データ
+        platforms: MAP_DATA.platforms,
+        ladders: MAP_DATA.ladders,
+
+        // 🎁 アイテム取得確定情報：
+        // 誰かがアイテムを拾ったという最新の確定通知
+        lastPickedItems: lastPickedItems
+    });
+
+    // 🌟 送信が終わったら、取得情報をリセット
+    lastPickedItems = [];
 
 }, SETTINGS.SYSTEM.TICK_RATE); // 設定された間隔（例: 40ms）ごとに実行
 
