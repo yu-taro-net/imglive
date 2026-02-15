@@ -1412,6 +1412,9 @@ function drawExpAndDebug(hero) {
     const expBarW = VIEW_CONFIG.ui.expBarWidth; 
     const expBarH = VIEW_CONFIG.ui.expBarHeight;
 
+    // 🌟 全体のズレを防止するため、描画開始時に基準をリセット
+    ctx.textBaseline = "alphabetic"; 
+
     // 1. スコアとレベル
     ctx.textAlign = "left";
     ctx.fillStyle = "white";
@@ -1423,8 +1426,8 @@ function drawExpAndDebug(hero) {
     ctx.fillStyle = "black";
     ctx.fillRect(expBarX, expBarY, expBarW, expBarH);
 
-    // 3. 経験値の計算（なめらかに動く displayExp を使う）
-    const currentExp = displayExp || 0; // 🌟 ここを hero.exp から displayExp に変更
+    // 3. 経験値の計算
+    const currentExp = displayExp || 0; 
     const maxExp = hero.maxExp || 100;
     const expRate = Math.min(1, currentExp / maxExp);
 
@@ -1432,7 +1435,25 @@ function drawExpAndDebug(hero) {
     ctx.fillStyle = VIEW_CONFIG.ui.expBarColor;  
     ctx.fillRect(expBarX + 1, expBarY + 1, (expBarW - 2) * expRate, expBarH - 2);
     
+    // 🌟 5. 経験値バーの中に数値を表示 (追加)
+    ctx.save(); // 現在の設定（leftなど）を保存
+    ctx.fillStyle = "white"; // 文字色
+    ctx.font = "bold 12px sans-serif";
+    ctx.textAlign = "center"; // バーの中央に配置するため
+    ctx.textBaseline = "middle"; // ⚠️ これがズレの原因だったので、ここでだけ使う
+    
+    // 整数で表示（アニメーション中の displayExp を四捨五入）
+    const displayText = `${Math.round(currentExp)} / ${maxExp}`;
+    
+    // バーの中心（横：X + 幅の半分、縦：Y + 高さの半分）に描画
+    ctx.fillText(displayText, expBarX + expBarW / 2, expBarY + expBarH / 2);
+    ctx.restore(); // 保存していた設定に戻す（これで middle が解除される）
+
     // --- デバッグとRaw表示 ---
+    // 🌟 他の描画に影響しないよう、基準をデフォルトに戻しておく
+    ctx.textBaseline = "alphabetic"; 
+    ctx.textAlign = "left"; 
+
     ctx.fillStyle = "white";
     ctx.font = "14px monospace";
     //ctx.fillText(`Raw EXP: ${hero.exp || 0}`, 20, 140); 
@@ -1920,6 +1941,7 @@ function drawItemHoverLoop() {
         }
 
         // 📝 文字も少しだけ薄くして、画像に合わせます
+		/*
         ctx.globalAlpha = 0.8; 
         ctx.fillStyle = "white";
         ctx.font = "bold 14px Arial";
@@ -1927,6 +1949,7 @@ function drawItemHoverLoop() {
         ctx.shadowBlur = 4;
         ctx.shadowColor = "black";
         ctx.fillText(item.type, mouseX, mouseY + 30);
+		*/
         
         ctx.restore(); // 🌟 restoreを呼ぶことで、他の描画まで薄くなるのを防ぎます
     }

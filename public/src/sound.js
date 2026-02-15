@@ -36,7 +36,8 @@ async function loadAudioFile(url) {
 async function setupAudio() {
     // 並列でロードを開始（awaitを一括で待つことで高速化）
     const tasks = {
-        hover:           loadAudioFile('../DragStart.mp3'),
+        levelup:        loadAudioFile('../LevelUp.mp3'),
+        hover:          loadAudioFile('../DragStart.mp3'),
         drop:           loadAudioFile('../DragEnd.mp3'),
         item:           loadAudioFile('../PickUpItem.mp3'),
         jump:           loadAudioFile('../Jump.mp3'),
@@ -98,6 +99,10 @@ function playEffect(buffer, volume = 0.5, rate = 1.0) {
 }
 
 // --- 各アクションごとの関数 ---
+function playLevelUpSound() {
+    playEffect(soundBuffers.levelup, 0.5);
+}
+
 function playHoverSound() {
     playEffect(soundBuffers.hover, 0.5);
 }

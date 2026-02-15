@@ -173,9 +173,9 @@ const ENEMY_CATALOG = {
   27: { type: 'monster27', w: 766,  h: 542,  hp: 200,  speed: 1.5, scale: 1.0, name: 'エネミー23'}, 
   28: { type: 'monster28', w: 527,  h: 381,  hp: 200,  speed: 1.5, scale: 1.0, name: 'エネミー24'}, 
   29: { type: 'monster29', w: 487,  h: 327,  hp: 200,  speed: 1.5, scale: 1.0, name: 'エネミー25'},
-  30: { type: 'tier1_1', w: 438,  h: 214,  hp: 200,  speed: 1.5, scale: 1.0, name: 'Char10', exp: 15},
-  31: { type: 'tier1_2', w: 322,  h: 242,  hp: 200,  speed: 1.5, scale: 1.0, name: 'Char13', exp: 40},
-  32: { type: 'tier1_3', w: 227,  h: 337,  hp: 200,  speed: 1.5, scale: 1.0, name: 'Char19', exp: 150},
+  30: { type: 'tier1_1', w: 438,  h: 214,  hp: 200,  speed: 1.5, scale: 1.0, name: 'Char10', exp: 4, atk: 5,  money: 10 }, 
+  31: { type: 'tier1_2', w: 322,  h: 242,  hp: 200,  speed: 1.5, scale: 1.0, name: 'Char13', exp: 5, atk: 8,  money: 25 }, 
+  32: { type: 'tier1_3', w: 227,  h: 337,  hp: 200,  speed: 1.5, scale: 1.0, name: 'Char19', exp: 6, atk: 30, money: 100 },
 };
 
 // ==========================================
@@ -239,6 +239,9 @@ class Enemy {
     this.exp   = config.exp   || stats.exp;   // 獲得経験値
     this.money = config.money || stats.money; // ドロップ金額
     // ------------------------------------
+	
+	// ⚔️ 【追加】攻撃力をカタログからコピー
+	this.atk   = config.atk   || 5;
 
     // 4. 🌟 サイズの計算（倍率を考慮）
     // scaleだけでなく、さらに0.2を掛けて微調整しています
@@ -460,32 +463,51 @@ let enemies = ENEMY_PLAN.map(p => new Enemy(p.id, p.plat));
 // 🌟 モンスターごとのドロップ設定
 // ==========================================
 const DROP_DATABASE = {
-  "monster1":  { table: "small"},
-  "monster2":  { table: "small"  },
-  "monster3":  { table: "small"  },
-  "monster20": { table: "big2"  },
+  "tier1_1":  { table: "big2"},
+  "tier1_2":  { table: "tier1"  },
+  "tier1_3":  { table: "tier1"  },
+  //"monster20": { table: "big2"  },
 };
 
 const DROP_CHANCE_TABLES = {
   "big":   { "gold_heart": 40, "money5": 20, "gold_one": 5, "default": 50 }, // 50%でドロップ、そのうち20%で金塊
   "big2":  { "shield": 90, "gold": 80, "default": 100 },
-  "small": { "gold_heart": 40, "money6": 50,  "default": 50 }
+  "small": { "gold_heart": 40, "money6": 50,  "default": 50 },
+  "tier1": { "medal1": 80, "gold_heart": 40, "shield": 20, "default": 80 },
 };
 
+// 🌟 レベルアップに必要な経験値のリスト（テーブル）
+// index 0は使わず、index 1 = Lv1→2に必要な経験値 ... と設定します
+const LEVEL_TABLE = [0, 12, 20, 35, 60, 100, 150, 210, 280, 360, 450];
+
 // 🌟 経験値を加算してレベルアップをチェックする専用の関数
-function addExperience(player, amount) {
+function addExperience(player, amount, socket) {
     if (!player) return;
 
-    // 経験値を加算
+    // 1. 経験値を加算
     player.exp = (Number(player.exp) || 0) + amount;
-    player.maxExp = 100;
 
-    console.log(`[EXP] ${player.name}: +${amount} (Total: ${player.exp})`);
+    // 2. 現在のレベルに応じた必要経験値をテーブルから取得
+    // 万が一レベルがテーブルの範囲を超えた場合は、最後の値を参照するか大きな数にします
+    let requiredExp = LEVEL_TABLE[player.level] || (player.level * 100);
+    player.maxExp = requiredExp;
 
-    // レベルアップ判定
-    if (player.exp >= player.maxExp) {
+    console.log(`[EXP] ${player.name}: +${amount} (Total: ${player.exp} / Next: ${requiredExp})`);
+
+    // 3. レベルアップ判定（whileを使うと、一気に2レベル上がる場合にも対応できます）
+    while (player.exp >= requiredExp) {
+        player.exp -= requiredExp; // 経験値を引いて余りを繰り越す
         player.level = (Number(player.level) || 1) + 1;
-        player.exp = 0;
+        
+		// 🌟 サーバーでは直接鳴らさず、クライアントに「鳴らして！」と命令を送る
+        if (typeof socket !== 'undefined' && socket) {
+            socket.emit('level_up_effect'); 
+        }
+		
+        // 次のレベルの必要量を再取得
+        requiredExp = LEVEL_TABLE[player.level] || (player.level * 100);
+        player.maxExp = requiredExp;
+
         console.log(`[LEVEL UP] ${player.name} が Lv.${player.level} になりました！`);
     }
 
@@ -510,16 +532,18 @@ function spawnDropItems(enemy) {
 
     const fixedSpawnY = enemy.y + (enemy.h || 0) - 50;
     itemsToDrop.forEach((type, i) => {
-        const angle = (-140 + (100 / (itemsToDrop.length + 1)) * (i + 1)) * (Math.PI / 180);
-        const speed = 4 + Math.random() * 4;
+        // 🌟 複数個ドロップした時に、重ならないよう横に15pxずつずらす計算
+        // アイテムが1個なら中央、複数なら左右にきれいに並びます
+        const spread = 15; 
+        const offsetX = (i - (itemsToDrop.length - 1) / 2) * spread;
 
-        // 🌟 ここから「個体差」を作るための準備
+        // 土田さんのコードの構造をそのまま踏襲し、vxを0に、xにoffsetXを足しています
         const newItem = {
             id: Date.now() + Math.random() + i,
-            x: enemy.x + enemy.w / 2,
+            x: enemy.x + enemy.w / 2 + offsetX, // 👈 中央から少しだけずらして配置
             y: fixedSpawnY,
-            vx: Math.cos(angle) * speed,
-            vy: Math.sin(angle) * speed,
+            vx: 0,                              // 👈 横移動はさせない（足場からの落下防止）
+            vy: -4 - Math.random() * 2,          // 👈 少しだけ上に跳ね上げる
             type: type,
             phase: Math.random() * Math.PI * 2,
             landed: false
@@ -566,7 +590,7 @@ players[socket.id] = {
     maxExp: 100,
 
     // --- ⚔️ 今日決めた緻密なステータスを追加 ⚔️ ---
-    str: 4,      // 初期攻撃力
+    str: 50,      // 初期攻撃力
     dex: 4,      // 初期命中率
     ap: 0,       // 振り分け可能な能力ポイント
     // ------------------------------------------
@@ -594,9 +618,7 @@ function handleAttack(socket, data) {
     if (p.isClimbing) return;
 
     // 【二重攻撃防止】攻撃アニメーションが終わるまでは、次のダメージ計算をしない（ラグ対策）
-    //if (p.isAttacking > 0 && p.isAttacking < SETTINGS.PLAYER.ATTACK_FRAME) return;
-    //if (p.isAttacking === SETTINGS.PLAYER.ATTACK_FRAME) return;
-	if (p.isAttacking > SETTINGS.PLAYER.ATTACK_FRAME - 5) return;
+    if (p.isAttacking > SETTINGS.PLAYER.ATTACK_FRAME - 5) return;
 
     // 🚩 サーバー側で「攻撃アニメーション中」のフラグを立てる
     p.isAttacking = SETTINGS.PLAYER.ATTACK_FRAME;
@@ -632,11 +654,13 @@ function handleAttack(socket, data) {
         targetsInRange.sort((a, b) => a.dist - b.dist);
         const nearest = targetsInRange[0].enemy;
 
-        // ダメージを計算（指定がなければ基本20ダメージ）
-        const damage = data.power || 20;
+        // 🌟 【ここを修正】p.str を一番左に持ってくることで、サーバーの数値を最優先にします。
+        // これにより data.power (クライアントの20など) が送られてきても無視されます。
+        const damage = p.str || data.power || 4; 
+        
         nearest.hp -= damage; // 敵のHPを減らす
         
-        console.log(`[2.命中確認] ${nearest.type}に${damage}ダメージ。残りHP: ${nearest.hp}`);
+        console.log(`[2.命中確認] ${nearest.type}に${damage}ダメージ(攻撃力:${p.str})。残りHP: ${nearest.hp}`);
 
         // 攻撃された敵を「怒り状態」にして反撃の準備をさせる
         nearest.isEnraged = true;
@@ -659,36 +683,36 @@ function handleAttack(socket, data) {
             x: nearest.x + nearest.w / 2,
             y: nearest.y,
             val: damage,
-            isCritical: damage >= 85,
+            isCritical: damage >= (p.str * 1.5), // 攻撃力の1.5倍以上ならクリティカル扱い
             type: 'enemy_hit'
         });
 
         // --- 💀 死亡判定と報酬処理 ---
-if (nearest.hp <= 0 && nearest.alive) {
-    nearest.alive = false; // 死亡フラグ
+        if (nearest.hp <= 0 && nearest.alive) {
+            nearest.alive = false; // 死亡フラグ
 
-    // 🌟 固定の 10 ではなく、モンスターが持っている exp を使うように変更
-    const rewardExp = nearest.exp || 10; // 万が一設定がない場合は予備で10にする
+            // 🌟 固定の 10 ではなく、モンスターが持っている exp を使うように変更
+            const rewardExp = nearest.exp || 10; 
 
-    socket.emit('exp_log', { amount: rewardExp }); 
+            socket.emit('exp_log', { amount: rewardExp }); 
 
-    // 🌟 経験値をモンスターに応じた量だけ追加
-    addExperience(p, rewardExp);
-    
-    console.log(`[EXP DEBUG] ログ送信完了: ${p.name} に ${rewardExp} EXP`);
-    
-    // アイテムを地面に落とす
-    spawnDropItems(nearest);
-    
-    nearest.hp = 0;
-    nearest.isFading = true; // 徐々に消える演出
-    nearest.deathFrame = 0;
-    
-    // スコアを加算（ここもモンスターによって変えたい場合は nearest.score などにできます）
-    p.score = (Number(p.score) || 0) + 100;
-    
-    console.log(`[DEBUG] 最終確定EXP: ${p.exp}`);
-}
+            // 🌟 経験値をモンスターに応じた量だけ追加
+            addExperience(p, rewardExp, socket);
+            
+            console.log(`[EXP DEBUG] ログ送信完了: ${p.name} に ${rewardExp} EXP`);
+            
+            // アイテムを地面に落とす
+            spawnDropItems(nearest);
+            
+            nearest.hp = 0;
+            nearest.isFading = true; // 徐々に消える演出
+            nearest.deathFrame = 0;
+            
+            // スコアを加算
+            p.score = (Number(p.score) || 0) + 100;
+            
+            console.log(`[DEBUG] 最終確定EXP: ${p.exp}`);
+        }
     }
 }
 
@@ -795,25 +819,36 @@ function handlePlayerDamaged(socket, data) {
     const p = players[socket.id];
     if (!p) return;
 
-    // HPを更新
-    p.hp = data.newHp;
+    // 🌟 修正：monsterId が送られてこない場合でも、一番近い敵の攻撃力を参照する
+    let attacker = enemies.find(en => en.id === data.monsterId);
+    
+    // もし ID で見つからなければ、近くにいる「生きている敵」を一人探す
+    if (!attacker) {
+        attacker = enemies.find(en => en.alive && Math.abs(en.x - p.x) < 100);
+    }
+    
+    // カタログの atk (50など) を優先し、なければ 10 にする
+    const damageValue = attacker ? (attacker.atk || 5) : 10;
+	
+    console.log(`[修正後テスト] 判定された攻撃者: ${attacker ? attacker.type : '不明'}, 使用ダメージ: ${damageValue}`);
 
-    // 🌟 【追加】もしHPが0以下になったら復活させる
+    // HPを更新
+    p.hp -= damageValue;
+
+    // 復活処理 (既存のコードを維持)
     if (p.hp <= 0) {
         console.log(`[RESPAWN] ${p.name} が倒れましたが、復活しました！`);
-        p.hp = 100;     // HPを満タンにする
-        p.x = 50;       // スタート地点に戻す
-        p.y = 500;      // スタート地点に戻す
-        
-        // 画面に「復活したよ」と通知するために、すぐに最新状態を送る
+        p.hp = 100;
+        p.x = 50;
+        p.y = 500;
         sendState();
     }
 
-    // ダメージエフェクトの表示
+    // エフェクト表示
     io.emit('damage_effect', { 
         x: p.x + 30, 
         y: p.y, 
-        val: data.val, 
+        val: damageValue, 
         isCritical: false, 
         type: 'player_hit' 
     });
@@ -915,7 +950,11 @@ socket.on('dropItem', (index) => {
             id: Math.floor(Math.random() * 1000000),
             type: itemToDrop.type,
             x: player.x,
-            y: player.y,
+            y: player.y + 12,
+			
+			vx: 0,           // 左右移動はなし
+            vy: -12,         // 真上に向かって打ち出す力（マイナスが上方向）
+            landed: false,   // まだ地面に着いていない状態
 
             // 🛡️ カバンに入っていた防御力などを地面のデータにコピー
             defense: itemToDrop.defense,
@@ -1003,39 +1042,45 @@ setInterval(() => {
     }
 
     // --- 💎 3. 落ちているアイテム(Items)の物理計算 ---
-    droppedItems.forEach(it => {
-        if (!it.landed) {
-            // 空中にある場合は移動と重力を計算
-            it.x += it.vx;
-            it.y += it.vy;
-            it.vy += SETTINGS.SYSTEM.GRAVITY;  // 重力で下に加速
-            it.vx *= SETTINGS.SYSTEM.FRICTION; // 空気抵抗で横移動を減速
+droppedItems.forEach(it => {
+    if (!it.landed) {
+        // 空中にある場合は移動と重力を計算
+        it.x += it.vx;
+        it.y += it.vy;
+        it.vy += SETTINGS.SYSTEM.GRAVITY;  // 重力で下に加速
+        it.vx *= SETTINGS.SYSTEM.FRICTION; // 空気抵抗で横移動を減速
 
-            // 【判定 A】足場(Platforms)との着地
-            MAP_DATA.platforms.forEach(p => {
-                if (it.vy > 0 &&
-                    it.x + SETTINGS.ITEM.COLLISION_OFFSET > p.x &&
-                    it.x < p.x + p.w &&
-                    it.y + SETTINGS.ITEM.SIZE >= p.y &&
-                    it.y + SETTINGS.ITEM.SIZE <= p.y + 10) {
+        // 【判定 A】足場(Platforms)との着地
+        MAP_DATA.platforms.forEach(p => {
+            if (it.vy > 0 &&
+                it.x + SETTINGS.ITEM.COLLISION_OFFSET > p.x &&
+                it.x < p.x + p.w &&
+                it.y + SETTINGS.ITEM.SIZE >= p.y &&
+                it.y + SETTINGS.ITEM.SIZE <= p.y + 10) {
 
-                    // 着地位置を固定し、動きを止める
-                    it.y = p.y - SETTINGS.ITEM.SIZE + SETTINGS.ITEM.SINK_Y;
-                    it.landed = true;
-                    it.vy = 0;
-                    it.vx = 0;
-                }
-            });
-
-            // 【判定 B】一番下の地面(Ground)との着地
-            if (!it.landed && it.y + SETTINGS.ITEM.SIZE >= SETTINGS.SYSTEM.GROUND_Y) {
-                it.y = SETTINGS.SYSTEM.GROUND_Y - SETTINGS.ITEM.SIZE + SETTINGS.ITEM.SINK_Y;
+                // 着地位置を固定し、動きを止める
+                it.y = p.y - SETTINGS.ITEM.SIZE + SETTINGS.ITEM.SINK_Y;
                 it.landed = true;
                 it.vy = 0;
                 it.vx = 0;
+
+                // 🔊 サーバーから全員に「アイテムが着地した音を出して」と通知
+                io.emit('item_landed_sound');
             }
+        });
+
+        // 【判定 B】一番下の地面(Ground)との着地
+        if (!it.landed && it.y + SETTINGS.ITEM.SIZE >= SETTINGS.SYSTEM.GROUND_Y) {
+            it.y = SETTINGS.SYSTEM.GROUND_Y - SETTINGS.ITEM.SIZE + SETTINGS.ITEM.SINK_Y;
+            it.landed = true;
+            it.vy = 0;
+            it.vx = 0;
+
+            // 🔊 サーバーから全員に「アイテムが着地した音を出して」と通知
+            io.emit('item_landed_sound');
         }
-    });
+    }
+});
 
     // --- 📡 4. 全プレイヤーへ最新の状態を一斉送信(Broadcast) ---
     // 'state' という名前の電波（イベント）に乗せて、ゲームの状況をパケットにして送ります

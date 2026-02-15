@@ -31,6 +31,7 @@ const MONSTER_CONFIGS = [
         idle: 18, attack: 22, jump: 0, walk: 18, hp: 200, def: 15,
         exp: 150 // 🌟 ボス級はどっさり！
     },
+	/*
     { 
         name: 'monster1', 
         death: 3, idle: 1, 
@@ -58,6 +59,7 @@ const MONSTER_CONFIGS = [
         attack: 0, jump: 0, walk: 0, 
         useImage: 'monster1' // 4番は1番の絵を流用
     },
+	*/
 	{ 
         name: 'monster5', 
         id: 'Char01', fileName: 'skeleton', // 🌟 新しいパス形式に対応
@@ -189,6 +191,13 @@ const MONSTER_CONFIGS = [
 // 💰 アイテム・マスターデータ（これを中心に全てを動かす）
 // ==========================================
 const ITEM_CONFIG = {
+     "medal1": {
+        "name": "メダル1",
+        "spriteKey": "medal1",
+        "isAnimated": true,
+        "src": "/item_assets/GoldOne_",
+        "points": 10
+    },
     "money3": {
         "name": "100ゴールド",
         "spriteKey": "money3",

@@ -282,6 +282,15 @@ socket.on('damage_effect', data => {
   damageTexts.push({ x: data.x + (Math.random()*20-10), y: data.y, val: data.val, timer: 40, vy: data.type === 'player_hit' ? -3 : -2, isCritical: data.isCritical, type: data.type });
 });
 
+// game.js の socket.on が並んでいるあたりに追加
+socket.on('level_up_effect', () => {
+    // ここでブラウザ側の sound.js にある関数を呼ぶ
+    if (typeof playLevelUpSound === 'function') {
+        playLevelUpSound();
+    }
+    console.log("🎊 レベルアップ演出を実行しました");
+});
+
 // 🌟 修正後
 window.onkeydown = e => window.keys[e.code] = true;
 window.onkeyup = e => window.keys[e.code] = false;
