@@ -14,156 +14,174 @@ const GLOBAL_SETTINGS = {
 // ==========================================
 const MONSTER_CONFIGS = [
     { 
+        name: 'tier1_1', id: 'Char10', // Char10
+        fileName: 'skeleton',
+        idle: 18, attack: 18, jump: 0, walk: 18, hp: 20, def: 2,
+        exp: 15  // 🌟 基準(10)より少し多めにするなど自由自在！
+    },
+    { 
+        name: 'tier1_2', id: 'Char13', // Char13
+        fileName: 'skeleton',
+        idle: 18, attack: 18, jump: 0, walk: 18, hp: 50, def: 5,
+        exp: 40  // 🌟 ちょっと強い敵は多めに
+    },
+    { 
+        name: 'tier1_3', id: 'Char19', // Char19
+        fileName: 'skeleton',
+        idle: 18, attack: 22, jump: 0, walk: 18, hp: 200, def: 15,
+        exp: 150 // 🌟 ボス級はどっさり！
+    },
+    { 
         name: 'monster1', 
-        move: 4, death: 3, idle: 1, 
+        death: 3, idle: 1, 
         attack: 0, jump: 0, walk: 0,
         hp: 20,  // 🌟 ついでにHPもここで管理すると緻密になります
         def: 2   // 🌟 ここに防御力を追加！
     },
     { 
         name: 'monster2', 
-        move: 4, death: 4, idle: 3, 
+        death: 4, idle: 3, 
         attack: 0, jump: 0, walk: 0,
         hp: 50,
         def: 5   // 🌟 monster2は少し硬め
     },
     { 
         name: 'monster3', 
-        move: 4, death: 7, idle: 3, 
+        death: 7, idle: 3, 
         attack: 0, jump: 0, walk: 0,
         hp: 200,
         def: 15  // 🌟 monster3（ボス級）はかなり硬い
     },
     { 
         name: 'monster4', 
-        move: 4, death: 3, idle: 1, 
+        death: 3, idle: 1, 
         attack: 0, jump: 0, walk: 0, 
         useImage: 'monster1' // 4番は1番の絵を流用
     },
 	{ 
         name: 'monster5', 
         id: 'Char01', fileName: 'skeleton', // 🌟 新しいパス形式に対応
-        move: 4, death: 18, idle: 18, attack: 22, jump: 14, walk: 18 
+        death: 18, idle: 18, attack: 22, jump: 14, walk: 18 
     },
 	{ 
         name: 'monster6', 
         id: 'Char02', fileName: 'skeleton', // 🌟 新しいパス形式に対応
-        move: 4, death: 18, idle: 18, attack: 22, jump: 14, walk: 18 
+        death: 18, idle: 18, attack: 22, jump: 14, walk: 18 
     },
 	{ 
         name: 'monster7', 
         id: 'Char03', fileName: 'skeleton', // 🌟 新しいパス形式に対応
-        move: 4, death: 18, idle: 18, attack: 22, jump: 14, walk: 18 
+        death: 18, idle: 18, attack: 22, jump: 14, walk: 18 
     },
 	{ 
         name: 'monster8', 
         id: 'Char04', fileName: 'skeleton', // 🌟 新しいパス形式に対応
-        move: 4, death: 18, idle: 18, attack: 22, jump: 14, walk: 18 
+        death: 18, idle: 18, attack: 22, jump: 14, walk: 18 
     },
 	{ 
         name: 'monster9', 
         id: 'Char05', fileName: 'skeleton', // 🌟 新しいパス形式に対応
-        move: 4, death: 18, idle: 18, attack: 22, jump: 14, walk: 18 
+        death: 18, idle: 18, attack: 22, jump: 14, walk: 18 
     },
 	{ 
         name: 'monster10', 
         id: 'Char06', fileName: 'skeleton', // 🌟 新しいパス形式に対応
-        move: 4, death: 18, idle: 18, attack: 22, jump: 14, walk: 18 
+        death: 18, idle: 18, attack: 22, jump: 14, walk: 18 
     },
 	{ 
         name: 'monster11', 
         id: 'Char07', fileName: 'skeleton', // 🌟 新しいパス形式に対応
-        move: 4, death: 18, idle: 18, attack: 22, jump: 14, walk: 18 
+        death: 18, idle: 18, attack: 22, jump: 14, walk: 18 
     },
 	{ 
         name: 'monster12', 
         id: 'Char08', fileName: 'skeleton', // 🌟 新しいパス形式に対応
-        move: 4, death: 18, idle: 18, attack: 22, jump: 14, walk: 18 
+        death: 18, idle: 18, attack: 22, jump: 14, walk: 18 
     },
 	{ 
         name: 'monster13', 
         id: 'Char09', fileName: 'skeleton', // 🌟 新しいパス形式に対応
-        move: 4, death: 18, idle: 18, attack: 22, jump: 14, walk: 18 
+        death: 18, idle: 18, attack: 22, jump: 14, walk: 18 
     },
 	{ 
         name: 'monster14', 
         id: 'Char10', fileName: 'skeleton', // 🌟 新しいパス形式に対応
-        move: 4, death: 18, idle: 18, attack: 22, jump: 14, walk: 18 
+        death: 18, idle: 18, attack: 22, jump: 14, walk: 18 
     },
 	{ 
         name: 'monster15', 
         id: 'Char11', fileName: 'skeleton', // 🌟 新しいパス形式に対応
-        move: 4, death: 18, idle: 18, attack: 22, jump: 14, walk: 18 
+        death: 18, idle: 18, attack: 22, jump: 14, walk: 18 
     },
 	{ 
         name: 'monster16', 
         id: 'Char12', fileName: 'skeleton', // 🌟 新しいパス形式に対応
-        move: 4, death: 18, idle: 18, attack: 22, jump: 14, walk: 18 
+        death: 18, idle: 18, attack: 22, jump: 14, walk: 18 
     },
 	{ 
         name: 'monster17', 
         id: 'Char13', fileName: 'skeleton', // 🌟 新しいパス形式に対応
-        move: 4, death: 18, idle: 18, attack: 22, jump: 14, walk: 18 
+        death: 18, idle: 18, attack: 22, jump: 14, walk: 18 
     },
 	{ 
         name: 'monster18', 
         id: 'Char14', fileName: 'skeleton', // 🌟 新しいパス形式に対応
-        move: 4, death: 18, idle: 18, attack: 22, jump: 14, walk: 18 
+        death: 18, idle: 18, attack: 22, jump: 14, walk: 18 
     },
 	{ 
         name: 'monster19', 
         id: 'Char15', fileName: 'skeleton', // 🌟 新しいパス形式に対応
-        move: 4, death: 18, idle: 18, attack: 22, jump: 14, walk: 18 
+        death: 18, idle: 18, attack: 22, jump: 14, walk: 18 
     },
 	{ 
         name: 'monster20', 
         id: 'Char16', fileName: 'skeleton', // 🌟 新しいパス形式に対応
-        move: 4, death: 18, idle: 18, attack: 22, jump: 14, walk: 18 
+        death: 18, idle: 18, attack: 22, jump: 14, walk: 18 
     },
 	{ 
         name: 'monster21', 
         id: 'Char17', fileName: 'skeleton', // 🌟 新しいパス形式に対応
-        move: 4, death: 18, idle: 18, attack: 22, jump: 14, walk: 18 
+        death: 18, idle: 18, attack: 22, jump: 14, walk: 18 
     },
 	{ 
         name: 'monster22', 
         id: 'Char18', fileName: 'skeleton', // 🌟 新しいパス形式に対応
-        move: 4, death: 18, idle: 18, attack: 22, jump: 14, walk: 18 
+        death: 18, idle: 18, attack: 22, jump: 14, walk: 18 
     },
 	{ 
         name: 'monster23', 
         id: 'Char19', fileName: 'skeleton', // 🌟 新しいパス形式に対応
-        move: 4, death: 18, idle: 18, attack: 22, jump: 14, walk: 18 
+        death: 18, idle: 18, attack: 22, jump: 14, walk: 18 
     },
 	{ 
         name: 'monster24', 
         id: 'Char20', fileName: 'skeleton', // 🌟 新しいパス形式に対応
-        move: 4, death: 18, idle: 18, attack: 22, jump: 14, walk: 18 
+        death: 18, idle: 18, attack: 22, jump: 14, walk: 18 
     },
 	{ 
         name: 'monster25', 
         id: 'Char21', fileName: 'skeleton', // 🌟 新しいパス形式に対応
-        move: 4, death: 18, idle: 18, attack: 22, jump: 14, walk: 18 
+        death: 18, idle: 18, attack: 22, jump: 14, walk: 18 
     },
 	{ 
         name: 'monster26', 
         id: 'Char22', fileName: 'skeleton', // 🌟 新しいパス形式に対応
-        move: 4, death: 18, idle: 18, attack: 22, jump: 14, walk: 18 
+        death: 18, idle: 18, attack: 22, jump: 14, walk: 18 
     },
 	{ 
         name: 'monster27', 
         id: 'Char23', fileName: 'skeleton', // 🌟 新しいパス形式に対応
-        move: 4, death: 18, idle: 18, attack: 22, jump: 14, walk: 18 
+        death: 18, idle: 18, attack: 22, jump: 14, walk: 18 
     },
 	{ 
         name: 'monster28', 
         id: 'Char24', fileName: 'skeleton', // 🌟 新しいパス形式に対応
-        move: 4, death: 18, idle: 18, attack: 22, jump: 14, walk: 18 
+        death: 18, idle: 18, attack: 22, jump: 14, walk: 18 
     },
 	{ 
         name: 'monster29', 
         id: 'Char25', fileName: 'skeleton', // 🌟 新しいパス形式に対応
-        move: 4, death: 18, idle: 18, attack: 22, jump: 14, walk: 18 
+        death: 18, idle: 18, attack: 22, jump: 14, walk: 18 
     },
 ];
 

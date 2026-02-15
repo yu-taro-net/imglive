@@ -172,7 +172,10 @@ const ENEMY_CATALOG = {
   26: { type: 'monster26', w: 571,  h: 355,  hp: 200,  speed: 1.5, scale: 1.0, name: 'エネミー22'}, 
   27: { type: 'monster27', w: 766,  h: 542,  hp: 200,  speed: 1.5, scale: 1.0, name: 'エネミー23'}, 
   28: { type: 'monster28', w: 527,  h: 381,  hp: 200,  speed: 1.5, scale: 1.0, name: 'エネミー24'}, 
-  29: { type: 'monster29', w: 487,  h: 327,  hp: 200,  speed: 1.5, scale: 1.0, name: 'エネミー25'}
+  29: { type: 'monster29', w: 487,  h: 327,  hp: 200,  speed: 1.5, scale: 1.0, name: 'エネミー25'},
+  30: { type: 'tier1_1', w: 438,  h: 214,  hp: 200,  speed: 1.5, scale: 1.0, name: 'Char10', exp: 15},
+  31: { type: 'tier1_2', w: 322,  h: 242,  hp: 200,  speed: 1.5, scale: 1.0, name: 'Char13', exp: 40},
+  32: { type: 'tier1_3', w: 227,  h: 337,  hp: 200,  speed: 1.5, scale: 1.0, name: 'Char19', exp: 150},
 };
 
 // ==========================================
@@ -304,32 +307,26 @@ class Enemy {
     } else {
       this.kbV = 0;
     }
-	
-    // === 🌟 3. ジャンプの物理計算 (エラー修正済み) ===
-	/*
-    if (this.jumpY === undefined) this.jumpY = 0;
-    if (this.jumpV === undefined) this.jumpV = 0;
-    if (this.jumpFrame === undefined) this.jumpFrame = 0;
-    */
-	
+    
+    // === 🌟 3. ジャンプの物理計算 (浮遊モンスター ID:30,31,32 は除外) ===
+    
     // 地面にいない、または上向きの速度がある場合（ジャンプ中）
     if (this.jumpY < 0 || this.jumpV !== 0) {
       this.jumpV += 0.5; // 重力
       this.jumpY += this.jumpV;
-      this.jumpFrame++; // 🌟 ジャンプ中のアニメーションコマを進める
+      this.jumpFrame++; 
 
       if (this.jumpY >= 0) {
         this.jumpY = 0;
         this.jumpV = 0;
-        this.jumpFrame = 0; // 着地したらコマをリセット
+        this.jumpFrame = 0; 
       }
     }
 
-    // 🌟 ジャンプの開始判定 (en ではなく this を使う)
-    // 0.01 (1%) の確率でジャンプ
-    if (this.jumpY === 0 && Math.random() < 0.01) { 
-      this.jumpV = -7;   // ジャンプ初速
-      this.jumpFrame = 0; // 🌟 ジャンプした瞬間にアニメーションを0コマ目にリセット
+    // 🌟 ジャンプの開始判定 (特定のモンスターID 30, 31, 32 を除外)
+    if (this.jumpY === 0 && ![30, 31, 32].includes(this.id) && Math.random() < 0.01) { 
+      this.jumpV = -7;    
+      this.jumpFrame = 0; 
     }
 
     // === 🐾 🐾 3. 行動ロジック (自動移動・反転・追尾) ===
@@ -340,29 +337,24 @@ class Enemy {
       if (this.isEnraged && Object.keys(players).length > 0) {
         const target = Object.values(players)[0];
         if (target) {
-          // プレイヤーの方向を向く
           this.dir = (target.x < this.x) ? -1 : 1;
-          
           const diffX = target.x - this.x;
-          const moveStep = this.speed * 1.5 * this.dir; // 通常の1.5倍速
+          const moveStep = this.speed * 1.5 * this.dir;
           
           let nextX = this.x + moveStep;
           if (Math.abs(diffX) < Math.abs(moveStep)) {
-            nextX = target.x; // 重なる直前ならピタリと合わせる
+            nextX = target.x;
           }
 
           if (this.platIndex === null) {
-            // 【地面追尾】：400-800の範囲制限
             if (nextX > 400 && nextX < 800 - this.w) {
               this.x = nextX;
             }
           } else {
-            // 【足場追尾】：崖っぷち判定あり
             const p = MAP_DATA.platforms[this.platIndex];
             let nextOffset = this.offset + (nextX - this.x);
             
             if (nextOffset < 0 || nextOffset > p.w - this.w) {
-              // 崖で止めて、1.5秒間「ふんっ！」と背を向ける（waitTimer）
               if (nextOffset < 0) this.offset = 0;
               if (nextOffset > p.w - this.w) this.offset = p.w - this.w;
               this.x = p.x + this.offset;
@@ -376,7 +368,6 @@ class Enemy {
       } 
       // --- 🌟 B. 通常状態（巡回モード） ---
       else if (this.platIndex === null) {
-        // 地面の巡回（設定値を使用）
         this.x += this.speed * this.dir;
         if (this.x < SETTINGS.SYSTEM.ENEMY_MIN_X) { 
             this.x = SETTINGS.SYSTEM.ENEMY_MIN_X; 
@@ -387,7 +378,6 @@ class Enemy {
             this.dir = -1; 
         }
       } else {
-        // 足場の巡回
         const p = MAP_DATA.platforms[this.platIndex];
         if (p) {
           this.offset += this.speed * this.dir;
@@ -399,26 +389,31 @@ class Enemy {
         }
       }
 
-      // 気まぐれな停止と反転（通常時のみ 1% の確率で発生）
       if (!this.isEnraged && Math.random() < 0.01) { 
         this.waitTimer = Math.floor(Math.random() * 200) + 50; 
         this.dir *= (Math.random() > 0.5 ? 1 : -1); 
       }
     }
 
-    // === 🎯 4. 最終座標の確定 (足場データとの同期) ===
+    // === 🎯 4. 最終座標の確定 (足場データとの同期 + 🌟浮遊処理) ===
+    const isFloating = [30, 31, 32].includes(this.id);
+    const floatHeight = 12; // どれくらい浮かせるか（ピクセル）
+
     if (this.platIndex === null) {
-      // 地面の高さ固定
-      this.y = SETTINGS.SYSTEM.GROUND_Y - this.h;
+      // 地面の高さ固定（浮遊モンスターは floatHeight 分だけ引く）
+      this.y = SETTINGS.SYSTEM.GROUND_Y - this.h - (isFloating ? floatHeight : 0);
     } else {
-      // 足場の位置に合わせて座標更新
       const p = MAP_DATA.platforms[this.platIndex];
       if (p) {
-        if (this.opacity < 1) this.opacity += 0.02; // 足場への出現フェードイン
+        if (this.opacity < 1) this.opacity += 0.02;
         this.x = p.x + this.offset;
-        this.y = p.y - this.h;
+        // 足場の上でも浮遊モンスターは floatHeight 分だけ引く
+        this.y = p.y - this.h - (isFloating ? floatHeight : 0);
       }
     }
+
+    // 🌟 ジャンプ中の高さを足す（浮遊中もジャンプ計算自体は生かしておく場合のため）
+    this.y += (this.jumpY || 0);
   }
 }
 
@@ -430,18 +425,30 @@ let droppedItems = [];    // 画面に落ちているアイテム
 let lastPickedItems = []; // 🌟 拾われた情報を一時保存する箱（ここがベスト！）
 
 // モンスター名とIDを紐付ける名簿
+/*
 const ENEMY_ID = {
   A_DENDEN: 1,
   M_KINOKO: 2,
   GOLEM: 3
 };
+*/
 
 // --- 👾 モンスターの配置設定 ---
+/*
 const ENEMY_PLAN = [
   { plat: 0,    id: 5 }, 
   { plat: 1,    id: 6 }, 
   { plat: 1,    id: 6 }, 
   { plat: 2,    id: 7 }, 
+  { plat: null, id: 20 }
+];
+*/
+
+const ENEMY_PLAN = [
+  { plat: 0,    id: 30 }, 
+  { plat: 1,    id: 31 }, 
+  { plat: 1,    id: 31 }, 
+  { plat: 2,    id: 32 }, 
   { plat: null, id: 20 }
 ];
 
@@ -657,28 +664,31 @@ function handleAttack(socket, data) {
         });
 
         // --- 💀 死亡判定と報酬処理 ---
-        if (nearest.hp <= 0 && nearest.alive) {
-            nearest.alive = false; // 死亡フラグ
-            
-			socket.emit('exp_log', { amount: 10 }); 
+if (nearest.hp <= 0 && nearest.alive) {
+    nearest.alive = false; // 死亡フラグ
 
-            // 🌟 経験値を10追加（ここが土田さんの頑張ったポイント！）
-            addExperience(p, 10);
-			
-			console.log(`[EXP DEBUG] ログ送信完了: ${p.name} に 10 EXP`);
-            
-            // アイテムを地面に落とす
-            spawnDropItems(nearest);
-            
-            nearest.hp = 0;
-            nearest.isFading = true; // 徐々に消える演出
-            nearest.deathFrame = 0;
-            
-            // スコアを加算
-            p.score = (Number(p.score) || 0) + 100;
-            
-            console.log(`[DEBUG] 最終確定EXP: ${p.exp}`);
-        }
+    // 🌟 固定の 10 ではなく、モンスターが持っている exp を使うように変更
+    const rewardExp = nearest.exp || 10; // 万が一設定がない場合は予備で10にする
+
+    socket.emit('exp_log', { amount: rewardExp }); 
+
+    // 🌟 経験値をモンスターに応じた量だけ追加
+    addExperience(p, rewardExp);
+    
+    console.log(`[EXP DEBUG] ログ送信完了: ${p.name} に ${rewardExp} EXP`);
+    
+    // アイテムを地面に落とす
+    spawnDropItems(nearest);
+    
+    nearest.hp = 0;
+    nearest.isFading = true; // 徐々に消える演出
+    nearest.deathFrame = 0;
+    
+    // スコアを加算（ここもモンスターによって変えたい場合は nearest.score などにできます）
+    p.score = (Number(p.score) || 0) + 100;
+    
+    console.log(`[DEBUG] 最終確定EXP: ${p.exp}`);
+}
     }
 }
 

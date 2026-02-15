@@ -191,7 +191,10 @@ const VIEW_CONFIG = {
 	// 👾 モンスター（ここに追加！）
     'monster1': -7,
     'monster3': -60,
-    'monster5': -65
+    'monster5': -65,
+    'tier1_1': -30, // 意味がないみたい
+    'tier1_2': -30,
+    'tier1_3': -30
   },
   
   // 🏃 アニメーション枚数
@@ -316,7 +319,7 @@ function loadStaticImages() {
     loadItemImages();
 	
 	// 🛡️ 読み込みたいモンスターの ID リスト（ここに足すだけでOK）
-    const allowedIds = ["Char01", "Char02", "Char03", "Char16"];
+    const allowedIds = ["Char01", "Char02", "Char03", "Char10", "Char13", "Char16", "Char19"];
 
     MONSTER_CONFIGS.forEach(m => {
 	    // 門番：リストに含まれていない ID なら無視（読み込まない）
@@ -1303,7 +1306,7 @@ function drawUI(hero) {
     drawPlayerHP(hero);
 
     // 2. カバンUIの描画
-    drawBagUI(hero);
+    //drawBagUI(hero);
 
     // 3. 経験値とレベル・デバッグ表示
     drawExpAndDebug(hero);
