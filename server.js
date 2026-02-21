@@ -19,6 +19,53 @@ const io = require('socket.io')(http, {
 });
 const path    = require('path'); // ファイルパス操作用（絶対パスの指定などに必要）
 
+// 🛠️ デバッグ支援：さらに直感的なログに変更
+const LOG = {
+    SYS:  (txt) => debugChat(txt, 'info'),    // 青色：システム動作
+    DB:   (txt) => debugChat(txt, 'db'),      // 紫色：データベース接続
+    ERR:  (txt) => debugChat(txt, 'error'),   // 赤色：重大なエラー
+    SUCCESS: (txt) => debugChat(txt, 'success'), // 緑色：レベルアップやドロップ
+    WARN: (txt) => debugChat(txt, 'warn'),     // 黄色：ちょっとした警告
+	ITEM: (txt) => debugChat(txt, 'success') // 🎁 アイテム用（緑色）
+};
+
+// ==========================================
+// 📢 【最強のデバッグ関数・改】（安全装置つき）
+// ==========================================
+function debugChat(message, type = 'info') {
+    try {
+        const time = new Date().toLocaleTimeString();
+        
+        // 🛡️ 土田さんのための安全装置：もし type に true が来ても 'error' として扱う
+        let safeType = type;
+        if (typeof type === 'boolean') {
+            safeType = type ? 'error' : 'info';
+        }
+        safeType = safeType || 'info';
+
+        let icon = '🤖';
+        let color = '\x1b[36m';
+
+        switch (safeType) {
+            case 'error':   icon = '🚨'; color = '\x1b[31m'; break;
+            case 'success': icon = '🎊'; color = '\x1b[32m'; break;
+            case 'warn':    icon = '⚠️'; color = '\x1b[33m'; break;
+            case 'db':      icon = '🗄️'; color = '\x1b[35m'; break;
+            default:        icon = 'ℹ️'; color = '\x1b[36m'; safeType = 'info'; break;
+        }
+
+        io.emit('chat', {
+            id: 'SYSTEM_LOG',
+            name: `${icon} ${safeType.toUpperCase()}`,
+            text: `[${time}] ${message}`
+        });
+
+        console.log(`${color}[${safeType.toUpperCase()}] ${message}\x1b[0m`);
+    } catch (e) {
+        console.error("🚨 debugChat内部で深刻なエラー:", e);
+    }
+}
+
 // ==========================================
 // 🗄️ MySQLへの接続（ここが土田さんの言った部分です！）
 // ==========================================
@@ -47,18 +94,18 @@ function handleDisconnect() {
   // 接続実行
   connection.connect(err => {
     if (err) {
-      console.error('MySQL接続エラー。2秒後に再試行します...:', err.stack);
+      debugChat(`⚠️ DB接続失敗。2秒後に再試行します...`, 'error');
       setTimeout(handleDisconnect, 2000); // 失敗したら2秒後にやり直し
       return;
     }
-    console.log('MySQLに無事つながりました！');
+    LOG.DB('✅ MySQLデータベースに無事つながりました！');
   });
 
   // 🌟 接続中のエラー（突然の切断など）を監視
   connection.on('error', err => {
     console.error('MySQL実行時エラー:', err);
     if (err.code === 'PROTOCOL_CONNECTION_LOST') {
-      console.log('接続が切れました。再接続を開始します...');
+      debugChat('📡 DB接続が切れました。再接続中...', 'error');
       handleDisconnect(); // 切断されたら自動で繋ぎ直す
     } else {
       throw err; // それ以外の重大なエラーは投げる
@@ -116,6 +163,13 @@ const SETTINGS = {
 	PICKUP_RANGE_X: 60,   // 横方向にどのくらい近づけば拾えるか
     PICKUP_RANGE_Y: 40    // 縦方向にどのくらい近づけば拾えるか
   }
+};
+
+// 🛡️ 盾のレア度確率設定（合計が100以下になるようにします）
+const SHIELD_CHANCE = {
+    LEGENDARY: 5,  // 💜 最高級が出る確率 (%)
+    RARE:      15, // 💛 良品が出る確率 (%)
+    // 残りの 80% は通常・壊れかけになります
 };
 
 // ==========================================
@@ -471,7 +525,7 @@ const DROP_DATABASE = {
 
 const DROP_CHANCE_TABLES = {
   "big":   { "gold_heart": 40, "money5": 20, "gold_one": 5, "default": 50 }, // 50%でドロップ、そのうち20%で金塊
-  "big2":  { "shield": 90, "gold": 80, "default": 100 },
+  "big2":  { "medal1": 80, "shield": 90, "gold": 80, "default": 100 },
   "small": { "gold_heart": 40, "money6": 50,  "default": 50 },
   "tier1": { "medal1": 80, "gold_heart": 40, "shield": 20, "default": 80 },
 };
@@ -482,81 +536,148 @@ const LEVEL_TABLE = [0, 12, 20, 35, 60, 100, 150, 210, 280, 360, 450];
 
 // 🌟 経験値を加算してレベルアップをチェックする専用の関数
 function addExperience(player, amount, socket) {
-    if (!player) return;
+    // 🛡️ ガード：プレイヤーがいない、または加算量が数値でない場合は即終了
+    if (!player || isNaN(amount)) return;
 
-    // 1. 経験値を加算
-    player.exp = (Number(player.exp) || 0) + amount;
+    try {
+        // 数値であることを保証して計算
+        player.exp = (Number(player.exp) || 0) + Number(amount);
+        // ... (以下のレベルアップ判定ロジック)
+    } catch (e) {
+        console.error("❌ 経験値計算中にエラー:", e);
+    }
 
     // 2. 現在のレベルに応じた必要経験値をテーブルから取得
     // 万が一レベルがテーブルの範囲を超えた場合は、最後の値を参照するか大きな数にします
     let requiredExp = LEVEL_TABLE[player.level] || (player.level * 100);
     player.maxExp = requiredExp;
 
-    console.log(`[EXP] ${player.name}: +${amount} (Total: ${player.exp} / Next: ${requiredExp})`);
+    debugChat(`[EXP] ${player.name}: +${amount} (Total: ${player.exp} / Next: ${requiredExp})`);
 
     // 3. レベルアップ判定（whileを使うと、一気に2レベル上がる場合にも対応できます）
     while (player.exp >= requiredExp) {
         player.exp -= requiredExp; // 経験値を引いて余りを繰り越す
         player.level = (Number(player.level) || 1) + 1;
         
-		// 🌟 サーバーでは直接鳴らさず、クライアントに「鳴らして！」と命令を送る
-        if (typeof socket !== 'undefined' && socket) {
-            socket.emit('level_up_effect'); 
-        }
+		player.ap = (Number(player.ap) || 0) + 5; // 安全のために数値変換を入れるとより良いです
+		
+		// 🌟 ここが重要！ サーバーから「レベルアップしたよ！」と全員に合図を送る
+        io.emit('level_up_effect', { 
+            playerId: player.id 
+        });
 		
         // 次のレベルの必要量を再取得
         requiredExp = LEVEL_TABLE[player.level] || (player.level * 100);
         player.maxExp = requiredExp;
 
         console.log(`[LEVEL UP] ${player.name} が Lv.${player.level} になりました！`);
+		debugChat(`🎊${player.name}がレベル${player.level}に上がりました！`);
     }
 
     // 本来ならここでDB保存関数を呼ぶとさらにスッキリします
 }
 
-// 💰 敵を倒した時にアイテムを生成する専用の関数
 function spawnDropItems(enemy) {
-    const setting = DROP_DATABASE[enemy.type] || { table: "small" };
-    const chances = DROP_CHANCE_TABLES[setting.table];
-    let itemsToDrop = [];
+    try {
+        if (!enemy || !droppedItems) return;
 
-    const dropRoll = Math.random() * 100;
-    if (dropRoll <= (chances.default || 100)) {
-        for (let type in chances) {
-            if (type === "default") continue;
-            if (Math.random() * 100 < chances[type]) {
-                itemsToDrop.push(type);
+        const setting = DROP_DATABASE[enemy.type] || { table: "small" };
+        const chances = DROP_CHANCE_TABLES[setting.table];
+        if (!chances) return;
+
+        let itemsToDrop = [];
+        const dropRoll = Math.random() * 100;
+        if (dropRoll <= (chances.default || 100)) {
+            for (let type in chances) {
+                if (type === "default") continue;
+                if (Math.random() * 100 < chances[type]) {
+                    itemsToDrop.push(type);
+                }
             }
         }
+
+        if (itemsToDrop.length === 0) return;
+
+        const fixedSpawnY = enemy.y + (enemy.h || 32) - 50;
+        
+        itemsToDrop.forEach((type, i) => {
+            const spread = 15;
+            const offsetX = (i - (itemsToDrop.length - 1) / 2) * spread;
+
+            // --- 1. まず先に、鑑定用のデータ（色や品質）を計算する ---
+            let itemColor = "#ffffff"; 
+            let qualityLabel = "";
+            let defenseValue = 0;
+
+            if (type === 'shield') {
+                // ==========================================
+                // 📊 確率調整用パラメータ（合計が100%を超えないように設定）
+                // ==========================================
+                const CHANCE_LEGENDARY = 5;  // 💜 最高級が出る確率 (5%)
+                const CHANCE_RARE      = 15; // 💛 良品が出る確率 (15%)
+                const CHANCE_BROKEN    = 20; // 🩶 壊れかけが出る確率 (20%)
+                // 残りの 60% は通常品になります
+                // ==========================================
+
+                const roll = Math.random() * 100;
+
+                if (roll < CHANCE_LEGENDARY) {
+                    // --- 💜 最高級 (防御力: 14 ～ 15) ---
+                    itemColor = "#ff00ff";
+                    qualityLabel = "(最高級)";
+                    defenseValue = Math.floor(Math.random() * 2) + 14; 
+                } 
+                else if (roll < (CHANCE_LEGENDARY + CHANCE_RARE)) {
+                    // --- 💛 良品 (防御力: 11 ～ 13) ---
+                    itemColor = "#ffcc00";
+                    qualityLabel = "(良品)";
+                    defenseValue = Math.floor(Math.random() * 3) + 11;
+                } 
+                else if (roll < (CHANCE_LEGENDARY + CHANCE_RARE + CHANCE_BROKEN)) {
+                    // --- 🩶 壊れかけ (防御力: 1 ～ 7) ---
+                    itemColor = "#888888";
+                    qualityLabel = "(壊れかけ)";
+                    defenseValue = Math.floor(Math.random() * 7) + 1;
+                } 
+                else {
+                    // --- ⚪ 通常品 (防御力: 8 ～ 10) ---
+                    itemColor = "#ffffff";
+                    qualityLabel = "";
+                    defenseValue = Math.floor(Math.random() * 3) + 8;
+                }
+
+                // ここで計算が終わったので、ログを出してもOK
+                LOG.ITEM(`🎁 [鑑定完了] 盾${qualityLabel} 防御:${defenseValue}`);
+            }
+
+            // --- 2. 計算したデータを使って、newItem を作成する（ここが正しい順番です） ---
+            const newItem = {
+                id: Date.now() + Math.random() + i,
+                x: enemy.x + (enemy.w || 32) / 2 + offsetX, 
+                y: fixedSpawnY,
+                vx: 0,                                     
+                vy: -4 - Math.random() * 2,
+                type: type,
+                // 上で計算した qualityLabel や itemColor をここで流し込む
+                name: (type === 'shield' ? "盾" : type) + qualityLabel, 
+                color: itemColor, 
+                defense: defenseValue, 
+                phase: Math.random() * Math.PI * 2,
+                landed: false
+            };
+
+            if (type === 'medal1') {
+                newItem.goldValue = enemy.money || 10; 
+                LOG.ITEM(`[DROP] ${enemy.name || 'Enemy'}からメダルドロップ: ${newItem.goldValue}G`);
+            }
+
+            droppedItems.push(newItem);
+        });
+
+    } catch (error) {
+        // エラー内容を詳しく出す
+        console.error("❌ spawnDropItemsエラー:", error);
     }
-
-    const fixedSpawnY = enemy.y + (enemy.h || 0) - 50;
-    itemsToDrop.forEach((type, i) => {
-        // 🌟 複数個ドロップした時に、重ならないよう横に15pxずつずらす計算
-        // アイテムが1個なら中央、複数なら左右にきれいに並びます
-        const spread = 15; 
-        const offsetX = (i - (itemsToDrop.length - 1) / 2) * spread;
-
-        // 土田さんのコードの構造をそのまま踏襲し、vxを0に、xにoffsetXを足しています
-        const newItem = {
-            id: Date.now() + Math.random() + i,
-            x: enemy.x + enemy.w / 2 + offsetX, // 👈 中央から少しだけずらして配置
-            y: fixedSpawnY,
-            vx: 0,                              // 👈 横移動はさせない（足場からの落下防止）
-            vy: -4 - Math.random() * 2,          // 👈 少しだけ上に跳ね上げる
-            type: type,
-            phase: Math.random() * Math.PI * 2,
-            landed: false
-        };
-
-        // 🛡️ 盾（shield）だった場合だけ、5〜15の間でランダムな防御力を付与する
-        if (type === 'shield') {
-            newItem.defense = Math.floor(Math.random() * 11) + 5; 
-            console.log(`[DROP] 防御力 ${newItem.defense} の盾がドロップしました！`);
-        }
-
-        droppedItems.push(newItem);
-    });
 }
 
 // ==========================================
@@ -565,15 +686,17 @@ function spawnDropItems(enemy) {
 
 // 1. プレイヤーが参加したときの処理
 function handleJoin(socket, name) {
-    // 🌟 データベースに名前を保存
-    const sql = 'INSERT INTO players2 (name) VALUES (?)';
-    connection.query(sql, [name], (err, result) => {
-        if (err) {
-            console.error('player2への保存に失敗しました:', err);
-        } else {
-            console.log(`✅ DB保存成功: ${name} さんを記録しました！`);
+    try {
+        if (connection && connection.state !== 'disconnected') {
+            const sql = 'INSERT INTO players2 (name) VALUES (?)';
+            connection.query(sql, [name], (err, result) => {
+                if (err) console.error('DB保存失敗:', err);
+                else console.log(`✅ DB記録成功: ${name}`);
+            });
         }
-    });
+    } catch (e) {
+        console.error("❌ handleJoin内での予期せぬエラー:", e);
+    }
 
     // 🌟 プレイヤーデータの作成
 players[socket.id] = {
@@ -592,6 +715,7 @@ players[socket.id] = {
     // --- ⚔️ 今日決めた緻密なステータスを追加 ⚔️ ---
     str: 50,      // 初期攻撃力
     dex: 4,      // 初期命中率
+    luk: 4,
     ap: 0,       // 振り分け可能な能力ポイント
     // ------------------------------------------
 
@@ -717,45 +841,80 @@ function handleAttack(socket, data) {
 }
 
 /**
- * 3. アイテムを拾ったときの処理
+ * 3. アイテムを拾ったときの処理（安全装置付き）
+ * --------------------------------------------------
+ * 役割：地面のアイテムを拾い、カバンや財布へ振り分けます。
+ * エラーが起きてもサーバーを落とさないよう、がっちり保護しています。
  */
 function handlePickup(socket, itemId) {
-    const player = players[socket.id];
-    if (!player) return;
+    // 🛡️ 安全装置：関数全体を大きな try-catch で囲みます
+    try {
+        const player = players[socket.id];
+        
+        // 🛡️ ガード：プレイヤーが存在しない、またはitemIdが空の場合は何もしない
+        if (!player || !itemId) return;
 
-    // クールタイムのチェック
-    const now = Date.now();
-    if (player.lastPickupTime && (now - player.lastPickupTime < 200)) {
-        return; 
-    }
+        // クールタイムのチェック
+        const now = Date.now();
+        if (player.lastPickupTime && (now - player.lastPickupTime < 200)) {
+            return; 
+        }
 
-    const item = droppedItems.find(it => it.id === itemId);
-    if (!item || item.isPickedUp) return;
+        // 🛡️ ガード：アイテムリスト自体が存在するか確認
+        if (!droppedItems) return;
 
-    const dx = Math.abs(player.x - item.x);
-    const dy = Math.abs(player.y - item.y);
+        const item = droppedItems.find(it => it.id === itemId);
+        
+        // 🛡️ ガード：アイテムが見つからない、または既に拾われている場合は終了
+        if (!item || item.isPickedUp) return;
 
-    if (dx > SETTINGS.ITEM.PICKUP_RANGE_X || dy > SETTINGS.ITEM.PICKUP_RANGE_Y) {
-        return;
-    }
+        // 距離判定（ここまでの計算は維持）
+        const dx = Math.abs(player.x - item.x);
+        const dy = Math.abs(player.y - item.y);
 
-    item.isPickedUp = true;
-    player.lastPickupTime = now;
+        if (dx > SETTINGS.ITEM.PICKUP_RANGE_X || dy > SETTINGS.ITEM.PICKUP_RANGE_Y) {
+            return;
+        }
 
-    const idx = droppedItems.findIndex(it => it.id === itemId);
-    if (idx !== -1) {
-        const removedItem = droppedItems.splice(idx, 1)[0];
+        // 拾う権利を確定
+        item.isPickedUp = true;
+        player.lastPickupTime = now;
 
-        if (removedItem) {
-            lastPickedItems.push({
-                type: removedItem.type,
-                x: (removedItem.x && removedItem.x !== 0) ? removedItem.x : player.x,
-                y: (removedItem.y && removedItem.y !== 0) ? removedItem.y : player.y,
-                pickerId: socket.id
-            });
+        const idx = droppedItems.findIndex(it => it.id === itemId);
+        if (idx !== -1) {
+            const removedItem = droppedItems.splice(idx, 1)[0];
 
-            if (!player.inventory) player.inventory = Array(10).fill(null); // 最初から10個の空き地を確保
+            // 🛡️ ガード：取り出した瞬間にデータが壊れていた場合の対策
+            if (!removedItem) return;
 
+            // 🌟 金額・メダルの処理
+            if (removedItem.type === 'medal1' || removedItem.goldValue) {
+                const baseAmount = removedItem.goldValue || 10; 
+                const fluctuation = 0.8 + (Math.random() * 0.4);
+                const amount = Math.floor(baseAmount * fluctuation);
+
+                player.gold = (player.gold || 0) + amount;
+                
+                debugChat(`[MONEY] ${player.name || 'Player'} が ${amount}G 獲得！ (合計:${player.gold}G)`);
+                
+                socket.emit('gold_log', { amount: amount });
+                io.emit('player_update', player);
+            }
+
+            // エフェクト同期用のリストへ追加
+            if (typeof lastPickedItems !== 'undefined') {
+                lastPickedItems.push({
+                    type: removedItem.type,
+                    x: (removedItem.x && removedItem.x !== 0) ? removedItem.x : player.x,
+                    y: (removedItem.y && removedItem.y !== 0) ? removedItem.y : player.y,
+                    pickerId: socket.id
+                });
+            }
+
+            // カバンの初期化（なければ10枠確保）
+            if (!player.inventory) player.inventory = Array(10).fill(null); 
+
+            // 装備品やスタックアイテムの処理
             if (removedItem.type === 'shield' || removedItem.type === 'gold') {
                 let stacked = false;
                 const actualCount = removedItem.count || removedItem.amount || 1;
@@ -763,8 +922,7 @@ function handlePickup(socket, itemId) {
                 // --- 重ね合わせ(Stack)の処理 ---
                 if (removedItem.type === 'gold') {
                     const goldIndex = player.inventory.findIndex(slot => {
-                        if (!slot) return false;
-                        return slot.type === 'gold';
+                        return slot && slot.type === 'gold';
                     });
 
                     if (goldIndex !== -1) {
@@ -774,9 +932,8 @@ function handlePickup(socket, itemId) {
                     }
                 }
 
-                // --- 🌟 新規格納の処理（ここを修正！） ---
+                // --- 新規格納の処理 ---
                 if (!stacked) {
-                    // 0番目から順に見て、最初の「空き地(null)」を探す
                     let emptySlotIndex = -1;
                     for (let i = 0; i < 10; i++) {
                         if (player.inventory[i] === null || player.inventory[i] === undefined) {
@@ -785,7 +942,6 @@ function handlePickup(socket, itemId) {
                         }
                     }
 
-                    // 空き地が見つかった場合のみ入れる
                     if (emptySlotIndex !== -1) {
                         player.inventory[emptySlotIndex] = { 
                             type: removedItem.type, 
@@ -795,63 +951,89 @@ function handlePickup(socket, itemId) {
                         console.log(`[PICKUP OK] スロット ${emptySlotIndex} に格納しました`);
                     } else {
                         console.log("カバンがいっぱいです！");
-                        // アイテムを拾えなかった場合は地面に戻すなどの処理が必要な場合はここに書きます
+                        // 必要であればここでアイテムを地面に戻す処理を追加
                     }
                 }
 
             } else {
+                // その他のアイテム（スコア加算）
                 const points = (removedItem.type === 'money3' ? 100 : 10);
-                player.score += points;
+                player.score = (player.score || 0) + points;
             }
 
-            // 本人に直送便
+            // クライアント側（本人）へ最新のカバン情報を送信
             socket.emit('inventory_update', player.inventory);
             
-            sendState(); 
+            // 全員へ状態を同期
+            if (typeof sendState === 'function') {
+                sendState(); 
+            }
         }
+    } catch (error) {
+        // 🚨 安全装置が発動：エラー内容だけを表示し、サーバーを落としません
+        console.error("❌ [CRITICAL] handlePickup内でエラーが発生しました:", error);
     }
 }
 
 /**
- * 4. プレイヤーのダメージ同期と復活処理
+ * 4. プレイヤーのダメージ同期と復活処理（安全装置付き）
+ * --------------------------------------------------
+ * 役割：モンスターからのダメージを計算し、HPが0になったら初期位置にリスポーンさせます。
+ * データの欠損や計算ミスがあっても、サーバーが止まらないよう保護しています。
  */
 function handlePlayerDamaged(socket, data) {
-    const p = players[socket.id];
-    if (!p) return;
+    // 🛡️ 安全装置：関数全体をtry-catchで保護
+    try {
+        const p = players[socket.id];
+        if (!p) return;
 
-    // 🌟 修正：monsterId が送られてこない場合でも、一番近い敵の攻撃力を参照する
-    let attacker = enemies.find(en => en.id === data.monsterId);
-    
-    // もし ID で見つからなければ、近くにいる「生きている敵」を一人探す
-    if (!attacker) {
-        attacker = enemies.find(en => en.alive && Math.abs(en.x - p.x) < 100);
+        // 🌟 修正：monsterId が送られてこない場合でも、一番近い敵の攻撃力を参照する
+        let attacker = enemies.find(en => en.id === data.monsterId);
+        
+        // もし ID で見つからなければ、近くにいる「生きている敵」を一人探す
+        if (!attacker) {
+            attacker = enemies.find(en => en.alive && Math.abs(en.x - p.x) < 100);
+        }
+        
+        // カタログの atk (50など) を優先し、なければ 10 にする
+        const damageValue = attacker ? (attacker.atk || 5) : 10;
+        
+        debugChat(`[ダメージ判定] 攻撃者: ${attacker ? attacker.type : '不明'}, ダメージ: ${damageValue}`, 'error');
+
+        // 🛡️ 数値のガード：HPが万が一 NaN(非数) にならないよう Number() で保証し、
+        // 計算結果がマイナスになっても Math.max(0, ...) で「0」で止まるようにします。
+        const currentHp = Number(p.hp) || 100;
+        p.hp = Math.max(0, currentHp - damageValue);
+
+        // 復活処理 (既存のコードを維持)
+        if (p.hp <= 0) {
+            console.log(`[RESPAWN] ${p.name} が倒れましたが、復活しました！`);
+
+            // 🌟 追記：死亡した瞬間にクライアントへ通知を送り、playDieSound() を発動させる
+            socket.emit('player_die_sound');
+
+            // 最大HPの設定があればそれを使い、なければ100にします
+            p.hp = p.maxHp || 100;
+            p.x = 50;
+            p.y = 500;
+            
+            // 🛡️ 復活時は即座に状態を送信して位置を同期
+            sendState();
+        }
+
+        // エフェクト表示
+        io.emit('damage_effect', { 
+            x: (Number(p.x) || 0) + 30, 
+            y: (Number(p.y) || 0), 
+            val: damageValue, 
+            isCritical: false, 
+            type: 'player_hit' 
+        });
+
+    } catch (e) {
+        // 🚨 致命的なエラーが起きてもサーバーを落とさず、ログだけ残します
+        console.error("❌ [CRITICAL] handlePlayerDamaged内でエラー:", e);
     }
-    
-    // カタログの atk (50など) を優先し、なければ 10 にする
-    const damageValue = attacker ? (attacker.atk || 5) : 10;
-	
-    console.log(`[修正後テスト] 判定された攻撃者: ${attacker ? attacker.type : '不明'}, 使用ダメージ: ${damageValue}`);
-
-    // HPを更新
-    p.hp -= damageValue;
-
-    // 復活処理 (既存のコードを維持)
-    if (p.hp <= 0) {
-        console.log(`[RESPAWN] ${p.name} が倒れましたが、復活しました！`);
-        p.hp = 100;
-        p.x = 50;
-        p.y = 500;
-        sendState();
-    }
-
-    // エフェクト表示
-    io.emit('damage_effect', { 
-        x: p.x + 30, 
-        y: p.y, 
-        val: damageValue, 
-        isCritical: false, 
-        type: 'player_hit' 
-    });
 }
 
 /**
@@ -867,145 +1049,355 @@ function handleChat(socket, text) {
 }
 
 /**
- * 状態送信用の共通関数（pickup以外でも使えるように）
+ * 📡 状態送信用の共通関数（全プレイヤーに現在の世界状況を伝える）
+ * --------------------------------------------------
+ * 役割：プレイヤー、アイテム、敵の最新データを一つのパケットにまとめて
+ * 全員に一斉送信します。エラーが起きてもサーバーを落とさない安全装置付き。
  */
 function sendState() {
-    io.emit('state', { 
-        players: players, 
-        items: droppedItems, 
-        enemies: enemies, 
-        platforms: MAP_DATA.platforms,
-        ladders: MAP_DATA.ladders
-    });
+    // 🛡️ 安全装置（try-catch）：万が一この中でエラーが起きてもサーバーを停止させません
+    try {
+        // 1. データの存在確認（playersなどが空っぽでエラーになるのを防ぐ）
+        if (!players) return;
+
+        // 2. 📡 全プレイヤーへ送信（io.emit）
+        io.emit('state', {
+            // 👥 【プレイヤー】全員の座標、名前、所持金、HPなど
+            players: players,
+
+            // 💰 【アイテム】地面に落ちているすべてのアイテム（金貨や装備）
+            items: droppedItems,
+
+            // 👾 【モンスター】ジャンプ判定を「送信する瞬間に」追加して送信
+            enemies: enemies.map(en => ({
+                ...en,                          // id, x, y, hp などの基本情報をコピー
+                jumpY: en.jumpY || 0,           // 現在のジャンプの高さ
+                isJumping: (en.jumpY || 0) !== 0 // 0でなければ「ジャンプ中」として判定
+            })),
+
+            // 🗺️ 【マップ構造】足場（platforms）とハシゴ（ladders）の配置情報
+            platforms: MAP_DATA.platforms,
+            ladders: MAP_DATA.ladders,
+
+            // 🎁 【アイテム取得ログ】誰が何を拾ったかの最新エフェクト情報
+            lastPickedItems: lastPickedItems
+        });
+
+        // 📝 デバッグログ：アイテムが拾われた時だけ、コンソールにこっそり表示
+        if (lastPickedItems.length > 0) {
+            console.log(`[DEBUG] アイテム取得データを送信しました: ${lastPickedItems.length}件`);
+        }
+
+        // 🌟 【リセット】送信が完了したので、アイテム取得確定情報を空にします
+        // これを忘れると、同じアイテムを何度も拾った演出が出てしまいます
+        lastPickedItems = [];
+
+    } catch (error) {
+        // 🚨 安全装置の発動：エラーが起きた場合はここに飛んできます
+        // サーバーは止めずに、エラーの内容だけを記録します
+        console.error("❌ [CRITICAL] sendState関数内でエラーが発生しました:", error);
+    }
 }
 
+// ==========================================
+// 📞 ソケット通信の入り口（debugChat 搭載版）
+// ==========================================
 io.on('connection', socket => {
-    // 接続時にIDを通知
-    socket.emit('your_id', socket.id);
-    console.log(`User connected: ${socket.id}`);
+    // 🛡️ 通信の根本を try-catch で保護
+    try {
+	    // 新しいプレイヤーが接続したことを、接続した本人「以外」の全員に通知
+        socket.broadcast.emit('player_joined_sound');
+	
+        // 接続時にIDを通知
+        socket.emit('your_id', socket.id);
+        debugChat(`🔌 新しい接続: ${socket.id}`);
 
-    // 1. 参加
-    socket.on('join', n => handleJoin(socket, n));
+        // 1. 参加
+        socket.on('join', n => {
+            try { 
+                handleJoin(socket, n); 
+                debugChat(`👋 ${n} さんが参加しました`);
 
-    // 2. 移動 (server.js 内の socket.on('move'))
-    socket.on('move', d => {
-        if (players[socket.id]) {
-            // 🌟 修正：ブラウザから受け取るのは「位置」と「移動速度」と「向き」だけにする
-            const { x, y, dir, vx, vy, isJumping, isClimbing } = d;
+                // 🌟 ここを追加！参加した直後のプレイヤーデータをのぞき見する
+                const p = players[socket.id];
+                if (p) {
+                    LOG.SYS(`[入室データ確認] ${JSON.stringify(p)}`);
+                }
+            } 
+            catch (e) { 
+                debugChat(`❌ joinエラー: ${e.message}`, 'error'); 
+            }
+        });
 
-            Object.assign(players[socket.id], {
-                x, y, dir, vx, vy, isJumping, isClimbing
-            });
-        }
-    });
+        // 2. 移動
+        socket.on('move', d => {
+            try {
+                if (players[socket.id]) {
+                    // 🌟 修正：ブラウザから受け取るのは「位置」と「移動速度」と「向き」だけにする
+                    const { x, y, dir, vx, vy, isJumping, isClimbing } = d;
+                    Object.assign(players[socket.id], {
+                        x, y, dir, vx, vy, isJumping, isClimbing
+                    });
+                }
+            } catch (e) { 
+                // 移動は頻度が高いため、エラー時のみチャットに通知（isError: true）
+                debugChat(`❌ moveエラー: ${e.message}`, 'error'); 
+            }
+        });
 
-    // 3. 攻撃
-    socket.on('attack', data => handleAttack(socket, data));
+        // 3. 攻撃
+        socket.on('attack', data => {
+            try {
+                handleAttack(socket, data);
+            } catch (e) {
+                debugChat(`❌ 攻撃処理エラー: ${e.message}`, 'error');
+            }
+        });
 
-    // 4. アイテム拾得
-    socket.on('pickup', itemId => handlePickup(socket, itemId));
+        // 4. アイテム拾得
+        socket.on('pickup', itemId => {
+            try { handlePickup(socket, itemId); } 
+            catch (e) { debugChat(`❌ pickupエラー: ${e.message}`, 'error'); }
+        });
 
-    // 5. 被ダメージ
-    socket.on('player_damaged', data => handlePlayerDamaged(socket, data));
+        // 5. 被ダメージ
+        socket.on('player_damaged', data => {
+            try { handlePlayerDamaged(socket, data); } 
+            catch (e) { debugChat(`❌ damagedエラー: ${e.message}`, 'error'); }
+        });
 
-    // 6. チャット
-    socket.on('chat', text => handleChat(socket, text));
+        // 6. チャット（デバッグ機能・超強化版）
+        socket.on('chat', text => {
+            try {
+                const p = players[socket.id];
+                if (!p) return;
 
-    // 7. 切断
-    socket.on('disconnect', () => {
-        console.log(`User disconnected: ${socket.id}`);
-        delete players[socket.id];
-    });
+                // 🔍 【コマンド1】ステータス詳細
+                if (text === '/check') {
+                    LOG.SYS(`--- 🔍 ${p.name}の状態 ---`);
+                    LOG.SYS(`HP: ${p.hp}/${p.maxHp} | Lv: ${p.level} | Gold: ${p.gold}`);
+                    LOG.SYS(`位置: (${Math.round(p.x)}, ${Math.round(p.y)})`);
+					LOG.SYS(`現在のモンスター数: ${enemies.length}体`);
+                    return;
+                }
 
-    // --- 既存のキャラ変更・グループ変更を維持する場合 ---
-    socket.on('change_char', data => {
-        if (players[socket.id]) {
-            players[socket.id].charVar = data.charVar;
-            io.emit('update_players', players);
-        }
-    });
+                // 💖 【コマンド2】全回復
+                if (text === '/heal') {
+                    p.hp = p.maxHp || 100;
+                    LOG.SUCCESS(`💖 ${p.name} を全回復しました！`);
+                    sendState();
+                    return;
+                }
 
-    socket.on('change_group', data => {
-        if (players[socket.id]) {
-            players[socket.id].group = data.group;
-            io.emit('update_players', players);
-        }
-    });
+                // 🆙 【コマンド3】レベルアップテスト
+                if (text === '/level') {
+                    p.level += 1;
+                    p.maxHp += 20;
+                    p.hp = p.maxHp;
+                    LOG.SUCCESS(`🆙 テスト：Lv.${p.level} にアップ！(HP+20)`);
+                    sendState();
+                    return;
+                }
 
-    // 📥 クライアントから「アイテムを捨てたよ（dropItem）」という通知が来た時の処理
-socket.on('dropItem', (index) => {
-    // 🔍 1. 通信を送ってきたプレイヤーが誰かを探します
+                // 💰 【コマンド4】金策テスト
+                if (text === '/money') {
+                    p.gold = (p.gold || 0) + 1000;
+                    LOG.SUCCESS(`💰 テスト：1000G 付与（現在: ${p.gold}G）`);
+                    sendState();
+                    return;
+                }
+
+                // 👹 【コマンド5】モンスター召喚（自分の目の前に出す）
+                if (text === '/spawn') {
+                    const newEnemy = {
+                        id: Date.now(),      // ユニークなID
+                        x: p.x + 100,        // 自分の少し右に出す（重ならないように）
+                        y: p.y - 50,         // 少し上から降ってくるように
+                        hp: 50,
+                        maxHp: 50,
+                        name: "テスト用スライム",
+                        type: "slime",
+                        alive: true,
+                        state: 'idle',       // 状態を追加
+                        vx: 0,
+                        vy: 0
+                    };
+
+                    // 1. サーバーのモンスター配列に追加
+                    enemies.push(newEnemy);
+
+                    // 2. ログで成功を知らせる
+                    LOG.SUCCESS(`👹 ${newEnemy.name} を召喚しました！`);
+
+                    // 3. 🌟 【重要】ブラウザ側に「新しい敵が増えたよ！」と即座に通知する
+                    // sendState() だけでも良いですが、io.emit で「敵リスト」を直接送ると確実です
+                    io.emit('enemies_update', enemies); 
+                    sendState(); 
+                    
+                    return;
+                }
+				
+				// 🎁 【新コマンド】テスト用アイテムを目の前に出す
+                if (text === '/item') {
+                    const newItem = {
+                        id: Date.now(),
+                        x: p.x,
+                        y: p.y - 50,
+                        type: 'gold',
+                        amount: 100,
+                        vx: (Math.random() - 0.5) * 10,
+                        vy: -10,
+                        landed: false
+                    };
+                    
+                    // 🌟 ここを 'items' から 'droppedItems' に修正
+                    if (typeof droppedItems !== 'undefined') {
+                        droppedItems.push(newItem);
+                    } else {
+                        // もし droppedItems でもなければ、今使っている変数名に合わせます
+                        LOG.ERR("アイテム管理用の変数が見つかりません");
+                        return;
+                    }
+
+                    LOG.SUCCESS(`🎁 テスト用アイテム(100G)をドロップしました`);
+                    sendState();
+                    return;
+                }
+
+                // 普通のチャット処理
+                handleChat(socket, text);
+                
+            } catch (e) { 
+                debugChat(`❌ chatエラー: ${e.message}`, 'error'); 
+            }
+        });
+
+        // 7. 切断
+        socket.on('disconnect', () => {
+            try {
+                const name = players[socket.id] ? players[socket.id].name : socket.id;
+                debugChat(`📴 切断されました: ${name}`);
+                delete players[socket.id];
+            } catch (e) { debugChat(`❌ disconnectエラー: ${e.message}`, 'error'); }
+        });
+
+        // 8. キャラ変更
+        socket.on('change_char', data => {
+            try {
+                if (players[socket.id]) {
+                    players[socket.id].charVar = data.charVar;
+                    io.emit('update_players', players);
+                    debugChat(`🎭 キャラ変更: ${players[socket.id].name}`);
+                }
+            } catch (e) { debugChat(`❌ change_charエラー: ${e.message}`, 'error'); }
+        });
+
+        // 9. グループ変更
+        socket.on('change_group', data => {
+            try {
+                if (players[socket.id]) {
+                    players[socket.id].group = data.group;
+                    io.emit('update_players', players);
+                    debugChat(`👥 グループ変更: ${players[socket.id].name} -> ${data.group}`);
+                }
+            } catch (e) { debugChat(`❌ change_groupエラー: ${e.message}`, 'error'); }
+        });
+
+        // 📥 10. アイテムを捨てた時 (dropItem)
+        socket.on('dropItem', (index) => {
+            try {
+                const player = players[socket.id];
+                // 🛡️ ガード：プレイヤーが存在しない、またはカバンが空なら何もしません
+                if (!player || !player.inventory) return;
+
+                // ✅ 指定された番号のアイテムが、カバンの中に本当にあるか確認
+                if (player.inventory[index]) {
+                    const itemToDrop = player.inventory[index];
+
+                    // 🌟 地面に置くための新しいアイテムデータを作成
+                    const newItem = {
+                        id: Math.floor(Math.random() * 1000000),
+                        type: itemToDrop.type,
+                        x: player.x,
+                        y: player.y + 12,
+                        vx: 0,
+                        vy: -12, // 真上に打ち出す力
+                        landed: false,
+                        defense: itemToDrop.defense,
+                        count: itemToDrop.count || 1,
+                        value: (itemToDrop.type === 'money3' ? 100 : 10),
+                        isStatic: true,
+                        angle: 0,
+                        rotateSpeed: 0.15
+                    };
+
+                    // 🗺️ 世界のアイテムリストに追加
+                    if (Array.isArray(droppedItems)) {
+                        droppedItems.push(newItem);
+                        debugChat(`🗑️ [DROP] ${newItem.type} を捨てました`);
+                    }
+
+                    // ✂️ カバンから削除
+                    player.inventory[index] = null;
+                    socket.emit('inventory_update', player.inventory);
+                    sendState();
+                }
+            } catch (e) {
+                debugChat(`❌ dropItemエラー: ${e.message}`, 'error');
+            }
+        });
+
+        // 🔄 11. アイテム入れ替え (swapItems)
+        socket.on('swapItems', (data) => {
+            try {
+                const player = players[socket.id];
+                if (!player || !player.inventory) return;
+
+                const from = data.from;
+                const to = data.to;
+
+                // 範囲チェック（緻密なロジックを維持）
+                if (from >= 0 && from < 10 && to >= 0 && to < 10) {
+                    const temp = player.inventory[from];
+                    player.inventory[from] = player.inventory[to];
+                    player.inventory[to] = temp;
+
+                    socket.emit('inventory_update', player.inventory);
+                    sendState();
+                    debugChat(`🔄 [SWAP] ${from}番と${to}番を入れ替え`);
+                }
+            } catch (e) {
+                debugChat(`❌ swapItemsエラー: ${e.message}`, 'error');
+            }
+        });
+		
+		// 🌟 ステータス強化のリクエストを受け取る
+socket.on('upgrade_stat', (data) => {
     const player = players[socket.id];
+    if (!player || player.ap <= 0) return; // APがなければ何もしない
 
-    // 🛡️ ガード：プレイヤーが存在しない、またはカバンが空なら何もしません
-    if (!player || !player.inventory) return;
-
-    // ✅ 2. 指定された番号（index）のアイテムが、カバンの中に本当にあるか確認します
-    if (player.inventory[index]) {
-        // 📦 捨てる予定のアイテム情報を一時的にキープします
-        const itemToDrop = player.inventory[index];
-
-        // 🌟 3. 地面に置くための「新しいアイテムデータ」を作成
-        const newItem = {
-            id: Math.floor(Math.random() * 1000000),
-            type: itemToDrop.type,
-            x: player.x,
-            y: player.y + 12,
-			
-			vx: 0,           // 左右移動はなし
-            vy: -12,         // 真上に向かって打ち出す力（マイナスが上方向）
-            landed: false,   // まだ地面に着いていない状態
-
-            // 🛡️ カバンに入っていた防御力などを地面のデータにコピー
-            defense: itemToDrop.defense,
-            count: itemToDrop.count || 1,
-            value: (itemToDrop.type === 'money3' ? 100 : 10),
-
-            isStatic: true,
-            angle: 0,
-            rotateSpeed: 0.15
-        };
-
-        // 🗺️ 4. 作成したデータを、世界の「落ちているアイテムリスト」に追加
-        if (Array.isArray(droppedItems)) {
-            droppedItems.push(newItem);
-            console.log(`[DROP] 防御力 ${newItem.defense} のアイテムを地面に置きました`);
-        }
-
-        // ✂️ 5. プレイヤーのカバンから削除（詰めないように null を代入）
-        // これで、他のアイテムが勝手に移動しなくなります
-        player.inventory[index] = null;
-
-        // 🌟 6. 【本人への直送便】バッグが空いたことを即座に通知
-        socket.emit('inventory_update', player.inventory);
-
-        // 📢 7. 全員に画面更新を通知
-        sendState();
+    if (data.type === 'str') {
+        player.ap -= 1;
+        player.str += 1;
+        console.log(`[成長] ${player.name}: STR -> ${player.str}`);
+    } 
+    // 🌟 ここから追加
+    else if (data.type === 'dex') {
+        player.ap -= 1;
+        player.dex = (player.dex || 0) + 1; // 万が一未定義でも大丈夫なように
+        console.log(`[成長] ${player.name}: DEX -> ${player.dex}`);
+    } 
+    else if (data.type === 'luk') {
+        player.ap -= 1;
+        player.luk = (player.luk || 0) + 1;
+        console.log(`[成長] ${player.name}: LUK -> ${player.luk}`);
     }
 });
-// server.js に追加
-socket.on('swapItems', (data) => {
-    const player = players[socket.id];
-    if (!player || !player.inventory) return;
 
-    const from = data.from;
-    const to = data.to;
-
-    // 範囲チェック
-    if (from >= 0 && from < 10 && to >= 0 && to < 10) {
-        // 🔄 変数の入れ替え（スワップ）
-        const temp = player.inventory[from];
-        player.inventory[from] = player.inventory[to];
-        player.inventory[to] = temp;
-
-        // 📢 本人に直送便
-        socket.emit('inventory_update', player.inventory);
-        // 全員に通知
-        sendState();
-        
-        console.log(`[SWAP] ${from}番と${to}番を入れ替えました`);
+    } catch (globalError) {
+        // 🚨 接続時の根本的なエラーをキャッチ
+        debugChat(`🚨 Socket接続処理で重大な不具合: ${globalError.message}`, 'error');
     }
-});
 });
 
 // ==========================================
@@ -1013,23 +1405,34 @@ socket.on('swapItems', (data) => {
 // ==========================================
 setInterval(() => {
 
-    // --- 👾 1. 敵(Enemies)の状態更新 ---
-    enemies.forEach(e => {
-        // 動きの計算を実行
-        e.update();
+    // --- 👾 1. 敵(Enemies)の状態更新（安全装置付き） ---
+    enemies.forEach((e, index) => {
+        // 🛡️ 安全装置：1体の敵のエラーが全体に響かないようにします
+        try {
+            // 🛡️ ガード：そもそも敵のデータが壊れていないかチェック
+            if (!e || typeof e.update !== 'function') return;
 
-        // ダメージを受けた時の「点滅タイマー」を1ずつ減らす
-        if (e.damageTimer > 0) {
-            e.damageTimer--;
-        }
+            // 動きの計算を実行
+            e.update();
 
-        // 攻撃アニメーションの管理
-        if (e.isAttacking > 0) {
-            // 攻撃中ならタイマーを減らす
-            e.isAttacking--;
-        } else if (e.isEnraged) {
-            // 🌟 怒り状態なら、1%の確率でランダムに攻撃を開始する
-            if (Math.random() < 0.01) e.isAttacking = 22;
+            // ダメージを受けた時の「点滅タイマー」を1ずつ減らす
+            if (e.damageTimer > 0) {
+                e.damageTimer--;
+            }
+
+            // 攻撃アニメーションの管理
+            if (e.isAttacking > 0) {
+                // 攻撃中ならタイマーを減らす
+                e.isAttacking--;
+            } else if (e.isEnraged) {
+                // 🌟 怒り状態なら、1%の確率でランダムに攻撃を開始する
+                if (Math.random() < 0.01) e.isAttacking = 22;
+            }
+
+        } catch (err) {
+            // 🚨 特定の敵でエラーが出ても、ログを残して次の敵の処理へ進みます
+            // これにより、ゲーム全体が止まる（クラッシュする）のを防ぎます
+            console.error(`[ENEMY ERROR] 敵(index:${index}, ID:${e.id})の更新に失敗しました:`, err);
         }
     });
 
@@ -1041,76 +1444,89 @@ setInterval(() => {
         }
     }
 
-    // --- 💎 3. 落ちているアイテム(Items)の物理計算 ---
-droppedItems.forEach(it => {
-    if (!it.landed) {
-        // 空中にある場合は移動と重力を計算
-        it.x += it.vx;
-        it.y += it.vy;
-        it.vy += SETTINGS.SYSTEM.GRAVITY;  // 重力で下に加速
-        it.vx *= SETTINGS.SYSTEM.FRICTION; // 空気抵抗で横移動を減速
-
-        // 【判定 A】足場(Platforms)との着地
-        MAP_DATA.platforms.forEach(p => {
-            if (it.vy > 0 &&
-                it.x + SETTINGS.ITEM.COLLISION_OFFSET > p.x &&
-                it.x < p.x + p.w &&
-                it.y + SETTINGS.ITEM.SIZE >= p.y &&
-                it.y + SETTINGS.ITEM.SIZE <= p.y + 10) {
-
-                // 着地位置を固定し、動きを止める
-                it.y = p.y - SETTINGS.ITEM.SIZE + SETTINGS.ITEM.SINK_Y;
-                it.landed = true;
-                it.vy = 0;
-                it.vx = 0;
-
-                // 🔊 サーバーから全員に「アイテムが着地した音を出して」と通知
-                io.emit('item_landed_sound');
+    // --- 💎 3. 落ちているアイテム(Items)の物理計算（安全装置付き） ---
+    droppedItems.forEach((it, index) => {
+        // 🛡️ 安全装置：アイテム1つの計算ミスでサーバーを止めない
+        try {
+            // 🛡️ ガード：アイテムデータが壊れていないか、座標が正常かチェック
+            if (!it || isNaN(it.x) || isNaN(it.y)) {
+                console.warn(`[ITEM WARN] 不正な座標のアイテムをスキップしました (index: ${index})`);
+                return;
             }
-        });
 
-        // 【判定 B】一番下の地面(Ground)との着地
-        if (!it.landed && it.y + SETTINGS.ITEM.SIZE >= SETTINGS.SYSTEM.GROUND_Y) {
-            it.y = SETTINGS.SYSTEM.GROUND_Y - SETTINGS.ITEM.SIZE + SETTINGS.ITEM.SINK_Y;
-            it.landed = true;
-            it.vy = 0;
-            it.vx = 0;
+            if (!it.landed) {
+                // 空中にある場合は移動と重力を計算
+                it.x += (it.vx || 0);
+                it.y += (it.vy || 0);
+                it.vy += SETTINGS.SYSTEM.GRAVITY;   // 重力で下に加速
+                it.vx *= SETTINGS.SYSTEM.FRICTION;  // 空気抵抗で横移動を減速
 
-            // 🔊 サーバーから全員に「アイテムが着地した音を出して」と通知
-            io.emit('item_landed_sound');
+                // 【判定 A】足場(Platforms)との着地
+                if (MAP_DATA && MAP_DATA.platforms) {
+                    MAP_DATA.platforms.forEach(p => {
+                        if (it.vy > 0 &&
+                            it.x + SETTINGS.ITEM.COLLISION_OFFSET > p.x &&
+                            it.x < p.x + p.w &&
+                            it.y + SETTINGS.ITEM.SIZE >= p.y &&
+                            it.y + SETTINGS.ITEM.SIZE <= p.y + 10) {
+
+                            // 着地位置を固定し、動きを止める
+                            it.y = p.y - SETTINGS.ITEM.SIZE + SETTINGS.ITEM.SINK_Y;
+                            it.landed = true;
+                            it.vy = 0;
+                            it.vx = 0;
+
+                            // 🔊 全員に通知
+                            io.emit('item_landed_sound');
+                            
+                            // 📝 デバッグ用：足場に着地したことを記録
+                            // console.log(`[DEBUG] アイテムが足場に着地: y=${Math.round(it.y)}`);
+                        }
+                    });
+                }
+
+                // 【判定 B】一番下の地面(Ground)との着地
+                if (!it.landed && it.y + SETTINGS.ITEM.SIZE >= SETTINGS.SYSTEM.GROUND_Y) {
+                    it.y = SETTINGS.SYSTEM.GROUND_Y - SETTINGS.ITEM.SIZE + SETTINGS.ITEM.SINK_Y;
+                    it.landed = true;
+                    it.vy = 0;
+                    it.vx = 0;
+
+                    // 🔊 全員に通知
+                    io.emit('item_landed_sound');
+
+                    // 📝 デバッグ用：地面に着地したことを記録
+                    // console.log(`[DEBUG] アイテムが地面に着地: y=${Math.round(it.y)}`);
+                }
+            }
+        } catch (err) {
+            // 🚨 エラーが起きてもログを出して続行
+            debugChat(`⚠️ アイテムの動きの計算でエラーが発生しました: ${err.message}`, 'error');
         }
-    }
-});
-
-    // --- 📡 4. 全プレイヤーへ最新の状態を一斉送信(Broadcast) ---
-    // 'state' という名前の電波（イベント）に乗せて、ゲームの状況をパケットにして送ります
-    io.emit('state', {
-        // 👥 プレイヤー情報：全員の座標、名前、HPなど
-        players: players,
-
-        // 💰 アイテム情報：地面に落ちているすべてのドロップアイテム
-        items: droppedItems,
-
-        // 👾 モンスター情報：
-        // .map を使って、送信する直前に「ジャンプの状態」を計算して付け足しています
-        enemies: enemies.map(en => ({
-            ...en,                          // 既存のステータス（id, x, y, hpなど）をすべてコピー
-            jumpY: en.jumpY || 0,           // 現在のジャンプの高さ（データがなければ0）
-            isJumping: (en.jumpY || 0) !== 0 // 0以外なら「ジャンプ中である」という判定をその場で作る
-        })),
-
-        // 🗺️ マップ構造：足場とハシゴの配置データ
-        platforms: MAP_DATA.platforms,
-        ladders: MAP_DATA.ladders,
-
-        // 🎁 アイテム取得確定情報：
-        // 誰かがアイテムを拾ったという最新の確定通知
-        lastPickedItems: lastPickedItems
     });
 
-    // 🌟 送信が終わったら、取得情報をリセット
-    lastPickedItems = [];
+    sendState()
 
 }, SETTINGS.SYSTEM.TICK_RATE); // 設定された間隔（例: 40ms）ごとに実行
+
+// server.js の一番下（書き換え）
+setInterval(() => {
+    // どの名前でアイテムが管理されていても捕まえられるようにします
+    let count = 0;
+    if (typeof items !== 'undefined') {
+        count = Object.keys(items).length;
+    } else if (typeof allItems !== 'undefined') {
+        count = Object.keys(allItems).length;
+    } else if (typeof droppedItems !== 'undefined') {
+        count = Object.keys(droppedItems).length;
+    }
+
+    if (typeof players !== 'undefined') {
+        io.emit('tsuchida_debug', { 
+            players: players,
+            itemCount: count // 捕まえたアイテム数を送る
+        });
+    }
+}, 100);
 
 http.listen(PORT, () => console.log('Server is running...'));

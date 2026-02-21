@@ -196,7 +196,8 @@ const ITEM_CONFIG = {
         "spriteKey": "medal1",
         "isAnimated": true,
         "src": "/item_assets/GoldOne_",
-        "points": 10
+        "points": 10,
+		"goldValue": 50  // 🌟 ここに追加（例として50ゴールド）
     },
     "money3": {
         "name": "100ゴールド",

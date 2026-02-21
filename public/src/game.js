@@ -36,6 +36,11 @@ class Player {
     this.dy = 0;
     this.dir = 1;
     this.hp = 100;
+	this.str = 50;
+	this.dex = 5; // 🌟 追加
+	this.luk = 5; // 🌟 追加
+	this.ap = 0;
+	this.maxHp = 100;
     this.name = name;
     this.chat = null;
     this.jumping = true;
@@ -260,35 +265,60 @@ socket.on('state', s => {
   });
   
   // 🌟 自分のデータを最新状態に「完全同期」させる
-  const myData = s.players[socket.id];
-  if (myData) {
-      // 既存のデータ
-      hero.inventory = myData.inventory || [];
-      hero.score = myData.score || 0;
+const myData = s.players[socket.id];
+if (myData) {
+    // 既存のデータ
+    hero.inventory = myData.inventory || [];
+    hero.score = myData.score || 0;
 
-      // 🌟 ここが「たまらない」を直す重要ポイント！
-      // サーバーの最新値を強制的にheroに上書きします
-      hero.level = myData.level;
-      hero.exp = myData.exp;
-      hero.maxExp = myData.maxExp || 100;
+    // 🌟 サーバーの最新値を強制的にheroに上書きします
+    hero.level = myData.level;
+    hero.exp = myData.exp;
+    hero.maxExp = myData.maxExp || 100;
 
-      // HPなども同期しておくと、より安定します
-      hero.hp = myData.hp;
-  }
+    // HPの同期
+    hero.hp = myData.hp;
+    hero.maxHp = myData.maxHp || 100; // 🌟 これを追記
+
+    // ✨ 今回追加したステータスの同期
+    hero.str = myData.str || 50;     // 🌟 これを追記
+	hero.dex = myData.dex; // 🌟 追加
+    hero.luk = myData.luk; // 🌟 追加
+    hero.ap = (myData.ap !== undefined) ? myData.ap : 0; // 🌟 これを追記
+}
   delete others[socket.id];
+});
+
+// game.js 等のソケット受信部分
+socket.on('player_update', (updatedPlayer) => {
+    // 自分のIDと一致するデータの時、自分自身の情報を更新する
+    if (updatedPlayer.id === socket.id) {
+        // hero は view.js 等で使っているプレイヤー変数名に合わせてください
+        hero.gold = updatedPlayer.gold; 
+    }
 });
 
 socket.on('damage_effect', data => {
   damageTexts.push({ x: data.x + (Math.random()*20-10), y: data.y, val: data.val, timer: 40, vy: data.type === 'player_hit' ? -3 : -2, isCritical: data.isCritical, type: data.type });
 });
 
-// game.js の socket.on が並んでいるあたりに追加
-socket.on('level_up_effect', () => {
-    // ここでブラウザ側の sound.js にある関数を呼ぶ
+// game.js (または view.js) の socket.on が並んでいるあたり
+socket.on('level_up_effect', (data) => {
+    // 1. 音を鳴らす
     if (typeof playLevelUpSound === 'function') {
         playLevelUpSound();
     }
-    console.log("🎊 レベルアップ演出を実行しました");
+
+    // 2. 文字表示用のデータをリストに追加する
+    // data.playerId が送られてくる想定です
+    if (data && data.playerId) {
+        levelUpEffects.push({
+            playerId: data.playerId,
+            timer: 120 // 表示時間
+        });
+    }
+
+    console.log("🎊 レベルアップ演出（音と文字の準備）を実行しました");
 });
 
 // 🌟 修正後

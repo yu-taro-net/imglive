@@ -36,7 +36,14 @@ async function loadAudioFile(url) {
 async function setupAudio() {
     // 並列でロードを開始（awaitを一括で待つことで高速化）
     const tasks = {
-        levelup:        loadAudioFile('../LevelUp.mp3'),
+        invite:         loadAudioFile('../Invite.mp3'),
+        die:            loadAudioFile('../Tombstone.mp3'),
+        mouseover1:     loadAudioFile('../BtMouseOver.mp3'),
+        mouseclick:     loadAudioFile('../BtMouseClick.mp3'),
+        tab:            loadAudioFile('../Tab.mp3'),
+        menuup:         loadAudioFile('../MenuUp.mp3'),
+        menudown:       loadAudioFile('../MenuDown.mp3'),
+		levelup:        loadAudioFile('../LevelUp.mp3'),
         hover:          loadAudioFile('../DragStart.mp3'),
         drop:           loadAudioFile('../DragEnd.mp3'),
         item:           loadAudioFile('../PickUpItem.mp3'),
@@ -99,6 +106,34 @@ function playEffect(buffer, volume = 0.5, rate = 1.0) {
 }
 
 // --- 各アクションごとの関数 ---
+function playInviteSound() {
+    playEffect(soundBuffers.invite, 0.5);
+}
+
+function playDieSound() {
+    playEffect(soundBuffers.die, 0.5);
+}
+
+function playMouseOver1Sound() {
+    playEffect(soundBuffers.mouseover1, 0.5);
+}
+
+function playMouseClickSound() {
+    playEffect(soundBuffers.mouseclick, 0.5);
+}
+
+function playTabSound() {
+    playEffect(soundBuffers.tab, 0.5);
+}
+
+function playMenuDownSound() {
+    playEffect(soundBuffers.menudown, 0.5);
+}
+
+function playMenuUpSound() {
+    playEffect(soundBuffers.menuup, 0.5);
+}
+
 function playLevelUpSound() {
     playEffect(soundBuffers.levelup, 0.5);
 }
