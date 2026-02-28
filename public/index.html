@@ -70,7 +70,25 @@
   </style>
 </head>
 <body>
+<div id="login-overlay" style="position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.8); z-index:2000; display:flex; flex-direction:column; justify-content:center; align-items:center;">
+    <div style="background:#333; padding:30px; border:2px solid #555; border-radius:15px; text-align:center; color:white;">
+        <h2>冒険の準備</h2>
+        <p>名前を入力してください</p>
+<input type="text" id="user-name-input" placeholder="名前" maxlength="10" autofocus style="padding:10px; font-size:18px; border-radius:5px; border:none; width:200px; text-align:center;">        <br><br>
+        <button id="start-game-btn" style="padding:10px 30px; font-size:18px; cursor:pointer; background:#28a745; color:white; border:none; border-radius:5px; font-weight:bold;">ゲーム開始</button>
+    </div>
+</div>
   <canvas id="stage" width="800" height="600"></canvas>
+  <div id="drop-form" style="display:none; position:fixed; top:50%; left:50%; transform:translate(-50%, -50%); background:rgba(0,0,0,0.9); color:white; padding:20px; border:2px solid #fff; border-radius:10px; z-index:1000; text-align:center; min-width: 200px;">
+    <p id="drop-label" style="margin-bottom:10px;"></p>
+    
+    <input type="number" id="drop-input" min="1" style="width:80px; font-size:20px; text-align:center; border-radius: 5px; border: 1px solid #ccc;">
+    
+    <p id="drop-error" style="color:#ff4444; font-size:14px; margin: 10px 0; height: 18px; font-weight: bold;"></p>
+    
+    <button id="drop-confirm" style="padding:5px 15px; margin-right:10px; cursor:pointer;">捨てる</button>
+    <button id="drop-cancel" style="padding:5px 15px; cursor:pointer;">やめる</button>
+</div>
   <div id="start-screen" style="
     position: fixed; top: 0; left: 0; width: 100%; height: 100%; 
     background: radial-gradient(circle, #2c3e50 0%, #000000 100%); 

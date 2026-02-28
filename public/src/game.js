@@ -31,23 +31,30 @@ console.log(`接続先: ${SOCKET_URL}`); // 確認用にコンソールに表示
 
 class Player {
   constructor(name = "") {
+    // 位置と移動
     this.x = 50;
     this.y = 540;
     this.dy = 0;
     this.dir = 1;
+    this.jumping = true;
+
+    // ⚔️ 基本ステータス（サーバーと同期）
     this.hp = 100;
-	this.str = 50;
-	this.dex = 5; // 🌟 追加
-	this.luk = 5; // 🌟 追加
-	this.ap = 0;
-	this.maxHp = 100;
+    this.maxHp = 100;
+    this.str = 50;
+    this.dex = 5;  // 🌟 追加
+    this.luk = 5;  // 🌟 追加
+    this.ap = 0;   // 🌟 追加
+    this.score = 0;
+    this.level = 1;
+    this.exp = 0;
+
+    // 状態管理
     this.name = name;
     this.chat = null;
-    this.jumping = true;
     this.isAttacking = 0;
     this.attackStartFrame = -999;
     this.invincible = 0;
-    this.score = 0;
     this.inventory = [];
   }
 
@@ -92,7 +99,10 @@ receiveDamage(amount) {
     console.log(`${this.name}がリスポーンしました。`);
   }
   
-  // 🌟 修正版：足場データを受け取って、接地判定まで一気にやる
+  /**
+   * 🌟 修正版：足場データを受け取って、接地判定まで一気にやる
+   * ロジックの構造はそのままに、判定を中央に寄せました。
+   */
   applyPhysics(platforms) {
     if (!this.climbing) {
       this.dy += GAME_SETTINGS.GRAVITY;
@@ -115,7 +125,14 @@ receiveDamage(amount) {
     if (platforms && !this.climbing && this.dy >= 0) {
       platforms.forEach(p => {
         const currentHeight = 60; // プレイヤーの基本高さ
-        if (this.x + 40 > p.x && this.x + 20 < p.x + p.w) {
+        
+        // ⭐ 修正：左右対称の判定を「中央」に寄せる
+        // キャラクターの画像中心 (this.x + 30) を基準にします
+        const charCenter = this.x + 20;
+        // 中心から左右にどれだけの幅で足を乗せるか（20pxに設定 = 合計40px幅）
+        const footWidth = 20;
+
+        if (charCenter + footWidth > p.x && charCenter - footWidth < p.x + p.w) {
           if (this.y + currentHeight >= p.y - 10 && this.y + currentHeight <= p.y + 30) {
             this.y = p.y - currentHeight;
             this.dy = 0;
@@ -254,39 +271,64 @@ let zKeyPressed = false; // 攻撃ボタン(ZやX)の連続押し防止
 let cKeyPressed = false; // ✨ ジャンプボタン(C)の連続押し防止
 let ladderJumpTimer = 0; // 梯子からジャンプした直後に、すぐ梯子を掴まないためのタイマー
 
+// 📡 サーバーから「現在の世界の状態（state）」が届いた時の処理
 socket.on('state', s => {
-  enemies = s.enemies; 
-  others = s.players; 
-  platforms = s.platforms; 
-  ladders = s.ladders;
-  items = s.items.map(si => { 
-      const existing = items.find(it => it.id === si.id); 
-      return existing ? existing : si; 
-  });
-  
-  // 🌟 自分のデータを最新状態に「完全同期」させる
-const myData = s.players[socket.id];
-if (myData) {
-    // 既存のデータ
-    hero.inventory = myData.inventory || [];
-    hero.score = myData.score || 0;
+    // -------------------------------------------------------
+    // 1. 周辺環境（自分以外）のデータを最新にする
+    // -------------------------------------------------------
+    enemies   = s.enemies;   // 敵の位置やHPを更新
+    others    = s.players;   // 他のプレイヤー全員の位置や状態を更新
+    platforms = s.platforms; // 足場（床）の情報を更新
+    ladders   = s.ladders;   // ハシゴの情報を更新
 
-    // 🌟 サーバーの最新値を強制的にheroに上書きします
-    hero.level = myData.level;
-    hero.exp = myData.exp;
-    hero.maxExp = myData.maxExp || 100;
+    // -------------------------------------------------------
+    // 2. アイテム情報の更新（既存のアニメ状態を守りながら）
+    // -------------------------------------------------------
+    items = s.items.map(si => { 
+        // 今画面にあるアイテム(existing)の中に、同じIDのものがあるか探す
+        const existing = items.find(it => it.id === si.id); 
+        
+        // もし既にあるなら、座標などの新しい数値(si)ではなく、
+        // 今の見た目状態(existing)を優先して、ガタつきを防ぐ
+        return existing ? existing : si; 
+    });
 
-    // HPの同期
-    hero.hp = myData.hp;
-    hero.maxHp = myData.maxHp || 100; // 🌟 これを追記
+    // -------------------------------------------------------
+    // 3. 自分のデータ（hero）をサーバーの値と「完全同期」させる
+    // -------------------------------------------------------
+    // サーバーが持っているプレイヤー名簿の中から「自分のID」のデータを探す
+    const myData = s.players[socket.id];
 
-    // ✨ 今回追加したステータスの同期
-    hero.str = myData.str || 50;     // 🌟 これを追記
-	hero.dex = myData.dex; // 🌟 追加
-    hero.luk = myData.luk; // 🌟 追加
-    hero.ap = (myData.ap !== undefined) ? myData.ap : 0; // 🌟 これを追記
-}
-  delete others[socket.id];
+    if (myData) {
+        // --- A. 基本情報の同期 ---
+        hero.inventory = myData.inventory || []; // 所持品リスト
+        hero.score     = myData.score || 0;     // スコア
+
+        // --- B. 成長要素（レベル・経験値）の同期 ---
+        hero.level  = myData.level;              // 現在のレベル
+        hero.exp    = myData.exp;                // 現在の経験値
+        hero.maxExp = myData.maxExp || 100;      // 次のレベルまでに必要な経験値
+
+        // --- C. 生命力（HP）の同期 ---
+        hero.hp    = myData.hp;                  // 現在の体力
+        hero.maxHp = myData.maxHp || 100;        // 体力の最大値
+
+        // --- D. ステータス（能力値）の同期 ---
+        hero.str = myData.str || 50;             // 攻撃力（STR）
+        hero.dex = myData.dex;                   // 器用さ（DEX）
+        hero.luk = myData.luk;                   // 運（LUK）
+        
+        // AP（ステータスに振り分けられる未割り当てポイント）
+        // 値が「0」の時も正しく反映されるよう、undefinedチェックを行っています
+        hero.ap = (myData.ap !== undefined) ? myData.ap : 0;
+    }
+
+    // -------------------------------------------------------
+    // 4. 仕上げ
+    // -------------------------------------------------------
+    // 'others'リストには自分も含まれてしまっているので、
+    // 他人だけを描画するために、自分自身のデータはリストから削除しておく
+    delete others[socket.id];
 });
 
 // game.js 等のソケット受信部分
@@ -355,34 +397,47 @@ function attack() {
 }
 */
 
-// ==========================================
-// ⌨️ キーボード操作を受け付ける専用の関数
-// ==========================================
+/**
+ * ⌨️ キーボード操作を受け付けるメイン関数
+ */
 function handlePlayerInput(hero, items, ladders, chatIn) {
     // A. チャット入力中は操作を無効化
     if (document.activeElement === chatIn) return;
 
-    // B. 伏せ判定（地面にいて、ハシゴ中でなく、下キー）
+    // B. 基本状態の更新（伏せ判定）
     hero.isDown = (!hero.climbing && !hero.jumping && (keys['KeyS'] || keys['ArrowDown']));
 
-    // C. 左右移動（ハシゴ中・伏せ中でない時）
-if (!hero.climbing && !hero.isDown) {
-    if (keys['ArrowLeft']) {
-        // 🌟 修正：メソッドを使って「左に歩け」と命令する
-        hero.updatePosition(-GAME_SETTINGS.WALK_SPEED, 0);
-        hero.vx = -GAME_SETTINGS.WALK_SPEED; 
-    } else if (keys['ArrowRight']) {
-        // 🌟 修正：メソッドを使って「右に歩け」と命令する
-        hero.updatePosition(GAME_SETTINGS.WALK_SPEED, 0);
-        hero.vx = GAME_SETTINGS.WALK_SPEED; 
+    // C & D. 移動とハシゴの処理
+    handleMovementAndLadder(hero, ladders);
+
+    // E, F, G. アクションの処理（ジャンプ・攻撃・取得）
+    handleActions(hero, items);
+}
+
+// ==========================================
+// 🔄 補助関数
+// ==========================================
+
+/**
+ * 移動とハシゴに関するロジック
+ */
+function handleMovementAndLadder(hero, ladders) {
+    // 左右移動（ハシゴ中・伏せ中でない時）
+    if (!hero.climbing && !hero.isDown) {
+        if (keys['ArrowLeft']) {
+            hero.updatePosition(-GAME_SETTINGS.WALK_SPEED, 0);
+            hero.vx = -GAME_SETTINGS.WALK_SPEED;
+        } else if (keys['ArrowRight']) {
+            hero.updatePosition(GAME_SETTINGS.WALK_SPEED, 0);
+            hero.vx = GAME_SETTINGS.WALK_SPEED;
+        } else {
+            hero.vx = 0;
+        }
     } else {
         hero.vx = 0;
     }
-} else {
-    hero.vx = 0;
-}
 
-    // D. 🪜 ハシゴ操作
+    // 🪜 ハシゴ判定
     const l = (ladders && ladders.length > 0) ? ladders[0] : null;
     let isTouchingLadder = false;
     if (l) {
@@ -391,66 +446,51 @@ if (!hero.climbing && !hero.isDown) {
         if (distX < 20 && isInsideY) isTouchingLadder = true;
     }
 
-    // ハシゴのてっぺんにいるかどうかの判定
-const isAtLadderTop = (() => {
-    if (!l) return false; // ハシゴ(l)が存在しない場合は判定しない
+    // ハシゴのてっぺん判定（即時関数ロジックを維持）
+    const isAtLadderTop = (() => {
+        if (!l) return false;
+        const horizontalDiff = Math.abs((hero.x + 30) - (l.x + 15));
+        const isHorizontalClose = horizontalDiff < 30;
+        const verticalDiff = Math.abs((hero.y + 60) - l.y1);
+        const isVerticalAtTop = verticalDiff < 20;
+        return isHorizontalClose && isVerticalAtTop;
+    })();
 
-    // 1. 左右の位置チェック（ハシゴの真横にいるか）
-    // hero.x + 30 はプレイヤーの中心付近、l.x + 15 はハシゴの中心付近を指します
-    const horizontalDiff = Math.abs((hero.x + 30) - (l.x + 15));
-    const isHorizontalClose = horizontalDiff < 30; // 30ピクセル以内ならOK
+    // ハシゴの昇降処理
+    if ((isTouchingLadder || isAtLadderTop) && ladderJumpTimer === 0) {
+        if (keys['KeyW'] || keys['ArrowUp'] || keys['KeyS'] || keys['ArrowDown']) {
+            if (!hero.climbing && (keys['KeyS'] || keys['ArrowDown']) && isAtLadderTop) {
+                hero.y += 15;
+            }
+            hero.x = l.x + 15 - 30; // ハシゴの中心に吸着
+            hero.climbing = true;
+            hero.dy = 0;
+            hero.jumping = false;
 
-    // 2. 上下の位置チェック（ハシゴの一番上の横棒 l.y1 と足元の高さが合っているか）
-    // hero.y + 60 はプレイヤーの足元の高さを指します
-    const verticalDiff = Math.abs((hero.y + 60) - l.y1);
-    const isVerticalAtTop = verticalDiff < 20; // 20ピクセル以内ならOK
-
-    // 左右も上下も位置が合っていれば「ハシゴのてっぺんにいる」とみなす
-    return isHorizontalClose && isVerticalAtTop;
-})();
-
-    // ハシゴに触れている、またはハシゴの降り口にいる、かつジャンプ直後ではない場合
-if ((isTouchingLadder || isAtLadderTop) && ladderJumpTimer === 0) {
-
-    // 【1. 登り・降りの開始判定】
-    // 上下キーのいずれかが押されたらハシゴモードに入る
-    if (keys['KeyW'] || keys['ArrowUp'] || keys['KeyS'] || keys['ArrowDown']) {
-        
-        // 特殊判定：ハシゴのてっぺん(地面)で「下」を押した場合
-        // 少しだけ座標を下に下げて、ハシゴに掴まった状態に移行させる
-        if (!hero.climbing && (keys['KeyS'] || keys['ArrowDown']) && isAtLadderTop) {
-            hero.y += 15;
+            if (keys['KeyW'] || keys['ArrowUp']) {
+                hero.updatePosition(0, -GAME_SETTINGS.LADDER_SPEED);
+            } else if (keys['KeyS'] || keys['ArrowDown']) {
+                hero.updatePosition(0, GAME_SETTINGS.LADDER_SPEED);
+            }
+        } else if (hero.climbing) {
+            hero.dy = 0;
         }
-
-        // 【2. ハシゴへの吸着と固定】
-        hero.x = l.x + 15 - 30; // プレイヤーの横位置をハシゴの中心にピッタリ合わせる
-        hero.climbing = true;   // ハシゴ登り中フラグをON
-        hero.dy = 0;            // 縦の加速度をリセット（重力で落ちないように）
-        hero.jumping = false;   // ジャンプ状態を解除
-
-        // 【3. 実際の移動処理】
-if (keys['KeyW'] || keys['ArrowUp']) {
-    // 🌟 修正：上へ移動（xは0、yはマイナス方向）
-    hero.updatePosition(0, -GAME_SETTINGS.LADDER_SPEED); 
-} else if (keys['KeyS'] || keys['ArrowDown']) {
-    // 🌟 修正：下へ移動（xは0、yはプラス方向）
-    hero.updatePosition(0, GAME_SETTINGS.LADDER_SPEED); 
-}
-
-    } else if (hero.climbing) {
-        // キーを離しているがハシゴに掴まっている状態
-        // その場でピタッと止まるように速度を0にする
-        hero.dy = 0;
+    } else {
+        hero.climbing = false;
     }
-
-} else {
-    // ハシゴから離れた、またはジャンプして飛び出した場合
-    hero.climbing = false;
 }
 
+/**
+ * ジャンプ・攻撃・アイテム取得のロジック
+ * 押しっぱなしでの「連続攻撃」と「連続取得（爆速設定）」を完全にサポート
+ */
+function handleActions(hero, items) {
+    // ==========================================
     // E. ジャンプ (Cキー)
+    // ==========================================
     if (keys['KeyC']) {
         if (hero.climbing) {
+            // ハシゴからの飛び降りジャンプ
             if (!cKeyPressed && (keys['ArrowLeft'] || keys['ArrowRight'])) {
                 if (typeof playJumpSound === 'function') playJumpSound();
                 ladderJumpTimer = 15;
@@ -458,175 +498,224 @@ if (keys['KeyW'] || keys['ArrowUp']) {
                 else { hero.x += 25; hero.dir = 1; }
                 hero.dy = GAME_SETTINGS.JUMP_POWER;
                 hero.jumping = true;
-                hero.jumpFrame = 0; // 🌟 追加：ハシゴからのジャンプリセット
+                hero.jumpFrame = 0;
                 hero.climbing = false;
                 cKeyPressed = true;
             }
         } else if (!hero.jumping && !cKeyPressed) {
+            // 地面からの通常のジャンプ
             if (typeof playJumpSound === 'function') playJumpSound();
             hero.y -= 5;
             hero.dy = GAME_SETTINGS.JUMP_POWER;
             hero.jumping = true;
-            hero.jumpFrame = 0; // 🌟 追加：地面からのジャンプリセット
+            hero.jumpFrame = 0;
             cKeyPressed = true;
         }
     } else {
         cKeyPressed = false;
     }
 
-    // --- E. 攻撃(Xキー) ---
-if (keys['KeyX']) {
-  if (!zKeyPressed) { 
-    // 🌟 クラスのメソッドを呼ぶ。「ハシゴ中か」「攻撃中か」の判定はメソッドがやってくれます。
-    hero.startAttack(); 
-    zKeyPressed = true;
-  }
-} else {
-  zKeyPressed = false; 
-}
+    // ==========================================
+    // F. 攻撃 (Xキー)
+    // ==========================================
+    // 🌟 押しっぱなし対応：Playerクラス内部の攻撃中判定に任せて連続実行
+    if (keys['KeyX']) {
+        hero.startAttack(); 
+    }
 
+    // ==========================================
     // G. アイテム取得 (Zキー)
+    // ==========================================
+    // 🌟 タイマー管理による「押しっぱなし高速取得」
+    if (typeof window.zKeyTimer === 'undefined') window.zKeyTimer = 0;
+    if (window.zKeyTimer > 0) window.zKeyTimer--; // 毎フレームカウントダウン
+
     if (keys['KeyZ']) {
-        if (!zKeyPressed) {
+        if (window.zKeyTimer <= 0) {
             const target = items.find(it => {
-                const d = Math.sqrt(Math.pow(hero.x + 30 - (it.x + 15), 2) + Math.pow(hero.y + 30 - (it.y + 15), 2));
+                // 距離計算ロジックを維持 (hero.x + 30 はキャラ中心)
+                const d = Math.sqrt(
+                    Math.pow((hero.x + 30) - (it.x + 15), 2) + 
+                    Math.pow((hero.y + 30) - (it.y + 15), 2)
+                );
                 return d < 45;
             });
+
             if (target) {
                 socket.emit('pickup', target.id);
-                // 🌟 これが「ユニーク化」への第一歩！
-                // target.type（名前）だけを入れるのではなく、
-                // target（情報の箱）をまるごと自分の持ち物リストに追加します。
-                //hero.inventory.push(target);
-                //if (typeof playItemSound === 'function') playItemSound();
+                // 🌟 取得間隔を「3」に設定（超高速）
+                // 押しっぱなしで周囲のアイテムを次々と回収します
+                window.zKeyTimer = 3; 
             }
-            zKeyPressed = true;
         }
-    } else {
-        zKeyPressed = false;
     }
 }
 
 /**
  * ゲームのメインループ（1秒間に約60回実行される心臓部）
  */
-// ==========================================
-// 🔄 ゲームループのメイン処理
-// ==========================================
 function update() {
+    frame++; // フレームカウント（アニメーション同期用）
 
-  // 🌟 1. チャット入力中はすべての処理をスキップ
-  /*
-  if (document.activeElement === chatIn) {
-    requestAnimationFrame(update); 
-    return; 
-  }
-  */
-  frame++; // フレームカウント（アニメーション同期用）
+    // 1. 各要素の状態更新（切り出した関数を順番に実行）
+    updateItemsPhysics();      // アイテムの物理挙動
+    updateEffectsAndTimers();  // エフェクト・タイマーの更新
 
-  // ==========================================
-  // 2. アイテムの物理挙動
-  // ==========================================
-  items.forEach(item => {
-    if (!item.landed) { 
-      item.x += item.vx || 0; 
-      item.y += item.vy || 0; 
-      item.vy = (item.vy || 0) + 0.4; // 重力
-      item.vx *= 0.98; // 空気抵抗
+    // 2. プレイヤーの入力処理
+    handlePlayerInput(hero, items, ladders, document.getElementById('chat-in'));
 
-      // 地面着地
-      if (item.y > 570) { 
-        item.y = 570; 
-        item.landed = true; 
-      }
+    // 3. 物理移動と接地判定
+    // heroに「今ある足場」を教えて、計算を全部任せる
+    let isTouchingAnything = hero.applyPhysics(platforms);
 
-      // 足場着地
-      platforms.forEach(p => {
-        if (item.vy > 0 && 
-            item.x + 15 > p.x && item.x < p.x + p.w && 
-            item.y + 30 >= p.y && item.y + 30 <= p.y + p.h) {
-          item.y = p.y - 30; 
-          item.landed = true;
-        }
-      });
+    // 4. 戦闘・当たり判定
+    updatePlayerCombat();
+
+    // 5. サーバー同期と描画
+    socket.emit('move', hero); // 自分の位置を報告
+
+    if (typeof drawGame === 'function') {
+        drawGame(hero, others, enemies, items, platforms, ladders, damageTexts, frame);
     }
-  });
 
-  // ==========================================
-  // 3. エフェクト・演出の更新
-  // ==========================================
-  // ダメージ数字
-  damageTexts = damageTexts.filter(t => { 
-    t.y += t.vy;   
-    t.vy += 0.1;   
-    t.timer--;     
-    return t.timer > 0; 
-  });
+    // 6. エラー防止用の最終接地保証（元のロジックを維持）
+    if (typeof isTouchingAnything !== 'undefined' && isTouchingAnything) {
+        hero.jumping = false;
+        hero.dy = 0;
+    }
 
-  // 💬 チャット吹き出しの表示時間管理
-// hero.chat が存在し、かつタイマーが 0 より大きい場合のみ実行します
-if (hero.chat && hero.chat.timer > 0) {
-    // タイマーの数字を 1 ずつ減らします（カウントダウン）
-    // 通常、1秒間に約60回実行されるので、60減ると1秒経過したことになります
-    hero.chat.timer--;
-
-    // もしタイマーが 0 になったら、メッセージを消す処理を入れることもあります
-    // if (hero.chat.timer === 0) hero.chat.message = ""; 
+    requestAnimationFrame(update); // 次のフレームへ
 }
 
-  // ハシゴ再接触禁止タイマー
-  if (ladderJumpTimer > 0) ladderJumpTimer--;
-
-  // ==========================================
-  // 4. ⌨️ キーボード入力の処理（外部関数化）
-  // ==========================================
-  handlePlayerInput(hero, items, ladders, chatIn);
-
-  // ==========================================
-// 5. 物理移動と接地判定
 // ==========================================
-// 🌟 heroに「今ある足場」を教えて、計算を全部任せる
-let isTouchingAnything = hero.applyPhysics(platforms);
+// 🔄 update関数から切り出した補助関数
+// ==========================================
 
-  // ==========================================
-  // 6. 戦闘・当たり判定
-  // ==========================================
-  // 自分の攻撃（ここはそのまま）
-  if (hero.isAttacking > 0) {
-    hero.isAttacking--; 
-    if (hero.isAttacking === 13) {
-      let target = hero.checkHit(enemies); 
-      if (target) {
-        const damage = Math.floor(Math.random() * 41) + 50; 
-        if (target.hp - damage <= 0) {
-          if (typeof playEnemyDieSound === 'function') playEnemyDieSound(target);
-        } else {
-          if (typeof playEnemyHitSound === 'function') playEnemyHitSound(target);
+function updateItemsPhysics() {
+    items.forEach(item => {
+        // すでに着地しているアイテムは計算をスキップ（フリーズ防止の最重要ポイント）
+        if (item.landed) return; 
+
+        // 1. 移動計算
+        item.x += item.vx || 0; 
+        item.y += item.vy || 0; 
+        item.vy = (item.vy || 0) + 0.5; 
+        item.vx *= 0.98; 
+
+        const groundY = 565;
+        const itemSize = 32;
+
+        // 2. 地面着地
+        if (item.y + itemSize > groundY && item.vy > 0) { 
+            item.y = groundY - itemSize; 
+            item.landed = true; // 先にフラグを立てる
+            item.vy = 0;
+            item.vx = 0;
+            // 通知は一回だけ（io.emitが必要ならここ）
+            return; 
         }
-        socket.emit('attack', { id: target.id, power: damage, dir: hero.dir });
-      }
+
+        // 3. 足場着地
+        // forEachではなく、一つ見つかったら止める find などが理想ですが、
+        // 既存の形式を活かすなら return で抜けるようにします。
+        for (const p of platforms) {
+            const offset = 10; 
+            const itemBottom = item.y + itemSize;
+
+            // X方向の判定：アイテムが「しっかり」足場に乗っているか
+            const isInsideX = (item.x + (itemSize - offset) > p.x) && (item.x + offset < p.x + p.w);
+            // Y方向の判定：足場の表面に触れたか
+            const isTouchingTop = (item.vy > 0 && itemBottom >= p.y && itemBottom <= p.y + 15);
+
+            if (isInsideX && isTouchingTop) {
+                item.y = p.y - itemSize; 
+                item.landed = true; // 着地確定
+                item.vy = 0;
+                item.vx = 0;
+                break; // このアイテムのループを抜ける（他の足場は見ない）
+            }
+        }
+    });
+}
+
+/**
+ * 🌟 着地を確定させ、DBや全クライアントに位置を同期する
+ */
+function finalizeLanding(item) {
+    item.landed = true;
+    item.vy = 0;
+    item.vx = 0;
+    
+    // サーバー側のDB更新処理をここで呼ぶ必要があります
+    // (例: updateItemLocationInDB(item.id, item.x, item.y);)
+    
+    // 全員に「この位置で着地したよ」と知らせる
+    io.emit('item_sync_position', {
+        id: item.id,
+        x: item.x,
+        y: item.y,
+        landed: true
+    });
+}
+
+/**
+ * 3. エフェクト・演出・タイマーの更新
+ */
+function updateEffectsAndTimers() {
+    // ダメージ数字の浮上と消滅
+    damageTexts = damageTexts.filter(t => { 
+        t.y += t.vy;   
+        t.vy += 0.1;   
+        t.timer--;     
+        return t.timer > 0; 
+    });
+
+    // チャット吹き出しの表示時間管理
+    if (hero.chat && hero.chat.timer > 0) {
+        hero.chat.timer--;
     }
-  }
 
-  // 🌟 これ1行で、無敵時間の管理もダメージ判定も完了！
-  hero.checkEnemyCollision(enemies);
+    // ハシゴ再接触禁止タイマー
+    if (ladderJumpTimer > 0) ladderJumpTimer--;
+}
 
-  // ==========================================
-  // 7. 同期と描画
-  // ==========================================
-  socket.emit('move', hero); // サーバーへ自分の位置を報告
+/**
+ * 6. 戦闘・当たり判定（攻撃と被ダメージ）
+ */
+function updatePlayerCombat() {
+    // 自分の攻撃処理
+    if (hero.isAttacking > 0) {
+        hero.isAttacking--; 
+        
+        // 攻撃判定が発生するフレーム（13フレーム目）
+        if (hero.isAttacking === 13) {
+            let target = hero.checkHit(enemies); 
+            
+            if (target) {
+                // --- 【敵に当たった場合】 ---
+                const damage = Math.floor(Math.random() * 41) + 50; 
+                
+                // 死亡判定とSE再生
+                if (target.hp - damage <= 0) {
+                    if (typeof playEnemyDieSound === 'function') playEnemyDieSound(target);
+                } else {
+                    if (typeof playEnemyHitSound === 'function') playEnemyHitSound(target);
+                }
+                
+                // サーバーに「攻撃が当たった」情報を送信（ダメージあり）
+                socket.emit('attack', { id: target.id, power: damage, dir: hero.dir });
 
-  if (typeof drawGame === 'function') {
-    drawGame(hero, others, enemies, items, platforms, ladders, damageTexts, frame);
-  }
+            } else {
+                // --- 【敵がいなかった場合（空振り）】 ---
+                // 🌟 ここを追加：敵がいなくても、攻撃したという「動作」だけをサーバーに伝える
+                // idをnull、powerを0にすることで、ダメージを与えずにモーションだけ同期させます
+                socket.emit('attack', { id: null, power: 0, dir: hero.dir });
+            }
+        }
+    }
 
-  // 🌟 エラー防止用の最終接地保証
-  if (typeof isTouchingAnything !== 'undefined' && isTouchingAnything) {
-    hero.jumping = false;
-    hero.dy = 0;
-  }
-
-  requestAnimationFrame(update); // 次のフレームへ
+    // 敵との接触ダメージ判定（無敵管理含む）
+    hero.checkEnemyCollision(enemies);
 }
 
 // 🌟 キャラクター切り替え (Q/E)
@@ -639,10 +728,12 @@ window.addEventListener('keydown', (e) => {
         selectedCharVar = selectedCharVar <= 1 ? 15 : selectedCharVar - 1;
         changed = true;
     }
+	/*
     if (e.key === 'e' || e.key === 'E') {
         selectedCharVar = selectedCharVar >= 15 ? 1 : selectedCharVar + 1;
         changed = true;
     }
+	*/
     if (changed) {
         socket.emit('change_char', { charVar: selectedCharVar });
     }
@@ -667,17 +758,52 @@ window.addEventListener('keydown', (e) => {
     }
 });
 
-// 1. ⌨️ 名前を入力してもらう
-// prompt() で入力画面を出し、もし空欄やキャンセルなら "Guest" を代入します
-const userName = prompt("名前?") || "Guest";
+// game.js
 
-// 2. 👤 自分のキャラクター(hero)に名前をセットする
-hero.name = userName;
+// --- 修正前 ---
+// const userName = prompt("名前?") || "Guest";
+// hero.name = userName;
+// socket.emit('join', userName);
+// update();
 
-// 3. 📡 サーバーに「この名前で参加するよ」と送る
-// 'join' という合図（イベント）と一緒に名前を送信します
-socket.emit('join', userName);
+// --- 修正後 ---
+const loginOverlay = document.getElementById('login-overlay');
+const nameInput = document.getElementById('user-name-input');
+const startBtn = document.getElementById('start-game-btn');
 
-// 4. 🎮 ゲーム画面の更新（ループ）を開始する
-// これにより、キャラクターの描画や移動の計算が動き出します
-update();
+if (nameInput && startBtn) {
+    nameInput.addEventListener('keypress', (e) => {
+        if (e.key === 'Enter') {
+            startBtn.click(); // エンターが押されたら下のonclickを動かす
+        }
+    });
+}
+
+// ボタンが押された時の処理
+startBtn.onclick = () => {
+    const userName = nameInput.value.trim() || "Guest";
+	
+	// 🌟 【ここを追加！】入力欄からフォーカスを外す（チカチカを消す）
+    nameInput.blur();
+
+    // 1. ログイン画面を消す
+    loginOverlay.style.display = 'none';
+
+    // 2. 自分のキャラクターに名前をセット
+    if (typeof hero !== 'undefined') {
+        hero.name = userName;
+    }
+
+    // 3. サーバーに参加を伝える
+    socket.emit('join', userName);
+
+    // 🌟 重要：ブラウザの音制限を解除するためにここでAudioContextを再開
+    if (typeof audioCtx !== 'undefined' && audioCtx.state === 'suspended') {
+        audioCtx.resume();
+    }
+    // もしBGMを鳴らしたいならここで呼ぶ
+    if (typeof playBGM === 'function') playBGM();
+
+    // 4. ゲームのループを開始
+    update();
+};

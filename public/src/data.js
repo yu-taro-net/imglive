@@ -213,11 +213,32 @@ const ITEM_CONFIG = {
         "src": "/item_assets/gold.png",
         "points": 500
     },
+	"sword": {
+        "name": "マニアックソード",
+        "spriteKey": "sword",
+        "isAnimated": false,
+        "src": "/item_assets/sword.png",
+        "points": 500
+    },
     "shield": {
-        "name": "盾",
+        "name": "トリシールド",
         "spriteKey": "shield",
         "isAnimated": false,
         "src": "/item_assets/shield.png",
+        "points": 500
+    },
+	"treasure": {
+        "name": "ひみつの宝箱",
+        "spriteKey": "treasure",
+        "isAnimated": false,
+        "src": "/item_assets/treasure.png",
+        "points": 500
+    },
+	"sweets": {
+        "name": "おいしいケーキ",
+        "spriteKey": "sweets",
+        "isAnimated": false,
+        "src": "/item_assets/sweets.png",
         "points": 500
     },
     "money1": {
