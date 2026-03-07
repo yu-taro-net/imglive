@@ -348,8 +348,8 @@ const VIEW_CONFIG = {
   // 🛠️ 開発・デバッグ用設定（ここに追加）
   debug: {
     onlyLoadSpecificChar: true, // 特定のキャラだけ読み込むかどうかのスイッチ
-    targetGroup: 5,             // あひるグループ
-    targetVar: 6                // 特定のバリエーション
+    targetGroup: 1,             // あひるグループ
+    targetVar: 1                // 特定のバリエーション
   },
 };
 
@@ -649,8 +649,8 @@ const GROUP_COUNT   = 16;  // グループの総数 (00〜15)
 const VAR_COUNT     = 15;  // 各グループ内のキャラ数 (01〜15)
 
 // 🌟 現在選択中のキャラクター（ここを書き換えてキャラ変更）
-let selectedGroup   = 5;   // 現在のグループ
-let selectedCharVar = 6;   // 現在のキャラクター番号
+let selectedGroup   = 1;   // 現在のグループ
+let selectedCharVar = 1;   // 現在のキャラクター番号
 
 // アクション名だけのリストを作成 ( ["Dead", "Fly", ... ] )
 const ACTIONS = Object.keys(VIEW_CONFIG.actionFrames);
@@ -707,8 +707,9 @@ function loadCharFrames(groupIndex, variantIndex) {
             const img = new Image();
             const frameNum = String(i).padStart(2, '0');
             
-            // 🖼️ 画像の住所（パス）
-            img.src = `char_assets/group_${groupNum}/Character${varNum}/${action}/Characters-Character${varNum}-${action}_${frameNum}.png`;
+            // 🖼️ 画像の住所（パス）を数値だけの階層に修正
+            // group_05/Character06 -> 05/06 になります
+            img.src = `char_assets/${groupNum}/${varNum}/${action}/Characters-Character${varNum}-${action}_${frameNum}.png`;
 
             // 成功：画像が見つかった場合
             img.onload = () => {
