@@ -615,6 +615,15 @@ const itemCategories = {
     "shield": "EQUIP"      // 装備
 };
 
+// 🌟 アイテムの解説文（ここに追加するだけ！）
+const itemDescriptions = {
+    'gold': 'ずっしりと重い純金の塊。換金用。',
+    'treasure': '古びた宝箱から見つかった秘宝。',
+    'sweets': '食べると疲れが吹き飛ぶ甘いお菓子。',
+    'money1': '使い古された銅貨。',
+    'money3': 'キラキラと輝く銀貨。'
+};
+
 // 画像を一斉にロード
 for (const key in imageSources) {
     const img = new Image();
@@ -624,6 +633,13 @@ for (const key in imageSources) {
     // 🐞 確認用：もし画像が届かなかったらコンソールに通知
     img.onerror = () => console.error(`⚠️ 画像が見つかりません: ${img.src}`);
 }
+
+const STAT_NAMES = {
+    str: "STR", dex: "DEX", int: "INT", luk: "LUK",
+    maxHp: "最大HP", maxMp: "最大MP",
+    atk: "攻撃力", matk: "魔力", def: "防御力",
+    moveSpeed: "移動速度", jumpPower: "ジャンプ力"
+};
 
 // ==========================================
 // 👤 プレイヤー・キャラクター設定
@@ -757,6 +773,27 @@ function drawGame(hero, others, enemies, items, platforms, ladders, damageTexts,
     // 6. UI（最前面）の描画
     drawUIOverlay(hero);
     
+    // 🌟 踏襲版：現在のチャンネルを【右上】に表示 🌟
+    if (hero && hero.channel) {
+        ctx.save();
+        ctx.font = "bold 18px 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif";
+        
+        // 🛠️ 右上に配置するための変更点
+        ctx.textAlign = "right"; // 右揃えに変更
+        
+        // 影をつけて視認性をアップ（ロジックを完全踏襲）
+        ctx.shadowColor = "rgba(0, 0, 0, 0.8)";
+        ctx.shadowBlur = 4;
+        ctx.shadowOffsetX = 2;
+        ctx.shadowOffsetY = 2;
+
+        ctx.fillStyle = "#fbbf24"; // ゴールドっぽい黄色
+        
+        // 🛠️ X座標を画面右端から20pxの位置に変更
+        ctx.fillText(`📡 Channel: ${hero.channel}`, VIEW_CONFIG.SCREEN_WIDTH - 20, 35);
+        ctx.restore();
+    }
+    
     // 🌟 掴んでいるアイテムをマウスに追従させて描画
     if (!isDiscarding && typeof selectedSlotIndex !== 'undefined' && selectedSlotIndex !== -1) {
         if (inventoryVisualBuffer && inventoryVisualBuffer[selectedSlotIndex]) {
@@ -792,14 +829,12 @@ function drawGame(hero, others, enemies, items, platforms, ladders, damageTexts,
 
         // --- B. 足場の判定（赤色） ---
         platforms.forEach(p => {
-            // 実際の足場の見た目上の線
             ctx.strokeStyle = "red";
             ctx.lineWidth = 2;
             ctx.strokeRect(p.x, p.y, p.w, 8);
             
-            // 🌟 サーバー側の「拡張判定(Margin)」を可視化
             ctx.fillStyle = "rgba(255, 0, 0, 0.15)";
-            const margin = 50; // server.js 側の設定値
+            const margin = 50; 
             ctx.fillRect(p.x - margin, p.y, p.w + (margin * 2), 20);
             
             ctx.strokeStyle = "rgba(255, 0, 0, 0.5)";
@@ -809,27 +844,22 @@ function drawGame(hero, others, enemies, items, platforms, ladders, damageTexts,
         // --- C. アイテムの判定（青色） ---
         if (items && items.length > 0) {
             items.forEach(it => {
-                const itemSize = 32; // SETTINGS.ITEM.SIZE と合わせる
-                
-                // アイテム本体の枠
+                const itemSize = 32; 
                 ctx.strokeStyle = "cyan";
                 ctx.lineWidth = 1;
                 ctx.strokeRect(it.x, it.y, itemSize, itemSize);
 
-                // 🌟 アイテムの「中心点」（青い点）
                 ctx.fillStyle = "blue";
                 ctx.beginPath();
                 ctx.arc(it.x + itemSize/2, it.y + itemSize/2, 3, 0, Math.PI * 2);
                 ctx.fill();
 
-                // アイテムの「底辺ライン」
                 ctx.beginPath();
                 ctx.strokeStyle = "blue";
                 ctx.moveTo(it.x, it.y + itemSize);
                 ctx.lineTo(it.x + itemSize, it.y + itemSize);
                 ctx.stroke();
                 
-                // 落下速度のデバッグテキスト
                 if (it.vy !== 0) {
                     ctx.fillStyle = "white";
                     ctx.font = "10px Arial";
@@ -837,17 +867,14 @@ function drawGame(hero, others, enemies, items, platforms, ladders, damageTexts,
                 }
             });
         }
-		
-		if (enemies) {
+        
+        if (enemies) {
             Object.values(enemies).forEach(en => {
-                // 🛠️ 移動してきたデバッグ枠描画ロジック
                 const debugVisualY = en.y + (en.jumpY || 0);
                 ctx.strokeStyle = "red";
                 ctx.lineWidth = 1;
-                // en.w と en.h があれば使い、なければデフォルト(40)
                 ctx.strokeRect(en.x, debugVisualY, en.w || 40, en.h || 40);
                 
-                // HPも表示
                 ctx.fillStyle = "red";
                 ctx.font = "10px Arial";
                 ctx.fillText(`HP: ${en.hp}`, en.x, debugVisualY - 5);
@@ -855,11 +882,11 @@ function drawGame(hero, others, enemies, items, platforms, ladders, damageTexts,
         }
         
         // --- D. 地面判定ラインの可視化 ---
-        const serverGroundY = 565; // サーバーの数値に合わせて調整
+        const serverGroundY = 565; 
 
         ctx.strokeStyle = "yellow";
         ctx.lineWidth = 1;
-        ctx.setLineDash([5, 5]); // 点線
+        ctx.setLineDash([5, 5]); 
         ctx.beginPath();
         ctx.moveTo(0, serverGroundY);
         ctx.lineTo(VIEW_CONFIG.SCREEN_WIDTH, serverGroundY);
@@ -894,11 +921,36 @@ function handleServerEvents(data) {
         }
         lastExp = hero.exp; // 今回の経験値を記憶する
     }
-	*/
-	
+    */
+    
     if (!data.lastPickedItems || data.lastPickedItems.length === 0) return;
 
     data.lastPickedItems.forEach(picked => {
+        // --- 🌟 ボーナス色の計算（詳細な8段階ランク判定） ---
+        let bonusColor = '#ffffff'; // デフォルトは白
+        if (picked.totalALLStats !== undefined && picked.totalFirstStats !== undefined) {
+            const bonus = picked.totalALLStats - picked.totalFirstStats;
+            
+            // 灰 < 白 < 橙 < 青 < 紫 < 黄 < 緑 < 赤 の順に判定
+            if (bonus >= 30) {
+                bonusColor = "#ff0000"; // 神級 (赤)
+            } else if (bonus >= 25) {
+                bonusColor = "#00ff00"; // 超伝説 (緑)
+            } else if (bonus >= 20) {
+                bonusColor = "#ffff00"; // 極上 (黄)
+            } else if (bonus >= 15) {
+                bonusColor = "#ff00ff"; // 伝説 (紫)
+            } else if (bonus >= 10) {
+                bonusColor = "#00ccff"; // 希少 (青)
+            } else if (bonus >= 5) {
+                bonusColor = "#ff9900"; // 良品 (橙)
+            } else if (bonus >= 0) {
+                bonusColor = "#ffffff"; // 標準 (白)
+            } else {
+                bonusColor = "#aaaaaa"; // 粗悪 (灰)
+            }
+        }
+
         // ① 吸い込みエフェクトの追加
         pickingUpEffects.push({
             type: picked.type,
@@ -907,26 +959,27 @@ function handleServerEvents(data) {
             startY: (picked.y > VIEW_CONFIG.groundThreshold) 
                 ? (VIEW_CONFIG.groundY - 20) 
                 : picked.y,
-            targetPlayerId: picked.pickerId 
+            targetPlayerId: picked.pickerId,
+            // 🌟 決定した詳細ランク色をエフェクト情報に追加
+            effectColor: bonusColor 
         });
 
-        // ② アイテム取得ログ（🌟 medal1 以外の時だけ表示するよう修正）
-		/*
+        // ② アイテム取得ログ（省略・維持）
+        /*
         if (picked.pickerId === socket.id) {
-            // ここに条件を追加！
             if (picked.type !== 'medal1') {
                 const config = ITEM_CONFIG[picked.type] || { name: 'アイテム' };
                 itemLogs.push({
                     text: `Bag: ${config.name} を手に入れました`,
                     timer: VIEW_CONFIG.log.displayTime
                 });
-                
                 if (itemLogs.length > VIEW_CONFIG.log.maxCount) {
                     itemLogs.shift();
                 }
             }
         }
         */
+
         // ③ 取得音の再生
         if (typeof playItemSound === 'function') {
             playItemSound();
@@ -1168,7 +1221,250 @@ function drawUIOverlay(hero) {
         ctx.restore();
     }
 
-    // 🌟 インベントリグリッド（メイプル風ツールチップ対応版）
+// ==========================================
+// 🎨 アイテム詳細ツールチップ描画関数 (BONUS 8段階評価版)
+// ==========================================
+function drawItemTooltip(ctx, slot, mouseX, mouseY, hero) {
+    const isEquipment = (slot.type === 'sword' || slot.type === 'shield');
+    
+    // --- 1. ロジック踏襲：ステータス・ランク・名称解決 ---
+    let reqLevel = (slot.lv !== undefined) ? parseInt(slot.lv) : 0;
+    let starCount = (slot.star !== undefined) ? parseInt(slot.star) : 0;
+    let successCount = (slot.successCount !== undefined) ? parseInt(slot.successCount) : 0;
+    let categoryName = "";
+    if (isEquipment) {
+        const catMap = { "weapon": "武器", "shield": "盾", "armor": "防具" };
+        categoryName = catMap[slot.category] || (slot.type === 'sword' ? "片手剣" : "盾");
+    }
+
+    let baseItemName = "アイテム";
+    if (typeof ITEM_CONFIG !== 'undefined' && ITEM_CONFIG[slot.type]) {
+        baseItemName = ITEM_CONFIG[slot.type].name;
+    } else {
+        baseItemName = slot.type === 'shield' ? "盾" : (slot.type === 'sword' ? "剣" : slot.type);
+    }
+    if (isEquipment && successCount > 0) baseItemName = `${baseItemName} (+${successCount})`;
+
+    let itemName = baseItemName;
+    let statusText = "";
+    let displayColor = "#ffffff";
+    let glowColor = null; // 🌟 グロー用カラー変数
+
+    // 🌟 判定：ボーナス値に基づいた 8段階のランク・色判定
+    if (isEquipment && slot.totalALLStats !== undefined && slot.totalFirstStats !== undefined) {
+        const bonus = slot.totalALLStats - slot.totalFirstStats;
+        let rankName = "";
+
+        // 灰 < 白 < 橙 < 青 < 紫 < 黄 < 緑 < 赤 の順に判定
+        if (bonus >= 30) {
+            displayColor = "#ff0000"; rankName = "(神級)";
+            glowColor = displayColor; // 神級は赤く光る
+        } else if (bonus >= 25) {
+            displayColor = "#00ff00"; rankName = "(超伝説)";
+            glowColor = displayColor; // 超伝説は緑に光る
+        } else if (bonus >= 20) {
+            displayColor = "#ffff00"; rankName = "(極上)";
+            glowColor = displayColor; // 極上は黄色に光る
+        } else if (bonus >= 15) {
+            displayColor = "#ff00ff"; rankName = "(伝説)";
+            glowColor = displayColor; // 伝説は紫に光る
+        } else if (bonus >= 10) {
+            displayColor = "#00ccff"; rankName = "(希少)";
+            glowColor = displayColor; // 希少は青く光る
+        } else if (bonus >= 5) {
+            displayColor = "#ff9900"; rankName = "(良品)";
+        } else if (bonus >= 0) {
+            displayColor = "#ffffff"; rankName = "(標準)";
+        } else {
+            displayColor = "#aaaaaa"; rankName = "(粗悪)"; 
+        }
+        itemName = `${baseItemName}${rankName}`;
+
+    } else {
+        // ETC/消費アイテム
+        if (typeof itemDescriptions !== 'undefined' && itemDescriptions[slot.type]) {
+            statusText = itemDescriptions[slot.type];
+        } else {
+            statusText = `個数 : ${slot.count}`;
+        }
+    }
+
+    // --- 2. レイアウト計算 ---
+    const padding = 12;
+    const iconSize = 40; 
+    const iconTextGap = 15;
+    const lineHeight = 16;
+    const statsToShow = ['str', 'dex', 'int', 'luk', 'maxHp', 'maxMp', 'atk', 'matk', 'def'];
+    const activeStats = isEquipment ? statsToShow.filter(k => {
+        const val = parseInt(slot[k]);
+        return !isNaN(val) && val !== 0; 
+    }) : [];
+
+    ctx.font = 'bold 14px sans-serif';
+    const nameWidth = ctx.measureText(itemName).width;
+    ctx.font = '12px sans-serif';
+    const statusWidth = ctx.measureText(statusText).width;
+
+    // 横幅を 240px 以上に設定
+    let boxWidth = padding + iconSize + iconTextGap + Math.max(nameWidth, statusWidth, 180) + padding;
+    if (boxWidth < 240) boxWidth = 240;
+
+    // 高さ計算
+    const reqLines = isEquipment ? (1 + (slot.totalFirstStats !== undefined ? 1 : 0) + (slot.totalALLStats !== undefined ? 1 : 0) + 1) : 0;
+    let boxHeight = isEquipment ? 115 + (activeStats.length * lineHeight) + (reqLines * 12) : 65;
+
+    let popupX = mouseX + 15;
+    let popupY = mouseY + 15;
+    if (popupX + boxWidth > canvas.width) popupX = mouseX - boxWidth - 10;
+    if (popupY + boxHeight > canvas.height) popupY = mouseY - boxHeight - 10;
+    if (popupX < 5) popupX = 5;
+    if (popupY < 5) popupY = 5;
+
+    // --- 3. 枠の描画 ---
+    ctx.save();
+    ctx.fillStyle = 'rgba(15, 15, 15, 0.95)';
+    ctx.beginPath();
+    if (typeof ctx.roundRect === 'function') { ctx.roundRect(popupX, popupY, boxWidth, boxHeight, 5); }
+    else { ctx.rect(popupX, popupY, boxWidth, boxHeight); }
+    ctx.fill();
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+    ctx.restore();
+
+    // スターフォース
+    if (isEquipment && starCount > 0) {
+        ctx.font = '14px sans-serif';
+        ctx.fillStyle = '#ffff00';
+        ctx.textAlign = 'center';
+        ctx.fillText("★".repeat(starCount), popupX + boxWidth / 2, popupY + 18);
+    }
+
+    const contentTop = (isEquipment && starCount > 0) ? popupY + 32 : popupY + 15;
+    const textStartX = popupX + padding + iconSize + iconTextGap;
+    const rightValueX = popupX + boxWidth - 12;
+
+    // 🌟 修正ポイント：アイコン描画（グロー効果）
+    let itemImg = itemImages[slot.type];
+    if (itemImg && itemImg.complete && itemImg.naturalWidth !== 0) {
+        ctx.save();
+        if (glowColor) {
+            // インベントリ同様、2回重ねて描画し発色を強める
+            ctx.shadowBlur = 15;
+            ctx.shadowColor = glowColor;
+            ctx.drawImage(itemImg, popupX + padding, contentTop, iconSize, iconSize);
+            
+            ctx.shadowBlur = 5; // 芯の光
+            ctx.drawImage(itemImg, popupX + padding, contentTop, iconSize, iconSize);
+        } else {
+            ctx.drawImage(itemImg, popupX + padding, contentTop, iconSize, iconSize);
+        }
+        ctx.restore();
+    }
+
+    // アイテム名描画 (ランクの色を適用)
+    ctx.font = 'bold 15px sans-serif';
+    ctx.fillStyle = displayColor;
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'top';
+    ctx.fillText(itemName, textStartX, contentTop);
+
+    // --- 4. 詳細・ステータス描画 ---
+    if (isEquipment) {
+        // 装備分類
+        ctx.font = '11px sans-serif';
+        ctx.fillStyle = '#aaaaaa';
+        ctx.fillText(`装備分類 : ${categoryName}`, textStartX, contentTop + 20);
+
+        // REQエリア
+        let currentReqY = contentTop + 35;
+        const heroLevel = hero ? (hero.level || 0) : 0;
+        ctx.font = 'bold 10px sans-serif';
+
+        // REQ LEV
+        ctx.textAlign = 'left';
+        ctx.fillStyle = (heroLevel < reqLevel) ? '#ff0000' : '#ffff00';
+        ctx.fillText("・REQ LEV", textStartX, currentReqY);
+        ctx.textAlign = 'right';
+        ctx.fillText(reqLevel, rightValueX, currentReqY);
+        currentReqY += 12;
+
+        // REQ First
+        if (slot.totalFirstStats !== undefined) {
+            ctx.textAlign = 'left'; ctx.fillStyle = '#ffffff';
+            ctx.fillText("・REQ First", textStartX, currentReqY);
+            ctx.textAlign = 'right'; ctx.fillText(slot.totalFirstStats, rightValueX, currentReqY);
+            currentReqY += 12;
+        }
+        // REQ ALL
+        if (slot.totalALLStats !== undefined) {
+            ctx.textAlign = 'left'; ctx.fillStyle = '#ffffff';
+            ctx.fillText("・REQ ALL", textStartX, currentReqY);
+            ctx.textAlign = 'right'; ctx.fillText(slot.totalALLStats, rightValueX, currentReqY);
+            currentReqY += 12;
+        }
+        
+        // BONUS表示
+        if (slot.totalALLStats !== undefined && slot.totalFirstStats !== undefined) {
+            const bonus = slot.totalALLStats - slot.totalFirstStats;
+            const displayBonus = Math.round(bonus * 10) / 10;
+
+            ctx.textAlign = 'left'; 
+            ctx.fillStyle = displayColor; // ボーナス値自体もランク色で
+            ctx.fillText("・BONUS", textStartX, currentReqY);
+            ctx.textAlign = 'right'; 
+            ctx.fillText((bonus >= 0 ? "+" : "") + displayBonus, rightValueX, currentReqY);
+            currentReqY += 12;
+        }
+
+        // ステータス一覧
+        let currentY = currentReqY + 5;
+        ctx.font = '12px sans-serif';
+        activeStats.forEach(key => {
+            const labelMap = { str: "STR", dex: "DEX", int: "INT", luk: "LUK", maxHp: "最大HP", maxMp: "最大MP", atk: "攻撃力", matk: "魔力", def: "防御力" };
+            const label = (typeof STAT_NAMES !== 'undefined' && STAT_NAMES[key]) ? STAT_NAMES[key] : (labelMap[key] || key.toUpperCase());
+
+            ctx.textAlign = 'left'; ctx.fillStyle = '#ffffff';
+            ctx.fillText(label, textStartX, currentY);
+            ctx.textAlign = 'right';
+            ctx.fillText(`+${slot[key]}`, rightValueX, currentY);
+            currentY += lineHeight;
+        });
+
+        // 強化可能回数
+        const total = slot.totalUpgrade || 7;
+        const used = (slot.successCount || 0) + (slot.failCount || 0);
+        ctx.save();
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
+        ctx.beginPath();
+        ctx.moveTo(textStartX, currentY + 5);
+        ctx.lineTo(popupX + boxWidth - 10, currentY + 5);
+        ctx.stroke();
+        ctx.restore();
+
+        ctx.textAlign = 'left'; ctx.fillStyle = '#ffff00';
+        ctx.fillText(`アップグレード可能回数 : ${total - used}`, textStartX, currentY + 12);
+
+    } else {
+        // ETC/消費アイテム
+        ctx.save();
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
+        ctx.beginPath();
+        ctx.moveTo(textStartX, contentTop + 25);
+        ctx.lineTo(popupX + boxWidth - 10, contentTop + 25);
+        ctx.stroke();
+        ctx.restore();
+
+        ctx.textAlign = 'left';
+        ctx.font = '12px sans-serif';
+        ctx.fillStyle = '#ffffff';
+        ctx.fillText(statusText, textStartX, contentTop + 32);
+    }
+}
+
+// ==========================================
+// 🎒 インベントリグリッド（メインループ部分）
+// ==========================================
 if (hero && hero.inventory) {
     drawInventoryGrid(ctx, hero.inventory);
 
@@ -1186,102 +1482,35 @@ if (hero && hero.inventory) {
             mouseY >= y && mouseY <= (y + slotSize)) {
 
             ctx.save();
-            let itemName = "";   // 1行目：アイテム名
-            let statusText = ""; // 2行目：ステータスや個数
-            let displayColor = "#ffffff";
+            // 分離した関数を呼び出す
+            drawItemTooltip(ctx, slot, mouseX, mouseY, hero);
+            ctx.restore();
+        }
+    });
+}
 
-            // --- 名称解決処理 (維持) ---
-            let baseItemName = "アイテム";
-            if (typeof ITEM_CONFIG !== 'undefined' && ITEM_CONFIG[slot.type]) {
-                baseItemName = ITEM_CONFIG[slot.type].name;
-            } else {
-                if (slot.type === 'shield') baseItemName = "盾";
-                else if (slot.type === 'sword') baseItemName = "剣";
-                else if (slot.type === 'gold') baseItemName = "金塊";
-                else baseItemName = slot.type;
-            }
+// ==========================================
+// 🎒 インベントリグリッド (メインループ)
+// ==========================================
+if (hero && hero.inventory) {
+    drawInventoryGrid(ctx, hero.inventory);
 
-            // --- 表示テキストの組み立て (メイプル風に分割) ---
-            if (slot.type === 'shield') {
-                const def = slot.defense || 0;
-                let rankName = "";
-                if (def >= 14) { displayColor = "#ff00ff"; rankName = "(最高級)"; }
-                else if (def >= 11) { displayColor = "#ffff00"; rankName = "(良品)"; } // メイプル風に黄色
-                else if (def <= 7) { displayColor = "#aaaaaa"; rankName = "(壊れかけ)"; }
-                itemName = `${baseItemName}${rankName}`;
-                statusText = `防御力 : +${def}`;
-            } 
-            else if (slot.type === 'sword') {
-                const atk = slot.atk || 0;
-                let rankName = "";
-                if (atk >= 25) { displayColor = "#ff00ff"; rankName = "(伝説)"; }
-                else if (atk >= 16) { displayColor = "#ffff00"; rankName = "(業物)"; } // メイプル風に黄色
-                else if (atk <= 5) { displayColor = "#aaaaaa"; rankName = "(なまくら)"; }
-                itemName = `${baseItemName}${rankName}`;
-                statusText = `攻撃力 : +${atk}`;
-            } 
-            else {
-                itemName = baseItemName;
-                statusText = `個数 : ${slot.count}`;
-            }
+    const startX = 20;
+    const startY = 130;
+    const slotSize = 40;
+    const spacing = 8;
 
-            // 🌟 --- 描画位置とサイズの計算 (2行対応版) ---
-            ctx.font = 'bold 14px sans-serif';
-            const nameWidth = ctx.measureText(itemName).width;
-            ctx.font = '12px sans-serif';
-            const statusWidth = ctx.measureText(statusText).width;
+    hero.inventory.forEach((slot, index) => {
+        if (!slot || !slot.type || slot.count <= 0) return;
+        const x = startX + (index * (slotSize + spacing));
+        const y = startY;
+
+        if (mouseX >= x && mouseX <= (x + slotSize) &&
+            mouseY >= y && mouseY <= (y + slotSize)) {
             
-            const boxWidth = Math.max(nameWidth, statusWidth) + 30;
-            const boxHeight = 55; // 2行＋余白で高さを確保
-
-            // 1. まずはマウスのすぐ右側に配置
-            let popupX = mouseX + 15;
-            let popupY = mouseY - boxHeight - 10;
-
-            // 🛡️ 【はみ出し防止ロジック (維持)】
-            if (popupX < 5) popupX = 5;
-            if (popupX + boxWidth > canvas.width) {
-                popupX = mouseX - boxWidth - 10;
-                if (popupX < 5) popupX = 5;
-            }
-            if (popupY < 5) popupY = mouseY + 20;
-
-            // --- 🎨 メイプル風デザインの描画実行 ---
-            
-            // 背景（メイプル特有の深い黒）
-            ctx.fillStyle = 'rgba(15, 15, 15, 0.9)';
-            ctx.beginPath();
-            if (typeof ctx.roundRect === 'function') {
-                ctx.roundRect(popupX, popupY, boxWidth, boxHeight, 3);
-            } else {
-                ctx.rect(popupX, popupY, boxWidth, boxHeight);
-            }
-            ctx.fill();
-
-            // 枠線（細い白枠）
-            ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
-            ctx.lineWidth = 1;
-            ctx.stroke();
-
-            // 1行目：アイテム名（中央揃え）
-            ctx.font = 'bold 14px sans-serif';
-            ctx.fillStyle = displayColor;
-            ctx.textAlign = 'center';
-            ctx.textBaseline = 'top';
-            ctx.fillText(itemName, popupX + (boxWidth / 2), popupY + 12);
-
-            // 中央の区切り線（メイプル風）
-            ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
-            ctx.beginPath();
-            ctx.moveTo(popupX + 10, popupY + 32);
-            ctx.lineTo(popupX + boxWidth - 10, popupY + 32);
-            ctx.stroke();
-
-            // 2行目：ステータス（中央揃え・白文字）
-            ctx.font = '12px sans-serif';
-            ctx.fillStyle = '#ffffff';
-            ctx.fillText(statusText, popupX + (boxWidth / 2), popupY + 38);
-
+            ctx.save();
+            // 🌟 整理した関数を呼び出すだけ！
+            drawItemTooltip(ctx, slot, mouseX, mouseY, hero);
             ctx.restore();
         }
     });
@@ -2015,6 +2244,12 @@ function drawPickupEffects(hero, others) {
     pickingUpEffects.forEach((eff) => {
         // 🌟 25 -> VIEW_CONFIG.pickupEffect.duration
         const maxTime = VIEW_CONFIG.pickupEffect.duration;
+        
+        // 🌟 【デバッグ行】エフェクト開始時(timerが最大値の時)だけ色を表示
+        if (eff.timer === maxTime) {
+            console.log(`[EffectStart] Drawing with Color: ${eff.effectColor}, Type: ${eff.type}`);
+        }
+        
         const t = Math.pow((maxTime - eff.timer) / maxTime, 2);
 
         ctx.save();
@@ -2035,8 +2270,16 @@ function drawPickupEffects(hero, others) {
         const dx = (1 - t) * (1 - t) * eff.startX + 2 * (1 - t) * t * ((eff.startX + tx) / 2) + t * t * tx;
         const dy = (1 - t) * (1 - t) * (target.y + 5) + 2 * (1 - t) * t * midY + t * t * ty;
 
-        ctx.globalAlpha = Math.max(0, 1 - t);
+        // 全体の透明度
+        const alpha = Math.max(0, 1 - t);
+        ctx.globalAlpha = alpha;
         ctx.translate(dx, dy);
+
+        // 🌟 カテゴリー判定：EQUIP かつ、特定の除外色（白・灰・橙）ではない場合のみ発光
+        const category = itemCategories[eff.type];
+        // #ffffff (標準), #aaaaaa (粗悪), #ff9900 (良品) はグロー対象外とする
+        const isExcludedColor = (eff.effectColor === '#ffffff' || eff.effectColor === '#aaaaaa' || eff.effectColor === '#ff9900');
+        const showColorEffect = (category === "EQUIP") && eff.effectColor && !isExcludedColor;
 
         // アイテム画像の描画品質を保つ
         ctx.imageSmoothingEnabled = true;
@@ -2048,11 +2291,28 @@ function drawPickupEffects(hero, others) {
             const nw = img.naturalWidth;
             const nh = img.naturalHeight;
             
-            // 🌟 30 -> VIEW_CONFIG.pickupEffect.size
+            // 🌟 30 -> VIEW_CONFIG.pickupEffect.size (サイズは固定)
             const targetHeight = VIEW_CONFIG.pickupEffect.size; 
             const targetWidth = targetHeight * (nw / nh);
             
-            ctx.drawImage(img, -targetWidth / 2, -targetHeight / 2, targetWidth, targetHeight);
+            // 🌟 修正ポイント：条件に一致したレアアイテムのみ、インベントリと同期した「二重グロー」を実行
+            if (showColorEffect) {
+                ctx.save();
+                // 1回目：広範囲の強い光 (Blur: 20)
+                ctx.shadowBlur = 20;
+                ctx.shadowColor = eff.effectColor;
+                ctx.shadowOffsetX = 0;
+                ctx.shadowOffsetY = 0;
+                ctx.drawImage(img, -targetWidth / 2, -targetHeight / 2, targetWidth, targetHeight);
+                
+                // 2回目：芯の強い光 (Blur: 5)
+                ctx.shadowBlur = 5;
+                ctx.drawImage(img, -targetWidth / 2, -targetHeight / 2, targetWidth, targetHeight);
+                ctx.restore();
+            } else {
+                // 通常アイテム、および除外されたランクの装備品（グローなし）
+                ctx.drawImage(img, -targetWidth / 2, -targetHeight / 2, targetWidth, targetHeight);
+            }
         }
 
         ctx.imageSmoothingEnabled = false;
@@ -2436,14 +2696,10 @@ function drawItems(items, frame) {
         const drawSize = VIEW_CONFIG.item.drawSize; // 32
         const halfSize = drawSize / 2;
 
-        // 🌟 修正ポイント：複雑な adjustY を廃止し、サーバーの item.y をそのまま使う
-        // サーバー側の (item.x, item.y) は「判定枠の左上」を指しています。
-        // 画像を中心で描画するために、中心座標 (item.x + halfSize, item.y + halfSize) を計算します。
         const centerX = item.x + halfSize;
         const centerY = item.y + halfSize;
 
         // 3. 移動と描画
-        // アイテムの中心位置に移動（floatYを足して浮遊させる）
         ctx.translate(centerX, centerY + floatY);
 
         // 2. 回転の処理
@@ -2467,53 +2723,51 @@ function drawItems(items, frame) {
             const targetHeight = drawSize;
             const targetWidth = targetHeight * (img.naturalWidth / img.naturalHeight);
             
-            // --- A. アイテム本体の描画 ---
+            // --- 🌟 B. レア度に応じたグローカラーの判定 ---
+            let glowColor = null;
+            if ((item.type === 'sword' || item.type === 'shield') && 
+                item.totalALLStats !== undefined && 
+                item.totalFirstStats !== undefined) {
+                
+                const bonus = item.totalALLStats - item.totalFirstStats;
+                
+                // 10(青)以上のみグロー用の色を割り当てる
+                if (bonus >= 30) {
+                    glowColor = "#ff0000"; // 赤（神級）
+                } else if (bonus >= 25) {
+                    glowColor = "#00ff00"; // 緑（超伝説）
+                } else if (bonus >= 20) {
+                    glowColor = "#ffff00"; // 黄（極上）
+                } else if (bonus >= 15) {
+                    glowColor = "#ff00ff"; // 紫（伝説）
+                } else if (bonus >= 10) {
+                    glowColor = "#00ccff"; // 青（希少）
+                }
+            }
+
+            // --- 描画実行 ---
             ctx.imageSmoothingEnabled = true;
-            // 原点が中心にあるので、サイズの半分戻して描画すれば枠にピッタリ重なります
-            ctx.drawImage(img, -targetWidth / 2, -targetHeight / 2, targetWidth, targetHeight);
+
+            if (glowColor) {
+                // 🌟 修正ポイント：二重描画で発光を強化
+                // 1回目：広範囲の柔らかな光
+                ctx.save();
+                ctx.shadowBlur = 20; 
+                ctx.shadowColor = glowColor;
+                ctx.shadowOffsetX = 0;
+                ctx.shadowOffsetY = 0;
+                ctx.drawImage(img, -targetWidth / 2, -targetHeight / 2, targetWidth, targetHeight);
+                
+                // 2回目：芯の強い光（重ね描き）
+                ctx.shadowBlur = 5;
+                ctx.drawImage(img, -targetWidth / 2, -targetHeight / 2, targetWidth, targetHeight);
+                ctx.restore();
+            } else {
+                // 通常アイテム（グローなし）
+                ctx.drawImage(img, -targetWidth / 2, -targetHeight / 2, targetWidth, targetHeight);
+            }
+
             ctx.imageSmoothingEnabled = false;
-
-            // --- 🌟 B. レア度に応じたカラーフレームの描画 ---
-            
-            // 🛡️ 盾（shield）の判定
-            if (item.type === 'shield') {
-                const def = item.defense || 0;
-                let frameColor = null;
-
-                if (def >= 14)      frameColor = "#ff00ff"; // 💜最高級
-                else if (def >= 11) frameColor = "#ffcc00"; // 💛良品
-
-                if (frameColor) {
-                    ctx.strokeStyle = frameColor;
-                    ctx.lineWidth = 2.5; 
-                    ctx.strokeRect(-targetWidth / 2, -targetHeight / 2, targetWidth, targetHeight);
-                    
-                    ctx.globalAlpha = 0.3;
-                    ctx.fillStyle = frameColor;
-                    ctx.fillRect(-targetWidth / 2, -targetHeight / 2, targetWidth, targetHeight);
-                    ctx.globalAlpha = 1.0;
-                }
-            }
-            
-            // ⚔️ 剣（sword）の判定
-            else if (item.type === 'sword') {
-                const atk = item.atk || 0;
-                let frameColor = null;
-
-                if (atk >= 25)      frameColor = "#ff00ff"; // 💜伝説
-                else if (atk >= 16) frameColor = "#ffcc00"; // 💛業物
-
-                if (frameColor) {
-                    ctx.strokeStyle = frameColor;
-                    ctx.lineWidth = 2.5; 
-                    ctx.strokeRect(-targetWidth / 2, -targetHeight / 2, targetWidth, targetHeight);
-                    
-                    ctx.globalAlpha = 0.3;
-                    ctx.fillStyle = frameColor;
-                    ctx.fillRect(-targetWidth / 2, -targetHeight / 2, targetWidth, targetHeight);
-                    ctx.globalAlpha = 1.0;
-                }
-            }
         }
 
         ctx.restore();
@@ -2535,7 +2789,7 @@ function drawInventoryGrid(ctx, inventory) {
         const x = startX + (slotSize + padding) * i;
         const y = startY;
 
-        // 枠の描画（ここは変更なし）
+        // 枠の描画（背景スロット）
         ctx.strokeStyle = "rgba(255, 255, 255, 0.8)";
         ctx.lineWidth = 2;
         ctx.fillStyle = "rgba(0, 0, 0, 0.4)";
@@ -2556,7 +2810,6 @@ function drawInventoryGrid(ctx, inventory) {
             const category = itemCategories[type];
 
             // 2. ETCアイテム（Gold, Treasureなど）は重複描画をチェックする
-            // 🛡️ 「ETC」に分類されているアイテムなら重複チェックを行う
             if (category === 'ETC') {
                 if (alreadyDrawn.has(type)) continue;
                 alreadyDrawn.add(type);
@@ -2577,13 +2830,50 @@ function drawInventoryGrid(ctx, inventory) {
                 // 描画実行
                 if (displayImg && displayImg.complete && displayImg.width > 0) {
                     const m = 5;
-                    ctx.drawImage(displayImg, x + m, y + m, slotSize - m * 2, slotSize - m * 2);
+                    const imgX = x + m;
+                    const imgY = y + m;
+                    const imgW = slotSize - m * 2;
+                    const imgH = slotSize - m * 2;
                     
-                    // 🌟 修正点：カテゴリーが「ETC」または「USE」なら1個以上、それ以外なら2個以上で数字を出す
-                    const isStackItem = (category === 'ETC' || category === 'USE');
+                    // ==========================================
+                    // 🌟 修正ポイント：グローカラーの判定（装備品のみ）
+                    // ==========================================
+                    let glowColor = null;
+                    if ((type === 'sword' || type === 'shield') && 
+                        itemData.totalALLStats !== undefined && 
+                        itemData.totalFirstStats !== undefined) {
+                        
+                        const bonus = itemData.totalALLStats - itemData.totalFirstStats;
+                        if (bonus >= 30) glowColor = "#ff0000";      // 神級
+                        else if (bonus >= 25) glowColor = "#00ff00"; // 超伝説
+                        else if (bonus >= 20) glowColor = "#ffff00"; // 極上
+                        else if (bonus >= 15) glowColor = "#ff00ff"; // 伝説
+                        else if (bonus >= 10) glowColor = "#00ccff"; // 希少
+                    }
 
+                    ctx.save();
+                    // 🌟 画像に対して強烈なグロー（発光）を適用
+                    if (glowColor) {
+                        // 【強化描画 1回目】広範囲に光を拡散させる
+                        ctx.shadowBlur = 20; 
+                        ctx.shadowColor = glowColor;
+                        ctx.shadowOffsetX = 0;
+                        ctx.shadowOffsetY = 0;
+                        ctx.drawImage(displayImg, imgX, imgY, imgW, imgH);
+
+                        // 【強化描画 2回目】中心の色を濃く、さらに発光を重ねる
+                        ctx.shadowBlur = 5;
+                        ctx.drawImage(displayImg, imgX, imgY, imgW, imgH);
+                    } else {
+                        // 通常アイテム
+                        ctx.drawImage(displayImg, imgX, imgY, imgW, imgH);
+                    }
+                    ctx.restore();
+                    
+                    // 個数表示
+                    const isStackItem = (category === 'ETC' || category === 'USE');
                     if ((isStackItem && count >= 1) || count > 1) {
-                        ctx.save(); // 描画状態を一時保存
+                        ctx.save(); 
                         ctx.fillStyle = "white";
                         ctx.strokeStyle = "black";
                         ctx.lineWidth = 2;
@@ -2591,56 +2881,6 @@ function drawInventoryGrid(ctx, inventory) {
                         ctx.textAlign = "right";
                         ctx.strokeText(count, x + slotSize - 3, y + slotSize - 3);
                         ctx.fillText(count, x + slotSize - 3, y + slotSize - 3);
-                        ctx.textAlign = "left"; // 元に戻す
-                        ctx.restore(); // 状態を復元
-                    }
-                }
-
-                // ==========================================
-                // 🛡️ 3. 【継承】盾のランクに応じて枠と「網掛け」を描画する
-                // ==========================================
-                if (type === 'shield') {
-                    const def = itemData.defense || 0;
-                    let frameColor = null;
-
-                    if (def >= 14)      frameColor = "#ff00ff"; // 紫：最高級
-                    else if (def >= 11) frameColor = "#ffcc00"; // 金：良品
-
-                    if (frameColor) {
-                        ctx.save();
-                        ctx.strokeStyle = frameColor;
-                        ctx.lineWidth = 3; 
-                        ctx.strokeRect(x, y, slotSize, slotSize); 
-                        
-                        // 内側も薄く光らせる（網掛けエフェクト）
-                        ctx.globalAlpha = 0.1;
-                        ctx.fillStyle = frameColor;
-                        ctx.fillRect(x, y, slotSize, slotSize);
-                        ctx.restore();
-                    }
-                }
-
-                // ==========================================
-                // ⚔️ 4. 【継承】剣のランクに応じて枠と「網掛け」を描画する
-                // ==========================================
-                if (type === 'sword') {
-                    const atk = itemData.atk || 0;
-                    let frameColor = null;
-
-                    if (atk >= 25)      frameColor = "#ff00ff"; // 伝説 (紫)
-                    else if (atk >= 16) frameColor = "#ffcc00"; // 業物 (金)
-                    else if (atk <= 5)  frameColor = "#888888"; // なまくら (灰)
-
-                    if (frameColor) {
-                        ctx.save();
-                        ctx.strokeStyle = frameColor;
-                        ctx.lineWidth = 3; 
-                        ctx.strokeRect(x, y, slotSize, slotSize);
-                        
-                        // 内側も薄く光らせる
-                        ctx.globalAlpha = 0.1;
-                        ctx.fillStyle = frameColor;
-                        ctx.fillRect(x, y, slotSize, slotSize);
                         ctx.restore();
                     }
                 }
@@ -3150,7 +3390,7 @@ canvas.addEventListener('mousedown', (event) => {
     else {
         // view.js 内の修正
 
-// --- 🗑️ アイテムを地面に捨てる処理（ロジック完全踏襲・リセット追加版） ---
+// --- 🗑️ アイテムを地面に捨てる処理（Enterキー・Escapeキー対応版） ---
 if (selectedSlotIndex !== -1) {
     const item = inventoryVisualBuffer[selectedSlotIndex];
     if (item) {
@@ -3171,13 +3411,16 @@ if (selectedSlotIndex !== -1) {
             input.min = 1;
 
             // 🌟 フォームを表示し、入力中フラグをONにする
-            isDiscarding = true; // ←追加
+            isDiscarding = true;
             form.style.display = 'block';
             form.style.pointerEvents = 'auto';
-			canvas.style.cursor = "default";
+            canvas.style.cursor = "default";
 
-            // ✅ 決定ボタンを押した時の処理
-            document.getElementById('drop-confirm').onclick = () => {
+            // 🌟 自動で入力欄にフォーカスを当てる（すぐにEnterや数値入力が可能に）
+            setTimeout(() => input.focus(), 10);
+
+            // ✅ 共通の確定処理（ボタンクリックとEnterキーの両方で使用）
+            const handleConfirm = () => {
                 let dropAmount = parseInt(input.value);
 
                 if (isNaN(dropAmount) || dropAmount <= 0) {
@@ -3197,24 +3440,41 @@ if (selectedSlotIndex !== -1) {
                 socket.emit('dropItem', { index: selectedSlotIndex, amount: dropAmount });
                 
                 // 🌟 状態をリセット
-                isDiscarding = false; // ←追加（OFFに戻す）
+                isDiscarding = false;
                 selectedSlotIndex = -1;
                 canvas.style.cursor = "default";
                 form.style.display = 'none';
                 form.style.pointerEvents = 'none';
                 error.innerText = ""; 
+                // イベントリスナーを解除
+                input.onkeydown = null;
             };
 
-            // ❌ キャンセルボタン
-            document.getElementById('drop-cancel').onclick = () => {
-                // 🌟 状態をリセット
-                isDiscarding = false; // ←追加（OFFに戻す）
+            // ✅ 共通のキャンセル処理
+            const handleCancel = () => {
+                isDiscarding = false;
                 selectedSlotIndex = -1;
                 canvas.style.cursor = "default";
-                
                 form.style.display = 'none';
                 form.style.pointerEvents = 'none';
                 error.innerText = "";
+                input.onkeydown = null;
+            };
+
+            // ✅ 決定ボタンを押した時の処理
+            document.getElementById('drop-confirm').onclick = handleConfirm;
+
+            // ❌ キャンセルボタン
+            document.getElementById('drop-cancel').onclick = handleCancel;
+
+            // 🌟 キーボード入力イベント
+            input.onkeydown = (e) => {
+                if (e.key === 'Enter') {
+                    e.preventDefault(); // ページの更新などを防ぐ
+                    handleConfirm();
+                } else if (e.key === 'Escape') {
+                    handleCancel();
+                }
             };
 
         } else {
@@ -3313,7 +3573,7 @@ socket.on('player_joined_sound', () => {
     }
 });
 
-//inventoryVisualBuffer[0] = { type: 'My Sword', defense: 50 };
+//inventoryVisualBuffer[0] = { type: 'My Sword', def: 50 };
 
 // 🛠️ view.js デバッグ表示の強化版
 function drawDebugInfo() {
@@ -3734,6 +3994,36 @@ function getPriorityWindow(mx, my) {
     }
     return "none";
 }
+
+/**
+ * 📺 画面上に現在のチャンネルを表示する
+ */
+ /*
+function drawCurrentChannel() {
+    // 自分のキャラ(hero)が存在し、チャンネル情報を持っているか確認
+    if (typeof hero !== 'undefined' && hero.channel) {
+        ctx.save(); // 現在の描画状態を保存
+
+        // 文字のスタイル設定
+        ctx.font = "bold 18px 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif";
+        ctx.textAlign = "left";
+        
+        // 少し影をつけて見やすくする
+        ctx.shadowColor = "rgba(0, 0, 0, 0.7)";
+        ctx.shadowBlur = 4;
+        ctx.shadowOffsetX = 2;
+        ctx.shadowOffsetY = 2;
+
+        // 文字の色（少し目立つ色にすると良いです）
+        ctx.fillStyle = "#fbbf24"; // 黄色っぽい色
+        
+        // 画面の左上に表示（座標 x: 20, y: 35 くらい）
+        ctx.fillText(`📡 Channel: ${hero.channel}`, 20, 35);
+
+        ctx.restore(); // 描画状態を元に戻す
+    }
+}
+*/
 
 // ==========================================
 // 🎒 アイテム取得時の右下ログ通知（確実に表示版）

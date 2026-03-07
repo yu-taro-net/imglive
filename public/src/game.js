@@ -30,7 +30,7 @@ const socket = io(SOCKET_URL, {
 console.log(`接続先: ${SOCKET_URL}`); // 確認用にコンソールに表示
 
 class Player {
-  constructor(name = "") {
+  constructor(name = "", channel = 1) { // 🌟 チャンネル引数を追加
     // 位置と移動
     this.x = 50;
     this.y = 540;
@@ -42,12 +42,13 @@ class Player {
     this.hp = 100;
     this.maxHp = 100;
     this.str = 50;
-    this.dex = 5;  // 🌟 追加
-    this.luk = 5;  // 🌟 追加
-    this.ap = 0;   // 🌟 追加
+    this.dex = 5;  // 🌟 維持
+    this.luk = 5;  // 🌟 維持
+    this.ap = 0;   // 🌟 維持
     this.score = 0;
     this.level = 1;
     this.exp = 0;
+    this.channel = channel; // 🌟 追加：自分が今どのチャンネルにいるかを記憶
 
     // 状態管理
     this.name = name;
@@ -75,7 +76,7 @@ class Player {
   }
 
   // game.js の Playerクラスの中
-receiveDamage(amount) {
+  receiveDamage(amount) {
     if (this.invincible > 0) return; // 無敵中なら何もしない
 
     this.hp -= amount;
@@ -88,15 +89,15 @@ receiveDamage(amount) {
     this.invincible = 60; // 1秒間無敵
     
     console.log(`${this.name}は ${amount} のダメージを受けた！ 残りHP: ${this.hp}`);
-}
+  }
 
-// 🌟 追加：リスポーン（復活）のルールを定義する
+  // 🌟 追加：リスポーン（復活）のルールを定義する
   respawn() {
     this.hp = 100;    // HPを全回復
     this.x = 50;     // 初期位置X
     this.y = 390;    // 初期位置Y
     this.climbing = false; // ハシゴ状態を解除
-    console.log(`${this.name}がリスポーンしました。`);
+    console.log(`${this.name}(Ch:${this.channel})がリスポーンしました。`);
   }
   
   /**
@@ -249,8 +250,14 @@ receiveDamage(amount) {
   }
 }
 
-// 自分のキャラをインスタンス化
-let hero = new Player("なまえ");
+// --- 修正前 ---
+// let hero = new Player("なまえ");
+
+// --- 修正後 ---
+// ログイン前はまだチャンネルが確定していないので、一旦デフォルト(1)で作るか、
+// あるいは startBtn.onclick の中で作り直す形にします。
+
+let hero = new Player("なまえ", 1); // 初期値としてCh1をセット
 
 // ==========================================
 // 🌍 3. 世界の状態（他のプレイヤー・敵・マップ）
@@ -385,6 +392,17 @@ socket.on('chat', data => {
   const chatData = { text: data.text, timer: 120 };
   if (data.id === socket.id) hero.chat = chatData;
   else if (others[data.id]) others[data.id].chat = chatData;
+});
+
+// game.js の socket.on が並んでいる場所に追加
+socket.on('user_counts', (counts) => {
+    for (let i = 1; i <= 5; i++) {
+        const btn = document.getElementById(`ch-btn-${i}`);
+        if (btn) {
+            // 例: 「Ch 1 (3人)」のような表示にする
+            btn.innerText = `Ch ${i} (${counts[i]}人)`;
+        }
+    }
 });
 
 /*
@@ -779,31 +797,55 @@ if (nameInput && startBtn) {
     });
 }
 
-// ボタンが押された時の処理
+// --- 修正版 startBtn.onclick ---
 startBtn.onclick = () => {
     const userName = nameInput.value.trim() || "Guest";
-	
-	// 🌟 【ここを追加！】入力欄からフォーカスを外す（チカチカを消す）
+    
+    // 🌟 入力欄からフォーカスを外す（チカチカを消す）
     nameInput.blur();
 
     // 1. ログイン画面を消す
     loginOverlay.style.display = 'none';
 
-    // 2. 自分のキャラクターに名前をセット
+    // 2. 自分のキャラクターに情報をセット
     if (typeof hero !== 'undefined') {
         hero.name = userName;
+        // 🌟 追加：選んだチャンネルを自分のキャラデータにも保存する
+        // これで、右上の Channel: 表示が正しく切り替わるようになります
+        hero.channel = selectedChannel; 
     }
 
     // 3. サーバーに参加を伝える
-    socket.emit('join', userName);
+    // 🌟 修正ポイント：名前と選んだチャンネルをセットで送る
+    socket.emit('join', { name: userName, channel: selectedChannel });
 
     // 🌟 重要：ブラウザの音制限を解除するためにここでAudioContextを再開
     if (typeof audioCtx !== 'undefined' && audioCtx.state === 'suspended') {
         audioCtx.resume();
     }
+    
     // もしBGMを鳴らしたいならここで呼ぶ
     if (typeof playBGM === 'function') playBGM();
 
     // 4. ゲームのループを開始
     update();
 };
+
+// 現在選ばれているチャンネル番号（初期値は1）
+let selectedChannel = 1;
+
+// チャンネルボタンを押した時の処理
+function selectChannel(ch) {
+    selectedChannel = ch;
+    
+    // 全ボタンから active クラスを消して、押されたボタンだけに付ける
+    const buttons = document.querySelectorAll('.ch-btn');
+    buttons.forEach((btn, index) => {
+        if (index === ch - 1) {
+            btn.classList.add('active');
+        } else {
+            btn.classList.remove('active');
+        }
+    });
+    console.log(`チャンネル ${selectedChannel} が選択されました`);
+}
