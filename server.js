@@ -181,7 +181,7 @@ const SETTINGS = {
     DEFAULT_H: 190,        // キャラクターの高さ
     SCALE: 1.0,
     MAX_HP: 100,          // 最大体力
-    ATTACK_FRAME: 10,      // 攻撃の持続時間
+    ATTACK_FRAME: 100,      // 攻撃の持続時間
 	ATTACK_RANGE_X: 80,  // 横方向のリーチ
     ATTACK_RANGE_Y: 100  // 縦方向の判定幅
   },
@@ -971,7 +971,7 @@ function handleJoin(socket, name, channel) { // 🌟 引数に channel を追加
 }
 
 /**
- * 2. プレイヤーが攻撃したときの処理
+ * 2. プレイヤーが攻撃したときの処理（デバッグ枠同期＆連撃改善版）
  */
 function handleAttack(socket, data) {
     const p = players[socket.id];
@@ -983,33 +983,61 @@ function handleAttack(socket, data) {
     // ハシゴを登っている間は攻撃できない
     if (p.isClimbing) return;
 
-    // 【二重攻撃防止】攻撃アニメーションが終わるまでは、次のダメージ計算をしない（ラグ対策）
-    if (p.isAttacking > SETTINGS.PLAYER.ATTACK_FRAME - 5) return;
+    // 🌟【連撃改善】
+    // 以前の「if (p.isAttacking > SETTINGS.PLAYER.ATTACK_FRAME - 5) return;」を削除しました。
+    // これにより、前回の攻撃モーションが終わるのを待たずに、次のダメージ判定が可能になります。
 
-    // 🚩 サーバー側で「攻撃アニメーション中」のフラグを立てる
+    // 🚩 サーバー側で「攻撃アニメーション中」のフラグを立てる（最新の攻撃で上書き）
     p.isAttacking = SETTINGS.PLAYER.ATTACK_FRAME;
 
     let targetsInRange = [];
 
     // --- ① 範囲内の敵をリストアップ ---
+// 🌟 高さを 100 に拡大！
+const atkWidth = 80;  
+const atkHeight = 100; 
+
+// 左右のオフセット（これまでのベストな数値を維持）
+const offsetX = (p.dir === 1) ? 60 : -(atkWidth + 20);
+
+let atkY;
+const groundThreshold = 450; 
+
+// 🌟 高さを 20 増やした分、atkY も 20 ずつ引き上げます
+if (p.y >= groundThreshold) {
+    // 一番下の地面にいる時：-65 から -85 に変更（上方向へさらに拡張）
+    atkY = p.y - 85; 
+} else {
+    // 空中の足場にいる時：-30 から -50 に変更（上方向へさらに拡張）
+    atkY = p.y - 50;
+}
+
+const atkBox = {
+    x: p.x + offsetX,
+    y: atkY,
+    w: atkWidth,
+    h: atkHeight
+};
+
     enemies.forEach((target) => {
         // 敵が生きていて、消えかかっていない場合のみ計算
         if (target.alive && !target.isFading) {
-            const enemyCenterX = target.x;
-            const enemyCenterY = target.y;
-            const dx = enemyCenterX - p.x; // 横の距離
-            const dy = Math.abs(p.y - enemyCenterY); // 縦の距離
+            
+            // 敵の判定サイズと座標（ジャンプを考慮）
+            const enemyW = target.w || 40;
+            const enemyH = target.h || 40;
+            const enemyY = target.y + (target.jumpY || 0);
 
-            // 攻撃が届く「箱」の大きさを設定
-            const hitRangeX = (p.w / 2) + SETTINGS.PLAYER.ATTACK_RANGE_X;
-            const hitRangeY = SETTINGS.PLAYER.ATTACK_RANGE_Y;
+            // 🌟 矩形同士の衝突判定（オレンジの枠の中に入っているか）
+            const isHit = atkBox.x < target.x + enemyW &&
+                          atkBox.x + atkBox.w > target.x &&
+                          atkBox.y < enemyY + enemyH &&
+                          atkBox.y + atkBox.h > enemyY;
 
-            // ちゃんと敵の方を向いているか判定（右向きなら右に、左向きなら左に敵がいるか）
-            const isFront = (p.dir === 1 && dx > -30) || (p.dir === -1 && dx < 30);
-
-            // 「縦・横・向き」がすべて一致したら、攻撃対象リストに入れる
-            if (Math.abs(dx) < hitRangeX && dy < hitRangeY && isFront) {
-                targetsInRange.push({ enemy: target, dist: Math.abs(dx) });
+            if (isHit) {
+                // 距離は後のソート用に保持（中心間の距離）
+                const dist = Math.sqrt(Math.pow(target.x - p.x, 2) + Math.pow(target.y - p.y, 2));
+                targetsInRange.push({ enemy: target, dist: dist });
             }
         }
     });
@@ -1020,11 +1048,21 @@ function handleAttack(socket, data) {
         targetsInRange.sort((a, b) => a.dist - b.dist);
         const nearest = targetsInRange[0].enemy;
 
-        // 🌟 【ここを修正】p.str を一番左に持ってくることで、サーバーの数値を最優先にします。
-        // これにより data.power (クライアントの20など) が送られてきても無視されます。
+        // 🌟 判定：このダメージ計算の直前の状態を保持
+        const wasAlive = nearest.alive;
         const damage = p.str || data.power || 4; 
         
         nearest.hp -= damage; // 敵のHPを減らす
+
+        // 🌟 【確定死亡判定】
+        const isFatalBlow = (nearest.hp <= 0 && wasAlive);
+
+        // 🌟 【音の同期用】全員に「ヒット通知」を送る（isDeadフラグ付き）
+        io.emit('enemy_hit_sync', { 
+            enemyId: nearest.id, 
+            attackerId: socket.id,
+            isDead: isFatalBlow 
+        });
         
         console.log(`[2.命中確認] ${nearest.type}に${damage}ダメージ(攻撃力:${p.str})。残りHP: ${nearest.hp}`);
 
@@ -1046,23 +1084,22 @@ function handleAttack(socket, data) {
 
         // 画面に「バシッ！」というダメージエフェクトを送る
         io.emit('damage_effect', {
-            x: nearest.x + nearest.w / 2,
+            x: nearest.x + (nearest.w || 40) / 2,
             y: nearest.y,
             val: damage,
-            isCritical: damage >= (p.str * 1.5), // 攻撃力の1.5倍以上ならクリティカル扱い
+            isCritical: damage >= (p.str * 1.5), 
             type: 'enemy_hit'
         });
 
         // --- 💀 死亡判定と報酬処理 ---
-        if (nearest.hp <= 0 && nearest.alive) {
+        if (isFatalBlow) {
             nearest.alive = false; // 死亡フラグ
 
-            // 🌟 固定の 10 ではなく、モンスターが持っている exp を使うように変更
             const rewardExp = nearest.exp || 10; 
 
             socket.emit('exp_log', { amount: rewardExp }); 
 
-            // 🌟 経験値をモンスターに応じた量だけ追加
+            // 経験値をモンスターに応じた量だけ追加
             addExperience(p, rewardExp, socket);
             
             console.log(`[EXP DEBUG] ログ送信完了: ${p.name} に ${rewardExp} EXP`);
@@ -1446,29 +1483,41 @@ io.on('connection', socket => {
         socket.emit('your_id', socket.id);
         debugChat(`🔌 新しい接続: ${socket.id}`);
 
-        // --- 1. 参加処理の修正 ---
+        // ==========================================
+// 👤 プレイヤーの参加・変更セクション
+// ==========================================
+
+// --- 1. 参加処理の修正（既存ロジック踏襲・クライアント選択反映版） ---
 socket.on('join', data => {
     try { 
         // 🌟 データの取り出し
         const userName = (typeof data === 'object') ? data.name : data;
-        // チャンネル番号を数値として取得（念のため 1〜5 の範囲に収める）
+        
+        // 🎨 【修正】クライアントがボタンで選んだグループ番号を取得
+        // data がオブジェクトで group プロパティがあればそれを使用、なければデフォルトで 0
+        let selectedGroup = (typeof data === 'object' && data.group !== undefined) ? parseInt(data.group) : 0;
+
+        // チャンネル番号を数値として取得（1〜5 の範囲）
         let channel = (typeof data === 'object') ? parseInt(data.channel) : 1;
         if (isNaN(channel) || channel < 1 || channel > 5) channel = 1;
 
-        // 🌟 【最重要】合言葉（部屋名）を sendState と完全に一致させる
-        // ここを `room_ch_${channel}` に統一します
+        // 🌟 【最重要】合言葉（部屋名）を統一
         const roomName = `room_ch_${channel}`; 
         socket.join(roomName);
 
         // 元々の処理を呼び出す
         handleJoin(socket, userName); 
         
-        // 🌟 プレイヤーデータにチャンネル情報を書き込む
+        // 🌟 プレイヤーデータへの書き込み
         const p = players[socket.id];
         if (p) {
-            p.channel = channel; // これで sendState 内のフィルタリングが動くようになります
+            p.channel = channel; 
+
+            // 🎨 【修正】固定値の 7 を廃止し、クライアントから届いた選択値を反映
+            p.group = selectedGroup;
+            p.charVar = 1; 
             
-            debugChat(`👋 ${userName} さんが チャンネル ${channel} に参加しました`);
+            debugChat(`👋 ${userName} さんが チャンネル ${channel} に参加しました（キャラID: ${p.group}）`);
             LOG.SYS(`[入室データ確認] ${JSON.stringify(p)}`);
         }
     } 
@@ -1477,21 +1526,47 @@ socket.on('join', data => {
     }
 });
 
-        // 2. 移動
-        socket.on('move', d => {
-            try {
-                if (players[socket.id]) {
-                    // 🌟 修正：ブラウザから受け取るのは「位置」と「移動速度」と「向き」だけにする
-                    const { x, y, dir, vx, vy, isJumping, isClimbing } = d;
-                    Object.assign(players[socket.id], {
-                        x, y, dir, vx, vy, isJumping, isClimbing
-                    });
-                }
-            } catch (e) { 
-                // 移動は頻度が高いため、エラー時のみチャットに通知（isError: true）
-                debugChat(`❌ moveエラー: ${e.message}`, 'error'); 
-            }
+// --- 2. 【新規追加】見た目の変更を全ユーザーに同期する ---
+// view.js の socket.emit('change_char', ...) を受けて動作します
+socket.on('change_char', (data) => {
+    const p = players[socket.id];
+    if (p) {
+        // 1. サーバー側のメモリに最新の見た目を保存
+        p.group = data.group;
+        p.charVar = data.charVar;
+
+        // 2. 📡 同じチャンネル（ルーム）にいる他の全プレイヤーに通知
+        // 自分以外（broadcast）の、同じ部屋（to）の人たちへ送ります
+        const roomName = `room_ch_${p.channel}`;
+        socket.to(roomName).emit('update_player_visual', {
+            id: socket.id,
+            group: data.group,
+            charVar: data.charVar
         });
+
+        LOG.SYS(`🎨 Player[${p.name}] が見た目を変更: Group ${data.group}`);
+    }
+});
+
+        // 2. 移動
+        socket.on('move', (data) => {
+    const p = players[socket.id];
+    if (p) {
+        p.x = data.x;
+        p.y = data.y;
+		p.vx = data.vx;        // 🌟 これを保存
+        p.dir = data.dir;
+		p.jumping = data.jumping; // 🌟 追加
+        p.isAttacking = data.isAttacking;
+		p.invincible = data.invincible; // 🌟 サーバー側で保持
+        p.climbing = data.climbing; // 🌟 dataから受け取ってプレイヤー情報に反映
+    }
+});
+
+// 攻撃イベントの中継（攻撃のキレを良くするため）
+socket.on('player_attack', (data) => {
+    socket.broadcast.emit('player_attack', data);
+});
 
         // 3. 攻撃
         socket.on('attack', data => {
@@ -1870,13 +1945,29 @@ function updateEnemies() {
 }
 
 /**
- * 👤 プレイヤー(Players)のタイマー管理
+ * 👤 プレイヤー(Players)の更新管理
  */
 function updatePlayers() {
     for (let id in players) {
-        if (players[id].isAttacking > 0) {
-            players[id].isAttacking--;
+        const p = players[id];
+
+        // 1. 攻撃タイマーの管理（既存ロジック）
+        if (p.isAttacking > 0) {
+            p.isAttacking--;
         }
+
+        // 2. 🌟 アニメーションフレームの更新（共通カウント）
+        // サーバー側では 0〜49 までをループさせます
+        if (typeof p.frame === 'undefined') p.frame = 0;
+        
+        p.frame++;
+        if (p.frame >= 50) {
+            p.frame = 0;
+        }
+
+        // 💡 補足：攻撃を開始した瞬間に p.frame = 0 にリセットする処理を、
+        // socket.on('attack') などの攻撃発生イベント側に入れておくと、
+        // 攻撃の振り出しが全員でピタッと一致します。
     }
 }
 
@@ -1947,6 +2038,29 @@ function handleItemLanding(it, groundY) {
     it.vy = 0;
     it.vx = 0;
     io.emit('item_landed_sound');
+}
+
+// server.js の末尾など
+function checkAttack(p, en) {
+    const atkWidth = 80;  
+    const atkHeight = 60;
+    const offsetX = (p.dir === 1) ? 20 : -(atkWidth + 20);
+    
+    const atkBox = {
+        x: p.x + offsetX,
+        y: p.y - 10,
+        w: atkWidth,
+        h: atkHeight
+    };
+
+    const enemyY = en.y + (en.jumpY || 0);
+
+    return (
+        atkBox.x < en.x + (en.w || 40) &&
+        atkBox.x + atkBox.w > en.x &&
+        atkBox.y < enemyY + (en.h || 40) &&
+        atkBox.y + atkBox.h > enemyY
+    );
 }
 
 /**

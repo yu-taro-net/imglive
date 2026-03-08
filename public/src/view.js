@@ -348,8 +348,8 @@ const VIEW_CONFIG = {
   // 🛠️ 開発・デバッグ用設定（ここに追加）
   debug: {
     onlyLoadSpecificChar: true, // 特定のキャラだけ読み込むかどうかのスイッチ
-    targetGroup: 1,             // あひるグループ
-    targetVar: 1                // 特定のバリエーション
+    //targetGroup: 0,             // あひるグループ
+    //targetVar: 1                // 特定のバリエーション
   },
 };
 
@@ -649,7 +649,7 @@ const GROUP_COUNT   = 16;  // グループの総数 (00〜15)
 const VAR_COUNT     = 15;  // 各グループ内のキャラ数 (01〜15)
 
 // 🌟 現在選択中のキャラクター（ここを書き換えてキャラ変更）
-let selectedGroup   = 1;   // 現在のグループ
+let selectedGroup   = 7;   // 現在のグループ
 let selectedCharVar = 1;   // 現在のキャラクター番号
 
 // アクション名だけのリストを作成 ( ["Dead", "Fly", ... ] )
@@ -668,62 +668,64 @@ for (let g = 0; g < 16; g++) {
     }
 }
 
-// 🌟 キャラが必要になった時に呼び出す「画像読み込みの魔法」
+// ==========================================
+// 🌟 3. 画像読み込みの魔法（ロジック踏襲・パス修正版）
+// ==========================================
 function loadCharFrames(groupIndex, variantIndex) {
-    // 🛡️ 修正：設定を見て、読み込みを制限するか決める
+    // 🛡️ 引数が未定義の場合のデフォルト値（00/01）
+    if (groupIndex === undefined) groupIndex = 0;
+    if (variantIndex === undefined) variantIndex = 1;
+
+    // 🛡️ 設定を見て、読み込みを制限するか決める
+	/*
     if (VIEW_CONFIG.debug.onlyLoadSpecificChar) {
-        if (groupIndex !== VIEW_CONFIG.debug.targetGroup || 
-            variantIndex !== VIEW_CONFIG.debug.targetVar) {
+        if (groupIndex !== selectedGroup || 
+            variantIndex !== selectedCharVar) {
+            console.warn(`⚠️ 読み込みスキップ: デバッグ設定により (${groupIndex}/${variantIndex}) は除外されました`);
             return; 
         }
     }
+	*/
 
     // 1. 🛑 異常な数値や読み込み済みチェック
-    if (groupIndex < 0 || groupIndex >= 16 || variantIndex < 1 || variantIndex > 15) return;
+    if (groupIndex < 0 || variantIndex < 1) return;
     
-    // playerSpritesの階層が未定義なら作成する（エラー防止）
     if (!playerSprites[groupIndex]) playerSprites[groupIndex] = {};
-    
-    // すでに読み込み済みなら終了
     if (playerSprites[groupIndex][variantIndex] && Object.keys(playerSprites[groupIndex][variantIndex]).length > 0) return;
 
-    // 2. 📂 フォルダ名の準備 (01, 02 のように2桁に揃える)
+    // 2. 📂 フォルダ名の準備 (00, 01 のように2桁に揃える)
     playerSprites[groupIndex][variantIndex] = {};
     const groupNum = String(groupIndex).padStart(2, '0');
     const varNum = String(variantIndex).padStart(2, '0');
 
-    // 3. 🏃 各アクション（歩く、待機など）ごとに画像を検索
+    // 3. 🏃 各アクションごとに画像を検索
     ACTIONS.forEach(action => {
         playerSprites[groupIndex][variantIndex][action] = [];
-        
-        // 🛡️ 修正ポイント：50枚チェックは重いので、一旦「8枚」に制限（必要なら増やせます）
-        // 🌟 【ここを修正】ACTION_FRAMES からそのアクションの枚数を取得する
-        // もしリストになければ、予備として 1 を使う設定です
         const maxFrames = VIEW_CONFIG.actionFrames[action] || 1;
-		
-		if (maxFrames <= 0) return;
+        
+        if (maxFrames <= 0) return;
 
         for (let i = 0; i < maxFrames; i++) {
             const img = new Image();
             const frameNum = String(i).padStart(2, '0');
             
-            // 🖼️ 画像の住所（パス）を数値だけの階層に修正
-            // group_05/Character06 -> 05/06 になります
+            // 🖼️ 修正：数値だけの階層パス（group_ / Character プレフィックスを削除）
+            // 結果：char_assets/00/01/Idle/Characters-Character01-Idle_00.png
             img.src = `char_assets/${groupNum}/${varNum}/${action}/Characters-Character${varNum}-${action}_${frameNum}.png`;
 
-            // 成功：画像が見つかった場合
+            // 成功時
             img.onload = () => {
                 playerSprites[groupIndex][variantIndex][action][i] = img; 
             };
             
-            // 失敗：画像がなかった場合
+            // 失敗時（デバッグ用にエラーを表示）
             img.onerror = () => {
-                // 静かに無視
+                console.error(`❌ 画像が見つかりません: ${img.src}`);
             };
         }
     });
     
-    console.log(`✅ 限定読み込み：グループ${groupNum} キャラ${varNum} の読み込みを開始しました`);
+    console.log(`✅ グループ${groupNum} キャラ${varNum} の読み込みを開始しました`);
 }
 
 let chatMessages = [];
@@ -898,6 +900,49 @@ function drawGame(hero, others, enemies, items, platforms, ladders, damageTexts,
         ctx.fillText(`サーバーの地面判定: ${serverGroundY}px`, 10, serverGroundY - 5);
 
         ctx.restore(); // デバッグ描画終了
+		
+		// --- E. 攻撃判定の可視化（オレンジ色） ---
+if (hero.isAttacking > 0) {
+    ctx.save();
+    // 攻撃判定を強調するためにオレンジ色を使用
+    ctx.strokeStyle = "orange";
+    ctx.lineWidth = 3;
+    ctx.fillStyle = "rgba(255, 165, 0, 0.3)"; // 半透明の塗りつぶし
+
+    // 🌟 判定サイズの計算：高さを 100 に拡大
+    const atkWidth = 80;
+    const atkHeight = 100; 
+    
+    // 向き（hero.dir）によって左右にずらす
+    // 右向き(60)・左向き(-(80+20))を維持
+    const offsetX = (hero.dir === 1) ? 60 : -(atkWidth + 20);
+    
+    const atkX = hero.x + offsetX;
+
+    // 🌟 上方向への判定強化（高さ 100 バージョン）
+    let atkY;
+    const groundThreshold = 450; 
+
+    if (hero.y >= groundThreshold) {
+        // 一番下の地面にいる時：-65 から -85 に変更
+        // これで「底辺」の位置は変わらず、上側だけが伸びます
+        atkY = hero.y - 85; 
+    } else {
+        // 空中の足場にいる時：-30 から -50 に変更
+        atkY = hero.y - 50;
+    }
+
+    // 四角形を描画
+    ctx.strokeRect(atkX, atkY, atkWidth, atkHeight);
+    ctx.fillRect(atkX, atkY, atkWidth, atkHeight);
+
+    // 攻撃の残り時間を表示
+    ctx.fillStyle = "white";
+    ctx.font = "bold 12px Arial";
+    ctx.fillText(`Attack: ${hero.isAttacking}`, atkX, atkY - 5);
+    
+    ctx.restore();
+}
     }
 }
 
@@ -3082,6 +3127,22 @@ socket.on('gold_log', (data) => {
     }
 });
 
+// 🌟 サーバーから「他のプレイヤーの見た目が更新された」通知を受け取る
+socket.on('update_player_visual', (data) => {
+    // data = { id: "相手のID", group: 5, charVar: 1 } のような形式
+    
+    // 相手が選んだ新しいグループの画像をロードしておく（まだ読み込んでいない場合のみ動く）
+    if (data.group !== undefined && data.charVar !== undefined) {
+        loadCharFrames(data.group, data.charVar);
+    }
+
+    // クライアント側で保持している他プレイヤーリストの情報を書き換える
+    if (players && players[data.id]) {
+        players[data.id].group = data.group;
+        players[data.id].charVar = data.charVar;
+    }
+});
+
 // ==========================================
 // 🎒 アイテム取得時の右下ログ通知を受け取る
 // ==========================================
@@ -3132,6 +3193,61 @@ window.addEventListener('keydown', (e) => {
     }
 });
 */
+
+// 🌟 キャラクター切り替え (Q/E)
+window.addEventListener('keydown', (e) => {
+    // ✅ 追加：もし入力欄（チャット等）を触っていたら、ここで処理を中断する
+    if (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA') return;
+
+    let changed = false;
+    if (e.key === 'q' || e.key === 'Q') {
+        //selectedCharVar = selectedCharVar <= 1 ? 15 : selectedCharVar - 1;
+        //changed = true;
+    }
+	/*
+    if (e.key === 'e' || e.key === 'E') {
+        selectedCharVar = selectedCharVar >= 15 ? 1 : selectedCharVar + 1;
+        changed = true;
+    }
+	*/
+    if (changed) {
+        socket.emit('change_char', { charVar: selectedCharVar });
+    }
+});
+
+// 🌟 グループ切り替え (R/T)
+window.addEventListener('keydown', (e) => {
+    // ✅ 入力欄を触っていたら無視
+    if (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA') return;
+
+    let groupChanged = false;
+
+    // Rキー：前のグループへ (00 ↔ 15)
+    if (e.key === 'r' || e.key === 'R') {
+        selectedGroup = selectedGroup <= 0 ? 15 : selectedGroup - 1;
+        groupChanged = true;
+    }
+    // Tキー：次のグループへ (00 ↔ 15)
+    if (e.key === 't' || e.key === 'T') {
+        selectedGroup = selectedGroup >= 15 ? 0 : selectedGroup + 1;
+        groupChanged = true;
+    }
+
+    if (groupChanged) {
+        // 1. 🖼️ 自分の画面で新しいグループの画像をロードする
+        // キャラクター番号は 01 固定なのでそのまま第2引数に渡します
+        loadCharFrames(selectedGroup, selectedCharVar);
+
+        // 2. 📡 サーバーを通じて他ユーザーへ「自分の見た目が変わった」と通知
+        // サーバー側が 'change_group' だけでなく 'change_char' で統一されている場合はそちらに合わせてください
+        socket.emit('change_char', { 
+            group: selectedGroup, 
+            charVar: selectedCharVar 
+        });
+
+        console.log(`🔄 グループを ${selectedGroup} (キャラ ${selectedCharVar}) に切り替えました`);
+    }
+});
 
 window.addEventListener('keydown', (e) => {
     // 1. ガード処理
@@ -3651,6 +3767,25 @@ socket.on('tsuchida_debug', (data) => {
 	serverDebugInfo = data;
 });
 
+// 🌟 【新規追加】サーバーから「命中・撃破」の確定通知を受けて音を鳴らす
+// これを socket.on('updatePlayers', ...) 等が並んでいる場所に追加してください
+socket.on('enemy_hit_sync', (data) => {
+    // 自分の攻撃が当たった時だけ音を鳴らす
+    if (data.attackerId !== socket.id) return;
+
+    // 敵のデータを特定
+    const target = enemies.find(e => e.id === data.enemyId);
+    if (!target) return;
+
+    if (data.isDead) {
+        // サーバーが「死んだ」と認めた時だけ死亡音
+        if (typeof playEnemyDieSound === 'function') playEnemyDieSound(target);
+    } else {
+        // サーバーが「当たった（まだ生きてる）」と認めた時だけヒット音
+        if (typeof playEnemyHitSound === 'function') playEnemyHitSound(target);
+    }
+});
+
 function simpleDebugRender() {
     ctx.fillStyle = "rgba(0, 0, 0, 0.8)";
     ctx.fillRect(10, 10, 250, 105); // 少し縦を広げました
@@ -4053,3 +4188,69 @@ socket.on('item_pickup_log', (data) => {
         console.log("アイテムログを箱に入れました。現在の数:", itemLogs.length);
     }
 });
+
+// --- キャラクター選択パネルの作成 ---
+const createCharSelector = () => {
+    const overlay = document.createElement('div');
+    overlay.id = 'char-selector-overlay';
+    overlay.style.cssText = `
+        position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+        background: rgba(10, 10, 10, 0.95); display: flex; flex-direction: column;
+        align-items: center; justify-content: center; z-index: 10000;
+    `;
+
+    const title = document.createElement('h2');
+    title.innerText = "CHARACTER SELECT";
+    title.style.cssText = "color: #ddd; margin-bottom: 30px; font-family: sans-serif; letter-spacing: 4px; font-weight: lighter;";
+    overlay.appendChild(title);
+
+    const grid = document.createElement('div');
+    grid.style.cssText = `
+        display: grid; grid-template-columns: repeat(4, 100px);
+        grid-template-rows: repeat(4, 100px); gap: 15px;
+    `;
+
+    for (let i = 1; i <= 16; i++) {
+        const btn = document.createElement('button');
+        btn.innerText = i; // 見た目は 1 〜 16
+        btn.style.cssText = `
+            width: 100%; height: 100%; cursor: pointer; 
+            border: 1px solid #444; background: #1a1a1a; color: #888; 
+            font-size: 18px; transition: all 0.3s ease; border-radius: 4px;
+        `;
+
+        // オンマウス演出（落ち着いたグレー）
+        btn.onmouseover = () => { 
+            btn.style.background = "#333"; 
+            btn.style.color = "#fff";
+            btn.style.borderColor = "#aaa";
+        };
+        btn.onmouseout = () => { 
+            btn.style.background = "#1a1a1a"; 
+            btn.style.color = "#888";
+            btn.style.borderColor = "#444";
+        };
+
+        // 🌟 クリック時に変数を定義して関数を実行
+        btn.onclick = () => {
+            // 見た目 i (1〜16) に対して、システム上の数値 selectedGroup を (0〜15) に修正
+            selectedGroup = i - 1; 
+            selectedCharVar = 1; // 1種類しかないので1固定
+            
+            // 🚩 ここであなたの関数を呼び出します
+            loadCharFrames(selectedGroup, selectedCharVar);
+
+            console.log(`Loaded: Group ${selectedGroup} (Internal ID), Var ${selectedCharVar}`);
+            
+            overlay.remove(); // 選択が終わったら画面を消す
+        };
+
+        grid.appendChild(btn);
+    }
+
+    overlay.appendChild(grid);
+    document.body.appendChild(overlay);
+};
+
+// 実行
+createCharSelector();

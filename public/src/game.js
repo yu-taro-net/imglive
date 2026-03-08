@@ -590,7 +590,25 @@ function update() {
     updatePlayerCombat();
 
     // 5. サーバー同期と描画
-    socket.emit('move', hero); // 自分の位置を報告
+    // 🌟 修正：heroオブジェクトの必要な情報を整理して送る
+    // hero.climbing を含めることで、他プレイヤー視点でもハシゴ登りが見えるようになります
+    socket.emit('move', {
+        x: hero.x,
+        y: hero.y,
+		vx: hero.vx || 0,         // 🌟 歩行判定に必要
+        dir: hero.dir,
+		jumping: hero.jumping,     // 🌟 ジャンプアニメーションの判定用
+        isAttacking: hero.isAttacking,
+        climbing: hero.climbing, // 🌟 これを追加！
+		invincible: hero.invincible, // 🌟 被弾・無敵状態を同期
+        currentFrame: frame
+    });
+
+    // 🌟 修正：攻撃の「のっそり」対策
+    // 攻撃が始まった瞬間（isAttackingが20になった瞬間）だけ、即座に攻撃イベントを発火
+    if (hero.isAttacking === 20) {
+        socket.emit('player_attack', { id: socket.id });
+    }
 
     if (typeof drawGame === 'function') {
         drawGame(hero, others, enemies, items, platforms, ladders, damageTexts, frame);
@@ -707,26 +725,20 @@ function updatePlayerCombat() {
         
         // 攻撃判定が発生するフレーム（13フレーム目）
         if (hero.isAttacking === 13) {
+            // 🌟 オレンジの枠内に敵がいるかチェック
             let target = hero.checkHit(enemies); 
             
             if (target) {
-                // --- 【敵に当たった場合】 ---
+                // --- 【敵に当たった場合：オレンジの枠内】 ---
                 const damage = Math.floor(Math.random() * 41) + 50; 
                 
-                // 死亡判定とSE再生
-                if (target.hp - damage <= 0) {
-                    if (typeof playEnemyDieSound === 'function') playEnemyDieSound(target);
-                } else {
-                    if (typeof playEnemyHitSound === 'function') playEnemyHitSound(target);
-                }
-                
-                // サーバーに「攻撃が当たった」情報を送信（ダメージあり）
+                // 🌟 音はここで鳴らさず、サーバーに「当たったはず」と送信します。
+                // 実際の音は、下の socket.on('enemy_hit_sync') で鳴らします。
                 socket.emit('attack', { id: target.id, power: damage, dir: hero.dir });
 
             } else {
-                // --- 【敵がいなかった場合（空振り）】 ---
-                // 🌟 ここを追加：敵がいなくても、攻撃したという「動作」だけをサーバーに伝える
-                // idをnull、powerを0にすることで、ダメージを与えずにモーションだけ同期させます
+                // --- 【敵がいなかった場合（空振り）：オレンジの枠外】 ---
+                // 動作（アニメーション）だけ同期させるためにサーバーへ通知
                 socket.emit('attack', { id: null, power: 0, dir: hero.dir });
             }
         }
@@ -735,46 +747,6 @@ function updatePlayerCombat() {
     // 敵との接触ダメージ判定（無敵管理含む）
     hero.checkEnemyCollision(enemies);
 }
-
-// 🌟 キャラクター切り替え (Q/E)
-window.addEventListener('keydown', (e) => {
-    // ✅ 追加：もし入力欄（チャット等）を触っていたら、ここで処理を中断する
-    if (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA') return;
-
-    let changed = false;
-    if (e.key === 'q' || e.key === 'Q') {
-        selectedCharVar = selectedCharVar <= 1 ? 15 : selectedCharVar - 1;
-        changed = true;
-    }
-	/*
-    if (e.key === 'e' || e.key === 'E') {
-        selectedCharVar = selectedCharVar >= 15 ? 1 : selectedCharVar + 1;
-        changed = true;
-    }
-	*/
-    if (changed) {
-        socket.emit('change_char', { charVar: selectedCharVar });
-    }
-});
-
-// 🌟 グループ切り替え (R/T)
-window.addEventListener('keydown', (e) => {
-    // ✅ 追加：入力欄を触っていたら無視
-    if (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA') return;
-
-    let groupChanged = false;
-    if (e.key === 'r' || e.key === 'R') {
-        selectedGroup = selectedGroup <= 0 ? 15 : selectedGroup - 1;
-        groupChanged = true;
-    }
-    if (e.key === 't' || e.key === 'T') {
-        selectedGroup = selectedGroup >= 15 ? 0 : selectedGroup + 1;
-        groupChanged = true;
-    }
-    if (groupChanged) {
-        socket.emit('change_group', { group: selectedGroup });
-    }
-});
 
 // game.js
 
@@ -811,13 +783,20 @@ startBtn.onclick = () => {
     if (typeof hero !== 'undefined') {
         hero.name = userName;
         // 🌟 追加：選んだチャンネルを自分のキャラデータにも保存する
-        // これで、右上の Channel: 表示が正しく切り替わるようになります
         hero.channel = selectedChannel; 
+        
+        // 🌟 追加：選択したグループ番号(0-15)を自分のデータにも反映
+        hero.group = selectedGroup;
+        hero.charVar = selectedCharVar;
     }
 
     // 3. サーバーに参加を伝える
-    // 🌟 修正ポイント：名前と選んだチャンネルをセットで送る
-    socket.emit('join', { name: userName, channel: selectedChannel });
+    // 🌟 修正ポイント：名前、チャンネル、そして選んだ「group (0-15)」をセットで送る
+    socket.emit('join', { 
+        name: userName, 
+        channel: selectedChannel,
+        group: selectedGroup // これでサーバー側の p.group = 7 を上書きできます
+    });
 
     // 🌟 重要：ブラウザの音制限を解除するためにここでAudioContextを再開
     if (typeof audioCtx !== 'undefined' && audioCtx.state === 'suspended') {
