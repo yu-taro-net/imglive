@@ -302,7 +302,7 @@ Object.keys(ITEM_CATALOG).forEach(id => {
 });
 
 // 確認用ログ（不要なら消してください）
-console.log("ITEM_CATALOGの初期化完了: sword合計=" + ITEM_CATALOG[101].totalFirstStats);
+//console.log("ITEM_CATALOGの初期化完了: sword合計=" + ITEM_CATALOG[101].totalFirstStats);
 
 // 🌟 【修正】サーバー側で名前を確実に解決する（sword を追加）
 const SERVER_ITEM_NAMES = {
@@ -1477,7 +1477,7 @@ io.on('connection', socket => {
     // 🛡️ 通信の根本を try-catch で保護
     try {
 	    // 新しいプレイヤーが接続したことを、接続した本人「以外」の全員に通知
-        socket.broadcast.emit('player_joined_sound');
+        //socket.broadcast.emit('player_joined_sound');
 	
         // 接続時にIDを通知
         socket.emit('your_id', socket.id);
@@ -1487,14 +1487,13 @@ io.on('connection', socket => {
 // 👤 プレイヤーの参加・変更セクション
 // ==========================================
 
-// --- 1. 参加処理の修正（既存ロジック踏襲・クライアント選択反映版） ---
+// --- 1. 参加処理の修正（既存ロジック踏襲・サウンド通知追加版） ---
 socket.on('join', data => {
     try { 
         // 🌟 データの取り出し
         const userName = (typeof data === 'object') ? data.name : data;
         
-        // 🎨 【修正】クライアントがボタンで選んだグループ番号を取得
-        // data がオブジェクトで group プロパティがあればそれを使用、なければデフォルトで 0
+        // 🎨 クライアントがボタンで選んだグループ番号を取得
         let selectedGroup = (typeof data === 'object' && data.group !== undefined) ? parseInt(data.group) : 0;
 
         // チャンネル番号を数値として取得（1〜5 の範囲）
@@ -1513,9 +1512,16 @@ socket.on('join', data => {
         if (p) {
             p.channel = channel; 
 
-            // 🎨 【修正】固定値の 7 を廃止し、クライアントから届いた選択値を反映
+            // クライアントから届いた選択値を反映
             p.group = selectedGroup;
             p.charVar = 1; 
+
+            // ---------------------------------------------------------
+            // 🔊 【追加】入室サウンド通知
+            // 同じチャンネル（部屋）にいる「自分以外」の全員に通知
+            // ---------------------------------------------------------
+            socket.to(roomName).emit('player_joined_sound');
+            // ---------------------------------------------------------
             
             debugChat(`👋 ${userName} さんが チャンネル ${channel} に参加しました（キャラID: ${p.group}）`);
             LOG.SYS(`[入室データ確認] ${JSON.stringify(p)}`);
@@ -1592,21 +1598,55 @@ socket.on('player_attack', (data) => {
         // ==========================================
 // 💬 6. チャット受信（メイン処理）
 // ==========================================
-socket.on('chat', text => {
-    try {
-        const p = players[socket.id];
-        if (!p) return;
+socket.on('chat', (data) => {
+    const p = players[socket.id];
+    if (!p) return;
 
-        // 🌟 まずはコマンドとして処理できるか試す
-        const isCommand = executeAdminCommand(socket, p, text);
+    // データの正規化（文字列できてもオブジェクトできても対応）
+    const chatObj = (typeof data === 'object') ? data : { text: data, type: 'all' };
+    
+    // 送信データの基本セット（共通のpayload）
+    const payload = {
+        id: socket.id,
+        name: p.name,
+        text: chatObj.text,
+        type: chatObj.type || 'all',
+        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+    };
 
-        // 🌟 コマンドでなければ、通常のチャットとして処理
-        if (!isCommand) {
-            handleChat(socket, text);
+    if (chatObj.type === 'whisper' && chatObj.targetName) {
+        // 🌟 内緒話の相手を名前で探す
+        const targetSocketId = Object.keys(players).find(id => players[id].name === chatObj.targetName);
+
+        if (targetSocketId) {
+            // 相手に送る
+            io.to(targetSocketId).emit('chat', payload);
+
+            // 自分にも送る（成功時）
+            socket.emit('chat', { 
+                ...payload, 
+                name: `${chatObj.targetName} へ内緒話` 
+            });
+        } else {
+            // 🌟 相手が見つからない場合
+            
+            // 1. 自分のログに送信内容を残す（「〇〇へ内緒話」として表示）
+            socket.emit('chat', { 
+                ...payload, 
+                name: `${chatObj.targetName} へ内緒話` 
+            });
+
+            // 2. システムメッセージで不在を通知する
+            socket.emit('chat', { 
+                name: 'System', 
+                text: `${chatObj.targetName} さんは見つかりませんでした`, 
+                type: 'system',
+                time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+            });
         }
-        
-    } catch (e) { 
-        debugChat(`❌ chatエラー: ${e.message}`, 'error'); 
+    } else {
+        // 通常のチャット（全員に送信）
+        io.emit('chat', payload);
     }
 });
 

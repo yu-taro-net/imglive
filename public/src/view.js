@@ -8,157 +8,184 @@ let mouseY = 0;
 let currentTab = "status"; // 現在選ばれているタブ ("status" または "ap")
 //let apPoints = 5;          // 割り振れる残りポイント（テスト用）
 
-// ステータス画面
-let isDragging = false;      // ドラッグ中かどうか
-let isStatsWindowOpen = false; // ステータス画面が開いているか
-let winX = 100;              // ウィンドウの現在のX座標（初期値）
-let winY = 100;              // ウィンドウの現在のY座標（初期値）
-let winW = 300;
-let winH = 250; 
-let dragOffsetX = 0;         // マウスとウィンドウの距離（X）
-let dragOffsetY = 0;         // マウスとウィンドウの距離（Y）
-
-// インベントリ
-let isDraggingInv = false; // インベントリをドラッグ中か
-let isInventoryOpen = false; // 🎒 インベントリ窓が開いているか
-let invWinX = 400;         // インベントリ窓のX
-let invWinY = 100;         // インベントリ窓のY
-let invWinW = 250;         // 幅
-let invWinH = 350;         // 高さ
-let dragOffsetXInv = 0;
-let dragOffsetYInv = 0;
-
-// エクストラ
-let isDraggingE = false;      // 🌟 Extra窓をドラッグ中か
-let isEWindowOpen = false; // 🌟 3つ目のウィンドウが開いているか
-let eWinX = 200;           // 初期位置（X）
-let eWinY = 200;           // 初期位置（Y）
-let eWinW = 300;           // 幅
-let eWinH = 200;           // 高さ
-let dragOffsetXE = 0;         // 🌟 マウスとExtra窓の距離(X)
-let dragOffsetYE = 0;         // 🌟 マウスとExtra窓の距離(Y)
+// 🌟【重要】既存のコードが「isInventoryOpen」などの名前を使っている場合、
+// 壊れないように「エイリアス（別名）」を作っておくと安全です。
+const getWin = (key) => gameWindows[key];
 
 // 1. 状態を保存する変数
 let selectedSlotIndex = -1; 
 let inventoryVisualBuffer = [];
 let levelUpEffects = [];
-let windowStack = ["inventory", "status", "extra"]; // 後ろにある要素ほど手前に描画される
 let isDiscarding = false; // 捨て個数の入力中なら true にする
 
-// マウスが動いた時に、画面の左上に座標を出すだけのテスト
+// ウィンドウの設計図
+class GameWindow {
+    constructor(id, x, y, w, h) {
+        this.id = id;
+        this.x = x;
+        this.y = y;
+        this.w = w;
+        this.h = h;
+        this.isOpen = false;
+        this.isDragging = false;
+        this.dragOffsetX = 0;
+        this.dragOffsetY = 0;
+    }
+
+    // 閉じるボタンの判定
+    isMouseOverClose(mx, my) {
+        const btnX = this.x + this.w - 25;
+        const btnY = this.y + 5;
+        return mx >= btnX && mx <= btnX + 25 && my >= btnY && my <= btnY + 25;
+    }
+
+    // ヘッダー（移動用）の判定
+    isMouseOverHeader(mx, my) {
+        return mx >= this.x && mx <= this.x + this.w && my >= this.y && my <= this.y + 30;
+    }
+
+    // ウィンドウ全体の判定
+    isMouseOverWindow(mx, my) {
+        return mx >= this.x && mx <= this.x + this.w && my >= this.y && my <= this.y + this.h;
+    }
+}
+
+// インスタンス化（既存の初期値をセット）
+/*
+const gameWindows = {
+    status: new GameWindow("status", 100, 100, 300, 250),
+    inventory: new GameWindow("inventory", 400, 100, 250, 350),
+    extra: new GameWindow("extra", 200, 200, 300, 200)
+};
+*/
+
+// 全ウィンドウのインスタンス化 (id, x, y, w, h)
+// id: 識別用ID, x/y: 初期座標, w/h: ウィンドウサイズ
+const gameWindows = {
+    
+	extra: new GameWindow("extra", 200, 200, 300, 200),
+	
+    // --- メインステータス・成長系 ---
+    status:     new GameWindow("status", 50, 50, 300, 250),      // [S] ステータス
+    equipment:  new GameWindow("equipment", 360, 50, 280, 320),   // [E] 装備
+    inventory:  new GameWindow("inventory", 520, 150, 260, 380),  // [I] インベントリ
+    skill:      new GameWindow("skill", 480, 100, 280, 400),      // [K] スキル
+    avatar:     new GameWindow("avatar", 380, 70, 280, 320),     // [A] アバター
+    upgrade:    new GameWindow("upgrade", 250, 150, 300, 350),   // [U] アップグレード
+    
+    // --- 冒険・ナビゲーション系 ---
+    quest:      new GameWindow("quest", 100, 120, 350, 400),     // [Q] クエスト
+    worldmap:   new GameWindow("worldmap", 50, 50, 700, 500),    // [W] ワールドマップ
+    minimap:    new GameWindow("minimap", 10, 10, 200, 180),     // [M] ミニマップ
+    journal:    new GameWindow("journal", 150, 100, 400, 450),   // [J] 日記
+    book:       new GameWindow("book", 120, 80, 500, 400),        // [B] ブック
+    
+    // --- ソーシャル・コミュニティ系 ---
+    guild:      new GameWindow("guild", 200, 100, 400, 450),     // [G] ギルド
+    friend:     new GameWindow("friend", 550, 200, 220, 350),    // [F] フレンドリスト
+    party:      new GameWindow("party", 550, 200, 220, 300),     // [P] パーティ
+    trade:      new GameWindow("trade", 150, 150, 500, 300),     // [T] トレード
+    
+    // --- システム・ログ・通知系 ---
+    log:        new GameWindow("log", 10, 400, 450, 150),        // [L] ログ
+    event:      new GameWindow("event", 200, 50, 400, 500),      // [N] イベント
+    options:    new GameWindow("options", 250, 180, 300, 250),   // [O] オプション
+    help:       new GameWindow("help", 200, 150, 400, 350),      // [H] ヘルプ
+    
+    // --- 戦略的予約枠（未来の目玉用） ---
+    reserved_d: new GameWindow("reserved_d", 100, 100, 300, 300), // [D] あえて開けておく
+    reserved_v: new GameWindow("reserved_v", 100, 100, 300, 300)  // [V] あえて開けておく
+};
+
+// --- 1. 全ウィンドウスタック（Z-Index管理） ---
+// 全てのIDをあらかじめ格納。後ろにあるほど手前。
+// 初期状態では、常に表示しておきたい「log」や「minimap」を先頭（後ろ側）に置いています。
+let windowStack = [
+    "reserved_v", "reserved_d", "help", "options", "event", "log",
+    "trade", "party", "friend", "guild", "book", "journal",
+    "minimap", "worldmap", "quest", "upgrade", "avatar", "skill",
+    "extra", "status", "equipment", "inventory" 
+];
+
+// --- 🌟 キーとウィンドウIDのマッピング定義 ---
+const keyMap = {
+	's': 'status',      'e': 'equipment', 'i': 'inventory', 
+	'k': 'skill',       'q': 'quest',     'w': 'worldmap', 
+	'm': 'minimap',     'g': 'guild',     'o': 'options', 
+	'h': 'help',        'f': 'friend',    'p': 'party', 
+	'b': 'book',        'l': 'log',       'n': 'event', 
+	'u': 'upgrade',     't': 'trade',     'j': 'journal', 
+	'a': 'avatar',      'd': 'reserved_d','v': 'reserved_v'
+	// 'extra' は特定のキー割り当てがないため、必要に応じてここに追加可能です
+};
+
+// マウスが動いた時の処理
 canvas.addEventListener('mousemove', (e) => {
     const rect = canvas.getBoundingClientRect();
     mouseX = e.clientX - rect.left;
     mouseY = e.clientY - rect.top;
 
-    // ブラウザ上の実際の表示サイズを取得
     const screenW = rect.width;
     const screenH = rect.height;
+    const offset = 8; // 外枠や影の遊び
 
     // ------------------------------------------
-    // ⚙️ 微調整用設定
+    // 📊 ドラッグ移動処理（全ウィンドウ共通）
     // ------------------------------------------
-    const offset = 8; // 外枠や影の分だけ内側に制限をかけるための遊び
+    Object.values(gameWindows).forEach(win => {
+        if (win.isDragging) {
+            let nextX = mouseX - win.dragOffsetX;
+            let nextY = mouseY - win.dragOffsetY;
 
-    // --- 📊 ステータス窓のドラッグ ---
-    if (isDragging) {
-        let nextX = mouseX - dragOffsetX;
-        let nextY = mouseY - dragOffsetY;
+            // 左・上制限
+            if (nextX < 0) nextX = 0;
+            if (nextY < 0) nextY = 0;
 
-        // 左・上制限
-        if (nextX < 0) nextX = 0;
-        if (nextY < 0) nextY = 0;
+            // 右・下制限（ウィンドウごとのサイズ win.w / win.h を使用）
+            if (nextX > screenW - win.w - offset) nextX = screenW - win.w - offset;
+            if (nextY > screenH - win.h - offset) nextY = screenH - win.h - offset;
 
-        // 【変数活用】300 や 250 の代わりに winW や winH を使用
-        if (nextX > screenW - winW - offset) nextX = screenW - winW - offset;
-        if (nextY > screenH - winH - offset) nextY = screenH - winH - offset;
-
-        winX = nextX;
-        winY = nextY;
-    }
-
-    // --- 🎒 インベントリ窓のドラッグ ---
-    else if (isDraggingInv) {
-        let nextX = mouseX - dragOffsetXInv;
-        let nextY = mouseY - dragOffsetYInv;
-
-        if (nextX < 0) nextX = 0;
-        if (nextY < 0) nextY = 0;
-
-        // 【変数活用】invWinW や invWinH を使用
-        if (nextX > screenW - invWinW - offset) nextX = screenW - invWinW - offset;
-        if (nextY > screenH - invWinH - offset) nextY = screenH - invWinH - offset;
-
-        invWinX = nextX;
-        invWinY = nextY;
-    }
-
-    // --- ✨ Extra窓のドラッグ ---
-    else if (isDraggingE) {
-        let nextX = mouseX - dragOffsetXE;
-        let nextY = mouseY - dragOffsetYE;
-
-        if (nextX < 0) nextX = 0;
-        if (nextY < 0) nextY = 0;
-
-        // 【変数活用】eWinW や eWinH を使用
-        if (nextX > screenW - eWinW - offset) nextX = screenW - eWinW - offset;
-        if (nextY > screenH - eWinH - offset) nextY = screenH - eWinH - offset;
-
-        eWinX = nextX;
-        eWinY = nextY;
-    }
-
-    // ==========================================
-    // 🪟 1. ステータスウィンドウUIのカーソル判定
-    // ==========================================
-    if (isStatsWindowOpen) {
-        const btnX = winX + winW - 25;
-        const btnY = winY + 5;
-        if (mouseX >= btnX && mouseX <= btnX + 25 &&
-            mouseY >= btnY && mouseY <= btnY + 25) {
-            canvas.style.cursor = "pointer";
-            return; 
+            win.x = nextX;
+            win.y = nextY;
         }
-        if (mouseX >= winX && mouseX <= winX + winW &&
-            mouseY >= winY && mouseY <= winY + 30) {
-            canvas.style.cursor = "move";
-            return;
-        }
-        if (mouseX >= winX && mouseX <= winX + winW &&
-            mouseY >= winY && mouseY <= winY + winH) {
-            canvas.style.cursor = "default";
-            return; 
+    });
+
+    // ------------------------------------------
+    // 🪟 ウィンドウ関連のカーソル判定
+    // ------------------------------------------
+    let foundWindow = false;
+
+    // 前面にある窓から判定するため、逆順でループ
+    const winList = Object.values(gameWindows).reverse();
+    for (const win of winList) {
+        if (win.isOpen) {
+            // 閉じるボタン
+            if (win.isMouseOverClose(mouseX, mouseY)) {
+                canvas.style.cursor = "pointer";
+                foundWindow = true;
+                break;
+            }
+            // ヘッダー（移動）
+            if (win.isMouseOverHeader(mouseX, mouseY)) {
+                canvas.style.cursor = "move";
+                foundWindow = true;
+                break;
+            }
+            // ウィンドウ内（デフォルト）
+            if (win.isMouseOverWindow(mouseX, mouseY)) {
+                canvas.style.cursor = "default";
+                foundWindow = true;
+                break;
+            }
         }
     }
 
-    // ==========================================
-    // 🎒 2. インベントリ判定
-    // ==========================================
-    if (isInventoryOpen) {
-        const invCloseBtnX = invWinX + invWinW - 25;
-        const invCloseBtnY = invWinY + 5;
-        if (mouseX >= invCloseBtnX && mouseX <= invCloseBtnX + 25 &&
-            mouseY >= invCloseBtnY && mouseY <= invCloseBtnY + 25) {
-            canvas.style.cursor = "pointer";
-            return;
-        }
-        if (mouseX >= invWinX && mouseX <= invWinX + invWinW &&
-            mouseY >= invWinY && mouseY <= invWinY + 30) {
-            canvas.style.cursor = "move";
-            return;
-        }
-        if (mouseX >= invWinX && mouseX <= invWinX + invWinW &&
-            mouseY >= invWinY && mouseY <= invWinY + invWinH) {
-            canvas.style.cursor = "default";
-            return;
-        }
-    }
+    // 窓の上にカーソルがある場合は、これ以降の判定（アイテム等）をスキップ
+    if (foundWindow) return;
 
-    // ==========================================
-    // 📦 3. バッグ・アイテム判定
-    // ==========================================
-    // 🌟 isDiscarding（入力中）が true の時は、常に default（矢印）にします
+    // ------------------------------------------
+    // 📦 バッグ・アイテム判定（ロジックを完全踏襲）
+    // ------------------------------------------
     if (isDiscarding) {
         canvas.style.cursor = "default";
     } else if (selectedSlotIndex !== -1) {
@@ -730,8 +757,19 @@ function loadCharFrames(groupIndex, variantIndex) {
 
 let chatMessages = [];
 let pickingUpEffects = []; // 🌟 吸い込まれるアニメーションを管理するリスト
+// view.js
 socket.on('chat', data => {
-  chatMessages.push({ id: data.id, text: data.text, timer: VIEW_CONFIG.chatTimer });
+  // 🌟【修正】内緒話（whisper）の場合は、描画リストに追加しない
+  // これにより、画面上の吹き出しとして描画されるのを防ぎます
+  if (data.type === 'whisper' || data.type === 'group') return;
+
+  // id, text に加えて type も保存しておくと、後で描画時に色を変えられます
+  chatMessages.push({ 
+    id: data.id, 
+    text: data.text, 
+    type: data.type,
+    timer: VIEW_CONFIG.chatTimer 
+  });
 });
 
 socket.on('your_id', id => {
@@ -746,20 +784,13 @@ socket.on('your_id', id => {
 let DEBUG_MODE = false; 
 
 // ==========================================
-// 🎨 1. メインの描画司令塔（デバッグ機能切り替え版）
+// 🎨 1. メインの描画司令塔
 // ==========================================
 function drawGame(hero, others, enemies, items, platforms, ladders, damageTexts, frame) {
-    // 1. データの事前更新（タイマーなど）
+    // 1. データの事前更新（タイマー・経験値演出など）
     updateTimers();
     updateUIState(hero);
-    
-    // 🌟 表示用経験値を実際の経験値に近づける
-    const diff = hero.exp - displayExp;
-    if (Math.abs(diff) > 0.1) {
-        displayExp += diff * 0.1;
-    } else {
-        displayExp = hero.exp;
-    }
+    updateExpAnimation(hero); // 🌟 経験値の数値を滑らかにする計算を分離
     
     // 2. 画面のリセット
     ctx.clearRect(0, 0, VIEW_CONFIG.SCREEN_WIDTH, VIEW_CONFIG.SCREEN_HEIGHT);
@@ -776,28 +807,50 @@ function drawGame(hero, others, enemies, items, platforms, ladders, damageTexts,
     // 6. UI（最前面）の描画
     drawUIOverlay(hero);
     
-    // 🌟 踏襲版：現在のチャンネルを【右上】に表示 🌟
+    // 7. 特殊UI表示（チャンネル表示・マウス追従アイテム）
+    drawSpecialHUD(hero);
+    
+    // ==========================================
+    // 🛠️ デバッグ表示（DEBUG_MODE が true の時のみ実行）
+    // ==========================================
+    if (DEBUG_MODE) {
+        drawDebugLayer(hero, enemies, items, platforms);
+    }
+}
+
+// ==========================================
+// 📈 補助：経験値の表示アニメーション計算
+// ==========================================
+function updateExpAnimation(hero) {
+    const diff = hero.exp - displayExp;
+    if (Math.abs(diff) > 0.1) {
+        displayExp += diff * 0.1;
+    } else {
+        displayExp = hero.exp;
+    }
+}
+
+// ==========================================
+// 📡 補助：HUD・特殊UI描画
+// ==========================================
+function drawSpecialHUD(hero) {
+    // --- チャンネルを【右上】に表示 ---
     if (hero && hero.channel) {
         ctx.save();
         ctx.font = "bold 18px 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif";
+        ctx.textAlign = "right"; 
         
-        // 🛠️ 右上に配置するための変更点
-        ctx.textAlign = "right"; // 右揃えに変更
-        
-        // 影をつけて視認性をアップ（ロジックを完全踏襲）
         ctx.shadowColor = "rgba(0, 0, 0, 0.8)";
         ctx.shadowBlur = 4;
         ctx.shadowOffsetX = 2;
         ctx.shadowOffsetY = 2;
 
-        ctx.fillStyle = "#fbbf24"; // ゴールドっぽい黄色
-        
-        // 🛠️ X座標を画面右端から20pxの位置に変更
+        ctx.fillStyle = "#fbbf24"; 
         ctx.fillText(`📡 Channel: ${hero.channel}`, VIEW_CONFIG.SCREEN_WIDTH - 20, 35);
         ctx.restore();
     }
     
-    // 🌟 掴んでいるアイテムをマウスに追従させて描画
+    // --- 掴んでいるアイテムをマウスに追従させて描画 ---
     if (!isDiscarding && typeof selectedSlotIndex !== 'undefined' && selectedSlotIndex !== -1) {
         if (inventoryVisualBuffer && inventoryVisualBuffer[selectedSlotIndex]) {
             const item = inventoryVisualBuffer[selectedSlotIndex];
@@ -810,140 +863,126 @@ function drawGame(hero, others, enemies, items, platforms, ladders, damageTexts,
             }
         }
     }
-    
-    // ==========================================
-    // 🛠️ デバッグ表示（DEBUG_MODE が true の時のみ実行）
-    // ==========================================
-    if (DEBUG_MODE) {
-        ctx.save(); // デバッグ描画開始
-
-        // --- A. プレイヤーの判定（緑色） ---
-        ctx.strokeStyle = "lime";
-        ctx.lineWidth = 2;
-        const visualCenterX = hero.x + 20; // キャラクターの中心付近
-        const visualWidth = 20;            // game.js の footWidth 設定に合わせる
-        
-        ctx.strokeRect(
-            visualCenterX - visualWidth, 
-            hero.y + 58,  // 足元の高さ
-            visualWidth * 2, 
-            4
-        );
-
-        // --- B. 足場の判定（赤色） ---
-        platforms.forEach(p => {
-            ctx.strokeStyle = "red";
-            ctx.lineWidth = 2;
-            ctx.strokeRect(p.x, p.y, p.w, 8);
-            
-            ctx.fillStyle = "rgba(255, 0, 0, 0.15)";
-            const margin = 50; 
-            ctx.fillRect(p.x - margin, p.y, p.w + (margin * 2), 20);
-            
-            ctx.strokeStyle = "rgba(255, 0, 0, 0.5)";
-            ctx.strokeRect(p.x - margin, p.y, p.w + (margin * 2), 20);
-        });
-
-        // --- C. アイテムの判定（青色） ---
-        if (items && items.length > 0) {
-            items.forEach(it => {
-                const itemSize = 32; 
-                ctx.strokeStyle = "cyan";
-                ctx.lineWidth = 1;
-                ctx.strokeRect(it.x, it.y, itemSize, itemSize);
-
-                ctx.fillStyle = "blue";
-                ctx.beginPath();
-                ctx.arc(it.x + itemSize/2, it.y + itemSize/2, 3, 0, Math.PI * 2);
-                ctx.fill();
-
-                ctx.beginPath();
-                ctx.strokeStyle = "blue";
-                ctx.moveTo(it.x, it.y + itemSize);
-                ctx.lineTo(it.x + itemSize, it.y + itemSize);
-                ctx.stroke();
-                
-                if (it.vy !== 0) {
-                    ctx.fillStyle = "white";
-                    ctx.font = "10px Arial";
-                    ctx.fillText(`vy: ${it.vy.toFixed(1)}`, it.x, it.y - 5);
-                }
-            });
-        }
-        
-        if (enemies) {
-            Object.values(enemies).forEach(en => {
-                const debugVisualY = en.y + (en.jumpY || 0);
-                ctx.strokeStyle = "red";
-                ctx.lineWidth = 1;
-                ctx.strokeRect(en.x, debugVisualY, en.w || 40, en.h || 40);
-                
-                ctx.fillStyle = "red";
-                ctx.font = "10px Arial";
-                ctx.fillText(`HP: ${en.hp}`, en.x, debugVisualY - 5);
-            });
-        }
-        
-        // --- D. 地面判定ラインの可視化 ---
-        const serverGroundY = 565; 
-
-        ctx.strokeStyle = "yellow";
-        ctx.lineWidth = 1;
-        ctx.setLineDash([5, 5]); 
-        ctx.beginPath();
-        ctx.moveTo(0, serverGroundY);
-        ctx.lineTo(VIEW_CONFIG.SCREEN_WIDTH, serverGroundY);
-        ctx.stroke();
-        
-        ctx.fillStyle = "yellow";
-        ctx.font = "bold 12px Arial";
-        ctx.fillText(`サーバーの地面判定: ${serverGroundY}px`, 10, serverGroundY - 5);
-
-        ctx.restore(); // デバッグ描画終了
-		
-		// --- E. 攻撃判定の可視化（オレンジ色） ---
-if (hero.isAttacking > 0) {
-    ctx.save();
-    // 攻撃判定を強調するためにオレンジ色を使用
-    ctx.strokeStyle = "orange";
-    ctx.lineWidth = 3;
-    ctx.fillStyle = "rgba(255, 165, 0, 0.3)"; // 半透明の塗りつぶし
-
-    // 🌟 判定サイズの計算：高さを 100 に拡大
-    const atkWidth = 80;
-    const atkHeight = 100; 
-    
-    // 向き（hero.dir）によって左右にずらす
-    // 右向き(60)・左向き(-(80+20))を維持
-    const offsetX = (hero.dir === 1) ? 60 : -(atkWidth + 20);
-    
-    const atkX = hero.x + offsetX;
-
-    // 🌟 上方向への判定強化（高さ 100 バージョン）
-    let atkY;
-    const groundThreshold = 450; 
-
-    if (hero.y >= groundThreshold) {
-        // 一番下の地面にいる時：-65 から -85 に変更
-        // これで「底辺」の位置は変わらず、上側だけが伸びます
-        atkY = hero.y - 85; 
-    } else {
-        // 空中の足場にいる時：-30 から -50 に変更
-        atkY = hero.y - 50;
-    }
-
-    // 四角形を描画
-    ctx.strokeRect(atkX, atkY, atkWidth, atkHeight);
-    ctx.fillRect(atkX, atkY, atkWidth, atkHeight);
-
-    // 攻撃の残り時間を表示
-    ctx.fillStyle = "white";
-    ctx.font = "bold 12px Arial";
-    ctx.fillText(`Attack: ${hero.isAttacking}`, atkX, atkY - 5);
-    
-    ctx.restore();
 }
+
+// ==========================================
+// 🛠️ 補助：デバッグ専用描画レイヤー
+// ==========================================
+function drawDebugLayer(hero, enemies, items, platforms) {
+    ctx.save();
+
+    // --- A. プレイヤーの判定（緑色） ---
+    ctx.strokeStyle = "lime";
+    ctx.lineWidth = 2;
+    const visualCenterX = hero.x + 20; 
+    const visualWidth = 20; 
+    
+    ctx.strokeRect(
+        visualCenterX - visualWidth, 
+        hero.y + 58, 
+        visualWidth * 2, 
+        4
+    );
+
+    // --- B. 足場の判定（赤色） ---
+    platforms.forEach(p => {
+        ctx.strokeStyle = "red";
+        ctx.lineWidth = 2;
+        ctx.strokeRect(p.x, p.y, p.w, 8);
+        
+        ctx.fillStyle = "rgba(255, 0, 0, 0.15)";
+        const margin = 50; 
+        ctx.fillRect(p.x - margin, p.y, p.w + (margin * 2), 20);
+        
+        ctx.strokeStyle = "rgba(255, 0, 0, 0.5)";
+        ctx.strokeRect(p.x - margin, p.y, p.w + (margin * 2), 20);
+    });
+
+    // --- C. アイテムの判定（青色） ---
+    if (items && items.length > 0) {
+        items.forEach(it => {
+            const itemSize = 32; 
+            ctx.strokeStyle = "cyan";
+            ctx.lineWidth = 1;
+            ctx.strokeRect(it.x, it.y, itemSize, itemSize);
+
+            ctx.fillStyle = "blue";
+            ctx.beginPath();
+            ctx.arc(it.x + itemSize/2, it.y + itemSize/2, 3, 0, Math.PI * 2);
+            ctx.fill();
+
+            ctx.beginPath();
+            ctx.strokeStyle = "blue";
+            ctx.moveTo(it.x, it.y + itemSize);
+            ctx.lineTo(it.x + itemSize, it.y + itemSize);
+            ctx.stroke();
+            
+            if (it.vy !== 0) {
+                ctx.fillStyle = "white";
+                ctx.font = "10px Arial";
+                ctx.fillText(`vy: ${it.vy.toFixed(1)}`, it.x, it.y - 5);
+            }
+        });
     }
+    
+    // --- D. 敵の判定（赤色） ---
+    if (enemies) {
+        Object.values(enemies).forEach(en => {
+            const debugVisualY = en.y + (en.jumpY || 0);
+            ctx.strokeStyle = "red";
+            ctx.lineWidth = 1;
+            ctx.strokeRect(en.x, debugVisualY, en.w || 40, en.h || 40);
+            
+            ctx.fillStyle = "red";
+            ctx.font = "10px Arial";
+            ctx.fillText(`HP: ${en.hp}`, en.x, debugVisualY - 5);
+        });
+    }
+    
+    // --- E. 地面判定ラインの可視化 ---
+    const serverGroundY = 565; 
+    ctx.strokeStyle = "yellow";
+    ctx.lineWidth = 1;
+    ctx.setLineDash([5, 5]); 
+    ctx.beginPath();
+    ctx.moveTo(0, serverGroundY);
+    ctx.lineTo(VIEW_CONFIG.SCREEN_WIDTH, serverGroundY);
+    ctx.stroke();
+    
+    ctx.fillStyle = "yellow";
+    ctx.font = "bold 12px Arial";
+    ctx.fillText(`サーバーの地面判定: ${serverGroundY}px`, 10, serverGroundY - 5);
+
+    // --- F. 攻撃判定の可視化（オレンジ色） ---
+    if (hero.isAttacking > 0) {
+        ctx.save();
+        ctx.strokeStyle = "orange";
+        ctx.lineWidth = 3;
+        ctx.fillStyle = "rgba(255, 165, 0, 0.3)";
+
+        const atkWidth = 80;
+        const atkHeight = 100; 
+        const offsetX = (hero.dir === 1) ? 60 : -(atkWidth + 20);
+        const atkX = hero.x + offsetX;
+
+        let atkY;
+        const groundThreshold = 450; 
+        if (hero.y >= groundThreshold) {
+            atkY = hero.y - 85; 
+        } else {
+            atkY = hero.y - 50;
+        }
+
+        ctx.strokeRect(atkX, atkY, atkWidth, atkHeight);
+        ctx.fillRect(atkX, atkY, atkWidth, atkHeight);
+
+        ctx.fillStyle = "white";
+        ctx.font = "bold 12px Arial";
+        ctx.fillText(`Attack: ${hero.isAttacking}`, atkX, atkY - 5);
+        ctx.restore();
+    }
+
+    ctx.restore();
 }
 
 /**
@@ -1192,80 +1231,216 @@ function drawSimpleWindow(title, x, y, w, h) {
     ctx.restore();
 }
 
-function drawUIOverlay(hero) {
-    drawItemLogsUI();
-    drawUI(hero);
+/**
+ * 💰 所持金（ゴールド）のリッチ表示を独立させた関数
+ */
+function drawGoldUI(hero) {
+    if (!hero) return;
 
-    // 🌟 所持金の表示（リッチ＆踏襲版）
-    if (hero) {
-        ctx.save();
+    ctx.save();
 
-        // --- 1. 元の座標とサイズ感をベースに設定 ---
-        const drawX = 25;
-        const drawY = 90; // 少し上にずらして枠のベースにします
-        const barW = 150; // 数値が見やすいように幅を確保
-        const barH = 32;
+    // --- 1. 元の座標とサイズ感をベースに設定 ---
+    const drawX = 25;
+    const drawY = 90; 
+    const barW = 150; 
+    const barH = 32;
 
-        // --- 2. 背景枠（網掛けに見えないよう、濃いめのグラデーション） ---
-        const bgGrad = ctx.createLinearGradient(drawX, drawY, drawX, drawY + barH);
-        bgGrad.addColorStop(0, "rgba(30, 30, 30, 0.9)"); // 濃いグレー
-        bgGrad.addColorStop(1, "rgba(0, 0, 0, 0.9)");   // 黒
+    // --- 2. 背景枠（グラデーション） ---
+    const bgGrad = ctx.createLinearGradient(drawX, drawY, drawX, drawY + barH);
+    bgGrad.addColorStop(0, "rgba(30, 30, 30, 0.9)"); 
+    bgGrad.addColorStop(1, "rgba(0, 0, 0, 0.9)");   
+    
+    ctx.fillStyle = bgGrad;
+    ctx.strokeStyle = "rgba(255, 215, 0, 0.7)"; 
+    ctx.lineWidth = 2;
+
+    if (typeof drawRoundedRect === 'function') {
+        drawRoundedRect(ctx, drawX, drawY, barW, barH, 6);
+        ctx.fill();
+        ctx.stroke();
+    } else {
+        ctx.fillRect(drawX, drawY, barW, barH);
+        ctx.strokeRect(drawX, drawY, barW, barH);
+    }
+
+    // --- 3. コインアイコン ---
+    const iconX = drawX + 16;
+    const iconY = drawY + barH / 2;
+    
+    ctx.beginPath();
+    ctx.arc(iconX, iconY, 10, 0, Math.PI * 2);
+    const coinGrad = ctx.createRadialGradient(iconX - 3, iconY - 3, 2, iconX, iconY, 10);
+    coinGrad.addColorStop(0, "#fff7ad"); 
+    coinGrad.addColorStop(1, "#ffd700"); 
+    ctx.fillStyle = coinGrad;
+    ctx.fill();
+    ctx.strokeStyle = "#b8860b";
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    ctx.fillStyle = "#8b4513";
+    ctx.font = "bold 12px sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("G", iconX, iconY);
+
+    // --- 4. 元のスタイルを踏襲した数値表示 ---
+    ctx.font = "bold 20px sans-serif"; 
+    ctx.textAlign = "right";
+    ctx.textBaseline = "middle";
+    
+    const goldVal = hero.gold || 0;
+    const goldText = goldVal.toLocaleString(); 
+    
+    ctx.strokeStyle = "black";
+    ctx.lineWidth = 3;
+    ctx.strokeText(goldText, drawX + barW - 12, drawY + barH / 2 + 1);
+    
+    ctx.fillStyle = "gold"; 
+    ctx.fillText(goldText, drawX + barW - 12, drawY + barH / 2 + 1);
+
+    ctx.restore();
+}
+
+/**
+ * 🪟 重なり順を管理する配列に基づいて各ウィンドウを描画する関数
+ * (元のif-elseロジックと描画順を完全に踏襲)
+ */
+function drawGameWindows(hero) {
+    windowStack.forEach(windowName => {
+        const win = gameWindows[windowName];
+        if (!win || !win.isOpen) return;
+
+        // 🌟 共通の描画リセット処理
+        ctx.textAlign = "left";
+        ctx.textBaseline = "alphabetic";
         
-        ctx.fillStyle = bgGrad;
-        ctx.strokeStyle = "rgba(255, 215, 0, 0.7)"; // 枠線は金色の半透明
-        ctx.lineWidth = 2;
-
-        // 角丸の背景を描画（補助関数 drawRoundedRect を使用）
-        if (typeof drawRoundedRect === 'function') {
-            drawRoundedRect(ctx, drawX, drawY, barW, barH, 6);
-            ctx.fill();
-            ctx.stroke();
-        } else {
-            ctx.fillRect(drawX, drawY, barW, barH);
-            ctx.strokeRect(drawX, drawY, barW, barH);
+        if (!window.hoverFlags) {
+            window.hoverFlags = { str: false, dex: false, luk: false };
         }
 
-        // --- 3. コインアイコン（視覚的なアクセント） ---
-        const iconX = drawX + 16;
-        const iconY = drawY + barH / 2;
-        
-        ctx.beginPath();
-        ctx.arc(iconX, iconY, 10, 0, Math.PI * 2);
-        const coinGrad = ctx.createRadialGradient(iconX - 3, iconY - 3, 2, iconX, iconY, 10);
-        coinGrad.addColorStop(0, "#fff7ad"); 
-        coinGrad.addColorStop(1, "#ffd700"); 
-        ctx.fillStyle = coinGrad;
-        ctx.fill();
-        ctx.strokeStyle = "#b8860b";
-        ctx.lineWidth = 1;
-        ctx.stroke();
+        // --- ウィンドウ別の描画関数呼び出し ---
+        // 1. メインステータス・成長系
+        if (windowName === "status") {
+            if (hero) drawStatusWindow(); 
+        } 
+        else if (windowName === "equipment") {
+            drawEquipmentWindow();
+        }
+        else if (windowName === "inventory") {
+            drawInventoryWindow();
+        } 
+        else if (windowName === "skill") {
+            drawSkillWindow();
+        }
+        else if (windowName === "avatar") {
+            drawAvatarWindow();
+        }
+        else if (windowName === "upgrade") {
+            drawUpgradeWindow();
+        }
 
-        // コイン中央の "G"
-        ctx.fillStyle = "#8b4513";
-        ctx.font = "bold 12px sans-serif";
-        ctx.textAlign = "center";
-        ctx.textBaseline = "middle";
-        ctx.fillText("G", iconX, iconY);
+        // 2. 冒険・ナビゲーション系
+        else if (windowName === "quest") {
+            drawQuestWindow();
+        }
+        else if (windowName === "worldmap") {
+            drawWorldMapWindow();
+        }
+        else if (windowName === "minimap") {
+            drawMiniMapWindow();
+        }
+        else if (windowName === "journal") {
+            drawJournalWindow();
+        }
+        else if (windowName === "book") {
+            drawBookWindow();
+        }
 
-        // --- 4. 元のテキストスタイルを踏襲した数値表示 ---
-        ctx.font = "bold 20px sans-serif"; // 元の 22px より少しだけ調整
-        ctx.textAlign = "right";          // 数値は右寄せが見やすいです
-        ctx.textBaseline = "middle";
-        
-        const goldVal = hero.gold || 0;
-        const goldText = goldVal.toLocaleString(); // 1,000 単位のカンマを入れる
-        
-        // 文字の縁取り（元のコードのこだわりを踏襲）
-        ctx.strokeStyle = "black";
-        ctx.lineWidth = 3;
-        ctx.strokeText(goldText, drawX + barW - 12, drawY + barH / 2 + 1);
-        
-        // 文字本体
-        ctx.fillStyle = "gold"; // 元の指定色
-        ctx.fillText(goldText, drawX + barW - 12, drawY + barH / 2 + 1);
+        // 3. ソーシャル・コミュニティ系
+        else if (windowName === "guild") {
+            drawGuildWindow();
+        }
+        else if (windowName === "friend") {
+            drawFriendWindow();
+        }
+        else if (windowName === "party") {
+            drawPartyWindow();
+        }
+        else if (windowName === "trade") {
+            drawTradeWindow();
+        }
 
-        ctx.restore();
+        // 4. システム・ログ・通知系
+        else if (windowName === "log") {
+            drawLogWindow();
+        }
+        else if (windowName === "event") {
+            drawEventWindow();
+        }
+        else if (windowName === "options") {
+            drawOptionsWindow();
+        }
+        else if (windowName === "help") {
+            drawHelpWindow();
+        }
+
+        // 5. 特殊・予約枠
+        else if (windowName === "extra") {
+            drawExtraWindow();
+        }
+        else if (windowName === "reserved_d") {
+            drawReservedDWindow();
+        }
+        else if (windowName === "reserved_v") {
+            drawReservedVWindow();
+        }
+    });
+}
+
+/**
+ * 🎨 UIオーバーレイのメイン描画関数
+ */
+function drawUIOverlay(hero) {
+    if (!hero) return; // 🌟 heroが空っぽの時は何もしない（これでエラーを防ぐ）
+	
+    // 1. 基本UIパーツの描画
+    drawItemLogsUI();
+    drawTopStatusUI(hero);
+
+    // 🌟 分離された所持金表示（必要に応じて呼び出し）
+    drawGoldUI(hero);
+
+    // ==========================================
+    // 🎒 インベントリグリッド（メインループ部分）
+    // ==========================================
+    if (hero && hero.inventory) {
+        drawInventoryGrid(ctx, hero.inventory);
+
+        const startX = 20;
+        const startY = 130;
+        const slotSize = 40;
+        const spacing = 8;
+
+        hero.inventory.forEach((slot, index) => {
+            if (!slot || !slot.type || slot.count <= 0) return;
+            const x = startX + (index * (slotSize + spacing));
+            const y = startY;
+
+            if (mouseX >= x && mouseX <= (x + slotSize) &&
+                mouseY >= y && mouseY <= (y + slotSize)) {
+
+                ctx.save();
+                // 整理したツールチップ関数を呼び出す
+                drawItemTooltip(ctx, slot, mouseX, mouseY, hero);
+                ctx.restore();
+            }
+        });
     }
+
+    // 🌟 整理：重なり順を管理する配列に基づいてウィンドウ群を描画
+    drawGameWindows(hero);
+}
 
 // ==========================================
 // 🎨 アイテム詳細ツールチップ描画関数 (BONUS 8段階評価版)
@@ -1508,241 +1683,139 @@ function drawItemTooltip(ctx, slot, mouseX, mouseY, hero) {
     }
 }
 
-// ==========================================
-// 🎒 インベントリグリッド（メインループ部分）
-// ==========================================
-if (hero && hero.inventory) {
-    drawInventoryGrid(ctx, hero.inventory);
+// --- 📊 独立させた Player Status ウィンドウ描画関数 ---
+function drawStatusWindow() {
+    const win = gameWindows.status;
+    
+    //canvas.style.cursor = "default";
 
-    const startX = 20;
-    const startY = 130;
-    const slotSize = 40;
-    const spacing = 8;
+    // 窓枠の描画
+    drawSimpleWindow(
+        currentTab === "status" ? "📊 Player Status" : "✨ AP Allocation", 
+        win.x, win.y, win.w, win.h
+    );
+    
+    // 🌟 drawSimpleWindow内で設定が変わる可能性があるため、再度リセット
+    ctx.textAlign = "left";
 
-    hero.inventory.forEach((slot, index) => {
-        if (!slot || !slot.type || slot.count <= 0) return;
-        const x = startX + (index * (slotSize + spacing));
-        const y = startY;
+    // タブ（ステータス / AP振り分け）の描画
+    const tabY = win.y + 35;
+    const tabW = 70;
+    const tabH = 20;
 
-        if (mouseX >= x && mouseX <= (x + slotSize) &&
-            mouseY >= y && mouseY <= (y + slotSize)) {
+    // ステータスタブ
+    ctx.fillStyle = (currentTab === "status") ? "#555555" : "#222222";
+    ctx.fillRect(win.x + 20, tabY, tabW, tabH);
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "10px sans-serif";
+    ctx.fillText("ステータス", win.x + 30, tabY + 14);
 
-            ctx.save();
-            // 分離した関数を呼び出す
-            drawItemTooltip(ctx, slot, mouseX, mouseY, hero);
-            ctx.restore();
-        }
-    });
+    // AP振り分けタブ
+    ctx.fillStyle = (currentTab === "ap") ? "#555555" : "#222222";
+    ctx.fillRect(win.x + 20 + tabW + 5, tabY, tabW, tabH);
+    ctx.fillStyle = "#ffffff";
+    ctx.fillText("AP振り分け", win.x + 20 + tabW + 15, tabY + 14);
+
+    if (currentTab === "status") {
+        renderStatusContent(win);
+    } else {
+        renderAPAllocationContent(win);
+    }
 }
 
-// ==========================================
-// 🎒 インベントリグリッド (メインループ)
-// ==========================================
-if (hero && hero.inventory) {
-    drawInventoryGrid(ctx, hero.inventory);
+// --- Statusの中身描画用サブ関数 ---
+function renderStatusContent(win) {
+    ctx.textAlign = "left";
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "bold 16px sans-serif";
+    ctx.fillText(hero.name || "Adventurer", win.x + 20, win.y + 75);
 
-    const startX = 20;
-    const startY = 130;
-    const slotSize = 40;
-    const spacing = 8;
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.3)";
+    ctx.beginPath();
+    ctx.moveTo(win.x + 20, win.y + 85);
+    ctx.lineTo(win.x + win.w - 20, win.y + 85);
+    ctx.stroke();
 
-    hero.inventory.forEach((slot, index) => {
-        if (!slot || !slot.type || slot.count <= 0) return;
-        const x = startX + (index * (slotSize + spacing));
-        const y = startY;
+    ctx.font = "14px monospace";
+    const startY = win.y + 110;
+    const gap = 22;
 
-        if (mouseX >= x && mouseX <= (x + slotSize) &&
-            mouseY >= y && mouseY <= (y + slotSize)) {
-            
-            ctx.save();
-            // 🌟 整理した関数を呼び出すだけ！
-            drawItemTooltip(ctx, slot, mouseX, mouseY, hero);
-            ctx.restore();
-        }
+    const labels = ["LEVEL", "HP", "STR", "DEX", "LUK"];
+    const values = [hero.lv || 1, `${hero.hp} / ${hero.maxHp}`, hero.str || 0, hero.dex || 0, hero.luk || 0];
+
+    labels.forEach((label, i) => {
+        ctx.fillStyle = "#aaaaaa";
+        ctx.fillText(label, win.x + 25, startY + (gap * i));
+        ctx.fillStyle = (label === "HP") ? "#ff5555" : "#ffffff";
+        ctx.fillText(`${values[i]}`, win.x + 110, startY + (gap * i));
     });
+
+    // 経験値バー
+	/*
+    const barW = win.w - 50;
+    const barX = win.x + 25;
+    const barY = win.y + win.h - 35;
+    ctx.fillStyle = "#333333";
+    ctx.fillRect(barX, barY, barW, 10);
+    const expRatio = Math.min(1, (hero.exp % 100) / 100);
+    ctx.fillStyle = "#ffcc00";
+    ctx.fillRect(barX, barY, barW * expRatio, 10);
+    ctx.font = "10px sans-serif";
+    ctx.fillText(`EXP: ${Math.floor(hero.exp)} / 100`, barX, barY - 5);
+    */
+	
+    window.hoverFlags.str = window.hoverFlags.dex = window.hoverFlags.luk = false;
 }
 
-    // 🌟 重なり順を管理する配列に基づいて描画
-windowStack.forEach(windowName => {
-    if (windowName === "status") {
-        // --- 📊 Player Status ウィンドウの描画 ---
-        if (isStatsWindowOpen && hero) {
-            // 🌟 修正：ウィンドウ全体の文字揃えを左にリセット
-            ctx.textAlign = "left";
-            ctx.textBaseline = "alphabetic";
+// --- AP振り分けの中身描画用サブ関数 ---
+function renderAPAllocationContent(win) {
+    ctx.textAlign = "left";
+    ctx.fillStyle = "#ffcc00";
+    ctx.font = "bold 16px sans-serif";
+    ctx.fillText(`Available AP: ${hero.ap}`, win.x + 20, win.y + 80);
 
-            if (!window.hoverFlags) window.hoverFlags = { str: false, dex: false, luk: false };
-            canvas.style.cursor = "default";
+    const stats = [
+        { key: 'str', label: 'STR', y: 120, btnY: 102 },
+        { key: 'dex', label: 'DEX', y: 150, btnY: 132 },
+        { key: 'luk', label: 'LUK', y: 180, btnY: 162 }
+    ];
 
-            const winW = 300;
-            const winH = 250;
-            drawSimpleWindow(currentTab === "status" ? "📊 Player Status" : "✨ AP Allocation", winX, winY, winW, winH);
+    const btnX = win.x + 150;
+    const btnW = 100;
+    const btnH = 25;
 
-            // 🌟 修正：drawSimpleWindow内で設定が変わる可能性があるため、再度リセット
-            ctx.textAlign = "left";
+    // 重なり順を考慮したホバー判定ロジック
+    const isStatusPriority = (() => {
+        const overStats = (mouseX >= win.x && mouseX <= win.x + win.w && mouseY >= win.y && mouseY <= win.y + win.h);
+        const topWindow = windowStack[windowStack.length - 1];
+        return overStats && topWindow === "status";
+    })();
 
-            const tabY = winY + 35;
-            const tabW = 70;
-            const tabH = 20;
+    stats.forEach(s => {
+        ctx.fillStyle = "#ffffff";
+        ctx.font = "14px monospace";
+        ctx.fillText(`${s.label}: ${hero[s.key] || 0}`, win.x + 25, win.y + s.y);
 
-            ctx.fillStyle = (currentTab === "status") ? "#555555" : "#222222";
-            ctx.fillRect(winX + 20, tabY, tabW, tabH);
-            ctx.fillStyle = "#ffffff";
-            ctx.font = "10px sans-serif";
-            ctx.fillText("ステータス", winX + 30, tabY + 14);
-
-            ctx.fillStyle = (currentTab === "ap") ? "#555555" : "#222222";
-            ctx.fillRect(winX + 20 + tabW + 5, tabY, tabW, tabH);
-            ctx.fillStyle = "#ffffff";
-            ctx.fillText("AP振り分け", winX + 20 + tabW + 15, tabY + 14);
-
-            if (currentTab === "status") {
-                // 🌟 修正：タブの中身も念のため左揃えを確認
-                ctx.textAlign = "left";
-                ctx.fillStyle = "#ffffff";
-                ctx.font = "bold 16px sans-serif";
-                ctx.fillText(hero.name || "Adventurer", winX + 20, winY + 75);
-
-                ctx.strokeStyle = "rgba(255, 255, 255, 0.3)";
-                ctx.beginPath();
-                ctx.moveTo(winX + 20, winY + 85);
-                ctx.lineTo(winX + winW - 20, winY + 85);
-                ctx.stroke();
-
-                ctx.font = "14px monospace";
-                const startY = winY + 110;
-                const gap = 22;
-
-                ctx.fillStyle = "#aaaaaa";
-                ctx.fillText("LEVEL", winX + 25, startY);
-                ctx.fillText("HP", winX + 25, startY + gap);
-                ctx.fillText("STR", winX + 25, startY + gap * 2);
-                ctx.fillText("DEX", winX + 25, startY + gap * 3);
-                ctx.fillText("LUK", winX + 25, startY + gap * 4);
-
-                ctx.fillStyle = "#ffffff";
-                ctx.fillText(`${hero.lv || 1}`, winX + 110, startY);
-                ctx.fillStyle = "#ff5555";
-                ctx.fillText(`${hero.hp} / ${hero.maxHp}`, winX + 110, startY + gap);
-                ctx.fillStyle = "#ffffff";
-                ctx.fillText(`${hero.str || 0}`, winX + 110, startY + gap * 2);
-                ctx.fillText(`${hero.dex || 0}`, winX + 110, startY + gap * 3);
-                ctx.fillText(`${hero.luk || 0}`, winX + 110, startY + gap * 4);
-
-                const barW = winW - 50;
-                const barX = winX + 25;
-                const barY = winY + winH - 35;
-                ctx.fillStyle = "#333333";
-                ctx.fillRect(barX, barY, barW, 10);
-                const expRatio = Math.min(1, (hero.exp % 100) / 100);
-                ctx.fillStyle = "#ffcc00";
-                ctx.fillRect(barX, barY, barW * expRatio, 10);
-                ctx.font = "10px sans-serif";
-                ctx.fillText(`EXP: ${Math.floor(hero.exp)} / 100`, barX, barY - 5);
-
-                window.hoverFlags.str = false;
-                window.hoverFlags.dex = false;
-                window.hoverFlags.luk = false;
-            } else {
-                // 🌟 AP Allocation タブ
-                ctx.textAlign = "left";
-                ctx.fillStyle = "#ffcc00";
-                ctx.font = "bold 16px sans-serif";
-                ctx.fillText(`Available AP: ${hero.ap}`, winX + 20, winY + 80);
-
-                ctx.fillStyle = "#ffffff";
-                ctx.font = "14px monospace";
-                ctx.fillText(`STR: ${hero.str}`, winX + 25, winY + 120);
-
-                const btnX = winX + 150;
-                const btnW = 100;
-                const btnH = 25;
-                const btnRight = btnX + btnW;
-
-                const isStatusPriority = (() => {
-                    const overStats = (isStatsWindowOpen && mouseX >= winX && mouseX <= winX + 300 && mouseY >= winY && mouseY <= winY + 250);
-                    const overInv = (isInventoryOpen && mouseX >= invWinX && mouseX <= invWinX + invWinW && mouseY >= invWinY && mouseY <= invWinY + invWinH);
-                    if (overStats && overInv) {
-                        return windowStack[windowStack.length - 1] === "status";
-                    }
-                    return overStats;
-                })();
-
-                const strBtnY = winY + 102;
-                const isStrHover = isStatusPriority && (mouseX >= btnX && mouseX <= btnRight && mouseY >= strBtnY && mouseY <= strBtnY + btnH);
-
-                if (isStrHover) {
-                    canvas.style.cursor = "pointer";
-                    if (!window.hoverFlags.str) {
-                        if (typeof playMouseOver1Sound === 'function') playMouseOver1Sound();
-                        window.hoverFlags.str = true;
-                    }
-                } else { window.hoverFlags.str = false; }
-
-                ctx.fillStyle = isStrHover ? "#444444" : "#222222";
-                ctx.strokeStyle = "#ffffff";
-                ctx.strokeRect(btnX, strBtnY, btnW, btnH);
-                ctx.fillRect(btnX, strBtnY, btnW, btnH);
-                ctx.fillStyle = isStrHover ? "#ffff00" : "#ffffff";
-                ctx.font = "12px sans-serif";
-                ctx.fillText("STR UP (+1)", btnX + 15, strBtnY + 17);
-
-                const dexBtnY = winY + 132;
-                ctx.fillStyle = "#ffffff";
-                ctx.font = "14px monospace";
-                ctx.fillText(`DEX: ${hero.dex || 0}`, winX + 25, winY + 150);
-                const isDexHover = isStatusPriority && (mouseX >= btnX && mouseX <= btnRight && mouseY >= dexBtnY && mouseY <= dexBtnY + btnH);
-
-                if (isDexHover) {
-                    canvas.style.cursor = "pointer";
-                    if (!window.hoverFlags.dex) {
-                        if (typeof playMouseOver1Sound === 'function') playMouseOver1Sound();
-                        window.hoverFlags.dex = true;
-                    }
-                } else { window.hoverFlags.dex = false; }
-
-                ctx.fillStyle = isDexHover ? "#444444" : "#222222";
-                ctx.strokeRect(btnX, dexBtnY, btnW, btnH);
-                ctx.fillRect(btnX, dexBtnY, btnW, btnH);
-                ctx.fillStyle = isDexHover ? "#ffff00" : "#ffffff";
-                ctx.fillText("DEX UP (+1)", btnX + 15, dexBtnY + 17);
-
-                const lukBtnY = winY + 162;
-                ctx.fillStyle = "#ffffff";
-                ctx.fillText(`LUK: ${hero.luk || 0}`, winX + 25, winY + 180);
-                const isLukHover = isStatusPriority && (mouseX >= btnX && mouseX <= btnRight && mouseY >= lukBtnY && mouseY <= lukBtnY + btnH);
-
-                if (isLukHover) {
-                    canvas.style.cursor = "pointer";
-                    if (!window.hoverFlags.luk) {
-                        if (typeof playMouseOver1Sound === 'function') playMouseOver1Sound();
-                        window.hoverFlags.luk = true;
-                    }
-                } else { window.hoverFlags.luk = false; }
-
-                ctx.fillStyle = isLukHover ? "#444444" : "#222222";
-                ctx.strokeRect(btnX, lukBtnY, btnW, btnH);
-                ctx.fillRect(btnX, lukBtnY, btnW, btnH);
-                ctx.fillStyle = isLukHover ? "#ffff00" : "#ffffff";
-                ctx.fillText("LUK UP (+1)", btnX + 15, lukBtnY + 17);
+        const isHover = isStatusPriority && (mouseX >= btnX && mouseX <= btnX + btnW && mouseY >= win.y + s.btnY && mouseY <= win.y + s.btnY + btnH);
+        
+        if (isHover) {
+            canvas.style.cursor = "pointer";
+            if (!window.hoverFlags[s.key]) {
+                if (typeof playMouseOver1Sound === 'function') playMouseOver1Sound();
+                window.hoverFlags[s.key] = true;
             }
+        } else {
+            window.hoverFlags[s.key] = false;
         }
-    }
-    else if (windowName === "inventory") {
-        if (isInventoryOpen) {
-            // 🌟 修正：インベントリ描画前もリセット
-            ctx.textAlign = "left";
-            drawNewInventoryWindow();
-        }
-    }
-    else if (windowName === "extra") {
-        if (isEWindowOpen) {
-            // 🌟 修正：追加ウィンドウ描画前もリセット
-            ctx.textAlign = "left";
-            drawExtraWindow();
-        }
-    }
-});
+
+        ctx.fillStyle = isHover ? "#444444" : "#222222";
+        ctx.strokeStyle = "#ffffff";
+        ctx.strokeRect(btnX, win.y + s.btnY, btnW, btnH);
+        ctx.fillRect(btnX, win.y + s.btnY, btnW, btnH);
+        ctx.fillStyle = isHover ? "#ffff00" : "#ffffff";
+        ctx.font = "12px sans-serif";
+        ctx.fillText(`${s.label} UP (+1)`, btnX + 15, win.y + s.btnY + 17);
+    });
 }
 
 // ==========================================
@@ -2520,6 +2593,7 @@ function drawTopStatusUI(hero) {
 // ==========================================
 // 📊 UI描画の司令塔（ここですべてを呼び出す）
 // ==========================================
+/*
 function drawUI(hero) {
     if (!hero) return; // 🌟 heroが空っぽの時は何もしない（これでエラーを防ぐ）
 
@@ -2532,8 +2606,9 @@ function drawUI(hero) {
     // 3. 経験値とレベル・デバッグ表示
     //drawExpAndDebug(hero);
 	
-	drawTopStatusUI(hero);
+	//drawTopStatusUI(hero);
 }
+*/
 
 /** 1. HPバー関連（元のコードの2〜8番に相当） */
 function drawPlayerHP(hero) {
@@ -3250,241 +3325,245 @@ window.addEventListener('keydown', (e) => {
 });
 
 window.addEventListener('keydown', (e) => {
-    // 1. ガード処理
+    // 1. ガード処理（入力フォームにフォーカスがある時は反応させない）
     if (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA') return;
 
     const key = e.key.toLowerCase(); // 大文字小文字を気にせず判定できるように
-    
-    // --- 🌟 3つ目のウィンドウ (Eキー) ---
-    if (key === 'e') {
-        isEWindowOpen = !isEWindowOpen;
-        
-        // 重なり順の管理に追加
-        windowStack = windowStack.filter(v => v !== "extra");
-        windowStack.push("extra");
-        
-        if (isEWindowOpen) {
-            if (typeof playMenuUpSound === 'function') playMenuUpSound();
-        } else {
-            if (typeof playMenuDownSound === 'function') playMenuDownSound();
-        }
-    }
 
-    // 2. インベントリ (Iキー)
-    if (key === 'i') {
-        isInventoryOpen = !isInventoryOpen;
+    // --- 🌟 2. 各ウィンドウの共通判定ロジック (22個一括対応) ---
+    const targetId = keyMap[key];
+    if (targetId && gameWindows[targetId]) {
+        const win = gameWindows[targetId];
+
+        // gameWindows内のisOpenを反転
+        win.isOpen = !win.isOpen;
         
         // 🌟 開閉に関わらず、最後に触った(押した)方を最前面へ
-        windowStack = windowStack.filter(v => v !== "inventory");
-        windowStack.push("inventory");
+        if (typeof windowStack !== 'undefined') {
+            windowStack = windowStack.filter(v => v !== targetId);
+            windowStack.push(targetId);
+        }
         
-        // 🔊 音の追加
-        if (isInventoryOpen) {
+        // 🔊 音の再生
+        if (win.isOpen) {
             if (typeof playMenuUpSound === 'function') playMenuUpSound();
         } else {
             if (typeof playMenuDownSound === 'function') playMenuDownSound();
         }
         
-        console.log("Inventory Window State:", isInventoryOpen);
+        console.log(`${targetId} Window State:`, win.isOpen);
     }
 
-    // 3. ステータス (Oキー)
-    if (key === 'o') {
-        isStatsWindowOpen = !isStatsWindowOpen;
-
-        // 🌟 開閉に関わらず、最後に触った(押した)方を最前面へ
-        windowStack = windowStack.filter(v => v !== "status");
-        windowStack.push("status");
-
-        if (isStatsWindowOpen) {
-            if (typeof playMenuUpSound === 'function') playMenuUpSound();
-        } else {
-            if (typeof playMenuDownSound === 'function') playMenuDownSound();
-        }
-    }
+    // --- 🌟 3. 特殊キー・デバッグキー判定 (既存ロジック踏襲) ---
     
-    // 4. デバッグ (Dキー)
+    // デバッグ情報の表示切り替え (Dキーをデバッグ用として使う場合の例)
+    /*
     if (key === 'd') {
-        showDebugWindow = !showDebugWindow;
-        console.log("Debug Window:", showDebugWindow);
+        if (typeof showDebugWindow !== 'undefined') {
+            showDebugWindow = !showDebugWindow;
+            console.log("Debug Window:", showDebugWindow);
+        }
     }
-
-    // 🌟 追加：描画判定の切り替え (Pキー)
+    */
+    
+    // 判定の可視化切り替え (Pキーをデバッグモード用として使う場合の例)
+    /*
     if (key === 'p') {
         if (typeof DEBUG_MODE !== 'undefined') {
             DEBUG_MODE = !DEBUG_MODE;
             console.log("Visual Debug Mode (P-Key):", DEBUG_MODE);
         }
     }
+    */
 
-    // 5. エスケープ
+    // --- 🌟 4. エスケープ (全てのウィンドウを閉じる) ---
     if (e.key === 'Escape') {
-        // 全てのウィンドウの状態を確認して閉じる
-        if (isStatsWindowOpen || isInventoryOpen || (typeof isEWindowOpen !== 'undefined' && isEWindowOpen)) {
-            isStatsWindowOpen = false;
-            isInventoryOpen = false;
-            if (typeof isEWindowOpen !== 'undefined') isEWindowOpen = false;
+        // いずれかのウィンドウが開いているかチェック
+        const anyOpen = Object.values(gameWindows).some(win => win.isOpen);
+
+        if (anyOpen) {
+            // 全てのウィンドウを一括で閉じる
+            Object.values(gameWindows).forEach(win => {
+                win.isOpen = false;
+            });
+            
             if (typeof playMenuDownSound === 'function') playMenuDownSound();
+            console.log("All windows closed via Escape");
         }
     }
 });
 
+// ==========================================
+// 🖱️ マウスを離した時の処理（ドラッグ終了）
+// ==========================================
 window.addEventListener('mouseup', () => {
-    isDragging = false;
-    isDraggingInv = false;
-	isDraggingE = false; // 🌟 追加：ドラッグ終了
+    // 🌟 1. 管理オブジェクト内の全てのウィンドウのドラッグ状態を解除
+    Object.values(gameWindows).forEach(win => {
+        win.isDragging = false;
+    });
+
+    // 🌟 2. 既存コードとの互換性のため、古いフラグも解除
+    //isDragging = false;
+    //isDraggingInv = false;
+    //isDraggingE = false;
+
+    // 🌟 3. アイテムスロットの選択状態などは維持（ドラッグ終了のみに専念）
+    // canvas.style.cursor の制御が必要な場合はここで行います
 });
 
 // ==========================================
-// 🖱️ マウスクリック時の判定処理
+// 🗑️ アイテムを地面に捨てる処理 (外部分離)
+// ==========================================
+function openDropForm(slotIndex, item) {
+    const currentAmount = item.count || item.amount || 1;
+
+    // 1個しかない場合は即座に送信して終了
+    if (currentAmount <= 1) {
+        socket.emit('dropItem', { index: slotIndex, amount: 1 });
+        selectedSlotIndex = -1;
+        return;
+    }
+
+    // 複数個ある場合は入力フォームを表示
+    const form = document.getElementById('drop-form');
+    const label = document.getElementById('drop-label');
+    const input = document.getElementById('drop-input');
+    const error = document.getElementById('drop-error');
+
+    label.innerText = `${currentAmount}個持っています。何個捨てますか？`;
+    error.innerText = "";
+    input.style.border = "1px solid #ccc";
+    input.value = currentAmount;
+    input.max = currentAmount;
+    input.min = 1;
+
+    isDiscarding = true;
+    form.style.display = 'block';
+    form.style.pointerEvents = 'auto';
+    canvas.style.cursor = "default";
+
+    setTimeout(() => input.focus(), 10);
+
+    const handleConfirm = () => {
+        let dropAmount = parseInt(input.value);
+        if (isNaN(dropAmount) || dropAmount <= 0) {
+            error.innerText = "1個以上の数値を入力してください";
+            input.style.border = "2px solid #ff4444";
+            return;
+        }
+        if (dropAmount > currentAmount) {
+            error.innerText = `そんなに持っていません！(最大${currentAmount}個)`;
+            input.style.border = "2px solid #ff4444";
+            return;
+        }
+        socket.emit('dropItem', { index: slotIndex, amount: dropAmount });
+        closeForm();
+    };
+
+    const handleCancel = () => closeForm();
+
+    const closeForm = () => {
+        isDiscarding = false;
+        selectedSlotIndex = -1;
+        form.style.display = 'none';
+        form.style.pointerEvents = 'none';
+        input.onkeydown = null;
+    };
+
+    document.getElementById('drop-confirm').onclick = handleConfirm;
+    document.getElementById('drop-cancel').onclick = handleCancel;
+
+    input.onkeydown = (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); handleConfirm(); }
+        else if (e.key === 'Escape') { handleCancel(); }
+    };
+}
+
+// ==========================================
+// 🖱️ マウスクリック時の判定処理 (22ウィンドウ対応版)
 // ==========================================
 canvas.addEventListener('mousedown', (event) => {
     const rect = canvas.getBoundingClientRect();
-    // 座標計算は元のコードを踏襲
     const clickX = event.clientX - rect.left;
     const clickY = event.clientY - rect.top;
 
-    // 1. 各ウィンドウの上にマウスがあるか判定
-    const isOverStats = (isStatsWindowOpen && clickX >= winX && clickX <= winX + 300 && clickY >= winY && clickY <= winY + 250);
-    const isOverInv = (isInventoryOpen && clickX >= invWinX && clickX <= invWinX + invWinW && clickY >= invWinY && clickY <= invWinY + invWinH);
-    const isOverExtra = (isEWindowOpen && clickX >= eWinX && clickX <= eWinX + eWinW && clickY >= eWinY && clickY <= eWinY + eWinH); // 🌟 追加
-
-    // 2. 🌟 重なりを考慮して、どのウィンドウを優先するか決定する
+    // 1. 🌟 重なりを考慮して、どのウィンドウがクリックされたか判定
     let priorityWindow = "none";
-
-    // 全ての開いているウィンドウのうち、windowStackの最後（手前）にあるものを探す
-    const openedWindowsInStack = windowStack.filter(name => {
-        if (name === "status") return isOverStats;
-        if (name === "inventory") return isOverInv;
-        if (name === "extra") return isOverExtra;
-        return false;
-    });
-
-    if (openedWindowsInStack.length > 0) {
-        // 重なっている中で、配列の最後に近い（＝より手前の）ウィンドウを選択
-        priorityWindow = openedWindowsInStack[openedWindowsInStack.length - 1];
+    
+    // windowStackを後ろから（＝手前に表示されている順に）チェック
+    for (let i = windowStack.length - 1; i >= 0; i--) {
+        const name = windowStack[i];
+        const win = gameWindows[name];
+        
+        if (win && win.isOpen) {
+            if (clickX >= win.x && clickX <= win.x + win.w && 
+                clickY >= win.y && clickY <= win.y + win.h) {
+                priorityWindow = name;
+                break; // 一番手前の窓が見つかったら終了
+            }
+        }
     }
 
-    // 3. 📊 Player Status の判定処理
-    if (priorityWindow === "status") {
-        // status を最前面に移動
-        windowStack = windowStack.filter(item => item !== "status");
-        windowStack.push("status");
+    // 2. 🌟 ウィンドウを触った場合の共通処理
+    if (priorityWindow !== "none") {
+        const win = gameWindows[priorityWindow];
 
-        const winW = 300;
-        const winH = 250;
+        // 触った窓を最前面に移動
+        windowStack = windowStack.filter(item => item !== priorityWindow);
+        windowStack.push(priorityWindow);
 
-        // --- ❌ 1. 閉じるボタンの判定 ---
-        const closeBtnX = winX + winW - 25;
-        const closeBtnY = winY + 5;
-        if (clickX >= closeBtnX && clickX <= closeBtnX + 25 && clickY >= closeBtnY && clickY <= closeBtnY + 25) {
-            isStatsWindowOpen = false;
+        // --- ❌ 共通：閉じるボタンの判定 ---
+        if (win.isMouseOverClose(clickX, clickY)) {
+            win.isOpen = false;
             if (typeof playMenuDownSound === 'function') playMenuDownSound();
             return;
         }
 
-        // --- 🗂️ 2. タブ切り替えの判定 ---
-        if (clickY >= winY + 35 && clickY <= winY + 60) {
-            if (clickX >= winX + 20 && clickX <= winX + 90) {
-                currentTab = "status";
-                if (typeof playTabSound === 'function') playTabSound();
-                return;
+        // --- 📊 Status 専用の判定処理 ---
+        if (priorityWindow === "status") {
+            // タブ切り替え
+            if (clickY >= win.y + 35 && clickY <= win.y + 60) {
+                if (clickX >= win.x + 20 && clickX <= win.x + 90) {
+                    currentTab = "status";
+                    if (typeof playTabSound === 'function') playTabSound();
+                    return;
+                }
+                if (clickX >= win.x + 95 && clickX <= win.x + 165) {
+                    currentTab = "ap";
+                    if (typeof playTabSound === 'function') playTabSound();
+                    return;
+                }
             }
-            if (clickX >= winX + 95 && clickX <= winX + 165) {
-                currentTab = "ap";
-                if (typeof playTabSound === 'function') playTabSound();
-                return;
+            // AP強化ボタン
+            if (currentTab === "ap") {
+                const btnX = win.x + 150;
+                const btnW = 100;
+                const btnH = 25;
+                const stats = ['str', 'dex', 'luk'];
+                for (let i = 0; i < stats.length; i++) {
+                    const btnY = win.y + 102 + (i * 30);
+                    if (clickX >= btnX && clickX <= btnX + btnW && clickY >= btnY && clickY <= btnY + btnH) {
+                        if (hero.ap > 0) {
+                            socket.emit('upgrade_stat', { type: stats[i] });
+                            if (typeof playMouseClickSound === 'function') playMouseClickSound();
+                        }
+                        return;
+                    }
+                }
             }
         }
 
-        // --- 🔘 3. AP強化ボタンの判定 ---
-        if (currentTab === "ap") {
-            const btnX = winX + 150;
-            const btnW = 100;
-            const btnH = 25;
-            if (clickX >= btnX && clickX <= btnX + btnW && clickY >= winY + 102 && clickY <= winY + 102 + btnH) {
-                if (hero.ap > 0) {
-                    socket.emit('upgrade_stat', { type: 'str' });
-                    if (typeof playMouseClickSound === 'function') playMouseClickSound();
-                }
-                return;
-            }
-            if (clickX >= btnX && clickX <= btnX + btnW && clickY >= winY + 132 && clickY <= winY + 132 + btnH) {
-                if (hero.ap > 0) {
-                    socket.emit('upgrade_stat', { type: 'dex' });
-                    if (typeof playMouseClickSound === 'function') playMouseClickSound();
-                }
-                return;
-            }
-            if (clickX >= btnX && clickX <= btnX + btnW && clickY >= winY + 162 && clickY <= winY + 162 + btnH) {
-                if (hero.ap > 0) {
-                    socket.emit('upgrade_stat', { type: 'luk' });
-                    if (typeof playMouseClickSound === 'function') playMouseClickSound();
-                }
-                return;
-            }
-        }
-
-        // --- 🖐️ 4. タイトルバーのドラッグ開始判定 ---
-        if (clickX >= winX && clickX <= winX + winW && clickY >= winY && clickY <= winY + 30) {
-            isDragging = true;
-            dragOffsetX = clickX - winX;
-            dragOffsetY = clickY - winY;
+        // --- 🖐️ 共通：ドラッグ開始判定 (全ウィンドウ共通) ---
+        if (win.isMouseOverHeader(clickX, clickY)) {
+            win.isDragging = true;
+            win.dragOffsetX = clickX - win.x;
+            win.dragOffsetY = clickY - win.y;
             return;
         }
-        return; 
+        return; // 窓を触っている間は下のゲーム世界をクリックさせない
     }
 
-    // 4. 🎒 Inventory の判定処理
-    if (priorityWindow === "inventory") {
-        windowStack = windowStack.filter(item => item !== "inventory");
-        windowStack.push("inventory");
-
-        const invCloseBtnX = invWinX + invWinW - 25;
-        const invCloseBtnY = invWinY + 5;
-        if (clickX >= invCloseBtnX && clickX <= invCloseBtnX + 25 && clickY >= invCloseBtnY && clickY <= invCloseBtnY + 25) {
-            isInventoryOpen = false;
-            if (typeof playMenuDownSound === 'function') playMenuDownSound();
-            return;
-        }
-
-        if (clickX >= invWinX && clickX <= invWinX + invWinW && clickY >= invWinY && clickY <= invWinY + 30) {
-            isDraggingInv = true;
-            dragOffsetXInv = clickX - invWinX;
-            dragOffsetYInv = clickY - invWinY;
-            return;
-        }
-        return;
-    }
-
-    // 🌟 5. ✨ Extra Menu の判定処理（追加分）
-    if (priorityWindow === "extra") {
-        // extra を最前面に移動
-        windowStack = windowStack.filter(item => item !== "extra");
-        windowStack.push("extra");
-
-        // --- ❌ 閉じるボタンの判定 ---
-        const eCloseBtnX = eWinX + eWinW - 25;
-        const eCloseBtnY = eWinY + 5;
-        if (clickX >= eCloseBtnX && clickX <= eCloseBtnX + 25 && clickY >= eCloseBtnY && clickY <= eCloseBtnY + 25) {
-            isEWindowOpen = false;
-            if (typeof playMenuDownSound === 'function') playMenuDownSound();
-            return;
-        }
-
-        // --- 🖐️ タイトルバーのドラッグ判定 ---
-        if (clickX >= eWinX && clickX <= eWinX + eWinW && clickY >= eWinY && clickY <= eWinY + 30) {
-            isDraggingE = true; 
-            dragOffsetXE = clickX - eWinX;
-            dragOffsetYE = clickY - eWinY;
-            return;
-        }
-
-        // ウィンドウ内クリックをガード
-        return;
-    }
-
-    // 6. 🎒 どの窓も触っていない場合の操作
+    // 3. 🎒 どの窓も触っていない場合の操作（アイテムスロット・捨て処理）
     if (clickY >= 130 && clickY <= 170) {
         const index = Math.floor((clickX - 20) / 48);
         if (index >= 0 && index < 10) {
@@ -3503,107 +3582,15 @@ canvas.addEventListener('mousedown', (event) => {
                 if (typeof playHoverSound === 'function') playHoverSound();
             }
         }
-    } 
-    else {
-        // view.js 内の修正
-
-// --- 🗑️ アイテムを地面に捨てる処理（Enterキー・Escapeキー対応版） ---
-if (selectedSlotIndex !== -1) {
-    const item = inventoryVisualBuffer[selectedSlotIndex];
-    if (item) {
-        const currentAmount = item.count || item.amount || 1;
-
-        if (currentAmount > 1) {
-            const form = document.getElementById('drop-form');
-            const label = document.getElementById('drop-label');
-            const input = document.getElementById('drop-input');
-            const error = document.getElementById('drop-error'); 
-            
-            label.innerText = `${currentAmount}個持っています。何個捨てますか？`;
-            error.innerText = ""; 
-            input.style.border = "1px solid #ccc"; 
-            
-            input.value = currentAmount;
-            input.max = currentAmount; 
-            input.min = 1;
-
-            // 🌟 フォームを表示し、入力中フラグをONにする
-            isDiscarding = true;
-            form.style.display = 'block';
-            form.style.pointerEvents = 'auto';
-            canvas.style.cursor = "default";
-
-            // 🌟 自動で入力欄にフォーカスを当てる（すぐにEnterや数値入力が可能に）
-            setTimeout(() => input.focus(), 10);
-
-            // ✅ 共通の確定処理（ボタンクリックとEnterキーの両方で使用）
-            const handleConfirm = () => {
-                let dropAmount = parseInt(input.value);
-
-                if (isNaN(dropAmount) || dropAmount <= 0) {
-                    error.innerText = "1個以上の数値を入力してください";
-                    input.style.border = "2px solid #ff4444";
-                    input.value = 1;
-                    return;
-                }
-
-                if (dropAmount > currentAmount) {
-                    error.innerText = `そんなに持っていません！(最大${currentAmount}個)`;
-                    input.style.border = "2px solid #ff4444";
-                    input.value = currentAmount; 
-                    return; 
-                }
-
-                socket.emit('dropItem', { index: selectedSlotIndex, amount: dropAmount });
-                
-                // 🌟 状態をリセット
-                isDiscarding = false;
-                selectedSlotIndex = -1;
-                canvas.style.cursor = "default";
-                form.style.display = 'none';
-                form.style.pointerEvents = 'none';
-                error.innerText = ""; 
-                // イベントリスナーを解除
-                input.onkeydown = null;
-            };
-
-            // ✅ 共通のキャンセル処理
-            const handleCancel = () => {
-                isDiscarding = false;
-                selectedSlotIndex = -1;
-                canvas.style.cursor = "default";
-                form.style.display = 'none';
-                form.style.pointerEvents = 'none';
-                error.innerText = "";
-                input.onkeydown = null;
-            };
-
-            // ✅ 決定ボタンを押した時の処理
-            document.getElementById('drop-confirm').onclick = handleConfirm;
-
-            // ❌ キャンセルボタン
-            document.getElementById('drop-cancel').onclick = handleCancel;
-
-            // 🌟 キーボード入力イベント
-            input.onkeydown = (e) => {
-                if (e.key === 'Enter') {
-                    e.preventDefault(); // ページの更新などを防ぐ
-                    handleConfirm();
-                } else if (e.key === 'Escape') {
-                    handleCancel();
-                }
-            };
-
-        } else {
-            // 1個ならそのまま捨てる
-            socket.emit('dropItem', { index: selectedSlotIndex, amount: 1 });
-            
-            // 🌟 状態をリセット
-            selectedSlotIndex = -1;
-            canvas.style.cursor = "default";
+    } else {
+        // --- 🗑️ アイテムを地面に捨てる処理 ---
+        if (selectedSlotIndex !== -1) {
+            const item = inventoryVisualBuffer[selectedSlotIndex];
+            if (item) {
+                // 🌟 分離した関数を呼び出す
+                openDropForm(selectedSlotIndex, item);
+            }
         }
-    }
-}
     }
 });
 
@@ -3857,7 +3844,7 @@ function drawUIDebugInfo() {
     ctx.fillStyle = "#00ff00"; // デバッグ文字は緑色
     ctx.font = "12px monospace";
     ctx.fillText("--- UI DEBUG ---", 20, canvas.height - 100);
-    ctx.fillText(`Window Open : ${isStatsWindowOpen}`, 20, canvas.height - 85);
+    ctx.fillText(`Window Open : ${gameWindows.status.isOpen}`, 20, canvas.height - 85);
     ctx.fillText(`Current Tab : ${currentTab}`, 20, canvas.height - 70);
     ctx.fillText(`Available AP: ${apPoints}`, 20, canvas.height - 55);
     ctx.fillText(`Is Dragging : ${isDragging}`, 20, canvas.height - 40);
@@ -3922,7 +3909,7 @@ function autoDebugRender() {
                 draw(`[Items]  Dropped: ${itemCount}`); // 修正したカウントを表示
                 draw(`[Server] ${serverDebugInfo.players ? "Sync: OK" : "Sync: Waiting"}`);
                 draw(`[AP]     Points: ${hero.ap || 0}`);
-                draw(`[Status] ${isStatsWindowOpen ? "UI:Open" : "UI:Closed"}`);
+                draw(`[Status] ${gameWindows.status.isOpen ? "UI:Open" : "UI:Closed"}`);
             }
         }
     } catch (err) {
@@ -3956,7 +3943,7 @@ window.addEventListener('keydown', (e) => {
     function updateHoverSystem() {
         try {
             // ステータス画面が開いている時だけ処理
-            if (typeof isStatsWindowOpen !== 'undefined' && isStatsWindowOpen) {
+            if (typeof gameWindows.status.isOpen !== 'undefined' && gameWindows.status.isOpen) {
                 
                 // ボタンの当たり判定（座標のズレをなくすため毎回計算）
                 const bX = winX + 160; 
@@ -4007,12 +3994,12 @@ window.addEventListener('keydown', (event) => {
 */
 
 // 🎒 新しいインベントリウィンドウを描画する関数
-function drawNewInventoryWindow() {
-    if (!isInventoryOpen) return;
+function drawInventoryWindow() {
+    if (!gameWindows.inventory.isOpen) return;
 
     // 400, 100 などの直接の数字を、変数名に変えるだけです
     if (typeof drawSimpleWindow === 'function') {
-        drawSimpleWindow("🎒 Items & Equipment", invWinX, invWinY, invWinW, invWinH);
+        drawSimpleWindow("🎒 Items & Equipment", gameWindows.inventory.x, gameWindows.inventory.y, gameWindows.inventory.w, gameWindows.inventory.h);
     }
 }
 
@@ -4021,14 +4008,14 @@ function drawNewInventoryWindow() {
 // ==========================================
 function drawExtraWindow() {
     // ウィンドウが開いていない場合は何もしない
-    if (!isEWindowOpen) return;
+    if (!gameWindows.extra.isOpen) return;
 
     try {
         if (typeof ctx !== 'undefined' && typeof hero !== 'undefined') {
             // 🌟 共通関数 drawSimpleWindow を使用して枠とタイトルを描画
             // タイトルは元のデバッグ表示を意識して「🛠️ Debug Menu」としています
             if (typeof drawSimpleWindow === 'function') {
-                drawSimpleWindow("🛠️ Debug Menu", eWinX, eWinY, eWinW, eWinH);
+                drawSimpleWindow("🛠️ Debug Menu", gameWindows.extra.x, gameWindows.extra.y, gameWindows.extra.w, gameWindows.extra.h);
             }
 
             // --- 🎨 文字の描画設定（元のコードを踏襲） ---
@@ -4039,7 +4026,7 @@ function drawExtraWindow() {
             let line = 0;
             const draw = (txt) => {
                 // eWinX, eWinY を基準に、タイトルバー(30px)の下から描画を開始
-                ctx.fillText(txt, eWinX + 15, eWinY + 50 + (line * 20));
+                ctx.fillText(txt, gameWindows.extra.x + 15, gameWindows.extra.y + 50 + (line * 20));
                 line++;
             };
 
@@ -4062,7 +4049,7 @@ function drawExtraWindow() {
             draw(`[Server] ${serverStatus}`);
             
             draw(`[AP]     Points: ${hero.ap || 0}`);
-            draw(`[Status] ${isStatsWindowOpen ? "UI:Open" : "UI:Closed"}`);
+            draw(`[Status] ${gameWindows.status.isOpen ? "UI:Open" : "UI:Closed"}`);
 
             ctx.restore();
         }
@@ -4076,59 +4063,235 @@ function drawExtraWindow() {
 // 代わりに、drawUIOverlay() などのメインの描画ループの中で 
 // windowStack を通じて drawExtraWindow(); が呼ばれるようにしてください。
 
-/*
-function drawExtraWindow() {
-    if (!isEWindowOpen) return;
-    
-	if (typeof drawSimpleWindow === 'function') {
-        drawSimpleWindow("Extra Menu (E)", eWinX, eWinY, eWinW, eWinH);
-    }
-	
-    // 枠の描画
-    ctx.fillStyle = "rgba(0, 0, 0, 0.8)";
-    ctx.strokeStyle = "#ffffff";
-    ctx.lineWidth = 2;
-    ctx.fillRect(eWinX, eWinY, eWinW, eWinH);
-    ctx.strokeRect(eWinX, eWinY, eWinW, eWinH);
-
-    // タイトルバー
-    ctx.fillStyle = "#333333";
-    ctx.fillRect(eWinX, eWinY, eWinW, 30);
-    
-    ctx.fillStyle = "#ffffff";
-    ctx.font = "bold 14px sans-serif";
-    ctx.fillText("Extra Menu (E)", eWinX + 10, eWinY + 20);
-}
-*/
-
+/**
+ * 全てのゲームウィンドウを重なり順（Z-Index）に基づいて一括描画する関数
+ * メインループ（update/draw）から毎フレーム呼び出されることを想定
+ */
 function drawWindows() {
+    // windowStackは「開いている/存在する」ウィンドウのIDが重なり順に並んだ配列
+    // 配列の後ろにあるものほど、後から描画される（＝手前に表示される）
     windowStack.forEach(winType => {
-        if (winType === "inventory") drawNewInventoryWindow();
-        if (winType === "status") drawStatusWindow(); // 既存の関数名に合わせてください
-        if (winType === "extra") drawExtraWindow();   // 🌟 追加
+        
+        // 各ウィンドウID（winType）に応じて、個別の描画関数を呼び出す
+        // ※各関数内で if (!gameWindows[winType].isOpen) return; している前提、
+        // もしくはここで if (gameWindows[winType].isOpen) で囲むとより安全です。
+
+        // --- メインステータス・成長系 ---
+        if (winType === "status")    drawStatusWindow();    // [S] ステータス
+        if (winType === "equipment") drawEquipmentWindow(); // [E] 装備
+        if (winType === "inventory") drawInventoryWindow(); // [I] インベントリ
+        if (winType === "skill")     drawSkillWindow();     // [K] スキル
+        if (winType === "avatar")    drawAvatarWindow();    // [A] アバター
+        if (winType === "upgrade")   drawUpgradeWindow();   // [U] アップグレード
+
+        // --- 冒険・ナビゲーション系 ---
+        if (winType === "quest")     drawQuestWindow();     // [Q] クエスト
+        if (winType === "worldmap")  drawWorldMapWindow();  // [W] ワールドマップ
+        if (winType === "minimap")   drawMiniMapWindow();   // [M] ミニマップ
+        if (winType === "journal")   drawJournalWindow();   // [J] 日記
+        if (winType === "book")      drawBookWindow();      // [B] ブック
+
+        // --- ソーシャル・コミュニティ系 ---
+        if (winType === "guild")     drawGuildWindow();     // [G] ギルド
+        if (winType === "friend")    drawFriendWindow();    // [F] フレンドリスト
+        if (winType === "party")     drawPartyWindow();     // [P] パーティ
+        if (winType === "trade")     drawTradeWindow();     // [T] トレード
+
+        // --- システム・ログ・通知系 ---
+        if (winType === "log")       drawLogWindow();       // [L] ログ
+        if (winType === "event")     drawEventWindow();     // [N] イベント
+        if (winType === "options")   drawOptionsWindow();   // [O] オプション
+        if (winType === "help")      drawHelpWindow();      // [H] ヘルプ
+
+        // --- 特殊・戦略的予約枠 ---
+        if (winType === "extra")      drawExtraWindow();     // 特殊枠
+        if (winType === "reserved_d") drawReservedDWindow(); // [D] 予備
+        if (winType === "reserved_v") drawReservedVWindow(); // [V] 予備
     });
 }
 
-function getPriorityWindow(mx, my) {
-    const isOverStats = (isStatsWindowOpen && mx >= winX && mx <= winX + 300 && my >= winY && my <= winY + 250);
-    const isOverInv = (isInventoryOpen && mx >= invWinX && mx <= invWinX + invWinW && my >= invWinY && my <= invWinY + invWinH);
-    const isOverExtra = (isEWindowOpen && mx >= eWinX && mx <= eWinX + eWinW && my >= eWinY && my <= eWinY + eWinH); // 🌟 追加
+// --- 📊 メインステータス・成長系 ---
+/*
+function drawStatusWindow() {
+    const win = gameWindows.status;
+    if (!win.isOpen) return;
+    // Statusは既に詳細な実装があるため、既存のコードをここに統合してください
+    drawSimpleWindow("📊 Player Status", win.x, win.y, win.w, win.h);
+}
+*/
 
-    // 重なっている窓を特定
+function drawEquipmentWindow() {
+    const win = gameWindows.equipment;
+    if (!win.isOpen) return;
+    drawSimpleWindow("🛡️ Equipment", win.x, win.y, win.w, win.h);
+}
+
+/*
+function drawInventoryWindow() {
+    const win = gameWindows.inventory;
+    if (!win.isOpen) return;
+    // Inventoryは既存の drawNewInventoryWindow() 等があればそちらを呼び出してください
+    drawSimpleWindow("🎒 Inventory", win.x, win.y, win.w, win.h);
+}
+*/
+
+function drawSkillWindow() {
+    const win = gameWindows.skill;
+    if (!win.isOpen) return;
+    drawSimpleWindow("📜 Skill", win.x, win.y, win.w, win.h);
+}
+
+function drawAvatarWindow() {
+    const win = gameWindows.avatar;
+    if (!win.isOpen) return;
+    drawSimpleWindow("👕 Avatar", win.x, win.y, win.w, win.h);
+}
+
+function drawUpgradeWindow() {
+    const win = gameWindows.upgrade;
+    if (!win.isOpen) return;
+    drawSimpleWindow("💎 Upgrade", win.x, win.y, win.w, win.h);
+}
+
+// --- 🗺️ 冒険・ナビゲーション系 ---
+function drawQuestWindow() {
+    const win = gameWindows.quest;
+    if (!win.isOpen) return;
+    drawSimpleWindow("❓ Quest", win.x, win.y, win.w, win.h);
+}
+
+function drawWorldMapWindow() {
+    const win = gameWindows.worldmap;
+    if (!win.isOpen) return;
+    drawSimpleWindow("🗺️ World Map", win.x, win.y, win.w, win.h);
+}
+
+function drawMiniMapWindow() {
+    const win = gameWindows.minimap;
+    if (!win.isOpen) return;
+    drawSimpleWindow("📍 Mini Map", win.x, win.y, win.w, win.h);
+}
+
+function drawJournalWindow() {
+    const win = gameWindows.journal;
+    if (!win.isOpen) return;
+    drawSimpleWindow("📖 Journal", win.x, win.y, win.w, win.h);
+}
+
+function drawBookWindow() {
+    const win = gameWindows.book;
+    if (!win.isOpen) return;
+    drawSimpleWindow("📕 Monster Book", win.x, win.y, win.w, win.h);
+}
+
+// --- 👥 ソーシャル・コミュニティ系 ---
+function drawGuildWindow() {
+    const win = gameWindows.guild;
+    if (!win.isOpen) return;
+    drawSimpleWindow("🏰 Guild", win.x, win.y, win.w, win.h);
+}
+
+function drawFriendWindow() {
+    const win = gameWindows.friend;
+    if (!win.isOpen) return;
+    drawSimpleWindow("🤝 Friend List", win.x, win.y, win.w, win.h);
+}
+
+function drawPartyWindow() {
+    const win = gameWindows.party;
+    if (!win.isOpen) return;
+    drawSimpleWindow("⚔️ Party", win.x, win.y, win.w, win.h);
+}
+
+function drawTradeWindow() {
+    const win = gameWindows.trade;
+    if (!win.isOpen) return;
+    drawSimpleWindow("🤝 Trade", win.x, win.y, win.w, win.h);
+}
+
+// --- ⚙️ システム・ログ・通知系 ---
+function drawLogWindow() {
+    const win = gameWindows.log;
+    if (!win.isOpen) return;
+    drawSimpleWindow("📝 System Log", win.x, win.y, win.w, win.h);
+}
+
+function drawEventWindow() {
+    const win = gameWindows.event;
+    if (!win.isOpen) return;
+    drawSimpleWindow("🎁 Event", win.x, win.y, win.w, win.h);
+}
+
+function drawOptionsWindow() {
+    const win = gameWindows.options;
+    if (!win.isOpen) return;
+    drawSimpleWindow("⚙️ Options", win.x, win.y, win.w, win.h);
+}
+
+function drawHelpWindow() {
+    const win = gameWindows.help;
+    if (!win.isOpen) return;
+    drawSimpleWindow("❓ Help", win.x, win.y, win.w, win.h);
+}
+
+// --- 🌟 特殊・予約枠 ---
+function drawExtraWindow() {
+    const win = gameWindows.extra;
+    if (!win.isOpen) return;
+    drawSimpleWindow("✨ Extra", win.x, win.y, win.w, win.h);
+}
+
+function drawReservedDWindow() {
+    const win = gameWindows.reserved_d;
+    if (!win.isOpen) return;
+    drawSimpleWindow("🛠️ Reserved (D)", win.x, win.y, win.w, win.h);
+}
+
+function drawReservedVWindow() {
+    const win = gameWindows.reserved_v;
+    if (!win.isOpen) return;
+    drawSimpleWindow("🛠️ Reserved (V)", win.x, win.y, win.w, win.h);
+}
+
+function getPriorityWindow(mx, my) {
+    // 1. 各ウィンドウの「全体」にマウスが乗っているか判定
+    const isOverStats = (gameWindows.status.isOpen && 
+        mx >= gameWindows.status.x && mx <= gameWindows.status.x + 300 && 
+        my >= gameWindows.status.y && my <= gameWindows.status.y + 250);
+        
+    const isOverInv = (gameWindows.inventory.isOpen && 
+        mx >= gameWindows.inventory.x && mx <= gameWindows.inventory.x + gameWindows.inventory.w && 
+        my >= gameWindows.inventory.y && my <= gameWindows.inventory.y + gameWindows.inventory.h);
+        
+    const isOverExtra = (gameWindows.extra.isOpen && 
+        mx >= gameWindows.extra.x && mx <= gameWindows.extra.x + gameWindows.extra.w && 
+        my >= gameWindows.extra.y && my <= gameWindows.extra.y + gameWindows.extra.h);
+
+    // 🌟 重なっている窓を特定（元のロジックを維持）
     let activeWindows = [];
     if (isOverStats) activeWindows.push("status");
     if (isOverInv) activeWindows.push("inventory");
     if (isOverExtra) activeWindows.push("extra");
 
     if (activeWindows.length > 0) {
-        // stack の中で一番後ろ（＝手前）にあるものを返す
+        // stack の中で一番後ろ（＝手前）にあるものを特定
         for (let i = windowStack.length - 1; i >= 0; i--) {
-            if (activeWindows.includes(windowStack[i])) {
-                return windowStack[i];
+            const winId = windowStack[i];
+            if (activeWindows.includes(winId)) {
+                
+                // 🌟 追加：特定したウィンドウの「ヘッダー部分(上部30px)」にマウスがあるか判定
+                const win = gameWindows[winId];
+                // gameWindows.status のように個別に幅が指定されている場合を考慮
+                const winW = (winId === "status") ? 300 : win.w;
+                
+                const isHeader = (my >= win.y && my <= win.y + 30);
+
+                // 文字列だけでなく、情報を持たせたオブジェクトを返す
+                return { id: winId, isHeader: isHeader };
             }
         }
     }
-    return "none";
+    return { id: "none", isHeader: false };
 }
 
 /**
@@ -4195,56 +4358,122 @@ const createCharSelector = () => {
     overlay.id = 'char-selector-overlay';
     overlay.style.cssText = `
         position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-        background: rgba(10, 10, 10, 0.95); display: flex; flex-direction: column;
+        background: radial-gradient(circle, #222 0%, #050505 100%);
+        display: flex; flex-direction: column;
         align-items: center; justify-content: center; z-index: 10000;
     `;
 
     const title = document.createElement('h2');
-    title.innerText = "CHARACTER SELECT";
-    title.style.cssText = "color: #ddd; margin-bottom: 30px; font-family: sans-serif; letter-spacing: 4px; font-weight: lighter;";
+    title.innerText = "CHARACTER SELECT"; 
+    title.style.cssText = "color: #fff; margin-bottom: 40px; font-family: sans-serif; letter-spacing: 6px; text-shadow: 0 0 10px rgba(0,255,204,0.5); font-weight: lighter;";
     overlay.appendChild(title);
 
     const grid = document.createElement('div');
     grid.style.cssText = `
-        display: grid; grid-template-columns: repeat(4, 100px);
-        grid-template-rows: repeat(4, 100px); gap: 15px;
+        display: grid; grid-template-columns: repeat(4, 110px);
+        grid-template-rows: repeat(4, 110px); gap: 20px;
     `;
+
+    // 🌟 全てのタイマーを管理するリスト
+    const animTimers = [];
 
     for (let i = 1; i <= 16; i++) {
         const btn = document.createElement('button');
-        btn.innerText = i; // 見た目は 1 〜 16
-        btn.style.cssText = `
-            width: 100%; height: 100%; cursor: pointer; 
-            border: 1px solid #444; background: #1a1a1a; color: #888; 
-            font-size: 18px; transition: all 0.3s ease; border-radius: 4px;
+        
+        // 🌟 実際のフォルダ名用 (00, 01, ... 15)
+        const folderIdStr = String(i - 1).padStart(2, '0'); 
+        
+        // 🌟 画面表示用 (01, 02, ... 16)
+        const displayNumStr = String(i).padStart(2, '0'); 
+        
+        // 🌟 画像ファイル名は "01" で固定
+        const charFileNameId = "01"; 
+
+        // 🌟 アニメーション用の内部変数
+        let currentFrame = 0;
+        const totalFrames = 20;
+
+        // パスを生成する関数
+        const getIdlePath = (frame) => {
+            const frameStr = String(frame).padStart(2, '0');
+            return `char_assets/${folderIdStr}/01/Idle/Characters-Character${charFileNameId}-Idle_${frameStr}.png`;
+        };
+
+        // 🌟 【修正：点滅防止】全フレームを事前にプリロードする
+        // new Image() にパスを代入することでブラウザのキャッシュに保存させます
+        const preloadLinks = [];
+        for (let f = 0; f < totalFrames; f++) {
+            const img = new Image();
+            img.src = getIdlePath(f);
+            preloadLinks.push(img);
+        }
+
+        const nameTag = document.createElement('div');
+        nameTag.innerText = `Chara ${displayNumStr}`; 
+        nameTag.style.cssText = `
+            position: absolute; top: 8px; left: 0; width: 100%;
+            color: #888; font-size: 11px; text-align: center;
+            transition: all 0.3s; font-family: 'Courier New', monospace;
+            letter-spacing: 1px;
+            z-index: 10;
         `;
 
-        // オンマウス演出（落ち着いたグレー）
+        btn.style.cssText = `
+            position: relative;
+            width: 100%; height: 100%; cursor: pointer; 
+            border: 1px solid #333; 
+            background-color: rgba(30, 30, 30, 0.8); 
+            transition: all 0.3s ease; border-radius: 8px;
+            overflow: hidden;
+            background-image: url('${getIdlePath(0)}');
+            background-size: 180%;
+            background-repeat: no-repeat;
+            background-position: center bottom;
+            image-rendering: pixelated;
+            box-shadow: inset 0 0 15px rgba(0,0,0,0.6);
+        `;
+
+        // 🌟 アニメーションタイマー設定 (100msごとにコマ送り)
+        const timer = setInterval(() => {
+            currentFrame = (currentFrame + 1) % totalFrames;
+            // 🌟 プリロード済みのImageオブジェクトからパスを取得することで、
+            // サーバー通信を発生させず即座に表示を切り替えます
+            btn.style.backgroundImage = `url('${preloadLinks[currentFrame].src}')`;
+        }, 100);
+        animTimers.push(timer); // 後で一括解除できるように保存
+
         btn.onmouseover = () => { 
-            btn.style.background = "#333"; 
-            btn.style.color = "#fff";
-            btn.style.borderColor = "#aaa";
+            btn.style.backgroundColor = "#444"; 
+            btn.style.borderColor = "#00ffcc";
+            btn.style.transform = "scale(1.1) translateY(-5px)";
+            btn.style.boxShadow = "0 5px 15px rgba(0, 255, 204, 0.3)";
+            btn.style.backgroundSize = "200%";
+            nameTag.style.color = "#00ffcc";
+            nameTag.style.transform = "scale(1.1)";
         };
+
         btn.onmouseout = () => { 
-            btn.style.background = "#1a1a1a"; 
-            btn.style.color = "#888";
-            btn.style.borderColor = "#444";
+            btn.style.backgroundColor = "rgba(30, 30, 30, 0.8)"; 
+            btn.style.borderColor = "#333";
+            btn.style.transform = "scale(1.0) translateY(0)";
+            btn.style.boxShadow = "inset 0 0 15px rgba(0,0,0,0.6)";
+            btn.style.backgroundSize = "180%";
+            nameTag.style.color = "#888";
+            nameTag.style.transform = "scale(1.0)";
         };
 
-        // 🌟 クリック時に変数を定義して関数を実行
         btn.onclick = () => {
-            // 見た目 i (1〜16) に対して、システム上の数値 selectedGroup を (0〜15) に修正
-            selectedGroup = i - 1; 
-            selectedCharVar = 1; // 1種類しかないので1固定
-            
-            // 🚩 ここであなたの関数を呼び出します
-            loadCharFrames(selectedGroup, selectedCharVar);
+            // 🌟 全てのタイマーをクリアしてメモリ解放
+            animTimers.forEach(t => clearInterval(t));
 
-            console.log(`Loaded: Group ${selectedGroup} (Internal ID), Var ${selectedCharVar}`);
-            
-            overlay.remove(); // 選択が終わったら画面を消す
+            selectedGroup = i - 1; 
+            selectedCharVar = 1; 
+            loadCharFrames(selectedGroup, selectedCharVar);
+            console.log(`Loaded Folder: ${folderIdStr}, Displayed as: Chara ${displayNumStr}`);
+            overlay.remove();
         };
 
+        btn.appendChild(nameTag);
         grid.appendChild(btn);
     }
 

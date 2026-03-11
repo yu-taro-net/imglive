@@ -57,54 +57,78 @@ class Player {
     this.attackStartFrame = -999;
     this.invincible = 0;
     this.inventory = [];
+
+    // 🌟 追加：ノックバック・硬直状態の管理
+    this.isStunned = false; 
+    this.stunTimer = 0;
   }
 
-  // 移動のロジックをここに持たせる
+  // 移動のロジック
   move(vx) {
+    // 🌟 追加：硬直中は移動不可
+    if (this.isStunned) return;
+
     this.x += vx;
     if (vx > 0) this.dir = 1;
     if (vx < 0) this.dir = -1;
   }
   
-  // 🌟 追加：位置を一気に更新するメソッド
+  // 🌟 位置を一気に更新するメソッド
   updatePosition(dx, dy) {
     this.x += dx;
     this.y += dy;
-    // 向きの更新もついでにやってしまう
     if (dx > 0) this.dir = 1;
     if (dx < 0) this.dir = -1;
   }
 
-  // game.js の Playerクラスの中
-  receiveDamage(amount) {
+  // 🌟 修正：敵の位置(enemyX)を受け取ってノックバック方向を決める
+  receiveDamage(amount, enemyX = null) {
     if (this.invincible > 0) return; // 無敵中なら何もしない
 
     this.hp -= amount;
 
-    // 🌟 追加：HPが0より小さくならないようにガードする
     if (this.hp < 0) {
         this.hp = 0;
     }
 
     this.invincible = 60; // 1秒間無敵
+
+    // 🌟 追加：ノックバックと硬直の発生
+    if (!this.climbing) {
+        this.dy = -8; // 上方向に跳ねる
+        
+        // 敵が右にいれば左へ、いなければ(または左なら)右へ飛ばす
+        const knockbackDir = (enemyX !== null && this.x < enemyX) ? -1 : 1;
+        this.x += knockbackDir * 30; 
+
+        this.isStunned = true; // 操作不能開始
+        this.stunTimer = 30;   // 約0.3秒の硬直
+    }
     
     console.log(`${this.name}は ${amount} のダメージを受けた！ 残りHP: ${this.hp}`);
   }
 
-  // 🌟 追加：リスポーン（復活）のルールを定義する
+  // 🌟 リスポーン（復活）のルール
   respawn() {
-    this.hp = 100;    // HPを全回復
-    this.x = 50;     // 初期位置X
-    this.y = 390;    // 初期位置Y
-    this.climbing = false; // ハシゴ状態を解除
+    this.hp = 100; 
+    this.x = 50; 
+    this.y = 390; 
+    this.climbing = false;
+    this.isStunned = false; // 🌟 復活時に硬直解除
+    this.stunTimer = 0;
     console.log(`${this.name}(Ch:${this.channel})がリスポーンしました。`);
   }
   
   /**
-   * 🌟 修正版：足場データを受け取って、接地判定まで一気にやる
-   * ロジックの構造はそのままに、判定を中央に寄せました。
+   * 🌟 物理演算と硬直時間の更新
    */
   applyPhysics(platforms) {
+    // 🌟 追加：硬直タイマーの更新
+    if (this.stunTimer > 0) {
+        this.stunTimer--;
+        if (this.stunTimer <= 0) this.isStunned = false;
+    }
+
     if (!this.climbing) {
       this.dy += GAME_SETTINGS.GRAVITY;
     } else {
@@ -122,15 +146,11 @@ class Player {
         grounded = true;
     }
 
-    // B. 足場の判定（メインループから引っ越してきた部分）
+    // B. 足場の判定
     if (platforms && !this.climbing && this.dy >= 0) {
       platforms.forEach(p => {
-        const currentHeight = 60; // プレイヤーの基本高さ
-        
-        // ⭐ 修正：左右対称の判定を「中央」に寄せる
-        // キャラクターの画像中心 (this.x + 30) を基準にします
+        const currentHeight = 60; 
         const charCenter = this.x + 20;
-        // 中心から左右にどれだけの幅で足を乗せるか（20pxに設定 = 合計40px幅）
         const footWidth = 20;
 
         if (charCenter + footWidth > p.x && charCenter - footWidth < p.x + p.w) {
@@ -152,27 +172,26 @@ class Player {
       this.jumpFrame = (this.jumpFrame || 0) + 1;
     }
 
-    return grounded; // 地面か足場にいたら true を返す
+    return grounded; 
   }
   
-  // 🌟 追加：攻撃を開始するルール
+  // 🌟 攻撃を開始するルール
   startAttack() {
-    if (this.climbing) return;      // ハシゴ中は攻撃不可
-    if (this.isAttacking > 0) return; // 連続攻撃防止
+    if (this.climbing || this.isStunned) return; // 🌟 硬直中は攻撃不可
+    if (this.isAttacking > 0) return; 
     
-    this.isAttacking = 20;          // 攻撃モーションの時間
-    this.attackStartFrame = frame;  // 現在のフレームを記録
+    this.isAttacking = 20; 
+    this.attackStartFrame = frame; 
   }
   
-  // 🌟 追加：攻撃が当たっているか判定する
+  // 🌟 攻撃が当たっているか判定
   checkHit(enemies) {
-    if (this.isAttacking !== 13) return null; // 13フレーム目以外は何もしない
+    if (this.isAttacking !== 13) return null; 
 
     let targetsInRange = [];
     enemies.forEach(en => {
       if (!en.alive || en.isFading || en.hp <= 0) return;
 
-      // ハンマーの判定位置
       const hitBoxX = (this.dir === -1) ? this.x - 40 : this.x + 80;
       const hitBoxY = this.y; 
 
@@ -189,12 +208,12 @@ class Player {
 
     if (targetsInRange.length > 0) {
       targetsInRange.sort((a, b) => a.dist - b.dist);
-      return targetsInRange[0].enemy; // 一番近い敵を返す
+      return targetsInRange[0].enemy; 
     }
     return null;
   }
   
-  // 🌟 追加：敵との接触をチェックして、当たっていればダメージを受ける
+  // 🌟 敵との接触をチェック
   checkEnemyCollision(enemies) {
     if (this.invincible > 0) {
       this.invincible--;
@@ -209,7 +228,6 @@ class Player {
       let hitH = en.h;
       let offsetX = 0;
 
-      // 敵の攻撃中の当たり判定サイズ計算
       if (en.isAttacking > 0 && typeof sprites !== 'undefined') {
         const atkSprites = sprites[en.type + "Attack"];
         if (atkSprites && atkSprites.length > 0) {
@@ -224,7 +242,6 @@ class Player {
         }
       }
 
-      // 矩形による接触判定
       const isHit = (
         this.x < en.x + hitW + offsetX &&
         this.x + 60 > en.x + offsetX &&
@@ -234,13 +251,9 @@ class Player {
 
       if (isHit) {
         const dmg = Math.floor(Math.random() * 8) + 8;
-        this.receiveDamage(dmg); // クラス内の既存メソッドを呼び出す
-
-        // ノックバック処理
-        if (!this.climbing) {
-          this.dy = -8;
-          this.x += (this.x < en.x) ? -30 : 30;
-        }
+        
+        // 🌟 修正：敵の位置(en.x)を渡してノックバックを計算させる
+        this.receiveDamage(dmg, en.x); 
 
         // サーバー通信とリスポーン判定
         socket.emit('player_damaged', { val: dmg, newHp: this.hp });
@@ -257,7 +270,7 @@ class Player {
 // ログイン前はまだチャンネルが確定していないので、一旦デフォルト(1)で作るか、
 // あるいは startBtn.onclick の中で作り直す形にします。
 
-let hero = new Player("なまえ", 1); // 初期値としてCh1をセット
+let hero = new Player("name1", 1); // 初期値としてCh1をセット
 
 // ==========================================
 // 🌍 3. 世界の状態（他のプレイヤー・敵・マップ）
@@ -377,22 +390,166 @@ window.onkeyup = e => window.keys[e.code] = false;
 const chatIn = document.getElementById('chat-in');
 const msgBox = document.getElementById('msg-box');
 
+// index.html の送信処理 (Enterキー)
 chatIn.onkeydown = e => {
-  if (e.key === 'Enter' && chatIn.value.trim() !== '') {
-    socket.emit('chat', chatIn.value);
-    chatIn.value = ''; chatIn.blur();
-  }
+    // 🌟 1. 日本語入力の「変換確定エンター」を無視するガード
+    // これを入れないと、Chrome等で確定時と送信時で2回送られてしまいます
+    if (e.isComposing || e.keyCode === 229) {
+        return;
+    }
+
+    // 2. エンターキーが押され、かつ入力欄が空でない場合に実行
+    if (e.key === 'Enter' && chatIn.value.trim() !== '') {
+        const chatMode = document.getElementById('chat-mode');
+        const selectedValue = chatMode.value;
+
+        let type = 'all';
+        let targetName = '';
+        let val = chatIn.value;
+
+        // --- 送信モードの判定ロジック ---
+        
+        if (selectedValue === 'all') {
+            // 全体チャット
+            type = 'all';
+        } else if (selectedValue === 'group') {
+            // グループチャット
+            type = 'group';
+        } else if (selectedValue === 'whisper') {
+            // 🌟 「内緒話(新規入力)...」が選ばれている場合
+            // 入力欄の「名前 本文」から分割する
+            const parts = val.split(' ');
+            if (parts.length >= 2) {
+                targetName = parts[0];
+                val = parts.slice(1).join(' ');
+                type = 'whisper';
+            } else {
+                alert("「相手の名前 メッセージ」と入力してください");
+                return;
+            }
+        } else if (selectedValue.startsWith('whisper:')) {
+            // 🌟 専用の「内緒話：名前」が選ばれている場合
+            // メニューの value (whisper:名前) から名前を取得
+            type = 'whisper';
+            targetName = selectedValue.split(':')[1];
+        }
+
+        // 🌟【自分への内緒話を禁止するガード】
+        // 相手の名前が自分(hero.name)と同じだった場合、送信を中止します
+        if (type === 'whisper' && targetName === hero.name) {
+            alert("自分自身に内緒話は送れません！");
+            chatIn.value = ''; // 入力内容をクリア
+            return; 
+        }
+
+        // 3. サーバーへ送信
+        socket.emit('chat', { 
+            text: val, 
+            type: type, 
+            targetName: targetName 
+        });
+
+        // 4. 入力欄をクリアしてフォーカスを維持
+        chatIn.value = '';
+        chatIn.focus();
+    }
 };
 
+// ==========================================
+// 💬 チャット受信処理
+// ==========================================
 socket.on('chat', data => {
+  // --- 1. 左下のログ表示 ---
   const div = document.createElement('div');
-  div.innerHTML = `<strong style="color:#60a5fa">${data.name}:</strong> ${data.text}`;
-  msgBox.appendChild(div);
-  msgBox.scrollTop = msgBox.scrollHeight;
+  
+  // 色の設定
+  let color = '#60a5fa'; // 通常
+  if (data.type === 'group') color = '#ff80ff';   // グループ（ピンク）
+  if (data.type === 'whisper') color = '#99ffff'; // 内緒話（水色）
+  if (data.type === 'system') color = '#ffff99';  // システム（黄色）
+
+  // 🌟 名前部分をクリックできるように改造
+  // システムメッセージ以外は、クリックすると setWhisperTarget が動くようにします
+  const isSystem = data.type === 'system';
+  const nameSpan = isSystem 
+    ? `<strong style="color:${color}">${data.name}:</strong>` 
+    : `<strong style="color:${color}; cursor:pointer;" onclick="setWhisperTarget('${data.name}')">${data.name}:</strong>`;
+
+  // ログにメッセージを追加
+  div.innerHTML = `<span style="color:#888;font-size:10px;margin-right:4px;">${data.time || ''}</span>` +
+                  nameSpan + 
+                  ` <span style="color:${color}">${data.text}</span>`;
+  
+  if (msgBox) {
+    msgBox.appendChild(div);
+    msgBox.scrollTop = msgBox.scrollHeight;
+  }
+
+  // --- 2. 頭上の吹き出し表示の判定 ---
+  if (data.type === 'whisper') return;
+
   const chatData = { text: data.text, timer: 120 };
-  if (data.id === socket.id) hero.chat = chatData;
-  else if (others[data.id]) others[data.id].chat = chatData;
+  if (data.id === socket.id) {
+    hero.chat = chatData;
+  } else if (others[data.id]) {
+    others[data.id].chat = chatData;
+  }
 });
+
+// メニュー（セレクトボックス）が変更された時に呼ばれる関数
+function onChatModeChange() {
+    const chatMode = document.getElementById('chat-mode');
+    
+    // 「内緒話 (新規入力)」が選ばれたら
+    if (chatMode.value === 'whisper') {
+        // 名前を入力してもらうポップアップを出す
+        const name = prompt("内緒話をしたい相手の名前を入力してください");
+        
+        // 🌟 修正ポイント：入力があった場合のみ処理を進める
+        if (name && name.trim() !== "") {
+            const trimmedName = name.trim();
+
+            // 🌟 自分の名前（hero.name）だった場合は、何もせず全体に戻す
+            if (trimmedName === hero.name) {
+                alert("自分自身に内緒話は送れません"); // 理由を伝えるとより親切です
+                chatMode.value = 'all';
+                return;
+            }
+
+            // 自分以外なら、専用メニューを作る
+            setWhisperTarget(trimmedName);
+        } else {
+            // キャンセルされた、または空欄なら「全体」に戻しておく
+            chatMode.value = 'all';
+        }
+    }
+}
+
+function setWhisperTarget(name) {
+    // 自分自身の名前なら何もしない
+    if (name === hero.name) return;
+	
+    const chatMode = document.getElementById('chat-mode');
+    const value = `whisper:${name}`;
+    
+    // すでにその人の選択肢があるか確認
+    let option = Array.from(chatMode.options).find(opt => opt.value === value);
+    
+    if (!option) {
+        // 新しい選択肢を作成
+        option = document.createElement('option');
+        option.value = value;
+        option.text = `内緒話：${name}`;
+        option.style.color = '#99ffff';
+        chatMode.add(option);
+    }
+    
+    // その人を選択状態にする
+    chatMode.value = value;
+    
+    // 入力欄にフォーカス
+    document.getElementById('chat-in').focus();
+}
 
 // game.js の socket.on が並んでいる場所に追加
 socket.on('user_counts', (counts) => {
@@ -440,6 +597,13 @@ function handlePlayerInput(hero, items, ladders, chatIn) {
  * 移動とハシゴに関するロジック
  */
 function handleMovementAndLadder(hero, ladders) {
+    // 🌟 修正：硬直中（ノックバック中）は入力を受け付けない
+    if (hero.isStunned) {
+        // キー入力による水平速度をリセットし、以降の処理（移動・ハシゴ）をスキップ
+        hero.vx = 0; 
+        return; 
+    }
+
     // 左右移動（ハシゴ中・伏せ中でない時）
     if (!hero.climbing && !hero.isDown) {
         if (keys['ArrowLeft']) {
@@ -771,43 +935,58 @@ if (nameInput && startBtn) {
 
 // --- 修正版 startBtn.onclick ---
 startBtn.onclick = () => {
+    // 名前が未入力の場合は "Guest" とする
     const userName = nameInput.value.trim() || "Guest";
     
-    // 🌟 入力欄からフォーカスを外す（チカチカを消す）
+    // 🌟 入力欄からフォーカスを外す（スマホのキーボードを閉じる効果もあります）
     nameInput.blur();
 
-    // 1. ログイン画面を消す
+    // 1. ログイン画面（オーバーレイ）を非表示にする
     loginOverlay.style.display = 'none';
 
-    // 2. 自分のキャラクターに情報をセット
+    // 2. 自分のキャラクター（ローカルの hero オブジェクト）に情報をセット
     if (typeof hero !== 'undefined') {
         hero.name = userName;
-        // 🌟 追加：選んだチャンネルを自分のキャラデータにも保存する
+        
+        // 🌟 追加：選んだチャンネルを自分のキャラデータにも保存
         hero.channel = selectedChannel; 
         
         // 🌟 追加：選択したグループ番号(0-15)を自分のデータにも反映
+        // これにより、自分の画面に表示される自分の姿が選んだキャラになります
         hero.group = selectedGroup;
-        hero.charVar = selectedCharVar;
+        hero.charVar = selectedCharVar; 
     }
 
     // 3. サーバーに参加を伝える
-    // 🌟 修正ポイント：名前、チャンネル、そして選んだ「group (0-15)」をセットで送る
+    // 🌟 修正ポイント：名前、チャンネル、そして選んだ「group (0-15)」をセットで送信
+    // これにより、サーバー側のデフォルト設定（p.group = 7 など）を上書きし、
+    // 他のプレイヤーの画面にも、あなたが選んだキャラが表示されるようになります。
     socket.emit('join', { 
         name: userName, 
         channel: selectedChannel,
-        group: selectedGroup // これでサーバー側の p.group = 7 を上書きできます
+        group: selectedGroup 
     });
 
-    // 🌟 重要：ブラウザの音制限を解除するためにここでAudioContextを再開
+    // 🌟 重要：ブラウザの音制限を解除するためにここで AudioContext を再開
+    // これを行わないと、他人が入室した時の通知音がブロックされる可能性があります。
     if (typeof audioCtx !== 'undefined' && audioCtx.state === 'suspended') {
-        audioCtx.resume();
+        audioCtx.resume().then(() => {
+            console.log("AudioContext active.");
+        });
     }
     
-    // もしBGMを鳴らしたいならここで呼ぶ
-    if (typeof playBGM === 'function') playBGM();
+    // BGMの再生（定義されている場合）
+    if (typeof playBGM === 'function') {
+        playBGM();
+    }
 
-    // 4. ゲームのループを開始
-    update();
+    // 4. ゲームのメインループを開始
+    // すでにループが走っている場合の二重起動防止は、update関数の設計に依存します。
+    if (typeof update === 'function') {
+        update();
+    }
+
+    console.log(`[START] Player: ${userName}, Channel: ${selectedChannel}, Group: ${selectedGroup}`);
 };
 
 // 現在選ばれているチャンネル番号（初期値は1）
