@@ -73,7 +73,7 @@ const unlockAudio = () => {
     // もしオーディオが止まっていたら再開させる
     if (audioCtx.state === 'suspended') {
         audioCtx.resume().then(() => {
-			playBGM(); // 🌟 ロック解除と同時にBGMスタート！
+			//playBGM(); // 🌟 ロック解除と同時にBGMスタート！
             console.log("🔊 オーディオが有効化されました (現在の状態: " + audioCtx.state + ")");
         });
     }

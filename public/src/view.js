@@ -1,218 +1,17 @@
-// ==========================================
-// 🎨 1. キャンバスの設定と描画品質
-// ==========================================
+// ============================================================
+// ⚙️ [SECTION 1: CONFIG] 設定・定数
+// 役割: ゲーム全体のルールや見た目の数値を固定する場所
+// ============================================================
 const canvas = document.getElementById('stage');
 const ctx = canvas.getContext('2d');
-let mouseX = 0;
-let mouseY = 0;
-let currentTab = "status"; // 現在選ばれているタブ ("status" または "ap")
-//let apPoints = 5;          // 割り振れる残りポイント（テスト用）
-
-// 🌟【重要】既存のコードが「isInventoryOpen」などの名前を使っている場合、
-// 壊れないように「エイリアス（別名）」を作っておくと安全です。
-const getWin = (key) => gameWindows[key];
-
-// 1. 状態を保存する変数
-let selectedSlotIndex = -1; 
-let inventoryVisualBuffer = [];
-let levelUpEffects = [];
-let isDiscarding = false; // 捨て個数の入力中なら true にする
-
-// ウィンドウの設計図
-class GameWindow {
-    constructor(id, x, y, w, h) {
-        this.id = id;
-        this.x = x;
-        this.y = y;
-        this.w = w;
-        this.h = h;
-        this.isOpen = false;
-        this.isDragging = false;
-        this.dragOffsetX = 0;
-        this.dragOffsetY = 0;
-    }
-
-    // 閉じるボタンの判定
-    isMouseOverClose(mx, my) {
-        const btnX = this.x + this.w - 25;
-        const btnY = this.y + 5;
-        return mx >= btnX && mx <= btnX + 25 && my >= btnY && my <= btnY + 25;
-    }
-
-    // ヘッダー（移動用）の判定
-    isMouseOverHeader(mx, my) {
-        return mx >= this.x && mx <= this.x + this.w && my >= this.y && my <= this.y + 30;
-    }
-
-    // ウィンドウ全体の判定
-    isMouseOverWindow(mx, my) {
-        return mx >= this.x && mx <= this.x + this.w && my >= this.y && my <= this.y + this.h;
-    }
-}
-
-// インスタンス化（既存の初期値をセット）
-/*
-const gameWindows = {
-    status: new GameWindow("status", 100, 100, 300, 250),
-    inventory: new GameWindow("inventory", 400, 100, 250, 350),
-    extra: new GameWindow("extra", 200, 200, 300, 200)
-};
-*/
-
-// 全ウィンドウのインスタンス化 (id, x, y, w, h)
-// id: 識別用ID, x/y: 初期座標, w/h: ウィンドウサイズ
-const gameWindows = {
-    
-	extra: new GameWindow("extra", 200, 200, 300, 200),
-	
-    // --- メインステータス・成長系 ---
-    status:     new GameWindow("status", 50, 50, 300, 250),      // [S] ステータス
-    equipment:  new GameWindow("equipment", 360, 50, 280, 320),   // [E] 装備
-    inventory:  new GameWindow("inventory", 520, 150, 260, 380),  // [I] インベントリ
-    skill:      new GameWindow("skill", 480, 100, 280, 400),      // [K] スキル
-    avatar:     new GameWindow("avatar", 380, 70, 280, 320),     // [A] アバター
-    upgrade:    new GameWindow("upgrade", 250, 150, 300, 350),   // [U] アップグレード
-    
-    // --- 冒険・ナビゲーション系 ---
-    quest:      new GameWindow("quest", 100, 120, 350, 400),     // [Q] クエスト
-    worldmap:   new GameWindow("worldmap", 50, 50, 700, 500),    // [W] ワールドマップ
-    minimap:    new GameWindow("minimap", 10, 10, 200, 180),     // [M] ミニマップ
-    journal:    new GameWindow("journal", 150, 100, 400, 450),   // [J] 日記
-    book:       new GameWindow("book", 120, 80, 500, 400),        // [B] ブック
-    
-    // --- ソーシャル・コミュニティ系 ---
-    guild:      new GameWindow("guild", 200, 100, 400, 450),     // [G] ギルド
-    friend:     new GameWindow("friend", 550, 200, 220, 350),    // [F] フレンドリスト
-    party:      new GameWindow("party", 550, 200, 220, 300),     // [P] パーティ
-    trade:      new GameWindow("trade", 150, 150, 500, 300),     // [T] トレード
-    
-    // --- システム・ログ・通知系 ---
-    log:        new GameWindow("log", 10, 400, 450, 150),        // [L] ログ
-    event:      new GameWindow("event", 200, 50, 400, 500),      // [N] イベント
-    options:    new GameWindow("options", 250, 180, 300, 250),   // [O] オプション
-    help:       new GameWindow("help", 200, 150, 400, 350),      // [H] ヘルプ
-    
-    // --- 戦略的予約枠（未来の目玉用） ---
-    reserved_d: new GameWindow("reserved_d", 100, 100, 300, 300), // [D] あえて開けておく
-    reserved_v: new GameWindow("reserved_v", 100, 100, 300, 300)  // [V] あえて開けておく
-};
-
-// --- 1. 全ウィンドウスタック（Z-Index管理） ---
-// 全てのIDをあらかじめ格納。後ろにあるほど手前。
-// 初期状態では、常に表示しておきたい「log」や「minimap」を先頭（後ろ側）に置いています。
-let windowStack = [
-    "reserved_v", "reserved_d", "help", "options", "event", "log",
-    "trade", "party", "friend", "guild", "book", "journal",
-    "minimap", "worldmap", "quest", "upgrade", "avatar", "skill",
-    "extra", "status", "equipment", "inventory" 
-];
-
-// --- 🌟 キーとウィンドウIDのマッピング定義 ---
-const keyMap = {
-	's': 'status',      'e': 'equipment', 'i': 'inventory', 
-	'k': 'skill',       'q': 'quest',     'w': 'worldmap', 
-	'm': 'minimap',     'g': 'guild',     'o': 'options', 
-	'h': 'help',        'f': 'friend',    'p': 'party', 
-	'b': 'book',        'l': 'log',       'n': 'event', 
-	'u': 'upgrade',     't': 'trade',     'j': 'journal', 
-	'a': 'avatar',      'd': 'reserved_d','v': 'reserved_v'
-	// 'extra' は特定のキー割り当てがないため、必要に応じてここに追加可能です
-};
-
-// マウスが動いた時の処理
-canvas.addEventListener('mousemove', (e) => {
-    const rect = canvas.getBoundingClientRect();
-    mouseX = e.clientX - rect.left;
-    mouseY = e.clientY - rect.top;
-
-    const screenW = rect.width;
-    const screenH = rect.height;
-    const offset = 8; // 外枠や影の遊び
-
-    // ------------------------------------------
-    // 📊 ドラッグ移動処理（全ウィンドウ共通）
-    // ------------------------------------------
-    Object.values(gameWindows).forEach(win => {
-        if (win.isDragging) {
-            let nextX = mouseX - win.dragOffsetX;
-            let nextY = mouseY - win.dragOffsetY;
-
-            // 左・上制限
-            if (nextX < 0) nextX = 0;
-            if (nextY < 0) nextY = 0;
-
-            // 右・下制限（ウィンドウごとのサイズ win.w / win.h を使用）
-            if (nextX > screenW - win.w - offset) nextX = screenW - win.w - offset;
-            if (nextY > screenH - win.h - offset) nextY = screenH - win.h - offset;
-
-            win.x = nextX;
-            win.y = nextY;
-        }
-    });
-
-    // ------------------------------------------
-    // 🪟 ウィンドウ関連のカーソル判定
-    // ------------------------------------------
-    let foundWindow = false;
-
-    // 前面にある窓から判定するため、逆順でループ
-    const winList = Object.values(gameWindows).reverse();
-    for (const win of winList) {
-        if (win.isOpen) {
-            // 閉じるボタン
-            if (win.isMouseOverClose(mouseX, mouseY)) {
-                canvas.style.cursor = "pointer";
-                foundWindow = true;
-                break;
-            }
-            // ヘッダー（移動）
-            if (win.isMouseOverHeader(mouseX, mouseY)) {
-                canvas.style.cursor = "move";
-                foundWindow = true;
-                break;
-            }
-            // ウィンドウ内（デフォルト）
-            if (win.isMouseOverWindow(mouseX, mouseY)) {
-                canvas.style.cursor = "default";
-                foundWindow = true;
-                break;
-            }
-        }
-    }
-
-    // 窓の上にカーソルがある場合は、これ以降の判定（アイテム等）をスキップ
-    if (foundWindow) return;
-
-    // ------------------------------------------
-    // 📦 バッグ・アイテム判定（ロジックを完全踏襲）
-    // ------------------------------------------
-    if (isDiscarding) {
-        canvas.style.cursor = "default";
-    } else if (selectedSlotIndex !== -1) {
-        canvas.style.cursor = "grabbing";
-    } else if (mouseY >= 130 && mouseY <= 170) {
-        const hoverIndex = Math.floor((mouseX - 20) / 48);
-        if (hoverIndex >= 0 && hoverIndex < 10 && inventoryVisualBuffer[hoverIndex]) {
-            canvas.style.cursor = "grab";
-        } else {
-            canvas.style.cursor = "default";
-        }
-    } else {
-        canvas.style.cursor = "default";
-    }
-});
 
 // 🌟 ここから追加：高画質化（Retina/高画素ディスプレイ対応）
 const dpr = window.devicePixelRatio || 1;
 
-// ✨ ドット絵をくっきりさせる設定
-// canvas.width を変えるとリセットされることがあるので、最後に1回書く
-ctx.imageSmoothingEnabled = false;
+const GROUP_COUNT   = 16;  // グループの総数 (00〜15)
+const VAR_COUNT     = 15;  // 各グループ内のキャラ数 (01〜15)
+const MAX_LOGS = 5;        // 画面に表示するログの最大数
 
-// ==========================================
-// 📋 2. 表示に関する基本設定（VIEW_CONFIG）
-// 役割：画面上の見た目や判定の基準となる数値をまとめて管理します
-// ==========================================
 const VIEW_CONFIG = {
   // --- 画面の基本サイズ ---
   SCREEN_WIDTH: 800,
@@ -380,56 +179,8 @@ const VIEW_CONFIG = {
   },
 };
 
-// ==========================================
-// 🛠️ AnimUtils: 計算を楽にする共通ツール
-// ==========================================
-const AnimUtils = {
-    /**
-     * 現在のフレームから、アニメーションの「何番目の画像か」を計算する
-     * @param {number} frame - 現在のフレーム
-     * @param {number} speed - 切り替え速度（小さいほど速い）
-     * @param {number} total - 画像の総枚数
-     */
-    getIdx: (frame, speed, total) => {
-        if (!total || total === 0) return 0;
-        return Math.floor(frame / speed) % total;
-    },
-
-    /**
-     * 指定したインデックスが配列の範囲内に収まるようにガードする
-     */
-    clampIdx: (idx, frames) => {
-        if (!frames || frames.length === 0) return 0;
-        return Math.max(0, Math.min(idx, frames.length - 1));
-    },
-	
-	/**
-     * 画像配列から安全に1枚取り出す。
-     * 画像がない場合は fallback（予備画像）を返す。
-     */
-    getFrame: (frames, index, fallback) => {
-        if (frames && frames.length > 0) {
-            // indexが範囲外にならないよう守りつつ返す
-            const safeIdx = Math.max(0, Math.min(index, frames.length - 1));
-            return frames[safeIdx];
-        }
-        return fallback; // 画像が1枚もなければ予備を返す
-    }
-};
-
-let displayExp = 0; // 🌟 経験値をなめらかに表示するための変数
-let displayHp = 0;  // 🌟 追加：なめらか表示用のHP変数
-let lastExp = 0; // 🌟 これを書き足す：前回の経験値を覚えておくための変数
-let recentlyPickedIds = new Set();
-
-/**
- * 特定のアクション（Walk, Idleなど）の現在のフレームを1枚返すだけの便利関数
- */
-function getActionFrame(characterData, actionName, frame, speed, fallback) {
-    const frames = characterData ? characterData[actionName] : null;
-    const idx = AnimUtils.getIdx(frame, speed, frames?.length || 0);
-    return AnimUtils.getFrame(frames, idx, fallback);
-}
+// アクション名だけのリストを作成 ( ["Dead", "Fly", ... ] )
+const ACTIONS = Object.keys(VIEW_CONFIG.actionFrames);
 
 // Before: canvas.width = 800 * dpr;
 canvas.width = VIEW_CONFIG.SCREEN_WIDTH * dpr;
@@ -441,40 +192,22 @@ canvas.style.width = VIEW_CONFIG.SCREEN_WIDTH + 'px';
 canvas.style.height = VIEW_CONFIG.SCREEN_HEIGHT + 'px';
 ctx.scale(dpr, dpr);       // 描画全体を拡大して帳尻を合わせる
 
-// ==========================================
-// 📦 画像コンテナの自動生成
-// ==========================================
-const sprites = {
-    // 👤 プレイヤー関連は今まで通り
-    playerBody: new Image(),
-    playerIdle: [], playerWalk: [], playerJump: [], playerDamage: [], 
-    playerAttack1: [], playerAttack2: new Image(),
-    playerClimb: [new Image(), new Image(), new Image(), new Image()],
-    playerDown: new Image(),
+// ✨ ドット絵をくっきりさせる設定
+// canvas.width を変えるとリセットされることがあるので、最後に1回書く
+ctx.imageSmoothingEnabled = false;
 
-    // 💰 アイテム箱（空っぽで準備）
-    items: {}
+// --- 🌟 キーとウィンドウIDのマッピング定義 ---
+const keyMap = {
+	's': 'status',      'e': 'equipment', 'i': 'inventory', 
+	'k': 'skill',       'q': 'quest',     'w': 'worldmap', 
+	'm': 'minimap',     'g': 'guild',     'o': 'options', 
+	'h': 'help',        'f': 'friend',    'p': 'party', 
+	'b': 'book',        'l': 'log',       'n': 'event', 
+	'u': 'upgrade',     't': 'trade',     'j': 'journal', 
+	'a': 'avatar',      'd': 'reserved_d','v': 'reserved_v'
+	// 'extra' は特定のキー割り当てがないため、必要に応じてここに追加可能です
 };
 
-// 👾 モンスター用の箱を名簿から「自動で」作成
-MONSTER_CONFIGS.forEach(m => {
-    // 基本・ダメージ
-    sprites[m.name] = new Image();
-    sprites[m.name + 'Damage'] = new Image();
-
-    // アニメーション用の配列を自動作成
-    // (名簿に枚数が書いてあればその分だけ、なければ空の配列を作ります)
-    sprites[m.name + 'Move']   = Array.from({ length: m.move  || 0 }, () => new Image());
-    sprites[m.name + 'Idle']   = Array.from({ length: m.idle  || 0 }, () => new Image());
-    sprites[m.name + 'Death']  = Array.from({ length: m.death || 0 }, () => new Image());
-    
-    // 🌟 追加分：Attack, Jump, Walk
-    sprites[m.name + 'Attack'] = Array.from({ length: m.attack || 0 }, () => new Image());
-    sprites[m.name + 'Jump']   = Array.from({ length: m.jump   || 0 }, () => new Image());
-    sprites[m.name + 'Walk']   = Array.from({ length: m.walk   || 0 }, () => new Image());
-});
-
-// 数字とファイルパスの対応表
 const DAMAGE_ASSETS = {
     '0': 'damage_assets/00.png',
     '1': 'damage_assets/01.png',
@@ -501,11 +234,188 @@ const DAMAGE_ASSETS1 = {
     '9': 'damage_assets/19.png'
 };
 
-// 画像オブジェクトを格納する箱
+const imageSources = {
+    'gold': '/item_assets/gold.png',
+    'sword': '/item_assets/sword.png',
+    'shield': '/item_assets/shield.png',
+    'treasure': '/item_assets/treasure.png',
+    'sweets': '/item_assets/sweets.png',
+    'money3': '/item_assets/money3.png',
+    'money1': '/item_assets/money1.png'
+};
+
+const itemCategories = {
+    "gold": "ETC",
+    "treasure": "ETC",
+    "sweets": "USE", // 消耗品
+    "sword": "EQUIP",      // 装備
+    "shield": "EQUIP"      // 装備
+};
+
+// 🌟 アイテムの解説文（ここに追加するだけ！）
+const itemDescriptions = {
+    'gold': 'ずっしりと重い純金の塊。換金用。',
+    'treasure': '古びた宝箱から見つかった秘宝。',
+    'sweets': '食べると疲れが吹き飛ぶ甘いお菓子。',
+    'money1': '使い古された銅貨。',
+    'money3': 'キラキラと輝く銀貨。'
+};
+
+const STAT_NAMES = {
+    str: "STR", dex: "DEX", int: "INT", luk: "LUK",
+    maxHp: "最大HP", maxMp: "最大MP",
+    atk: "攻撃力", matk: "魔力", def: "防御力",
+    moveSpeed: "移動速度", jumpPower: "ジャンプ力"
+};
+
+// ==========================================
+// ⚙️ 設定・フラグ（ここを false にするとデバッグ表示が消えます）
+// ==========================================
+let DEBUG_MODE = false; 
+
+// ============================================================
+// 📊 [SECTION 2: STATE] データ・変数
+// 役割: 「今」のゲームの状態を保持する場所（※将来SQLと同期）
+// ============================================================
+let mouseX = 0;
+let mouseY = 0;
+let currentTab = "status";
+let selectedSlotIndex = -1;
+let inventoryVisualBuffer = [];
+let levelUpEffects = [];
+let isDiscarding = false;
+
+let displayExp = 0; // 🌟 経験値をなめらかに表示するための変数
+let displayHp = 0;  // 🌟 追加：なめらか表示用のHP変数
+let lastExp = 0; // 🌟 これを書き足す：前回の経験値を覚えておくための変数
+let recentlyPickedIds = new Set();
+
 const damageImages = {};
 let loadedCount = 0;
 
-// すべての数字画像を読み込む
+const itemImages = {};
+
+const playerSprites = [];  // 画像データを格納する箱
+// 🌟 現在選択中のキャラクター（ここを書き換えてキャラ変更）
+let selectedGroup   = 7;   // 現在のグループ
+let selectedCharVar = 1;   // 現在のキャラクター番号
+
+let itemLogs   = [];       // 獲得アイテムの履歴
+let chatMessages = [];
+let pickingUpEffects = []; // 🌟 吸い込まれるアニメーションを管理するリスト
+
+class GameWindow {
+    constructor(id, x, y, w, h) {
+        this.id = id;
+        this.x = x;
+        this.y = y;
+        this.w = w;
+        this.h = h;
+        this.isOpen = false;
+        this.isDragging = false;
+        this.dragOffsetX = 0;
+        this.dragOffsetY = 0;
+    }
+
+    // 閉じるボタンの判定
+    isMouseOverClose(mx, my) {
+        const btnX = this.x + this.w - 25;
+        const btnY = this.y + 5;
+        return mx >= btnX && mx <= btnX + 25 && my >= btnY && my <= btnY + 25;
+    }
+
+    // ヘッダー（移動用）の判定
+    isMouseOverHeader(mx, my) {
+        return mx >= this.x && mx <= this.x + this.w && my >= this.y && my <= this.y + 30;
+    }
+
+    // ウィンドウ全体の判定
+    isMouseOverWindow(mx, my) {
+        return mx >= this.x && mx <= this.x + this.w && my >= this.y && my <= this.y + this.h;
+    }
+}
+
+// 全ウィンドウのインスタンス化 (id, x, y, w, h)
+// id: 識別用ID, x/y: 初期座標, w/h: ウィンドウサイズ
+const gameWindows = {
+    
+	extra: new GameWindow("extra", 200, 200, 300, 200),
+	
+    // --- メインステータス・成長系 ---
+    status:     new GameWindow("status", 50, 50, 300, 250),      // [S] ステータス
+    equipment:  new GameWindow("equipment", 360, 50, 280, 320),   // [E] 装備
+    inventory:  new GameWindow("inventory", 520, 150, 260, 380),  // [I] インベントリ
+    skill:      new GameWindow("skill", 480, 100, 280, 400),      // [K] スキル
+    avatar:     new GameWindow("avatar", 380, 70, 280, 320),     // [A] アバター
+    upgrade:    new GameWindow("upgrade", 250, 150, 300, 350),   // [U] アップグレード
+    
+    // --- 冒険・ナビゲーション系 ---
+    quest:      new GameWindow("quest", 100, 120, 350, 400),     // [Q] クエスト
+    worldmap:   new GameWindow("worldmap", 50, 50, 700, 500),    // [W] ワールドマップ
+    minimap:    new GameWindow("minimap", 10, 10, 200, 180),     // [M] ミニマップ
+    journal:    new GameWindow("journal", 150, 100, 400, 450),   // [J] 日記
+    book:       new GameWindow("book", 120, 80, 500, 400),        // [B] ブック
+    
+    // --- ソーシャル・コミュニティ系 ---
+    guild:      new GameWindow("guild", 200, 100, 400, 450),     // [G] ギルド
+    friend:     new GameWindow("friend", 550, 200, 220, 350),    // [F] フレンドリスト
+    party:      new GameWindow("party", 550, 200, 220, 300),     // [P] パーティ
+    trade:      new GameWindow("trade", 150, 150, 500, 300),     // [T] トレード
+    
+    // --- システム・ログ・通知系 ---
+    log:        new GameWindow("log", 10, 400, 450, 150),        // [L] ログ
+    event:      new GameWindow("event", 200, 50, 400, 500),      // [N] イベント
+    options:    new GameWindow("options", 250, 180, 300, 250),   // [O] オプション
+    help:       new GameWindow("help", 200, 150, 400, 350),      // [H] ヘルプ
+    
+    // --- 戦略的予約枠（未来の目玉用） ---
+    reserved_d: new GameWindow("reserved_d", 100, 100, 300, 300), // [D] あえて開けておく
+    reserved_v: new GameWindow("reserved_v", 100, 100, 300, 300)  // [V] あえて開けておく
+};
+
+// --- 1. 全ウィンドウスタック（Z-Index管理） ---
+// 全てのIDをあらかじめ格納。後ろにあるほど手前。
+// 初期状態では、常に表示しておきたい「log」や「minimap」を先頭（後ろ側）に置いています。
+let windowStack = [
+    "reserved_v", "reserved_d", "help", "options", "event", "log",
+    "trade", "party", "friend", "guild", "book", "journal",
+    "minimap", "worldmap", "quest", "upgrade", "avatar", "skill",
+    "extra", "status", "equipment", "inventory" 
+];
+
+// ============================================================
+// 🔊 [SECTION 3: RESOURCES] 素材・アセット
+// 役割: 画像(Sprite)や音声(Sound)の読み込みと管理
+// ============================================================
+const sprites = {
+    // 👤 プレイヤー関連は今まで通り
+    playerBody: new Image(),
+    playerIdle: [], playerWalk: [], playerJump: [], playerDamage: [], 
+    playerAttack1: [], playerAttack2: new Image(),
+    playerClimb: [new Image(), new Image(), new Image(), new Image()],
+    playerDown: new Image(),
+
+    // 💰 アイテム箱（空っぽで準備）
+    items: {}
+};
+
+MONSTER_CONFIGS.forEach(m => {
+    // 基本・ダメージ
+    sprites[m.name] = new Image();
+    sprites[m.name + 'Damage'] = new Image();
+
+    // アニメーション用の配列を自動作成
+    // (名簿に枚数が書いてあればその分だけ、なければ空の配列を作ります)
+    sprites[m.name + 'Move']   = Array.from({ length: m.move  || 0 }, () => new Image());
+    sprites[m.name + 'Idle']   = Array.from({ length: m.idle  || 0 }, () => new Image());
+    sprites[m.name + 'Death']  = Array.from({ length: m.death || 0 }, () => new Image());
+    
+    // 🌟 追加分：Attack, Jump, Walk
+    sprites[m.name + 'Attack'] = Array.from({ length: m.attack || 0 }, () => new Image());
+    sprites[m.name + 'Jump']   = Array.from({ length: m.jump   || 0 }, () => new Image());
+    sprites[m.name + 'Walk']   = Array.from({ length: m.walk   || 0 }, () => new Image());
+});
+
 Object.keys(DAMAGE_ASSETS).forEach(num => {
     const img = new Image();
     img.src = DAMAGE_ASSETS[num];
@@ -518,9 +428,6 @@ Object.keys(DAMAGE_ASSETS).forEach(num => {
     damageImages[num] = img; // damageImages['1'] で 01.png が呼び出せるようになる
 });
 
-// ==========================================
-// 🚀 3. 画像の読み込み（新パス形式：自動処理）
-// ==========================================
 function loadStaticImages() {
     // --- 💰 アイテム専用の読み込みエリア (ここを独立) ---
     loadItemImages();
@@ -589,9 +496,8 @@ function loadStaticImages() {
     */
 }
 
-/**
- * 🌟 自動画像読み込み関数（404エラー防止版）
- */
+loadStaticImages();
+
 function loadItemImages() {
     Object.keys(ITEM_CONFIG).forEach(key => {
         const conf = ITEM_CONFIG[key];
@@ -617,41 +523,6 @@ function loadItemImages() {
     });
 }
 
-// 実行（これで読み込みが始まります）
-loadStaticImages();
-
-// view.js の冒頭
-const itemImages = {};
-
-// 🌟 ソースから直接入力（ここを修正すれば確実に動きます）
-const imageSources = {
-    'gold': '/item_assets/gold.png',
-    'sword': '/item_assets/sword.png',
-    'shield': '/item_assets/shield.png',
-    'treasure': '/item_assets/treasure.png',
-    'sweets': '/item_assets/sweets.png',
-    'money3': '/item_assets/money3.png',
-    'money1': '/item_assets/money1.png'
-};
-
-const itemCategories = {
-    "gold": "ETC",
-    "treasure": "ETC",
-    "sweets": "USE", // 消耗品
-    "sword": "EQUIP",      // 装備
-    "shield": "EQUIP"      // 装備
-};
-
-// 🌟 アイテムの解説文（ここに追加するだけ！）
-const itemDescriptions = {
-    'gold': 'ずっしりと重い純金の塊。換金用。',
-    'treasure': '古びた宝箱から見つかった秘宝。',
-    'sweets': '食べると疲れが吹き飛ぶ甘いお菓子。',
-    'money1': '使い古された銅貨。',
-    'money3': 'キラキラと輝く銀貨。'
-};
-
-// 画像を一斉にロード
 for (const key in imageSources) {
     const img = new Image();
     img.src = imageSources[key];
@@ -660,33 +531,6 @@ for (const key in imageSources) {
     // 🐞 確認用：もし画像が届かなかったらコンソールに通知
     img.onerror = () => console.error(`⚠️ 画像が見つかりません: ${img.src}`);
 }
-
-const STAT_NAMES = {
-    str: "STR", dex: "DEX", int: "INT", luk: "LUK",
-    maxHp: "最大HP", maxMp: "最大MP",
-    atk: "攻撃力", matk: "魔力", def: "防御力",
-    moveSpeed: "移動速度", jumpPower: "ジャンプ力"
-};
-
-// ==========================================
-// 👤 プレイヤー・キャラクター設定
-// ==========================================
-const playerSprites = [];  // 画像データを格納する箱
-const GROUP_COUNT   = 16;  // グループの総数 (00〜15)
-const VAR_COUNT     = 15;  // 各グループ内のキャラ数 (01〜15)
-
-// 🌟 現在選択中のキャラクター（ここを書き換えてキャラ変更）
-let selectedGroup   = 7;   // 現在のグループ
-let selectedCharVar = 1;   // 現在のキャラクター番号
-
-// アクション名だけのリストを作成 ( ["Dead", "Fly", ... ] )
-const ACTIONS = Object.keys(VIEW_CONFIG.actionFrames);
-
-// ==========================================
-// 📜 システム設定（ログなど）
-// ==========================================
-let itemLogs   = [];       // 獲得アイテムの履歴
-const MAX_LOGS = 5;        // 画面に表示するログの最大数
 
 for (let g = 0; g < 16; g++) {
     playerSprites[g] = [];
@@ -755,9 +599,483 @@ function loadCharFrames(groupIndex, variantIndex) {
     console.log(`✅ グループ${groupNum} キャラ${varNum} の読み込みを開始しました`);
 }
 
-let chatMessages = [];
-let pickingUpEffects = []; // 🌟 吸い込まれるアニメーションを管理するリスト
-// view.js
+// ============================================================
+// 🧠 [SECTION 4: LOGIC] 判定・共通計算
+// 役割: 「正しい操作か？」のチェックや複雑な座標計算の関数
+// ============================================================
+let lastItemCount = 0;
+let lastEnemiesHP = 0;
+let lastEnemiesData = [];
+let lastItemsData = []; // ✨ 前回のアイテム状態を保持
+
+const getWin = (key) => gameWindows[key];
+const AnimUtils = {
+    /**
+     * 現在のフレームから、アニメーションの「何番目の画像か」を計算する
+     * @param {number} frame - 現在のフレーム
+     * @param {number} speed - 切り替え速度（小さいほど速い）
+     * @param {number} total - 画像の総枚数
+     */
+    getIdx: (frame, speed, total) => {
+        if (!total || total === 0) return 0;
+        return Math.floor(frame / speed) % total;
+    },
+
+    /**
+     * 指定したインデックスが配列の範囲内に収まるようにガードする
+     */
+    clampIdx: (idx, frames) => {
+        if (!frames || frames.length === 0) return 0;
+        return Math.max(0, Math.min(idx, frames.length - 1));
+    },
+	
+	/**
+     * 画像配列から安全に1枚取り出す。
+     * 画像がない場合は fallback（予備画像）を返す。
+     */
+    getFrame: (frames, index, fallback) => {
+        if (frames && frames.length > 0) {
+            // indexが範囲外にならないよう守りつつ返す
+            const safeIdx = Math.max(0, Math.min(index, frames.length - 1));
+            return frames[safeIdx];
+        }
+        return fallback; // 画像が1枚もなければ予備を返す
+    }
+};
+
+/**
+ * 特定のアクション（Walk, Idleなど）の現在のフレームを1枚返すだけの便利関数
+ */
+function getActionFrame(characterData, actionName, frame, speed, fallback) {
+    const frames = characterData ? characterData[actionName] : null;
+    const idx = AnimUtils.getIdx(frame, speed, frames?.length || 0);
+    return AnimUtils.getFrame(frames, idx, fallback);
+}
+
+function updateExpAnimation(hero) {
+    const diff = hero.exp - displayExp;
+    if (Math.abs(diff) > 0.1) {
+        displayExp += diff * 0.1;
+    } else {
+        displayExp = hero.exp;
+    }
+}
+
+/**
+ * ⏳ タイマーやメッセージの管理
+ */
+function updateTimers() {
+    updateLogTimers(); // 取得ログの寿命
+    chatMessages = chatMessages.filter(m => m.timer > 0); // チャットの寿命
+}
+
+// ==========================================
+// 📦 2. ログの寿命管理
+// ==========================================
+function updateLogTimers() {
+    itemLogs.forEach(log => {
+        if (log.timer > 0) log.timer -= 2; // 描画のたびに寿命を減らす
+    });
+    itemLogs = itemLogs.filter(l => l.timer > 0);
+}
+
+/**
+ * UIに関連する数値の更新（計算）だけを行う関数
+ */
+function updateUIState(hero) {
+    if (!hero) return;
+
+    // HPバーの追従計算（描画からここへ移動）
+    if (hero.displayHp === undefined) hero.displayHp = hero.hp;
+
+    if (hero.displayHp > hero.hp) {
+        hero.displayHp -= VIEW_CONFIG.ui.hpEaseSpeed; 
+        if (hero.displayHp < hero.hp) hero.displayHp = hero.hp;
+    } else if (hero.displayHp < hero.hp) {
+        hero.displayHp = hero.hp;
+    }
+}
+
+// ============================================================
+// 🕹️ [SECTION 5: INPUT] ユーザー操作
+// 役割: キーボード・マウスのイベント監視と反応の入り口
+// ============================================================
+// 🌟 キャラクター切り替え (Q/E)
+window.addEventListener('keydown', (e) => {
+    // ✅ 追加：もし入力欄（チャット等）を触っていたら、ここで処理を中断する
+    if (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA') return;
+
+    // 🌟 追加：ログイン済み（myIdがある）なら、あとからの切り替えを防止する
+    if (typeof myId !== 'undefined' && myId) return;
+
+    let changed = false;
+    if (e.key === 'q' || e.key === 'Q') {
+        //selectedCharVar = selectedCharVar <= 1 ? 15 : selectedCharVar - 1;
+        //changed = true;
+    }
+    /*
+    if (e.key === 'e' || e.key === 'E') {
+        selectedCharVar = selectedCharVar >= 15 ? 1 : selectedCharVar + 1;
+        groupChanged = true;
+    }
+    */
+    if (changed) {
+        socket.emit('change_char', { charVar: selectedCharVar });
+    }
+});
+
+// 🌟 グループ切り替え (R/T)
+window.addEventListener('keydown', (e) => {
+    // ✅ 入力欄を触っていたら無視
+    if (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA') return;
+
+    // 🌟 追加：ログイン済み（myIdがある）なら、あとからの切り替えを防止する
+    if (typeof myId !== 'undefined' && myId) return;
+
+    let groupChanged = false;
+
+    // Rキー：前のグループへ (00 ↔ 15)
+    if (e.key === 'r' || e.key === 'R') {
+        selectedGroup = selectedGroup <= 0 ? 15 : selectedGroup - 1;
+        groupChanged = true;
+    }
+    // Tキー：次のグループへ (00 ↔ 15)
+    if (e.key === 't' || e.key === 'T') {
+        selectedGroup = selectedGroup >= 15 ? 0 : selectedGroup + 1;
+        groupChanged = true;
+    }
+
+    if (groupChanged) {
+        // 1. 🖼️ 自分の画面で新しいグループの画像をロードする
+        // キャラクター番号は 01 固定なのでそのまま第2引数に渡します
+        loadCharFrames(selectedGroup, selectedCharVar);
+
+        // 2. 📡 サーバーを通じて他ユーザーへ「自分の見た目が変わった」と通知
+        // サーバー側が 'change_group' だけでなく 'change_char' で統一されている場合はそちらに合わせてください
+        socket.emit('change_char', { 
+            group: selectedGroup, 
+            charVar: selectedCharVar 
+        });
+
+        console.log(`🔄 グループを ${selectedGroup} (キャラ ${selectedCharVar}) に切り替えました`);
+    }
+});
+
+window.addEventListener('keydown', (e) => {
+    // 1. ガード処理（入力フォームにフォーカスがある時は反応させない）
+    if (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA') return;
+
+    const key = e.key.toLowerCase(); // 大文字小文字を気にせず判定できるように
+
+    // --- 🌟 2. 各ウィンドウの共通判定ロジック (22個一括対応) ---
+    const targetId = keyMap[key];
+    if (targetId && gameWindows[targetId]) {
+        const win = gameWindows[targetId];
+
+        // gameWindows内のisOpenを反転
+        win.isOpen = !win.isOpen;
+        
+        // 🌟 開閉に関わらず、最後に触った(押した)方を最前面へ
+        if (typeof windowStack !== 'undefined') {
+            windowStack = windowStack.filter(v => v !== targetId);
+            windowStack.push(targetId);
+        }
+        
+        // 🔊 音の再生
+        if (win.isOpen) {
+            if (typeof playMenuUpSound === 'function') playMenuUpSound();
+        } else {
+            if (typeof playMenuDownSound === 'function') playMenuDownSound();
+        }
+        
+        console.log(`${targetId} Window State:`, win.isOpen);
+    }
+
+    // --- 🌟 3. 特殊キー・デバッグキー判定 (既存ロジック踏襲) ---
+    
+    // デバッグ情報の表示切り替え (Dキーをデバッグ用として使う場合の例)
+    /*
+    if (key === 'd') {
+        if (typeof showDebugWindow !== 'undefined') {
+            showDebugWindow = !showDebugWindow;
+            console.log("Debug Window:", showDebugWindow);
+        }
+    }
+    */
+    
+    // 判定の可視化切り替え (Pキーをデバッグモード用として使う場合の例)
+    /*
+    if (key === 'p') {
+        if (typeof DEBUG_MODE !== 'undefined') {
+            DEBUG_MODE = !DEBUG_MODE;
+            console.log("Visual Debug Mode (P-Key):", DEBUG_MODE);
+        }
+    }
+    */
+
+    // --- 🌟 4. エスケープ (全てのウィンドウを閉じる) ---
+    if (e.key === 'Escape') {
+        // いずれかのウィンドウが開いているかチェック
+        const anyOpen = Object.values(gameWindows).some(win => win.isOpen);
+
+        if (anyOpen) {
+            // 全てのウィンドウを一括で閉じる
+            Object.values(gameWindows).forEach(win => {
+                win.isOpen = false;
+            });
+            
+            if (typeof playMenuDownSound === 'function') playMenuDownSound();
+            console.log("All windows closed via Escape");
+        }
+    }
+});
+
+// ==========================================
+// 🖱️ マウスを離した時の処理（ドラッグ終了）
+// ==========================================
+window.addEventListener('mouseup', () => {
+    // 🌟 1. 管理オブジェクト内の全てのウィンドウのドラッグ状態を解除
+    Object.values(gameWindows).forEach(win => {
+        win.isDragging = false;
+    });
+
+    // 🌟 2. 既存コードとの互換性のため、古いフラグも解除
+    //isDragging = false;
+    //isDraggingInv = false;
+    //isDraggingE = false;
+
+    // 🌟 3. アイテムスロットの選択状態などは維持（ドラッグ終了のみに専念）
+    // canvas.style.cursor の制御が必要な場合はここで行います
+});
+
+// ==========================================
+// 🗑️ アイテムを地面に捨てる処理 (外部分離)
+// ==========================================
+function openDropForm(slotIndex, item) {
+    const currentAmount = item.count || item.amount || 1;
+
+    // 1個しかない場合は即座に送信して終了
+    if (currentAmount <= 1) {
+        socket.emit('dropItem', { index: slotIndex, amount: 1 });
+        selectedSlotIndex = -1;
+        return;
+    }
+
+    // 複数個ある場合は入力フォームを表示
+    const form = document.getElementById('drop-form');
+    const label = document.getElementById('drop-label');
+    const input = document.getElementById('drop-input');
+    const error = document.getElementById('drop-error');
+
+    label.innerText = `${currentAmount}個持っています。何個捨てますか？`;
+    error.innerText = "";
+    input.style.border = "1px solid #ccc";
+    input.value = currentAmount;
+    input.max = currentAmount;
+    input.min = 1;
+
+    isDiscarding = true;
+    form.style.display = 'block';
+    form.style.pointerEvents = 'auto';
+    canvas.style.cursor = "default";
+
+    setTimeout(() => input.focus(), 10);
+
+    const handleConfirm = () => {
+        let dropAmount = parseInt(input.value);
+        if (isNaN(dropAmount) || dropAmount <= 0) {
+            error.innerText = "1個以上の数値を入力してください";
+            input.style.border = "2px solid #ff4444";
+            return;
+        }
+        if (dropAmount > currentAmount) {
+            error.innerText = `そんなに持っていません！(最大${currentAmount}個)`;
+            input.style.border = "2px solid #ff4444";
+            return;
+        }
+        socket.emit('dropItem', { index: slotIndex, amount: dropAmount });
+        closeForm();
+    };
+
+    const handleCancel = () => closeForm();
+
+    const closeForm = () => {
+        isDiscarding = false;
+        selectedSlotIndex = -1;
+        form.style.display = 'none';
+        form.style.pointerEvents = 'none';
+        input.onkeydown = null;
+    };
+
+    document.getElementById('drop-confirm').onclick = handleConfirm;
+    document.getElementById('drop-cancel').onclick = handleCancel;
+
+    input.onkeydown = (e) => {
+        if (e.key === 'Enter') { e.preventDefault(); handleConfirm(); }
+        else if (e.key === 'Escape') { handleCancel(); }
+    };
+}
+
+// ==========================================
+// 🖱️ マウスクリック時の判定処理 (22ウィンドウ対応版)
+// ==========================================
+canvas.addEventListener('mousedown', (event) => {
+    const rect = canvas.getBoundingClientRect();
+    const clickX = event.clientX - rect.left;
+    const clickY = event.clientY - rect.top;
+
+    // 1. 🌟 重なりを考慮して、どのウィンドウがクリックされたか判定
+    let priorityWindow = "none";
+    
+    // windowStackを後ろから（＝手前に表示されている順に）チェック
+    for (let i = windowStack.length - 1; i >= 0; i--) {
+        const name = windowStack[i];
+        const win = gameWindows[name];
+        
+        if (win && win.isOpen) {
+            if (clickX >= win.x && clickX <= win.x + win.w && 
+                clickY >= win.y && clickY <= win.y + win.h) {
+                priorityWindow = name;
+                break; // 一番手前の窓が見つかったら終了
+            }
+        }
+    }
+
+    // 2. 🌟 ウィンドウを触った場合の共通処理
+    if (priorityWindow !== "none") {
+        const win = gameWindows[priorityWindow];
+
+        // 触った窓を最前面に移動
+        windowStack = windowStack.filter(item => item !== priorityWindow);
+        windowStack.push(priorityWindow);
+
+        // --- ❌ 共通：閉じるボタンの判定 ---
+        if (win.isMouseOverClose(clickX, clickY)) {
+            win.isOpen = false;
+            if (typeof playMenuDownSound === 'function') playMenuDownSound();
+            return;
+        }
+
+        // --- 📊 Status 専用の判定処理 ---
+        if (priorityWindow === "status") {
+            // タブ切り替え
+            if (clickY >= win.y + 35 && clickY <= win.y + 60) {
+                if (clickX >= win.x + 20 && clickX <= win.x + 90) {
+                    currentTab = "status";
+                    if (typeof playTabSound === 'function') playTabSound();
+                    return;
+                }
+                if (clickX >= win.x + 95 && clickX <= win.x + 165) {
+                    currentTab = "ap";
+                    if (typeof playTabSound === 'function') playTabSound();
+                    return;
+                }
+            }
+            // AP強化ボタン
+            if (currentTab === "ap") {
+                const btnX = win.x + 150;
+                const btnW = 100;
+                const btnH = 25;
+                const stats = ['str', 'dex', 'luk'];
+                for (let i = 0; i < stats.length; i++) {
+                    const btnY = win.y + 102 + (i * 30);
+                    if (clickX >= btnX && clickX <= btnX + btnW && clickY >= btnY && clickY <= btnY + btnH) {
+                        if (hero.ap > 0) {
+                            socket.emit('upgrade_stat', { type: stats[i] });
+                            if (typeof playMouseClickSound === 'function') playMouseClickSound();
+                        }
+                        return;
+                    }
+                }
+            }
+        }
+
+        // --- 🖐️ 共通：ドラッグ開始判定 (全ウィンドウ共通) ---
+        if (win.isMouseOverHeader(clickX, clickY)) {
+            win.isDragging = true;
+            win.dragOffsetX = clickX - win.x;
+            win.dragOffsetY = clickY - win.y;
+            return;
+        }
+        return; // 窓を触っている間は下のゲーム世界をクリックさせない
+    }
+
+    // 3. 🎒 どの窓も触っていない場合の操作（アイテムスロット・捨て処理）
+    if (clickY >= 130 && clickY <= 170) {
+        const index = Math.floor((clickX - 20) / 48);
+        if (index >= 0 && index < 10) {
+            if (selectedSlotIndex !== -1 && selectedSlotIndex !== index) {
+                socket.emit('swapItems', { from: selectedSlotIndex, to: index });
+                if (typeof playDropSound === 'function') playDropSound();
+                selectedSlotIndex = -1;
+                canvas.style.cursor = "grab"; 
+            } else if (selectedSlotIndex === index) {
+                selectedSlotIndex = -1; 
+                canvas.style.cursor = "grab";
+                if (typeof playDropSound === 'function') playDropSound();
+            } else if (inventoryVisualBuffer && inventoryVisualBuffer[index]) {
+                selectedSlotIndex = index; 
+                canvas.style.cursor = "grabbing"; 
+                if (typeof playHoverSound === 'function') playHoverSound();
+            }
+        }
+    } else {
+        // --- 🗑️ アイテムを地面に捨てる処理 ---
+        if (selectedSlotIndex !== -1) {
+            const item = inventoryVisualBuffer[selectedSlotIndex];
+            if (item) {
+                // 🌟 分離した関数を呼び出す
+                openDropForm(selectedSlotIndex, item);
+            }
+        }
+    }
+});
+
+function getPriorityWindow(mx, my) {
+    // 1. 各ウィンドウの「全体」にマウスが乗っているか判定
+    const isOverStats = (gameWindows.status.isOpen && 
+        mx >= gameWindows.status.x && mx <= gameWindows.status.x + 300 && 
+        my >= gameWindows.status.y && my <= gameWindows.status.y + 250);
+        
+    const isOverInv = (gameWindows.inventory.isOpen && 
+        mx >= gameWindows.inventory.x && mx <= gameWindows.inventory.x + gameWindows.inventory.w && 
+        my >= gameWindows.inventory.y && my <= gameWindows.inventory.y + gameWindows.inventory.h);
+        
+    const isOverExtra = (gameWindows.extra.isOpen && 
+        mx >= gameWindows.extra.x && mx <= gameWindows.extra.x + gameWindows.extra.w && 
+        my >= gameWindows.extra.y && my <= gameWindows.extra.y + gameWindows.extra.h);
+
+    // 🌟 重なっている窓を特定（元のロジックを維持）
+    let activeWindows = [];
+    if (isOverStats) activeWindows.push("status");
+    if (isOverInv) activeWindows.push("inventory");
+    if (isOverExtra) activeWindows.push("extra");
+
+    if (activeWindows.length > 0) {
+        // stack の中で一番後ろ（＝手前）にあるものを特定
+        for (let i = windowStack.length - 1; i >= 0; i--) {
+            const winId = windowStack[i];
+            if (activeWindows.includes(winId)) {
+                
+                // 🌟 追加：特定したウィンドウの「ヘッダー部分(上部30px)」にマウスがあるか判定
+                const win = gameWindows[winId];
+                // gameWindows.status のように個別に幅が指定されている場合を考慮
+                const winW = (winId === "status") ? 300 : win.w;
+                
+                const isHeader = (my >= win.y && my <= win.y + 30);
+
+                // 文字列だけでなく、情報を持たせたオブジェクトを返す
+                return { id: winId, isHeader: isHeader };
+            }
+        }
+    }
+    return { id: "none", isHeader: false };
+}
+
+// ============================================================
+// 📡 [SECTION 6: NETWORK] 通信・同期
+// 役割: サーバー(Socket.io)とのパケット送受信
+// ============================================================
 socket.on('chat', data => {
   // 🌟【修正】内緒話（whisper）の場合は、描画リストに追加しない
   // これにより、画面上の吹き出しとして描画されるのを防ぎます
@@ -778,14 +1096,320 @@ socket.on('your_id', id => {
   if (typeof hero !== 'undefined') hero.id = id;
 });
 
-// ==========================================
-// ⚙️ 設定・フラグ（ここを false にするとデバッグ表示が消えます）
-// ==========================================
-let DEBUG_MODE = false; 
+/**
+ * サーバーからの通知（アイテム取得など）を処理する専門の関数
+ */
+function handleServerEvents(data) {
+    if (!data.lastPickedItems || data.lastPickedItems.length === 0) return;
+
+    data.lastPickedItems.forEach(picked => {
+        // --- 🌟 ボーナス色の計算（詳細な8段階ランク判定） ---
+        let bonusColor = '#ffffff'; // デフォルトは白
+        if (picked.totalALLStats !== undefined && picked.totalFirstStats !== undefined) {
+            const bonus = picked.totalALLStats - picked.totalFirstStats;
+            
+            // 灰 < 白 < 橙 < 青 < 紫 < 黄 < 緑 < 赤 の順に判定
+            if (bonus >= 30) {
+                bonusColor = "#ff0000"; // 神級 (赤)
+            } else if (bonus >= 25) {
+                bonusColor = "#00ff00"; // 超伝説 (緑)
+            } else if (bonus >= 20) {
+                bonusColor = "#ffff00"; // 極上 (黄)
+            } else if (bonus >= 15) {
+                bonusColor = "#ff00ff"; // 伝説 (紫)
+            } else if (bonus >= 10) {
+                bonusColor = "#00ccff"; // 希少 (青)
+            } else if (bonus >= 5) {
+                bonusColor = "#ff9900"; // 良品 (橙)
+            } else if (bonus >= 0) {
+                bonusColor = "#ffffff"; // 標準 (白)
+            } else {
+                bonusColor = "#aaaaaa"; // 粗悪 (灰)
+            }
+        }
+
+        // ① 吸い込みエフェクトの追加
+        pickingUpEffects.push({
+            type: picked.type,
+            timer: VIEW_CONFIG.pickupEffect.duration,
+            startX: picked.x + 20,
+            startY: (picked.y > VIEW_CONFIG.groundThreshold) 
+                ? (VIEW_CONFIG.groundY - 20) 
+                : picked.y,
+            targetPlayerId: picked.pickerId,
+            // 🌟 決定した詳細ランク色をエフェクト情報に追加
+            effectColor: bonusColor 
+        });
+
+        // ② アイテム取得ログ（省略・維持）
+        /*
+        if (picked.pickerId === socket.id) {
+            if (picked.type !== 'medal1') {
+                const config = ITEM_CONFIG[picked.type] || { name: 'アイテム' };
+                itemLogs.push({
+                    text: `Bag: ${config.name} を手に入れました`,
+                    timer: VIEW_CONFIG.log.displayTime
+                });
+                if (itemLogs.length > VIEW_CONFIG.log.maxCount) {
+                    itemLogs.shift();
+                }
+            }
+        }
+        */
+
+        // ③ 取得音の再生
+        if (typeof playItemSound === 'function') {
+            playItemSound();
+        }
+    });
+}
+
+socket.on('state', (data) => {
+    // 1. 受信確認（これは表示されるはずです）
+    //console.log("🔥 受信チェック！");
+    if (!data) return;
+    
+    handleServerEvents(data);
+
+    // 🌟 【最優先】アイテムの判定を「myHero」のチェックより上で行う！
+    // これにより、自分のデータが届いていなくても音の判定だけは確実に行われます。
+    const allItemsFromServer = data.items || [];
+    const currentItems = allItemsFromServer.filter(it => !it.isPickedUp);
+    const currentTotalCount = allItemsFromServer.length;
+
+    // 初回のみ window.lastCount を今の数で初期化
+    if (typeof window.lastCount === 'undefined') {
+        window.lastCount = currentTotalCount;
+    }
+
+    // 🌟 判定：数が増えていたら文字を出す
+    if (currentTotalCount > window.lastCount) {
+        console.log("🌟 AAA：アイテムドロップ検知！"); 
+        if (typeof playDropSound === 'function') {
+            playDropSound();
+        }
+    }
+    // 記憶を更新
+    window.lastCount = currentTotalCount;
+	
+	console.log("⭐️確認の表示1");
+
+    // --------------------------------------------------
+    // ✋ ここから下は「自分のデータがある時だけ」実行する（ブレーキ）
+    // --------------------------------------------------
+    const myHero = data.players[socket.id];
+    if (!myHero) {
+        // 自分のデータがない場合、描画はできませんが、音の処理は終わっているのでここで終了してOK
+        return; 
+    }
+	
+	//console.log("⭐️確認の表示2");
+	
+	/*
+    // インベントリの残像処理（土田さんの元のロジックを維持）
+    if (myHero.inventory) {
+        myHero.inventory = myHero.inventory.filter(slot => 
+            slot && slot.type !== null && slot.type !== undefined && slot.count > 0
+        );
+    }
+    const isActuallyEmpty = !myHero.inventory || myHero.inventory.length === 0;
+    if (isActuallyEmpty) {
+        inventoryVisualBuffer = [];
+        myHero.inventory = [];
+    } else {
+        inventoryVisualBuffer = JSON.parse(JSON.stringify(myHero.inventory));
+    }
+
+    // 描画用のデータ準備
+    const currentEnemies = data.enemies || [];
+    const others = {};
+    for (let id in data.players) {
+        if (id !== socket.id) {
+            others[id] = data.players[id];
+        }
+    }
+
+    // 🎨 106行目付近：描画実行
+    if (typeof drawGame === 'function') {
+        drawGame(
+            myHero,            
+            others,
+            currentEnemies,
+            currentItems,
+            data.platforms || [],
+            data.ladders || [],
+            damageTexts || [],
+            Math.floor(Date.now() / 16)
+        ); 
+
+        // 🐞 描画側のデバッグログ
+        if (selectedSlotIndex !== -1) {
+            console.log("描画チェック開始: 選択スロット =" + selectedSlotIndex);
+            
+            if (myHero && myHero.inventory) {
+                const item = myHero.inventory[selectedSlotIndex];
+                if (item) {
+                    console.log("アイテム発見！描画します: " + item.type);
+                    
+                    ctx.save();
+                    ctx.setTransform(1, 0, 0, 1, 0, 0); // 座標をリセット
+                    ctx.globalAlpha = 0.8;
+                    ctx.fillStyle = "red"; // 確実に見えるように一旦「赤」
+                    ctx.fillRect(mouseX - 15, mouseY - 15, 30, 30);
+                    
+                    ctx.fillStyle = "white";
+                    ctx.font = "bold 16px Arial";
+                    ctx.fillText(item.type, mouseX + 20, mouseY);
+                    ctx.restore();
+                } else {
+                    console.log("選択したスロットは空です");
+                }
+            } else {
+                console.log("myHero または inventory が見つかりません");
+            }
+        }
+    }
+	*/
+});
+
+socket.on('exp_log', (data) => {
+    console.log("経験値の電波を受信しました！", data);
+    
+    // アイテムログを表示する「本物の箱」にデータを入れます
+    if (typeof itemLogs !== 'undefined') {
+        itemLogs.push({
+            text: `✨ Exp: 経験値を ${data.amount} 獲得した！`,
+            timer: 500 // 3秒間
+        });
+
+        // ログが溜まりすぎないように調整
+        if (itemLogs.length > 5) {
+            itemLogs.shift();
+        }
+        
+        console.log("ログの箱に入れました。現在の数:", itemLogs.length);
+    }
+});
+
+socket.on('gold_log', (data) => {
+    console.log("お金の電波を受信しました！", data);
+    
+    if (typeof itemLogs !== 'undefined') {
+        itemLogs.push({
+            text: `💰 Gold: ${data.amount} GOLD 手に入れました！`, // ← ここを書き換え
+            timer: 500 
+        });
+
+        if (itemLogs.length > 5) {
+            itemLogs.shift();
+        }
+        
+        console.log("お金ログを箱に入れました。");
+    }
+});
+
+// 🌟 サーバーから「他のプレイヤーの見た目が更新された」通知を受け取る
+socket.on('update_player_visual', (data) => {
+    // data = { id: "相手のID", group: 5, charVar: 1 } のような形式
+    
+    // 相手が選んだ新しいグループの画像をロードしておく（まだ読み込んでいない場合のみ動く）
+    if (data.group !== undefined && data.charVar !== undefined) {
+        loadCharFrames(data.group, data.charVar);
+    }
+
+    // クライアント側で保持している他プレイヤーリストの情報を書き換える
+    if (players && players[data.id]) {
+        players[data.id].group = data.group;
+        players[data.id].charVar = data.charVar;
+    }
+});
+
+socket.on('inventory_update', (newInventory) => {
+    console.log("アイテム専用窓口で更新を受け取りました！");
+    inventoryVisualBuffer = newInventory; 
+});
+
+socket.on('player_die_sound', () => {
+    if (typeof playDieSound === 'function') playDieSound();
+});
+
+// サーバーからの入室通知を受け取って音を鳴らす
+socket.on('player_joined_sound', () => {
+    // 指定された playInviteSound() を実行
+    if (typeof playInviteSound === 'function') {
+        playInviteSound();
+    } else {
+        console.warn("playInviteSound が定義されていません。");
+    }
+});
+
+let myDebugData = null;
+let serverItemCount = 0; // アイテム数を入れる変数
+// サーバーからのデバッグ専用データを受信
+let serverDebugInfo = {};
+
+socket.on('tsuchida_debug', (data) => {
+    if (data && data.players && socket.id) {
+        myDebugData = data.players[socket.id];
+    }
+    // ここでアイテム数を受け取っています
+    if (data && typeof data.itemCount !== 'undefined') {
+        serverItemCount = data.itemCount;
+    }
+	serverDebugInfo = data;
+});
+
+// 🌟 【新規追加】サーバーから「命中・撃破」の確定通知を受けて音を鳴らす
+// これを socket.on('updatePlayers', ...) 等が並んでいる場所に追加してください
+socket.on('enemy_hit_sync', (data) => {
+    // 自分の攻撃が当たった時だけ音を鳴らす
+    if (data.attackerId !== socket.id) return;
+
+    // 敵のデータを特定
+    const target = enemies.find(e => e.id === data.enemyId);
+    if (!target) return;
+
+    if (data.isDead) {
+        // サーバーが「死んだ」と認めた時だけ死亡音
+        if (typeof playEnemyDieSound === 'function') playEnemyDieSound(target);
+    } else {
+        // サーバーが「当たった（まだ生きてる）」と認めた時だけヒット音
+        if (typeof playEnemyHitSound === 'function') playEnemyHitSound(target);
+    }
+});
 
 // ==========================================
-// 🎨 1. メインの描画司令塔
+// 🎒 アイテム取得時の右下ログ通知（確実に表示版）
 // ==========================================
+socket.on('item_pickup_log', (data) => {
+    console.log("ログ受信成功:", data);
+
+    // 1. メッセージを作成
+    let logMsg = data.amount >= 2 
+        ? `${data.itemName}を${data.amount}個手に入れました` 
+        : `${data.itemName}を手に入れました`;
+
+    if (typeof itemLogs !== 'undefined') {
+        // 2. 🌟 exp_logと同じ形式（timer）でデータを追加します
+        itemLogs.push({
+            text: logMsg,
+            timer: 500,        // 🌟 ここを time ではなく exp_log と同じ timer に合わせます
+            color: '#ffeb3b'   // ゴールドの色
+        });
+
+        // 3. ログが溜まりすぎないように調整
+        if (itemLogs.length > 5) {
+            itemLogs.shift();
+        }
+        
+        console.log("アイテムログを箱に入れました。現在の数:", itemLogs.length);
+    }
+});
+
+// ============================================================
+// 🎨 [SECTION 7: RENDER] 描画エンジン
+// 役割: Canvasへの描画処理とメインループ(60FPS)
+// ============================================================
 function drawGame(hero, others, enemies, items, platforms, ladders, damageTexts, frame) {
     // 1. データの事前更新（タイマー・経験値演出など）
     updateTimers();
@@ -818,21 +1442,6 @@ function drawGame(hero, others, enemies, items, platforms, ladders, damageTexts,
     }
 }
 
-// ==========================================
-// 📈 補助：経験値の表示アニメーション計算
-// ==========================================
-function updateExpAnimation(hero) {
-    const diff = hero.exp - displayExp;
-    if (Math.abs(diff) > 0.1) {
-        displayExp += diff * 0.1;
-    } else {
-        displayExp = hero.exp;
-    }
-}
-
-// ==========================================
-// 📡 補助：HUD・特殊UI描画
-// ==========================================
 function drawSpecialHUD(hero) {
     // --- チャンネルを【右上】に表示 ---
     if (hero && hero.channel) {
@@ -865,9 +1474,6 @@ function drawSpecialHUD(hero) {
     }
 }
 
-// ==========================================
-// 🛠️ 補助：デバッグ専用描画レイヤー
-// ==========================================
 function drawDebugLayer(hero, enemies, items, platforms) {
     ctx.save();
 
@@ -986,101 +1592,6 @@ function drawDebugLayer(hero, enemies, items, platforms) {
 }
 
 /**
- * サーバーからの通知（アイテム取得など）を処理する専門の関数
- */
-function handleServerEvents(data) {
-    /*
-    const hero = data.players[socket.id];
-    if (hero) {
-        // 前回の記録があり、かつ増えている場合だけログを出す
-        if (lastExp !== 0 && hero.exp > lastExp) {
-            const diff = hero.exp - lastExp;
-            itemLogs.push({
-                text: `Exp: 経験値を ${diff} 獲得した！`,
-                timer: VIEW_CONFIG.log.displayTime
-            });
-
-            if (itemLogs.length > VIEW_CONFIG.log.maxCount) {
-                itemLogs.shift();
-            }
-        }
-        lastExp = hero.exp; // 今回の経験値を記憶する
-    }
-    */
-    
-    if (!data.lastPickedItems || data.lastPickedItems.length === 0) return;
-
-    data.lastPickedItems.forEach(picked => {
-        // --- 🌟 ボーナス色の計算（詳細な8段階ランク判定） ---
-        let bonusColor = '#ffffff'; // デフォルトは白
-        if (picked.totalALLStats !== undefined && picked.totalFirstStats !== undefined) {
-            const bonus = picked.totalALLStats - picked.totalFirstStats;
-            
-            // 灰 < 白 < 橙 < 青 < 紫 < 黄 < 緑 < 赤 の順に判定
-            if (bonus >= 30) {
-                bonusColor = "#ff0000"; // 神級 (赤)
-            } else if (bonus >= 25) {
-                bonusColor = "#00ff00"; // 超伝説 (緑)
-            } else if (bonus >= 20) {
-                bonusColor = "#ffff00"; // 極上 (黄)
-            } else if (bonus >= 15) {
-                bonusColor = "#ff00ff"; // 伝説 (紫)
-            } else if (bonus >= 10) {
-                bonusColor = "#00ccff"; // 希少 (青)
-            } else if (bonus >= 5) {
-                bonusColor = "#ff9900"; // 良品 (橙)
-            } else if (bonus >= 0) {
-                bonusColor = "#ffffff"; // 標準 (白)
-            } else {
-                bonusColor = "#aaaaaa"; // 粗悪 (灰)
-            }
-        }
-
-        // ① 吸い込みエフェクトの追加
-        pickingUpEffects.push({
-            type: picked.type,
-            timer: VIEW_CONFIG.pickupEffect.duration,
-            startX: picked.x + 20,
-            startY: (picked.y > VIEW_CONFIG.groundThreshold) 
-                ? (VIEW_CONFIG.groundY - 20) 
-                : picked.y,
-            targetPlayerId: picked.pickerId,
-            // 🌟 決定した詳細ランク色をエフェクト情報に追加
-            effectColor: bonusColor 
-        });
-
-        // ② アイテム取得ログ（省略・維持）
-        /*
-        if (picked.pickerId === socket.id) {
-            if (picked.type !== 'medal1') {
-                const config = ITEM_CONFIG[picked.type] || { name: 'アイテム' };
-                itemLogs.push({
-                    text: `Bag: ${config.name} を手に入れました`,
-                    timer: VIEW_CONFIG.log.displayTime
-                });
-                if (itemLogs.length > VIEW_CONFIG.log.maxCount) {
-                    itemLogs.shift();
-                }
-            }
-        }
-        */
-
-        // ③ 取得音の再生
-        if (typeof playItemSound === 'function') {
-            playItemSound();
-        }
-    });
-}
-
-/**
- * ⏳ タイマーやメッセージの管理
- */
-function updateTimers() {
-    updateLogTimers(); // 取得ログの寿命
-    chatMessages = chatMessages.filter(m => m.timer > 0); // チャットの寿命
-}
-
-/**
  * 🏃 キャラクターやアイテムなどの「動くもの」を一括管理
  */
 function drawEntities(hero, others, enemies, items, frame) {
@@ -1143,91 +1654,106 @@ function drawEffects(damageTexts, hero, others) {
 }
 
 /**
- * 🪟 シンプルなウィンドウを表示する関数（ホバー反応付き・文字ズレ防止・リッチデザイン版）
+ * 🍁 メイプル調・リッチウィンドウ表示関数
+ * 特徴: 以前の構造（ホバー判定・文字ズレ防止）を維持しつつ、メイプル風の質感に変更
  */
 function drawSimpleWindow(title, x, y, w, h) {
-    // 🌟 描画状態を保存（関数の外の設定に影響されない・させないため）
+    // 🌟 描画状態を保存
     ctx.save();
 
-    // --- 1. 外枠と背景（グラデーションで深みを追加） ---
+    // --- 1. 外枠と背景（メイプル特有の青白いグラデーション） ---
     const bgGrad = ctx.createLinearGradient(x, y, x, y + h);
-    bgGrad.addColorStop(0, "rgba(20, 20, 40, 0.95)"); // 上部：深い紺
-    bgGrad.addColorStop(1, "rgba(0, 0, 0, 0.95)");    // 下部：黒
+    bgGrad.addColorStop(0, "#e8f1f8"); // 上部：明るい白青
+    bgGrad.addColorStop(1, "#99b6d6"); // 下部：落ち着いた青
     
     ctx.fillStyle = bgGrad;
-    ctx.strokeStyle = "#ffffff";
+    // メイプル風の濃い茶色の外枠
+    ctx.strokeStyle = "#4d3d2d"; 
     ctx.lineWidth = 2;
     ctx.beginPath();
-    ctx.roundRect(x, y, w, h, 10);
+    ctx.roundRect(x, y, w, h, 6); // 少し角を丸く
     ctx.fill();
     ctx.stroke();
 
-    // 内側の細い光の縁（これを入れるだけで高級感が出ます）
-    ctx.strokeStyle = "rgba(255, 255, 255, 0.2)";
-    ctx.lineWidth = 1;
+    // 🌟 メイプル感を出す「内側の黄色い縁取り」
+    ctx.strokeStyle = "#f9d448"; 
+    ctx.lineWidth = 1.5;
     ctx.strokeRect(x + 2, y + 2, w - 4, h - 4);
 
-    // --- 2. タイトルバー（少し光沢感のある帯） ---
-    const titleGrad = ctx.createLinearGradient(x, y, x, y + 30);
-    titleGrad.addColorStop(0, "#444444");
-    titleGrad.addColorStop(1, "#222222");
+    // --- 2. タイトルバー（濃い青の光沢グラデーション） ---
+    const titleBarH = 30;
+    const titleGrad = ctx.createLinearGradient(x, y, x, y + titleBarH);
+    titleGrad.addColorStop(0, "#5b7da3"); // 上：明るめの青
+    titleGrad.addColorStop(1, "#36557a"); // 下：濃い青
     
     ctx.fillStyle = titleGrad;
     ctx.beginPath();
-    ctx.roundRect(x, y, w, 30, {tl: 10, tr: 10, bl: 0, br: 0});
+    // タイトルバーも少し内側に配置して余白を作る
+    ctx.roundRect(x + 4, y + 4, w - 8, titleBarH - 4, 3);
     ctx.fill();
     
-    // タイトルバーの下線
+    // タイトルバーの下の細い光（立体感）
     ctx.strokeStyle = "rgba(255, 255, 255, 0.3)";
     ctx.beginPath();
-    ctx.moveTo(x, y + 30);
-    ctx.lineTo(x + w, y + 30);
+    ctx.moveTo(x + 5, y + titleBarH);
+    ctx.lineTo(x + w - 5, y + titleBarH);
     ctx.stroke();
 
-    // --- ❌ 閉じるボタンの判定と描画 ---
-    const btnX = x + w - 25;
-    const btnY = y + 5;
-    const btnSize = 20;
+    // --- ❌ 閉じるボタンの判定と描画（ぷにっとした赤い円形デザイン） ---
+    const btnSize = 18;
+    const btnX = x + w - 24;
+    const btnY = y + 8;
 
-    // 🖱️ マウスがボタンの上にあるかチェック
+    // 🖱️ マウスホバーチェック
     const isHoveringClose = (mouseX >= btnX && mouseX <= btnX + btnSize &&
                              mouseY >= btnY && mouseY <= btnY + btnSize);
 
-    // ホバー時は明るい赤(#ff6666)、通常時は元の赤(#ff4444)
-    ctx.fillStyle = isHoveringClose ? "#ff6666" : "#ff4444";
-    // ボタンを少し丸角にして可愛く
+    // ホバー時は明るい赤、通常時はメイプル風の落ち着いた赤
+    ctx.fillStyle = isHoveringClose ? "#ff6b6b" : "#d94a4a";
     ctx.beginPath();
-    ctx.roundRect(btnX, btnY, btnSize, btnSize, 4);
+    // 円形ボタンにして可愛く
+    ctx.arc(btnX + btnSize/2, btnY + btnSize/2, btnSize/2, 0, Math.PI * 2);
     ctx.fill();
 
-    // 🌟 ボタンの文字を描く前に設定をリセット
+    // ボタンに小さなハイライトを追加（おもちゃのような質感）
+    ctx.fillStyle = "rgba(255, 255, 255, 0.4)";
+    ctx.beginPath();
+    ctx.arc(btnX + btnSize/3.5, btnY + btnSize/3.5, btnSize/5, 0, Math.PI * 2);
+    ctx.fill();
+
+    // 🌟 閉じる文字「×」
     ctx.fillStyle = "#ffffff";
-    ctx.font = "bold 14px sans-serif";
-    ctx.textAlign = "center"; // ❌は中央の方が綺麗なのでcenterに
+    ctx.font = "bold 12px Arial";
+    ctx.textAlign = "center";
     ctx.textBaseline = "middle";
-    ctx.fillText("×", btnX + btnSize/2, btnY + btnSize/2 + 1);
+    ctx.fillText("×", btnX + btnSize/2, btnY + btnSize/2);
     // ---------------------------------
 
-    // --- 3. タイトル文字（文字に影をつけて読みやすく） ---
-    // 🌟 重要：ここで「左揃え」であることを明示（ズレ防止）
+    // --- 3. タイトル文字（影付きの白文字で視認性アップ） ---
     ctx.textAlign = "left"; 
-    ctx.textBaseline = "alphabetic";
+    ctx.textBaseline = "middle";
+    ctx.font = "bold 14px 'MS PGothic', sans-serif";
     
-    // 文字の影（1pxずらして黒で描画）
-    ctx.fillStyle = "rgba(0, 0, 0, 0.8)";
-    ctx.font = "bold 16px sans-serif";
-    ctx.fillText(title, x + 11, y + 23);
+    // 文字の影（少し下にずらす）
+    ctx.fillStyle = "rgba(0, 0, 0, 0.5)";
+    ctx.fillText(title, x + 13, y + titleBarH / 2 + 3);
 
     // 文字本体
     ctx.fillStyle = "#ffffff";
-    ctx.fillText(title, x + 10, y + 22);
+    ctx.fillText(title, x + 12, y + titleBarH / 2 + 2);
 
-    // 🌟 おまけ：ホバー時にカーソルを指マークに変える処理
+    // 🌟 ホバー時にカーソルを指マークに変える
     if (isHoveringClose) {
         canvas.style.cursor = "pointer";
     }
 
-    // 🌟 保存していた元の状態に戻す
+    // --- 4. ウィンドウ下部の装飾（所持金などを入れるスペース感） ---
+    ctx.fillStyle = "rgba(0, 0, 0, 0.05)";
+    ctx.beginPath();
+    ctx.roundRect(x + 6, y + h - 30, w - 12, 24, 4);
+    ctx.fill();
+
+    // 🌟 元の状態に戻す
     ctx.restore();
 }
 
@@ -1819,16 +2345,6 @@ function renderAPAllocationContent(win) {
 }
 
 // ==========================================
-// 📦 2. ログの寿命管理
-// ==========================================
-function updateLogTimers() {
-    itemLogs.forEach(log => {
-        if (log.timer > 0) log.timer -= 2; // 描画のたびに寿命を減らす
-    });
-    itemLogs = itemLogs.filter(l => l.timer > 0);
-}
-
-// ==========================================
 // 🖼️ 3. マップ（足場・地面・ハシゴ）の描画
 // ==========================================
 function drawMap(platforms, ladders) {
@@ -1897,8 +2413,6 @@ function drawPlayerObj(p, isMe, id) {
     const pW = VIEW_CONFIG.player.hitboxW;
     drawPlayerUI(ctx, p, isMe, pW, frame);
 }
-
-// --- 以下、分割された専門関数 ---
 
 /**
  * 📏 描画座標とオフセットの計算専門
@@ -2229,10 +2743,17 @@ function getEnemyVisualData(en, sprites, frame, hero) {
  */
 function drawEnemyHPBar(en, frame) {
     if (en.isFading) return;
-    let maxHp = (en.type === 'monster3') ? 2000 : (en.type === 'monster2' ? 500 : 200);
+
+    // 🌟 修正ポイント：固定値 (2000, 500, 200) ではなく、
+    // サーバーの Enemy クラスで設定された個別の maxHp を参照するようにします。
+    let maxHp = en.maxHp || 200; 
+
     if (en.hp < maxHp) {
         if (en.displayHp === undefined) en.displayHp = en.hp;
+        
+        // ダメージ時の白いバーが追いつくアニメーションロジックを維持
         en.displayHp = (en.displayHp > en.hp) ? Math.max(en.hp, en.displayHp - 2) : en.hp;
+        
         const hpRatio = Math.max(0, en.hp / maxHp);
         const displayRatio = Math.max(0, en.displayHp / maxHp);
         const debugVisualY = en.y + (en.jumpY || 0);
@@ -2241,25 +2762,28 @@ function drawEnemyHPBar(en, frame) {
         const barX = en.x;
         const barY = debugVisualY + VIEW_CONFIG.enemy.hpBar.offsetY;
 
+        // 背景と枠の描画
         ctx.fillStyle = "rgba(15, 23, 42, 0.8)";
         ctx.fillRect(barX - 1, barY - 1, barW + 2, barH + 2);
         ctx.fillStyle = "#1e293b";
         ctx.fillRect(barX, barY, barW, barH);
+
+        // ダメージ残像（白いバー）の描画
         if (displayRatio > hpRatio) {
             ctx.fillStyle = "rgba(255, 255, 255, 0.8)";
             ctx.fillRect(barX, barY, barW * displayRatio, barH);
         }
+
+        // 残りHPに応じた色決定ロジックを維持
         let c1 = (hpRatio > 0.5) ? VIEW_CONFIG.enemy.hpBar.colorHigh : 
-         (hpRatio > 0.2 ? VIEW_CONFIG.enemy.hpBar.colorMid : 
-         (Math.floor(frame / 10) % 2 === 0 ? VIEW_CONFIG.enemy.hpBar.colorLow : VIEW_CONFIG.enemy.hpBar.colorMid));
+                 (hpRatio > 0.2 ? VIEW_CONFIG.enemy.hpBar.colorMid : 
+                 (Math.floor(frame / 10) % 2 === 0 ? VIEW_CONFIG.enemy.hpBar.colorLow : VIEW_CONFIG.enemy.hpBar.colorMid));
+        
         ctx.fillStyle = c1;
         ctx.fillRect(barX, barY, barW * hpRatio, barH);
     }
 }
 
-// ==========================================
-// 💥 6. テキスト・エフェクト関連
-// ==========================================
 /**
  * ダメージ数字を描画する（画像スキン対応版・被ダメ時はテキスト）
  * 縁取りスイッチと赤み付与を搭載
@@ -2483,23 +3007,6 @@ function drawItemLogsUI() {
 }
 
 /**
- * UIに関連する数値の更新（計算）だけを行う関数
- */
-function updateUIState(hero) {
-    if (!hero) return;
-
-    // HPバーの追従計算（描画からここへ移動）
-    if (hero.displayHp === undefined) hero.displayHp = hero.hp;
-
-    if (hero.displayHp > hero.hp) {
-        hero.displayHp -= VIEW_CONFIG.ui.hpEaseSpeed; 
-        if (hero.displayHp < hero.hp) hero.displayHp = hero.hp;
-    } else if (hero.displayHp < hero.hp) {
-        hero.displayHp = hero.hp;
-    }
-}
-
-/**
  * 画面上部のステータスUIを描画する
  * LEVEL_TABLEに基づいてMAXEXPを動的に変更し、HPとEXPの両方をなめらかに表示します。
  */
@@ -2589,26 +3096,6 @@ function drawTopStatusUI(hero) {
 
     ctx.restore();
 }
-
-// ==========================================
-// 📊 UI描画の司令塔（ここですべてを呼び出す）
-// ==========================================
-/*
-function drawUI(hero) {
-    if (!hero) return; // 🌟 heroが空っぽの時は何もしない（これでエラーを防ぐ）
-
-    // 1. HPバーの描画（背景パネルを含む）
-    //drawPlayerHP(hero);
-
-    // 2. カバンUIの描画
-    //drawBagUI(hero);
-
-    // 3. 経験値とレベル・デバッグ表示
-    //drawExpAndDebug(hero);
-	
-	//drawTopStatusUI(hero);
-}
-*/
 
 /** 1. HPバー関連（元のコードの2〜8番に相当） */
 function drawPlayerHP(hero) {
@@ -3010,675 +3497,6 @@ function drawInventoryGrid(ctx, inventory) {
     }
 }
 
-// view.js の一番下などに追加
-/*
-canvas.addEventListener('dblclick', (event) => {
-    // 1. クリックされた場所（座標）を取得
-    const rect = canvas.getBoundingClientRect();
-    const clickX = event.clientX - rect.left;
-    const clickY = event.clientY - rect.top;
-
-    // 2. インベントリの範囲内かチェック (y座標が 130～170 の間くらい)
-    if (clickY >= 130 && clickY <= 170) {
-        const slotSize = 40;
-        const padding = 8;
-        const startX = 20;
-
-        // 3. 何番目のスロットをクリックしたか計算
-        const index = Math.floor((clickX - startX) / (slotSize + padding));
-
-        // 0番目〜9番目の範囲内なら、サーバーに通知
-        if (index >= 0 && index < 10) {
-            console.log(index + "番目のアイテムを捨てます");
-            socket.emit('dropItem', index); // サーバーに「この番号を捨てて」と送る
-			if (typeof playDropSound === 'function') {
-			    // stateで音が鳴るのでコメントアウト
-                //playDropSound();
-            }
-        }
-    }
-});
-*/
-
-// ==========================================
-// 判定用の変数（データの比較に使用）
-// ==========================================
-let lastItemCount = 0;
-let lastEnemiesHP = 0;
-let lastEnemiesData = [];
-let lastItemsData = []; // ✨ 前回のアイテム状態を保持
-
-// ==========================================
-// 📡 サーバーからのデータ（state）を受け取る窓口
-// ==========================================
-// view.js の socket.on('state', ...) の部分をこれに差し替えてください
-
-// 🌟 関数の外側に「一瞬前のデータ」を保存する場所を作ります
-//let inventoryVisualBuffer = null;
-
-socket.on('state', (data) => {
-    // 1. 受信確認（これは表示されるはずです）
-    //console.log("🔥 受信チェック！");
-    if (!data) return;
-    
-    handleServerEvents(data);
-
-    // 🌟 【最優先】アイテムの判定を「myHero」のチェックより上で行う！
-    // これにより、自分のデータが届いていなくても音の判定だけは確実に行われます。
-    const allItemsFromServer = data.items || [];
-    const currentItems = allItemsFromServer.filter(it => !it.isPickedUp);
-    const currentTotalCount = allItemsFromServer.length;
-
-    // 初回のみ window.lastCount を今の数で初期化
-    if (typeof window.lastCount === 'undefined') {
-        window.lastCount = currentTotalCount;
-    }
-
-    // 🌟 判定：数が増えていたら文字を出す
-    if (currentTotalCount > window.lastCount) {
-        console.log("🌟 AAA：アイテムドロップ検知！"); 
-        if (typeof playDropSound === 'function') {
-            playDropSound();
-        }
-    }
-    // 記憶を更新
-    window.lastCount = currentTotalCount;
-	
-	console.log("⭐️確認の表示1");
-
-    // --------------------------------------------------
-    // ✋ ここから下は「自分のデータがある時だけ」実行する（ブレーキ）
-    // --------------------------------------------------
-    const myHero = data.players[socket.id];
-    if (!myHero) {
-        // 自分のデータがない場合、描画はできませんが、音の処理は終わっているのでここで終了してOK
-        return; 
-    }
-	
-	//console.log("⭐️確認の表示2");
-	
-	/*
-    // インベントリの残像処理（土田さんの元のロジックを維持）
-    if (myHero.inventory) {
-        myHero.inventory = myHero.inventory.filter(slot => 
-            slot && slot.type !== null && slot.type !== undefined && slot.count > 0
-        );
-    }
-    const isActuallyEmpty = !myHero.inventory || myHero.inventory.length === 0;
-    if (isActuallyEmpty) {
-        inventoryVisualBuffer = [];
-        myHero.inventory = [];
-    } else {
-        inventoryVisualBuffer = JSON.parse(JSON.stringify(myHero.inventory));
-    }
-
-    // 描画用のデータ準備
-    const currentEnemies = data.enemies || [];
-    const others = {};
-    for (let id in data.players) {
-        if (id !== socket.id) {
-            others[id] = data.players[id];
-        }
-    }
-
-    // 🎨 106行目付近：描画実行
-    if (typeof drawGame === 'function') {
-        drawGame(
-            myHero,            
-            others,
-            currentEnemies,
-            currentItems,
-            data.platforms || [],
-            data.ladders || [],
-            damageTexts || [],
-            Math.floor(Date.now() / 16)
-        ); 
-
-        // 🐞 描画側のデバッグログ
-        if (selectedSlotIndex !== -1) {
-            console.log("描画チェック開始: 選択スロット =" + selectedSlotIndex);
-            
-            if (myHero && myHero.inventory) {
-                const item = myHero.inventory[selectedSlotIndex];
-                if (item) {
-                    console.log("アイテム発見！描画します: " + item.type);
-                    
-                    ctx.save();
-                    ctx.setTransform(1, 0, 0, 1, 0, 0); // 座標をリセット
-                    ctx.globalAlpha = 0.8;
-                    ctx.fillStyle = "red"; // 確実に見えるように一旦「赤」
-                    ctx.fillRect(mouseX - 15, mouseY - 15, 30, 30);
-                    
-                    ctx.fillStyle = "white";
-                    ctx.font = "bold 16px Arial";
-                    ctx.fillText(item.type, mouseX + 20, mouseY);
-                    ctx.restore();
-                } else {
-                    console.log("選択したスロットは空です");
-                }
-            } else {
-                console.log("myHero または inventory が見つかりません");
-            }
-        }
-    }
-	*/
-});
-
-// 🌟 修正：itemLogs を「window.itemLogs」として扱うとより確実です
-socket.on('exp_log', (data) => {
-    console.log("経験値の電波を受信しました！", data);
-    
-    // アイテムログを表示する「本物の箱」にデータを入れます
-    if (typeof itemLogs !== 'undefined') {
-        itemLogs.push({
-            text: `✨ Exp: 経験値を ${data.amount} 獲得した！`,
-            timer: 500 // 3秒間
-        });
-
-        // ログが溜まりすぎないように調整
-        if (itemLogs.length > 5) {
-            itemLogs.shift();
-        }
-        
-        console.log("ログの箱に入れました。現在の数:", itemLogs.length);
-    }
-});
-
-// 🌟 真似して作った「お金ログ」の受信処理
-socket.on('gold_log', (data) => {
-    console.log("お金の電波を受信しました！", data);
-    
-    if (typeof itemLogs !== 'undefined') {
-        itemLogs.push({
-            text: `💰 Gold: ${data.amount} GOLD 手に入れました！`, // ← ここを書き換え
-            timer: 500 
-        });
-
-        if (itemLogs.length > 5) {
-            itemLogs.shift();
-        }
-        
-        console.log("お金ログを箱に入れました。");
-    }
-});
-
-// 🌟 サーバーから「他のプレイヤーの見た目が更新された」通知を受け取る
-socket.on('update_player_visual', (data) => {
-    // data = { id: "相手のID", group: 5, charVar: 1 } のような形式
-    
-    // 相手が選んだ新しいグループの画像をロードしておく（まだ読み込んでいない場合のみ動く）
-    if (data.group !== undefined && data.charVar !== undefined) {
-        loadCharFrames(data.group, data.charVar);
-    }
-
-    // クライアント側で保持している他プレイヤーリストの情報を書き換える
-    if (players && players[data.id]) {
-        players[data.id].group = data.group;
-        players[data.id].charVar = data.charVar;
-    }
-});
-
-// ==========================================
-// 🎒 アイテム取得時の右下ログ通知を受け取る
-// ==========================================
-/*
-socket.on('item_pickup_log', (data) => {
-    // 1. 表示するメッセージを作る
-    let logMsg = "";
-    if (data.amount >= 2) {
-        logMsg = `${data.itemName}を${data.amount}個手に入れました`;
-    } else {
-        logMsg = `${data.itemName}を手に入れました`;
-    }
-
-    // 2. 右下ログ用の配列（itemLogs）にデータを追加する
-    // view.js 内で itemLogs が定義されていることを前提としています
-    if (typeof itemLogs !== 'undefined') {
-        itemLogs.push({
-            text: logMsg,
-            time: Date.now(),
-            color: '#ffeb3b' // ゴールドっぽい黄色
-        });
-
-        // ログが溜まりすぎないように古いものを消す（最大5件など）
-        if (itemLogs.length > 5) {
-            itemLogs.shift();
-        }
-    } else {
-        // もし itemLogs が見つからない場合、コンソールで教えてくれるようにします
-        console.error("右下ログ用の配列 'itemLogs' が見つかりません。");
-    }
-});
-*/
-
-socket.on('inventory_update', (newInventory) => {
-    console.log("アイテム専用窓口で更新を受け取りました！");
-    inventoryVisualBuffer = newInventory; 
-});
-
-socket.on('player_die_sound', () => {
-    if (typeof playDieSound === 'function') playDieSound();
-});
-
-/*
-window.addEventListener('keydown', (e) => {
-    if (e.key.toLowerCase() === 'd') {
-        showDebugWindow = !showDebugWindow; // DキーでON/OFF
-        console.log("Debug Window:", showDebugWindow);
-    }
-});
-*/
-
-// 🌟 キャラクター切り替え (Q/E)
-window.addEventListener('keydown', (e) => {
-    // ✅ 追加：もし入力欄（チャット等）を触っていたら、ここで処理を中断する
-    if (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA') return;
-
-    let changed = false;
-    if (e.key === 'q' || e.key === 'Q') {
-        //selectedCharVar = selectedCharVar <= 1 ? 15 : selectedCharVar - 1;
-        //changed = true;
-    }
-	/*
-    if (e.key === 'e' || e.key === 'E') {
-        selectedCharVar = selectedCharVar >= 15 ? 1 : selectedCharVar + 1;
-        changed = true;
-    }
-	*/
-    if (changed) {
-        socket.emit('change_char', { charVar: selectedCharVar });
-    }
-});
-
-// 🌟 グループ切り替え (R/T)
-window.addEventListener('keydown', (e) => {
-    // ✅ 入力欄を触っていたら無視
-    if (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA') return;
-
-    let groupChanged = false;
-
-    // Rキー：前のグループへ (00 ↔ 15)
-    if (e.key === 'r' || e.key === 'R') {
-        selectedGroup = selectedGroup <= 0 ? 15 : selectedGroup - 1;
-        groupChanged = true;
-    }
-    // Tキー：次のグループへ (00 ↔ 15)
-    if (e.key === 't' || e.key === 'T') {
-        selectedGroup = selectedGroup >= 15 ? 0 : selectedGroup + 1;
-        groupChanged = true;
-    }
-
-    if (groupChanged) {
-        // 1. 🖼️ 自分の画面で新しいグループの画像をロードする
-        // キャラクター番号は 01 固定なのでそのまま第2引数に渡します
-        loadCharFrames(selectedGroup, selectedCharVar);
-
-        // 2. 📡 サーバーを通じて他ユーザーへ「自分の見た目が変わった」と通知
-        // サーバー側が 'change_group' だけでなく 'change_char' で統一されている場合はそちらに合わせてください
-        socket.emit('change_char', { 
-            group: selectedGroup, 
-            charVar: selectedCharVar 
-        });
-
-        console.log(`🔄 グループを ${selectedGroup} (キャラ ${selectedCharVar}) に切り替えました`);
-    }
-});
-
-window.addEventListener('keydown', (e) => {
-    // 1. ガード処理（入力フォームにフォーカスがある時は反応させない）
-    if (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA') return;
-
-    const key = e.key.toLowerCase(); // 大文字小文字を気にせず判定できるように
-
-    // --- 🌟 2. 各ウィンドウの共通判定ロジック (22個一括対応) ---
-    const targetId = keyMap[key];
-    if (targetId && gameWindows[targetId]) {
-        const win = gameWindows[targetId];
-
-        // gameWindows内のisOpenを反転
-        win.isOpen = !win.isOpen;
-        
-        // 🌟 開閉に関わらず、最後に触った(押した)方を最前面へ
-        if (typeof windowStack !== 'undefined') {
-            windowStack = windowStack.filter(v => v !== targetId);
-            windowStack.push(targetId);
-        }
-        
-        // 🔊 音の再生
-        if (win.isOpen) {
-            if (typeof playMenuUpSound === 'function') playMenuUpSound();
-        } else {
-            if (typeof playMenuDownSound === 'function') playMenuDownSound();
-        }
-        
-        console.log(`${targetId} Window State:`, win.isOpen);
-    }
-
-    // --- 🌟 3. 特殊キー・デバッグキー判定 (既存ロジック踏襲) ---
-    
-    // デバッグ情報の表示切り替え (Dキーをデバッグ用として使う場合の例)
-    /*
-    if (key === 'd') {
-        if (typeof showDebugWindow !== 'undefined') {
-            showDebugWindow = !showDebugWindow;
-            console.log("Debug Window:", showDebugWindow);
-        }
-    }
-    */
-    
-    // 判定の可視化切り替え (Pキーをデバッグモード用として使う場合の例)
-    /*
-    if (key === 'p') {
-        if (typeof DEBUG_MODE !== 'undefined') {
-            DEBUG_MODE = !DEBUG_MODE;
-            console.log("Visual Debug Mode (P-Key):", DEBUG_MODE);
-        }
-    }
-    */
-
-    // --- 🌟 4. エスケープ (全てのウィンドウを閉じる) ---
-    if (e.key === 'Escape') {
-        // いずれかのウィンドウが開いているかチェック
-        const anyOpen = Object.values(gameWindows).some(win => win.isOpen);
-
-        if (anyOpen) {
-            // 全てのウィンドウを一括で閉じる
-            Object.values(gameWindows).forEach(win => {
-                win.isOpen = false;
-            });
-            
-            if (typeof playMenuDownSound === 'function') playMenuDownSound();
-            console.log("All windows closed via Escape");
-        }
-    }
-});
-
-// ==========================================
-// 🖱️ マウスを離した時の処理（ドラッグ終了）
-// ==========================================
-window.addEventListener('mouseup', () => {
-    // 🌟 1. 管理オブジェクト内の全てのウィンドウのドラッグ状態を解除
-    Object.values(gameWindows).forEach(win => {
-        win.isDragging = false;
-    });
-
-    // 🌟 2. 既存コードとの互換性のため、古いフラグも解除
-    //isDragging = false;
-    //isDraggingInv = false;
-    //isDraggingE = false;
-
-    // 🌟 3. アイテムスロットの選択状態などは維持（ドラッグ終了のみに専念）
-    // canvas.style.cursor の制御が必要な場合はここで行います
-});
-
-// ==========================================
-// 🗑️ アイテムを地面に捨てる処理 (外部分離)
-// ==========================================
-function openDropForm(slotIndex, item) {
-    const currentAmount = item.count || item.amount || 1;
-
-    // 1個しかない場合は即座に送信して終了
-    if (currentAmount <= 1) {
-        socket.emit('dropItem', { index: slotIndex, amount: 1 });
-        selectedSlotIndex = -1;
-        return;
-    }
-
-    // 複数個ある場合は入力フォームを表示
-    const form = document.getElementById('drop-form');
-    const label = document.getElementById('drop-label');
-    const input = document.getElementById('drop-input');
-    const error = document.getElementById('drop-error');
-
-    label.innerText = `${currentAmount}個持っています。何個捨てますか？`;
-    error.innerText = "";
-    input.style.border = "1px solid #ccc";
-    input.value = currentAmount;
-    input.max = currentAmount;
-    input.min = 1;
-
-    isDiscarding = true;
-    form.style.display = 'block';
-    form.style.pointerEvents = 'auto';
-    canvas.style.cursor = "default";
-
-    setTimeout(() => input.focus(), 10);
-
-    const handleConfirm = () => {
-        let dropAmount = parseInt(input.value);
-        if (isNaN(dropAmount) || dropAmount <= 0) {
-            error.innerText = "1個以上の数値を入力してください";
-            input.style.border = "2px solid #ff4444";
-            return;
-        }
-        if (dropAmount > currentAmount) {
-            error.innerText = `そんなに持っていません！(最大${currentAmount}個)`;
-            input.style.border = "2px solid #ff4444";
-            return;
-        }
-        socket.emit('dropItem', { index: slotIndex, amount: dropAmount });
-        closeForm();
-    };
-
-    const handleCancel = () => closeForm();
-
-    const closeForm = () => {
-        isDiscarding = false;
-        selectedSlotIndex = -1;
-        form.style.display = 'none';
-        form.style.pointerEvents = 'none';
-        input.onkeydown = null;
-    };
-
-    document.getElementById('drop-confirm').onclick = handleConfirm;
-    document.getElementById('drop-cancel').onclick = handleCancel;
-
-    input.onkeydown = (e) => {
-        if (e.key === 'Enter') { e.preventDefault(); handleConfirm(); }
-        else if (e.key === 'Escape') { handleCancel(); }
-    };
-}
-
-// ==========================================
-// 🖱️ マウスクリック時の判定処理 (22ウィンドウ対応版)
-// ==========================================
-canvas.addEventListener('mousedown', (event) => {
-    const rect = canvas.getBoundingClientRect();
-    const clickX = event.clientX - rect.left;
-    const clickY = event.clientY - rect.top;
-
-    // 1. 🌟 重なりを考慮して、どのウィンドウがクリックされたか判定
-    let priorityWindow = "none";
-    
-    // windowStackを後ろから（＝手前に表示されている順に）チェック
-    for (let i = windowStack.length - 1; i >= 0; i--) {
-        const name = windowStack[i];
-        const win = gameWindows[name];
-        
-        if (win && win.isOpen) {
-            if (clickX >= win.x && clickX <= win.x + win.w && 
-                clickY >= win.y && clickY <= win.y + win.h) {
-                priorityWindow = name;
-                break; // 一番手前の窓が見つかったら終了
-            }
-        }
-    }
-
-    // 2. 🌟 ウィンドウを触った場合の共通処理
-    if (priorityWindow !== "none") {
-        const win = gameWindows[priorityWindow];
-
-        // 触った窓を最前面に移動
-        windowStack = windowStack.filter(item => item !== priorityWindow);
-        windowStack.push(priorityWindow);
-
-        // --- ❌ 共通：閉じるボタンの判定 ---
-        if (win.isMouseOverClose(clickX, clickY)) {
-            win.isOpen = false;
-            if (typeof playMenuDownSound === 'function') playMenuDownSound();
-            return;
-        }
-
-        // --- 📊 Status 専用の判定処理 ---
-        if (priorityWindow === "status") {
-            // タブ切り替え
-            if (clickY >= win.y + 35 && clickY <= win.y + 60) {
-                if (clickX >= win.x + 20 && clickX <= win.x + 90) {
-                    currentTab = "status";
-                    if (typeof playTabSound === 'function') playTabSound();
-                    return;
-                }
-                if (clickX >= win.x + 95 && clickX <= win.x + 165) {
-                    currentTab = "ap";
-                    if (typeof playTabSound === 'function') playTabSound();
-                    return;
-                }
-            }
-            // AP強化ボタン
-            if (currentTab === "ap") {
-                const btnX = win.x + 150;
-                const btnW = 100;
-                const btnH = 25;
-                const stats = ['str', 'dex', 'luk'];
-                for (let i = 0; i < stats.length; i++) {
-                    const btnY = win.y + 102 + (i * 30);
-                    if (clickX >= btnX && clickX <= btnX + btnW && clickY >= btnY && clickY <= btnY + btnH) {
-                        if (hero.ap > 0) {
-                            socket.emit('upgrade_stat', { type: stats[i] });
-                            if (typeof playMouseClickSound === 'function') playMouseClickSound();
-                        }
-                        return;
-                    }
-                }
-            }
-        }
-
-        // --- 🖐️ 共通：ドラッグ開始判定 (全ウィンドウ共通) ---
-        if (win.isMouseOverHeader(clickX, clickY)) {
-            win.isDragging = true;
-            win.dragOffsetX = clickX - win.x;
-            win.dragOffsetY = clickY - win.y;
-            return;
-        }
-        return; // 窓を触っている間は下のゲーム世界をクリックさせない
-    }
-
-    // 3. 🎒 どの窓も触っていない場合の操作（アイテムスロット・捨て処理）
-    if (clickY >= 130 && clickY <= 170) {
-        const index = Math.floor((clickX - 20) / 48);
-        if (index >= 0 && index < 10) {
-            if (selectedSlotIndex !== -1 && selectedSlotIndex !== index) {
-                socket.emit('swapItems', { from: selectedSlotIndex, to: index });
-                if (typeof playDropSound === 'function') playDropSound();
-                selectedSlotIndex = -1;
-                canvas.style.cursor = "grab"; 
-            } else if (selectedSlotIndex === index) {
-                selectedSlotIndex = -1; 
-                canvas.style.cursor = "grab";
-                if (typeof playDropSound === 'function') playDropSound();
-            } else if (inventoryVisualBuffer && inventoryVisualBuffer[index]) {
-                selectedSlotIndex = index; 
-                canvas.style.cursor = "grabbing"; 
-                if (typeof playHoverSound === 'function') playHoverSound();
-            }
-        }
-    } else {
-        // --- 🗑️ アイテムを地面に捨てる処理 ---
-        if (selectedSlotIndex !== -1) {
-            const item = inventoryVisualBuffer[selectedSlotIndex];
-            if (item) {
-                // 🌟 分離した関数を呼び出す
-                openDropForm(selectedSlotIndex, item);
-            }
-        }
-    }
-});
-
-/*
-// ダブルクリック（dblclick）
-canvas.addEventListener('dblclick', (event) => {
-    console.log("ダブルクリックを検知しました！");
-    const rect = canvas.getBoundingClientRect();
-    const clickX = event.clientX - rect.left;
-    const clickY = event.clientY - rect.top;
-
-    if (clickY >= 130 && clickY <= 170) {
-        const index = Math.floor((clickX - 20) / 48);
-        if (index >= 0 && index < 10) {
-            console.log(`${index}番のアイテムをサーバーへ捨てるリクエスト送信`);
-            socket.emit('dropItem', index); 
-            selectedSlotIndex = -1;
-        }
-    }
-});
-*/
-
-// 🌟 サーバーの通信とは「別ルート」でホバーを描画する専用ループ
-// view.js 内の drawItemHoverLoop を修正
-/*
-function drawItemHoverLoop() {
-    if (selectedSlotIndex === -1) {
-        requestAnimationFrame(drawItemHoverLoop);
-        return;
-    }
-
-    const item = inventoryVisualBuffer[selectedSlotIndex];
-    if (item) {
-        ctx.save();
-        
-        // 🌟 ここで透明度を設定（0.0が透明、1.0が不透明）
-        // 0.6 にすると、後ろが少し透けて「掴んでいる感」が出ます
-        ctx.globalAlpha = 0.6;
-
-        const displaySize = 30; 
-        const itemImg = itemImages[item.type];
-
-        if (itemImg && itemImg.complete && itemImg.width > 0) {
-            // 中心を合わせて描画
-            ctx.drawImage(
-                itemImg, 
-                mouseX - (displaySize / 2), 
-                mouseY - (displaySize / 2), 
-                displaySize, 
-                displaySize
-            );
-        } else {
-            // 予備の枠も少し薄く出す
-            ctx.strokeStyle = "rgba(255, 255, 255, 0.5)";
-            ctx.strokeRect(mouseX - 15, mouseY - 15, 30, 30);
-        }
-
-        // 📝 文字も少しだけ薄くして、画像に合わせます
-        //ctx.globalAlpha = 0.8; 
-        //ctx.fillStyle = "white";
-        //ctx.font = "bold 14px Arial";
-        //ctx.textAlign = "center";
-        //ctx.shadowBlur = 4;
-        //ctx.shadowColor = "black";
-        //ctx.fillText(item.type, mouseX, mouseY + 30);
-        
-        ctx.restore(); // 🌟 restoreを呼ぶことで、他の描画まで薄くなるのを防ぎます
-    }
-		
-    requestAnimationFrame(drawItemHoverLoop);
-}
-*/
-
-// 🌟 そして一番最後に、このループを最初に1回だけ動かします
-//drawItemHoverLoop();
-
-// サーバーからの入室通知を受け取って音を鳴らす
-socket.on('player_joined_sound', () => {
-    // 指定された playInviteSound() を実行
-    if (typeof playInviteSound === 'function') {
-        playInviteSound();
-    } else {
-        console.warn("playInviteSound が定義されていません。");
-    }
-});
-
-//inventoryVisualBuffer[0] = { type: 'My Sword', def: 50 };
-
 // 🛠️ view.js デバッグ表示の強化版
 function drawDebugInfo() {
     // 1. 表示設定
@@ -3737,42 +3555,6 @@ function debugLoop() {
 // 🚀 ページを読み込んだら、すぐにデバッグループを開始する
 debugLoop();
 
-// view.js の一番下（書き換え）
-let myDebugData = null;
-let serverItemCount = 0; // アイテム数を入れる変数
-// サーバーからのデバッグ専用データを受信
-let serverDebugInfo = {};
-
-socket.on('tsuchida_debug', (data) => {
-    if (data && data.players && socket.id) {
-        myDebugData = data.players[socket.id];
-    }
-    // ここでアイテム数を受け取っています
-    if (data && typeof data.itemCount !== 'undefined') {
-        serverItemCount = data.itemCount;
-    }
-	serverDebugInfo = data;
-});
-
-// 🌟 【新規追加】サーバーから「命中・撃破」の確定通知を受けて音を鳴らす
-// これを socket.on('updatePlayers', ...) 等が並んでいる場所に追加してください
-socket.on('enemy_hit_sync', (data) => {
-    // 自分の攻撃が当たった時だけ音を鳴らす
-    if (data.attackerId !== socket.id) return;
-
-    // 敵のデータを特定
-    const target = enemies.find(e => e.id === data.enemyId);
-    if (!target) return;
-
-    if (data.isDead) {
-        // サーバーが「死んだ」と認めた時だけ死亡音
-        if (typeof playEnemyDieSound === 'function') playEnemyDieSound(target);
-    } else {
-        // サーバーが「当たった（まだ生きてる）」と認めた時だけヒット音
-        if (typeof playEnemyHitSound === 'function') playEnemyHitSound(target);
-    }
-});
-
 function simpleDebugRender() {
     ctx.fillStyle = "rgba(0, 0, 0, 0.8)";
     ctx.fillRect(10, 10, 250, 105); // 少し縦を広げました
@@ -3797,9 +3579,6 @@ function simpleDebugRender() {
 
 // 実行
 simpleDebugRender();
-
-// デバッグウィンドウを表示するかどうかのスイッチ
-//let showDebugWindow = true; 
 
 function drawDebugWindow(ctx, mouseX, mouseY, hero, items) {
     if (!showDebugWindow) return;
@@ -3834,164 +3613,10 @@ function drawDebugWindow(ctx, mouseX, mouseY, hero, items) {
     drawLine(`[AP]     Remaining: ${hero.ap || 0}`);
 }
 
-// 🛠️ 開発用：現在のUIの状態を可視化する
-/*
-function drawUIDebugInfo() {
-    ctx.save();
-    ctx.fillStyle = "rgba(0, 0, 0, 0.7)";
-    ctx.fillRect(10, canvas.height - 120, 200, 110); // 左下に黒い枠を表示
-
-    ctx.fillStyle = "#00ff00"; // デバッグ文字は緑色
-    ctx.font = "12px monospace";
-    ctx.fillText("--- UI DEBUG ---", 20, canvas.height - 100);
-    ctx.fillText(`Window Open : ${gameWindows.status.isOpen}`, 20, canvas.height - 85);
-    ctx.fillText(`Current Tab : ${currentTab}`, 20, canvas.height - 70);
-    ctx.fillText(`Available AP: ${apPoints}`, 20, canvas.height - 55);
-    ctx.fillText(`Is Dragging : ${isDragging}`, 20, canvas.height - 40);
-    ctx.fillText(`Win Pos     : ${Math.round(winX)}, ${Math.round(winY)}`, 20, canvas.height - 25);
-    ctx.restore();
-}
-*/
-
-// ==========================================
-// 🛠️ デバッグ表示の強制実行コード
-// ==========================================
-
 // 1. 表示スイッチ（すでにある場合は飛ばしてください）
 if (typeof showDebugWindow === 'undefined') {
     var showDebugWindow = true; 
 }
-
-// 2. 既存の描画に割り込んでデバッグを表示する
-// このコードは 1秒間に 60回、画面の一番手前にデバッグ情報を上書きします。
-// ==========================================
-// 🛠️ デバッグ表示の修正版（アイテム数取得を強化）
-// ==========================================
-/*
-function autoDebugRender() {
-    try {
-        if (typeof ctx !== 'undefined' && typeof hero !== 'undefined') {
-            if (showDebugWindow) {
-                const x = 10;
-                const y = 50;
-                const w = 220;
-                const h = 160; // 少し広げました
-
-                // 背景
-                ctx.fillStyle = "rgba(0, 0, 0, 0.8)";
-                ctx.fillRect(x, y, w, h);
-                ctx.strokeStyle = "#00ff00";
-                ctx.lineWidth = 2;
-                ctx.strokeRect(x, y, w, h);
-
-                // 文字
-                ctx.fillStyle = "#00ff00";
-                ctx.font = "14px monospace";
-                
-                let line = 0;
-                const draw = (txt) => {
-                    ctx.fillText(txt, x + 10, y + 25 + (line * 20));
-                    line++;
-                };
-
-                // --- アイテム数の判定ロジック ---
-                //droppedItems, items, allItems のどれかにデータが入っているかチェック
-                let itemCount = 0;
-                if (typeof droppedItems !== 'undefined' && droppedItems) {
-                    itemCount = Array.isArray(droppedItems) ? droppedItems.length : Object.keys(droppedItems).length;
-                } else if (typeof items !== 'undefined' && items) {
-                    itemCount = Array.isArray(items) ? items.length : Object.keys(items).length;
-                }
-
-                draw(`[Mouse]  X:${Math.floor(mouseX)} Y:${Math.floor(mouseY)}`);
-                draw(`[Player] HP:${hero.hp}/${hero.maxHp}`);
-                draw(`[Pos]    X:${Math.floor(hero.x)} Y:${Math.floor(hero.y)}`);
-                draw(`[Items]  Dropped: ${itemCount}`); // 修正したカウントを表示
-                draw(`[Server] ${serverDebugInfo.players ? "Sync: OK" : "Sync: Waiting"}`);
-                draw(`[AP]     Points: ${hero.ap || 0}`);
-                draw(`[Status] ${gameWindows.status.isOpen ? "UI:Open" : "UI:Closed"}`);
-            }
-        }
-    } catch (err) {
-        // エラーログ（疲れている時は無理に見なくて大丈夫です）
-    }
-    requestAnimationFrame(autoDebugRender);
-}
-
-// 実行開始
-autoDebugRender();
-*/
-
-// 'D'キーで表示切り替え
-/*
-window.addEventListener('keydown', (e) => {
-    if (e.key.toLowerCase() === 'd') {
-        showDebugWindow = !showDebugWindow;
-        console.log("Debug Window:", showDebugWindow);
-    }
-});
-*/
-
-// ==========================================
-// 🛡️ 究極の安定版：STRUPボタン・ホバー音システム
-// ==========================================
-/*
-(function() {
-    let wasHover = false; // 「前のフレームでマウスが乗っていたか」を記憶
-
-    // ゲームのメイン描画（requestAnimationFrame）に同期させる
-    function updateHoverSystem() {
-        try {
-            // ステータス画面が開いている時だけ処理
-            if (typeof gameWindows.status.isOpen !== 'undefined' && gameWindows.status.isOpen) {
-                
-                // ボタンの当たり判定（座標のズレをなくすため毎回計算）
-                const bX = winX + 160; 
-                const bY = winY + 55;
-                const bW = 40; 
-                const bH = 20;
-
-                // 今この瞬間のマウス座標と比較（1フレームに1回だけ判定）
-                const isOver = (mouseX >= bX && mouseX <= bX + bW && 
-                               mouseY >= bY && mouseY <= bY + bH);
-
-                if (isOver) {
-                    // 「さっきまで外にいて、今中に入った」瞬間だけ音を鳴らす
-                    if (!wasHover) {
-                        if (typeof playMouseOver1Sound === 'function') {
-                            playMouseOver1Sound();
-                        }
-                        wasHover = true; // 旗を立てる
-                    }
-                } else {
-                    // 外に出たら即座に旗を下ろす
-                    wasHover = false;
-                }
-            } else {
-                wasHover = false;
-            }
-        } catch (e) {
-            // エラーを握りつぶしてゲームを止めない
-        }
-        // 画面の更新（60fps）に合わせて実行
-        requestAnimationFrame(updateHoverSystem);
-    }
-
-    updateHoverSystem();
-})();
-*/
-
-/*
-window.addEventListener('keydown', (event) => {
-    if (event.key === 'i' || event.key === 'I') {
-        // インベントリのスイッチを反転させる
-        isInventoryOpen = !isInventoryOpen;
-        
-        // コンソールに状態を出して確認（F12で見れます）
-        console.log("Inventory Window State:", isInventoryOpen);
-    }
-});
-*/
 
 // 🎒 新しいインベントリウィンドウを描画する関数
 function drawInventoryWindow() {
@@ -4057,11 +3682,6 @@ function drawExtraWindow() {
         // エラー時は静かに終了（体調が優れない時はログも無視して大丈夫です）
     }
 }
-
-// 💡 補足：
-// 元の autoDebugRender() 内にあった requestAnimationFrame(autoDebugRender); は不要になります。
-// 代わりに、drawUIOverlay() などのメインの描画ループの中で 
-// windowStack を通じて drawExtraWindow(); が呼ばれるようにしてください。
 
 /**
  * 全てのゲームウィンドウを重なり順（Z-Index）に基づいて一括描画する関数
@@ -4253,105 +3873,6 @@ function drawReservedVWindow() {
     drawSimpleWindow("🛠️ Reserved (V)", win.x, win.y, win.w, win.h);
 }
 
-function getPriorityWindow(mx, my) {
-    // 1. 各ウィンドウの「全体」にマウスが乗っているか判定
-    const isOverStats = (gameWindows.status.isOpen && 
-        mx >= gameWindows.status.x && mx <= gameWindows.status.x + 300 && 
-        my >= gameWindows.status.y && my <= gameWindows.status.y + 250);
-        
-    const isOverInv = (gameWindows.inventory.isOpen && 
-        mx >= gameWindows.inventory.x && mx <= gameWindows.inventory.x + gameWindows.inventory.w && 
-        my >= gameWindows.inventory.y && my <= gameWindows.inventory.y + gameWindows.inventory.h);
-        
-    const isOverExtra = (gameWindows.extra.isOpen && 
-        mx >= gameWindows.extra.x && mx <= gameWindows.extra.x + gameWindows.extra.w && 
-        my >= gameWindows.extra.y && my <= gameWindows.extra.y + gameWindows.extra.h);
-
-    // 🌟 重なっている窓を特定（元のロジックを維持）
-    let activeWindows = [];
-    if (isOverStats) activeWindows.push("status");
-    if (isOverInv) activeWindows.push("inventory");
-    if (isOverExtra) activeWindows.push("extra");
-
-    if (activeWindows.length > 0) {
-        // stack の中で一番後ろ（＝手前）にあるものを特定
-        for (let i = windowStack.length - 1; i >= 0; i--) {
-            const winId = windowStack[i];
-            if (activeWindows.includes(winId)) {
-                
-                // 🌟 追加：特定したウィンドウの「ヘッダー部分(上部30px)」にマウスがあるか判定
-                const win = gameWindows[winId];
-                // gameWindows.status のように個別に幅が指定されている場合を考慮
-                const winW = (winId === "status") ? 300 : win.w;
-                
-                const isHeader = (my >= win.y && my <= win.y + 30);
-
-                // 文字列だけでなく、情報を持たせたオブジェクトを返す
-                return { id: winId, isHeader: isHeader };
-            }
-        }
-    }
-    return { id: "none", isHeader: false };
-}
-
-/**
- * 📺 画面上に現在のチャンネルを表示する
- */
- /*
-function drawCurrentChannel() {
-    // 自分のキャラ(hero)が存在し、チャンネル情報を持っているか確認
-    if (typeof hero !== 'undefined' && hero.channel) {
-        ctx.save(); // 現在の描画状態を保存
-
-        // 文字のスタイル設定
-        ctx.font = "bold 18px 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif";
-        ctx.textAlign = "left";
-        
-        // 少し影をつけて見やすくする
-        ctx.shadowColor = "rgba(0, 0, 0, 0.7)";
-        ctx.shadowBlur = 4;
-        ctx.shadowOffsetX = 2;
-        ctx.shadowOffsetY = 2;
-
-        // 文字の色（少し目立つ色にすると良いです）
-        ctx.fillStyle = "#fbbf24"; // 黄色っぽい色
-        
-        // 画面の左上に表示（座標 x: 20, y: 35 くらい）
-        ctx.fillText(`📡 Channel: ${hero.channel}`, 20, 35);
-
-        ctx.restore(); // 描画状態を元に戻す
-    }
-}
-*/
-
-// ==========================================
-// 🎒 アイテム取得時の右下ログ通知（確実に表示版）
-// ==========================================
-socket.on('item_pickup_log', (data) => {
-    console.log("ログ受信成功:", data);
-
-    // 1. メッセージを作成
-    let logMsg = data.amount >= 2 
-        ? `${data.itemName}を${data.amount}個手に入れました` 
-        : `${data.itemName}を手に入れました`;
-
-    if (typeof itemLogs !== 'undefined') {
-        // 2. 🌟 exp_logと同じ形式（timer）でデータを追加します
-        itemLogs.push({
-            text: logMsg,
-            timer: 500,        // 🌟 ここを time ではなく exp_log と同じ timer に合わせます
-            color: '#ffeb3b'   // ゴールドの色
-        });
-
-        // 3. ログが溜まりすぎないように調整
-        if (itemLogs.length > 5) {
-            itemLogs.shift();
-        }
-        
-        console.log("アイテムログを箱に入れました。現在の数:", itemLogs.length);
-    }
-});
-
 // --- キャラクター選択パネルの作成 ---
 const createCharSelector = () => {
     const overlay = document.createElement('div');
@@ -4483,3 +4004,545 @@ const createCharSelector = () => {
 
 // 実行
 createCharSelector();
+
+// インスタンス化（既存の初期値をセット）
+/*
+const gameWindows = {
+    status: new GameWindow("status", 100, 100, 300, 250),
+    inventory: new GameWindow("inventory", 400, 100, 250, 350),
+    extra: new GameWindow("extra", 200, 200, 300, 200)
+};
+*/
+
+// ============================================================
+// 分解する
+// ============================================================
+// マウスが動いた時の処理
+canvas.addEventListener('mousemove', (e) => {
+    const rect = canvas.getBoundingClientRect();
+    mouseX = e.clientX - rect.left;
+    mouseY = e.clientY - rect.top;
+
+    const screenW = rect.width;
+    const screenH = rect.height;
+    const offset = 8; // 外枠や影の遊び
+
+    // ------------------------------------------
+    // 📊 ドラッグ移動処理（全ウィンドウ共通）
+    // ------------------------------------------
+    Object.values(gameWindows).forEach(win => {
+        if (win.isDragging) {
+            let nextX = mouseX - win.dragOffsetX;
+            let nextY = mouseY - win.dragOffsetY;
+
+            // 左・上制限
+            if (nextX < 0) nextX = 0;
+            if (nextY < 0) nextY = 0;
+
+            // 右・下制限（ウィンドウごとのサイズ win.w / win.h を使用）
+            if (nextX > screenW - win.w - offset) nextX = screenW - win.w - offset;
+            if (nextY > screenH - win.h - offset) nextY = screenH - win.h - offset;
+
+            win.x = nextX;
+            win.y = nextY;
+        }
+    });
+
+    // ------------------------------------------
+    // 🪟 ウィンドウ関連のカーソル判定
+    // ------------------------------------------
+    let foundWindow = false;
+
+    // 前面にある窓から判定するため、逆順でループ
+    const winList = Object.values(gameWindows).reverse();
+    for (const win of winList) {
+        if (win.isOpen) {
+            // 閉じるボタン
+            if (win.isMouseOverClose(mouseX, mouseY)) {
+                canvas.style.cursor = "pointer";
+                foundWindow = true;
+                break;
+            }
+            // ヘッダー（移動）
+            if (win.isMouseOverHeader(mouseX, mouseY)) {
+                canvas.style.cursor = "move";
+                foundWindow = true;
+                break;
+            }
+            // ウィンドウ内（デフォルト）
+            if (win.isMouseOverWindow(mouseX, mouseY)) {
+                canvas.style.cursor = "default";
+                foundWindow = true;
+                break;
+            }
+        }
+    }
+
+    // 窓の上にカーソルがある場合は、これ以降の判定（アイテム等）をスキップ
+    if (foundWindow) return;
+
+    // ------------------------------------------
+    // 📦 バッグ・アイテム判定（ロジックを完全踏襲）
+    // ------------------------------------------
+    if (isDiscarding) {
+        canvas.style.cursor = "default";
+    } else if (selectedSlotIndex !== -1) {
+        canvas.style.cursor = "grabbing";
+    } else if (mouseY >= 130 && mouseY <= 170) {
+        const hoverIndex = Math.floor((mouseX - 20) / 48);
+        if (hoverIndex >= 0 && hoverIndex < 10 && inventoryVisualBuffer[hoverIndex]) {
+            canvas.style.cursor = "grab";
+        } else {
+            canvas.style.cursor = "default";
+        }
+    } else {
+        canvas.style.cursor = "default";
+    }
+});
+
+// ==========================================
+// 📋 2. 表示に関する基本設定（VIEW_CONFIG）
+// 役割：画面上の見た目や判定の基準となる数値をまとめて管理します
+// ==========================================
+
+// ==========================================
+// 🛠️ AnimUtils: 計算を楽にする共通ツール
+// ==========================================
+
+// ==========================================
+// 📦 画像コンテナの自動生成
+// ==========================================
+
+// 👾 モンスター用の箱を名簿から「自動で」作成
+
+// 数字とファイルパスの対応表
+
+// 画像オブジェクトを格納する箱
+
+// すべての数字画像を読み込む
+
+// ==========================================
+// 🚀 3. 画像の読み込み（新パス形式：自動処理）
+// ==========================================
+
+/**
+ * 🌟 自動画像読み込み関数（404エラー防止版）
+ */
+
+// 実行（これで読み込みが始まります）
+
+// view.js の冒頭
+
+// 🌟 ソースから直接入力（ここを修正すれば確実に動きます）
+
+
+// 画像を一斉にロード
+
+// ==========================================
+// 👤 プレイヤー・キャラクター設定
+// ==========================================
+
+// ==========================================
+// 📜 システム設定（ログなど）
+// ==========================================
+
+// view.js
+
+// ==========================================
+// 🎨 メインの描画司令塔
+// ==========================================
+
+// ==========================================
+// 📈 補助：経験値の表示アニメーション計算
+// ==========================================
+
+// ==========================================
+// 📡 補助：HUD・特殊UI描画
+// ==========================================
+
+// ==========================================
+// 🛠️ 補助：デバッグ専用描画レイヤー
+// ==========================================
+
+// --- 以下、分割された専門関数 ---
+
+// ==========================================
+// 💥 6. テキスト・エフェクト関連
+// ==========================================
+
+// ==========================================
+// 📊 UI描画の司令塔（ここですべてを呼び出す）
+// ==========================================
+/*
+function drawUI(hero) {
+    if (!hero) return; // 🌟 heroが空っぽの時は何もしない（これでエラーを防ぐ）
+
+    // 1. HPバーの描画（背景パネルを含む）
+    //drawPlayerHP(hero);
+
+    // 2. カバンUIの描画
+    //drawBagUI(hero);
+
+    // 3. 経験値とレベル・デバッグ表示
+    //drawExpAndDebug(hero);
+	
+	//drawTopStatusUI(hero);
+}
+*/
+
+// view.js の一番下などに追加
+/*
+canvas.addEventListener('dblclick', (event) => {
+    // 1. クリックされた場所（座標）を取得
+    const rect = canvas.getBoundingClientRect();
+    const clickX = event.clientX - rect.left;
+    const clickY = event.clientY - rect.top;
+
+    // 2. インベントリの範囲内かチェック (y座標が 130～170 の間くらい)
+    if (clickY >= 130 && clickY <= 170) {
+        const slotSize = 40;
+        const padding = 8;
+        const startX = 20;
+
+        // 3. 何番目のスロットをクリックしたか計算
+        const index = Math.floor((clickX - startX) / (slotSize + padding));
+
+        // 0番目〜9番目の範囲内なら、サーバーに通知
+        if (index >= 0 && index < 10) {
+            console.log(index + "番目のアイテムを捨てます");
+            socket.emit('dropItem', index); // サーバーに「この番号を捨てて」と送る
+			if (typeof playDropSound === 'function') {
+			    // stateで音が鳴るのでコメントアウト
+                //playDropSound();
+            }
+        }
+    }
+});
+*/
+
+// ==========================================
+// 判定用の変数（データの比較に使用）
+// ==========================================
+
+// ==========================================
+// 📡 サーバーからのデータ（state）を受け取る窓口
+// ==========================================
+// view.js の socket.on('state', ...) の部分をこれに差し替えてください
+
+// 🌟 関数の外側に「一瞬前のデータ」を保存する場所を作ります
+//let inventoryVisualBuffer = null;
+
+// 🌟 修正：itemLogs を「window.itemLogs」として扱うとより確実です
+
+// 🌟 真似して作った「お金ログ」の受信処理
+
+// ==========================================
+// 🎒 アイテム取得時の右下ログ通知を受け取る
+// ==========================================
+/*
+socket.on('item_pickup_log', (data) => {
+    // 1. 表示するメッセージを作る
+    let logMsg = "";
+    if (data.amount >= 2) {
+        logMsg = `${data.itemName}を${data.amount}個手に入れました`;
+    } else {
+        logMsg = `${data.itemName}を手に入れました`;
+    }
+
+    // 2. 右下ログ用の配列（itemLogs）にデータを追加する
+    // view.js 内で itemLogs が定義されていることを前提としています
+    if (typeof itemLogs !== 'undefined') {
+        itemLogs.push({
+            text: logMsg,
+            time: Date.now(),
+            color: '#ffeb3b' // ゴールドっぽい黄色
+        });
+
+        // ログが溜まりすぎないように古いものを消す（最大5件など）
+        if (itemLogs.length > 5) {
+            itemLogs.shift();
+        }
+    } else {
+        // もし itemLogs が見つからない場合、コンソールで教えてくれるようにします
+        console.error("右下ログ用の配列 'itemLogs' が見つかりません。");
+    }
+});
+*/
+
+/*
+window.addEventListener('keydown', (e) => {
+    if (e.key.toLowerCase() === 'd') {
+        showDebugWindow = !showDebugWindow; // DキーでON/OFF
+        console.log("Debug Window:", showDebugWindow);
+    }
+});
+*/
+
+/*
+// ダブルクリック（dblclick）
+canvas.addEventListener('dblclick', (event) => {
+    console.log("ダブルクリックを検知しました！");
+    const rect = canvas.getBoundingClientRect();
+    const clickX = event.clientX - rect.left;
+    const clickY = event.clientY - rect.top;
+
+    if (clickY >= 130 && clickY <= 170) {
+        const index = Math.floor((clickX - 20) / 48);
+        if (index >= 0 && index < 10) {
+            console.log(`${index}番のアイテムをサーバーへ捨てるリクエスト送信`);
+            socket.emit('dropItem', index); 
+            selectedSlotIndex = -1;
+        }
+    }
+});
+*/
+
+// 🌟 サーバーの通信とは「別ルート」でホバーを描画する専用ループ
+// view.js 内の drawItemHoverLoop を修正
+/*
+function drawItemHoverLoop() {
+    if (selectedSlotIndex === -1) {
+        requestAnimationFrame(drawItemHoverLoop);
+        return;
+    }
+
+    const item = inventoryVisualBuffer[selectedSlotIndex];
+    if (item) {
+        ctx.save();
+        
+        // 🌟 ここで透明度を設定（0.0が透明、1.0が不透明）
+        // 0.6 にすると、後ろが少し透けて「掴んでいる感」が出ます
+        ctx.globalAlpha = 0.6;
+
+        const displaySize = 30; 
+        const itemImg = itemImages[item.type];
+
+        if (itemImg && itemImg.complete && itemImg.width > 0) {
+            // 中心を合わせて描画
+            ctx.drawImage(
+                itemImg, 
+                mouseX - (displaySize / 2), 
+                mouseY - (displaySize / 2), 
+                displaySize, 
+                displaySize
+            );
+        } else {
+            // 予備の枠も少し薄く出す
+            ctx.strokeStyle = "rgba(255, 255, 255, 0.5)";
+            ctx.strokeRect(mouseX - 15, mouseY - 15, 30, 30);
+        }
+
+        // 📝 文字も少しだけ薄くして、画像に合わせます
+        //ctx.globalAlpha = 0.8; 
+        //ctx.fillStyle = "white";
+        //ctx.font = "bold 14px Arial";
+        //ctx.textAlign = "center";
+        //ctx.shadowBlur = 4;
+        //ctx.shadowColor = "black";
+        //ctx.fillText(item.type, mouseX, mouseY + 30);
+        
+        ctx.restore(); // 🌟 restoreを呼ぶことで、他の描画まで薄くなるのを防ぎます
+    }
+		
+    requestAnimationFrame(drawItemHoverLoop);
+}
+*/
+
+// 🌟 そして一番最後に、このループを最初に1回だけ動かします
+//drawItemHoverLoop();
+
+//inventoryVisualBuffer[0] = { type: 'My Sword', def: 50 };
+
+// view.js の一番下（書き換え）
+
+// デバッグウィンドウを表示するかどうかのスイッチ
+//let showDebugWindow = true; 
+
+// 🛠️ 開発用：現在のUIの状態を可視化する
+/*
+function drawUIDebugInfo() {
+    ctx.save();
+    ctx.fillStyle = "rgba(0, 0, 0, 0.7)";
+    ctx.fillRect(10, canvas.height - 120, 200, 110); // 左下に黒い枠を表示
+
+    ctx.fillStyle = "#00ff00"; // デバッグ文字は緑色
+    ctx.font = "12px monospace";
+    ctx.fillText("--- UI DEBUG ---", 20, canvas.height - 100);
+    ctx.fillText(`Window Open : ${gameWindows.status.isOpen}`, 20, canvas.height - 85);
+    ctx.fillText(`Current Tab : ${currentTab}`, 20, canvas.height - 70);
+    ctx.fillText(`Available AP: ${apPoints}`, 20, canvas.height - 55);
+    ctx.fillText(`Is Dragging : ${isDragging}`, 20, canvas.height - 40);
+    ctx.fillText(`Win Pos     : ${Math.round(winX)}, ${Math.round(winY)}`, 20, canvas.height - 25);
+    ctx.restore();
+}
+*/
+
+// ==========================================
+// 🛠️ デバッグ表示の強制実行コード
+// ==========================================
+
+// 2. 既存の描画に割り込んでデバッグを表示する
+// このコードは 1秒間に 60回、画面の一番手前にデバッグ情報を上書きします。
+// ==========================================
+// 🛠️ デバッグ表示の修正版（アイテム数取得を強化）
+// ==========================================
+/*
+function autoDebugRender() {
+    try {
+        if (typeof ctx !== 'undefined' && typeof hero !== 'undefined') {
+            if (showDebugWindow) {
+                const x = 10;
+                const y = 50;
+                const w = 220;
+                const h = 160; // 少し広げました
+
+                // 背景
+                ctx.fillStyle = "rgba(0, 0, 0, 0.8)";
+                ctx.fillRect(x, y, w, h);
+                ctx.strokeStyle = "#00ff00";
+                ctx.lineWidth = 2;
+                ctx.strokeRect(x, y, w, h);
+
+                // 文字
+                ctx.fillStyle = "#00ff00";
+                ctx.font = "14px monospace";
+                
+                let line = 0;
+                const draw = (txt) => {
+                    ctx.fillText(txt, x + 10, y + 25 + (line * 20));
+                    line++;
+                };
+
+                // --- アイテム数の判定ロジック ---
+                //droppedItems, items, allItems のどれかにデータが入っているかチェック
+                let itemCount = 0;
+                if (typeof droppedItems !== 'undefined' && droppedItems) {
+                    itemCount = Array.isArray(droppedItems) ? droppedItems.length : Object.keys(droppedItems).length;
+                } else if (typeof items !== 'undefined' && items) {
+                    itemCount = Array.isArray(items) ? items.length : Object.keys(items).length;
+                }
+
+                draw(`[Mouse]  X:${Math.floor(mouseX)} Y:${Math.floor(mouseY)}`);
+                draw(`[Player] HP:${hero.hp}/${hero.maxHp}`);
+                draw(`[Pos]    X:${Math.floor(hero.x)} Y:${Math.floor(hero.y)}`);
+                draw(`[Items]  Dropped: ${itemCount}`); // 修正したカウントを表示
+                draw(`[Server] ${serverDebugInfo.players ? "Sync: OK" : "Sync: Waiting"}`);
+                draw(`[AP]     Points: ${hero.ap || 0}`);
+                draw(`[Status] ${gameWindows.status.isOpen ? "UI:Open" : "UI:Closed"}`);
+            }
+        }
+    } catch (err) {
+        // エラーログ（疲れている時は無理に見なくて大丈夫です）
+    }
+    requestAnimationFrame(autoDebugRender);
+}
+
+// 実行開始
+autoDebugRender();
+*/
+
+// 'D'キーで表示切り替え
+/*
+window.addEventListener('keydown', (e) => {
+    if (e.key.toLowerCase() === 'd') {
+        showDebugWindow = !showDebugWindow;
+        console.log("Debug Window:", showDebugWindow);
+    }
+});
+*/
+
+// ==========================================
+// 🛡️ 究極の安定版：STRUPボタン・ホバー音システム
+// ==========================================
+/*
+(function() {
+    let wasHover = false; // 「前のフレームでマウスが乗っていたか」を記憶
+
+    // ゲームのメイン描画（requestAnimationFrame）に同期させる
+    function updateHoverSystem() {
+        try {
+            // ステータス画面が開いている時だけ処理
+            if (typeof gameWindows.status.isOpen !== 'undefined' && gameWindows.status.isOpen) {
+                
+                // ボタンの当たり判定（座標のズレをなくすため毎回計算）
+                const bX = winX + 160; 
+                const bY = winY + 55;
+                const bW = 40; 
+                const bH = 20;
+
+                // 今この瞬間のマウス座標と比較（1フレームに1回だけ判定）
+                const isOver = (mouseX >= bX && mouseX <= bX + bW && 
+                               mouseY >= bY && mouseY <= bY + bH);
+
+                if (isOver) {
+                    // 「さっきまで外にいて、今中に入った」瞬間だけ音を鳴らす
+                    if (!wasHover) {
+                        if (typeof playMouseOver1Sound === 'function') {
+                            playMouseOver1Sound();
+                        }
+                        wasHover = true; // 旗を立てる
+                    }
+                } else {
+                    // 外に出たら即座に旗を下ろす
+                    wasHover = false;
+                }
+            } else {
+                wasHover = false;
+            }
+        } catch (e) {
+            // エラーを握りつぶしてゲームを止めない
+        }
+        // 画面の更新（60fps）に合わせて実行
+        requestAnimationFrame(updateHoverSystem);
+    }
+
+    updateHoverSystem();
+})();
+*/
+
+/*
+window.addEventListener('keydown', (event) => {
+    if (event.key === 'i' || event.key === 'I') {
+        // インベントリのスイッチを反転させる
+        isInventoryOpen = !isInventoryOpen;
+        
+        // コンソールに状態を出して確認（F12で見れます）
+        console.log("Inventory Window State:", isInventoryOpen);
+    }
+});
+*/
+
+// 💡 補足：
+// 元の autoDebugRender() 内にあった requestAnimationFrame(autoDebugRender); は不要になります。
+// 代わりに、drawUIOverlay() などのメインの描画ループの中で 
+// windowStack を通じて drawExtraWindow(); が呼ばれるようにしてください。
+
+/**
+ * 📺 画面上に現在のチャンネルを表示する
+ */
+ /*
+function drawCurrentChannel() {
+    // 自分のキャラ(hero)が存在し、チャンネル情報を持っているか確認
+    if (typeof hero !== 'undefined' && hero.channel) {
+        ctx.save(); // 現在の描画状態を保存
+
+        // 文字のスタイル設定
+        ctx.font = "bold 18px 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif";
+        ctx.textAlign = "left";
+        
+        // 少し影をつけて見やすくする
+        ctx.shadowColor = "rgba(0, 0, 0, 0.7)";
+        ctx.shadowBlur = 4;
+        ctx.shadowOffsetX = 2;
+        ctx.shadowOffsetY = 2;
+
+        // 文字の色（少し目立つ色にすると良いです）
+        ctx.fillStyle = "#fbbf24"; // 黄色っぽい色
+        
+        // 画面の左上に表示（座標 x: 20, y: 35 くらい）
+        ctx.fillText(`📡 Channel: ${hero.channel}`, 20, 35);
+
+        ctx.restore(); // 描画状態を元に戻す
+    }
+}
+*/
