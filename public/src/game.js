@@ -14,6 +14,14 @@ const GAME_SETTINGS = {
 	LADDER_SPEED: 3  // 🌟 これを追加！
 };
 
+const GLOBAL_SETTINGS = {
+    SYSTEM: {
+        GROUND_Y: 540,  // 地面の高さ（ここを直せば全部直るようにする）
+        WIDTH: 800,
+        HEIGHT: 600
+    }
+};
+
 // 今開いているドメインが 'localhost' かどうかを判定
 const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
 
@@ -482,6 +490,9 @@ chatIn.onkeydown = e => {
         } else if (selectedValue === 'group') {
             // グループチャット
             type = 'group';
+        } else if (selectedValue === 'friend') {
+            // 🌟 友達チャット（ここを追加！）
+            type = 'friend';
         } else if (selectedValue === 'whisper') {
             // 🌟 「内緒話(新規入力)...」が選ばれている場合
             // 入力欄の「名前 本文」から分割する
@@ -503,7 +514,7 @@ chatIn.onkeydown = e => {
 
         // 🌟【自分への内緒話を禁止するガード】
         // 相手の名前が自分(hero.name)と同じだった場合、送信を中止します
-        if (type === 'whisper' && targetName === hero.name) {
+        if (type === 'whisper' && targetName === (typeof hero !== 'undefined' ? hero.name : "")) {
             alert("自分自身に内緒話は送れません！");
             chatIn.value = ''; // 入力内容をクリア
             return; 
@@ -526,6 +537,10 @@ chatIn.onkeydown = e => {
 function onChatModeChange() {
     const chatMode = document.getElementById('chat-mode');
     
+    // 🌟 選択されたオプションの色をプルダウン全体に反映させる
+    const selectedOption = chatMode.options[chatMode.selectedIndex];
+    chatMode.style.color = selectedOption.style.color;
+
     // 「内緒話 (新規入力)」が選ばれたら
     if (chatMode.value === 'whisper') {
         // 名前を入力してもらうポップアップを出す
@@ -536,17 +551,22 @@ function onChatModeChange() {
             const trimmedName = name.trim();
 
             // 🌟 自分の名前（hero.name）だった場合は、何もせず全体に戻す
-            if (trimmedName === hero.name) {
+            if (trimmedName === (typeof hero !== 'undefined' ? hero.name : "")) {
                 alert("自分自身に内緒話は送れません"); // 理由を伝えるとより親切です
                 chatMode.value = 'all';
+                chatMode.style.color = "#60a5fa"; // 色も全体（水色）に戻す
                 return;
             }
 
             // 自分以外なら、専用メニューを作る
-            setWhisperTarget(trimmedName);
+            // ※ setWhisperTarget 側でも chatMode.style.color を更新するようにしておくと完璧です
+            if (typeof setWhisperTarget === 'function') {
+                setWhisperTarget(trimmedName);
+            }
         } else {
             // キャンセルされた、または空欄なら「全体」に戻しておく
             chatMode.value = 'all';
+            chatMode.style.color = "#60a5fa"; // 色も全体（水色）に戻す
         }
     }
 }
@@ -777,103 +797,169 @@ startBtn.onclick = () => {
 // 🔐 ログイン・開始処理（既存ロジック踏襲版）
 // ==========================================
 
-// 1. 【修正】ボタンを押した時は「ログイン依頼」だけ飛ばす
+// ==========================================
+// 🔐 ログインリクエスト処理 (UI統一版・チャンネル対応)
+// ==========================================
 startBtn.onclick = () => {
     const userName = nameInput.value.trim();
-    const password = document.getElementById('user-pass-input').value; // HTMLで追加したID
+    const passwordInput = document.getElementById('user-pass-input'); // HTML要素を取得
+    const password = passwordInput.value;
+    
+    // 🌟 openDropFormと同じようにエラー表示用の要素を取得
+    // (HTML側に <div id="login-error"></div> がある前提です)
+    const loginError = document.getElementById('login-error');
 
+    // --- 1. 入力チェック (openDropFormのバリデーション風) ---
     if (!userName || !password) {
-        alert("名前とパスワードを入力してください");
+        if (loginError) {
+            loginError.innerText = "名前とパスワードを入力してください";
+            loginError.style.color = "#ff4444";
+        }
+        
+        // 未入力の項目の枠線を赤くする
+        if (!userName) nameInput.style.border = "2px solid #ff4444";
+        if (!password) passwordInput.style.border = "2px solid #ff4444";
         return;
     }
 
-    // 入力欄からフォーカスを外す
-    nameInput.blur();
-    document.getElementById('user-pass-input').blur();
+    // --- 2. 正常な場合はスタイルをリセット ---
+    nameInput.style.border = "1px solid #ccc";
+    passwordInput.style.border = "1px solid #ccc";
+    if (loginError) loginError.innerText = "";
 
-    // サーバーへログイン確認を依頼
-    console.log("ログインリクエスト送信:", userName);
-    socket.emit('login', { username: userName, password: password });
+    // --- 3. フォーカスを外してサーバーへ送信 (既存ロジック踏襲) ---
+    nameInput.blur();
+    passwordInput.blur();
+
+    // 🌟 修正ポイント：すでに定義済みの selectedChannel をデータに含める
+    console.log("ログインリクエスト送信:", userName, "選択チャンネル:", selectedChannel);
+    
+    socket.emit('login', { 
+        username: userName, 
+        password: password,
+        channel: selectedChannel // 選択されているチャンネル番号を送信
+    });
 };
+
+// --- 🌟 既存：Enterキーでの送信対応 (openDropFormのonkeydown風) ---
+const passInputEl = document.getElementById('user-pass-input');
+if (passInputEl) {
+    passInputEl.onkeydown = (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            startBtn.onclick(); // ログインボタンの処理を実行
+        }
+    };
+}
+
+// 名前入力欄でもEnterで次に進めるようにする場合
+if (nameInput) {
+    nameInput.onkeydown = (e) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            const pf = document.getElementById('user-pass-input');
+            if (pf) pf.focus();
+        }
+    };
+}
 
 // ------------------------------------------
 // 🔑 サーバーから「OK」が来たら、ステータスを反映して開始
 // ------------------------------------------
 socket.on('login_response', (data) => {
-    if (data.success) {
-	    myId = data.id; // 🌟 ここでサーバーから届いた「連番ID」を保存！
-		
-        console.log(`[LOGIN SUCCESS] Player: ${data.username}`);
+    // 🌟 openDropForm と同様に要素を取得
+    const loginError = document.getElementById('login-error');
+    const passwordInput = document.getElementById('user-pass-input');
+    const nameInput = document.getElementById('user-name-input'); // nameInputの取得も念のため追加
 
-        // --- ここからあなたの既存ロジックをそのまま実行 ---
+    if (data.success) {
+        // --- ✅ 成功時：既存ロジックをそのまま実行 ---
         
-        // 名前はDBに登録されている正確なものを使用
-        const userName = data.username;
+        // 🌟 【修正ポイント】
+        // data.id (DBの数値ID) ではなく socket.id (通信用の一意な文字列ID) を代入します。
+        // これにより、チャンネル移動通知の判定 (userId === myId) が正しく動くようになります。
+        myId = socket.id; 
+        
+        console.log(`[LOGIN SUCCESS] Player: ${data.username} (Internal ID: ${socket.id})`);
+
+        // 成功したのでスタイルとエラーをクリア
+        if (loginError) loginError.innerText = "";
+        if (nameInput) nameInput.style.border = "1px solid #ccc";
+        if (passwordInput) passwordInput.style.border = "1px solid #ccc";
 
         // 1. ログイン画面（オーバーレイ）を非表示にする
-        loginOverlay.style.display = 'none';
+        const loginOverlay = document.getElementById('login-overlay');
+        if (loginOverlay) loginOverlay.style.display = 'none';
 
-        // 2. 自分のキャラクター（ローカルの hero オブジェクト）に情報をセット
+        // 2. 自分のキャラクターに情報をセット
+        const userName = data.username;
         if (typeof hero !== 'undefined') {
             hero.name = userName;
             
-            // 🌟 修正：DBから届いたステータスを反映させる
+            // DBから届いたステータスを反映
             if (data.stats) {
-                hero.level = data.stats.level;
-                hero.hp    = data.stats.hp;
-                hero.mp    = data.stats.mp;
-                hero.gold  = data.stats.gold;
-                // 座標をDB保存時のものに変更
-                hero.x     = data.stats.x;
-                hero.y     = data.stats.y;
-                // 職業IDなども必要であれば反映
-                hero.jobId = data.stats.job_id;
-                
+                hero.level = data.stats.level || 1;
+                hero.hp    = data.stats.hp || 100;
+                hero.mp    = data.stats.mp || 50;
+                hero.gold  = data.stats.gold || 0;
+                hero.x     = data.stats.x || 100;
+                hero.y     = data.stats.y || 400;
+                hero.jobId = data.stats.job_id || 0;
                 console.log(`[RESTORE] Status: Lv.${hero.level}, Pos:(${hero.x}, ${hero.y})`);
             }
 
-            // 選んだチャンネルを自分のキャラデータにも保存
+            // 選択されていた初期情報を反映
             hero.channel = selectedChannel; 
-            
-            // 選択したグループ番号(0-15)を自分のデータにも反映
             hero.group = selectedGroup;
             hero.charVar = selectedCharVar; 
         }
 
         // 3. サーバーに参加を伝える
-        // 🌟 修正：サーバー側(joinイベント)でもDBの座標を使えるよう、座標も送る
         socket.emit('join', { 
             name: userName, 
             channel: selectedChannel,
             group: selectedGroup,
-            x: hero.x, // DBから読み込んだX
-            y: hero.y  // DBから読み込んだY
+            x: hero.x,
+            y: hero.y
         });
 
-        // 🌟 重要：ブラウザの音制限を解除するためにここで AudioContext を再開
+        // AudioContext の再開
         if (typeof audioCtx !== 'undefined' && audioCtx.state === 'suspended') {
             audioCtx.resume().then(() => {
                 console.log("AudioContext active.");
             });
         }
         
-        // BGMの再生（定義されている場合）
+        // BGMの再生
         if (typeof playBGM === 'function') {
             playBGM();
         }
 
         // 4. ゲームのメインループを開始
+        // 既に動いている場合は二重起動しないようチェック（環境に合わせて調整してください）
         if (typeof update === 'function') {
             update();
         }
 
         console.log(`[START] Player: ${userName}, Channel: ${selectedChannel}, Group: ${selectedGroup}`);
         
-        // --- ここまで ---
-        
     } else {
-        // ❌ ログイン失敗時
-        alert(data.message);
+        // --- ❌ 失敗時：alert を使わず UI を更新 (openDropForm 踏襲) ---
+        console.error("ログイン失敗:", data.message);
+
+        if (loginError) {
+            loginError.innerText = data.message;
+            loginError.style.color = "#ff4444";
+        }
+
+        // 入力欄の枠を赤くして警告
+        if (nameInput) nameInput.style.border = "2px solid #ff4444";
+        if (passwordInput) {
+            passwordInput.style.border = "2px solid #ff4444";
+            // 利便性のためパスワードを空にして再入力を促す
+            passwordInput.value = "";
+            setTimeout(() => passwordInput.focus(), 10);
+        }
     }
 });
 
@@ -920,6 +1006,137 @@ function selectChannel(ch) {
     console.log(`チャンネル ${selectedChannel} が選択されました`);
 }
 
+socket.on('change_channel_response', (data) => {
+    if (data.success) {
+        // -------------------------------------------------------
+        // 1. チャンネル情報の更新
+        // -------------------------------------------------------
+        hero.channel = data.channel;
+
+        // -------------------------------------------------------
+        // 2. 住人リストの同期（自分自身を除外して「お掃除」完了！）
+        // -------------------------------------------------------
+        // 🌟 住人リストを丸ごと入れ替える際、自分(socket.id)だけは
+        // 描画対象（others）に入れないようにフィルタリングします
+        others = {};
+        if (data.roomPlayers) {
+            for (let id in data.roomPlayers) {
+                if (id !== socket.id) {
+                    others[id] = data.roomPlayers[id];
+                }
+            }
+        }
+
+        console.log(`チャンネル ${data.channel} の住人と同期しました`, others);
+    }
+});
+
+// game.js
+/*
+function changeChannel(newChannelId) {
+    console.log(`チャンネル ${newChannelId} へ移動リクエスト中...`);
+    
+    // userIdを送らず、行きたいチャンネル番号だけ送る
+    socket.emit('request_change_channel', {
+        targetChannel: newChannelId
+    });
+}
+*/
+
+// game.js
+socket.on('player_moved_channel', (data) => {
+    console.log("【1.受信チェック】データが届きました:", data);
+    const { userId, newChannel } = data;
+
+    // 自分のID(myId)が何になっているか確認
+    console.log(`【2.比較チェック】自分のID: ${myId} / 届いたID: ${userId}`);
+
+    // もし myId が null だったり、数値の 10 だったりするとここで失敗します
+    if (userId === myId) {
+        if (typeof hero !== 'undefined') {
+            hero.channel = newChannel;
+            console.log("【3.更新完了】hero.channelを更新しました！現在の値:", hero.channel);
+            
+            // 🌟 自分が移動したなら、今までの部屋の住人(others)は見えなくなるべきなのでリセット
+            others = {};
+        } else {
+            console.error("【エラー】heroという変数が見つかりません");
+        }
+    } else {
+        console.log("【4.判定】自分以外の移動通知なので、自分のhero.channelは更新しません");
+    }
+    
+    // -------------------------------------------------------
+    // 5. 他のプレイヤー(others)の名簿を更新・お掃除
+    // -------------------------------------------------------
+    if (typeof others !== 'undefined' && others[userId]) {
+        // データの更新自体は行う
+        others[userId].channel = newChannel;
+
+        // 🌟 もし移動先のチャンネルが「自分と同じ」でないなら、画面から消去する！
+        if (newChannel !== hero.channel) {
+            delete others[userId];
+            console.log(`【5.お掃除】別の部屋へ行ったプレイヤー(${userId})を名簿から削除しました`);
+        }
+    }
+});
+
+// game.js に追加
+function changeChannel(number) {
+    console.log(`チャンネル ${number} へ移動中...`);
+    socket.emit('change_channel', { newChannel: number });
+}
+
+/*
+// サーバーからの応答を受け取った時の処理
+socket.on('change_channel_response', (data) => {
+    if (data.success) {
+        hero.channel = data.channel; // 自分のチャンネル情報を更新
+        
+        // 画面上の他プレイヤーを一旦全員消去する（別の部屋の人たちなので）
+        others = {}; 
+        
+        console.log(`チャンネル ${data.channel} に切り替わりました！`);
+    }
+});
+*/
+
+/*
+socket.on('player_joined', (newPlayerData) => {
+    console.log("新入りのID:", newPlayerData.id, "自分のID:", myId); // 🌟ここをチェック！
+    if (newPlayerData.id === myId) return;
+    
+    others[newPlayerData.id] = newPlayerData;
+    console.log("現在の全プレイヤーリスト:", others);
+});
+*/
+
+function registerAndLoadPlayer(playerData) {
+    // 1. others に登録
+    others[playerData.id] = playerData;
+
+    // 🌟 2. 重要！その人の見た目(g, v)をロードしておく
+    // これにより getPlayerCurrentImg の中で playerSprites[g][v] が使えるようになります
+    if (playerData.group !== undefined && playerData.charVar !== undefined) {
+        loadCharFrames(playerData.group, playerData.charVar);
+    }
+}
+
+// 実際の受信部分
+socket.on('player_joined', (data) => {
+    console.log(data.name + "が来たので画像をロードします");
+    registerAndLoadPlayer(data);
+});
+
+socket.on('change_channel_response', (data) => {
+    if (data.success) {
+        others = {}; // 一旦クリア
+        for (let id in data.roomPlayers) {
+            registerAndLoadPlayer(data.roomPlayers[id]);
+        }
+    }
+});
+
 // ============================================================
 // 📡 [SECTION 6: NETWORK] 通信ハンドラ (Socket.io)
 // 役割: サーバーへのデータ送信(emit)と、サーバーからの受信(on)
@@ -928,12 +1145,27 @@ function selectChannel(ch) {
 // 📡 サーバーから「現在の世界の状態（state）」が届いた時の処理
 socket.on('state', s => {
     // -------------------------------------------------------
+    // 0. 自分のデータを特定（フィルタリングの基準にするため先に取得）
+    // -------------------------------------------------------
+    const myData = s.players[socket.id];
+
+    // -------------------------------------------------------
     // 1. 周辺環境（自分以外）のデータを最新にする
     // -------------------------------------------------------
     enemies   = s.enemies;   // 敵の位置やHPを更新
-    others    = s.players;   // 他のプレイヤー全員の位置や状態を更新
     platforms = s.platforms; // 足場（床）の情報を更新
     ladders   = s.ladders;   // ハシゴの情報を更新
+
+    // 他のプレイヤー情報の更新（チャンネルフィルタリング版）
+    others = {}; 
+    if (myData) {
+        for (let id in s.players) {
+            // 自分自身ではない ＆＆ 相手が自分と同じチャンネルにいる
+            if (id !== socket.id && s.players[id].channel === myData.channel) {
+                others[id] = s.players[id];
+            }
+        }
+    }
 
     // -------------------------------------------------------
     // 2. アイテム情報の更新（既存のアニメ状態を守りながら）
@@ -950,13 +1182,11 @@ socket.on('state', s => {
     // -------------------------------------------------------
     // 3. 自分のデータ（hero）をサーバーの値と「完全同期」させる
     // -------------------------------------------------------
-    // サーバーが持っているプレイヤー名簿の中から「自分のID」のデータを探す
-    const myData = s.players[socket.id];
-
     if (myData) {
         // --- A. 基本情報の同期 ---
         hero.inventory = myData.inventory || []; // 所持品リスト
-        hero.score     = myData.score || 0;     // スコア
+        hero.score     = myData.score || 0;      // スコア
+        hero.channel   = myData.channel;         // 現在のチャンネル
 
         // --- B. 成長要素（レベル・経験値）の同期 ---
         hero.level  = myData.level;              // 現在のレベル
@@ -973,16 +1203,14 @@ socket.on('state', s => {
         hero.luk = myData.luk;                   // 運（LUK）
         
         // AP（ステータスに振り分けられる未割り当てポイント）
-        // 値が「0」の時も正しく反映されるよう、undefinedチェックを行っています
         hero.ap = (myData.ap !== undefined) ? myData.ap : 0;
     }
 
     // -------------------------------------------------------
     // 4. 仕上げ
     // -------------------------------------------------------
-    // 'others'リストには自分も含まれてしまっているので、
-    // 他人だけを描画するために、自分自身のデータはリストから削除しておく
-    delete others[socket.id];
+    // ステップ1のループ内で既に「自分以外」かつ「同チャンネル」のみに
+    // 絞り込んでいるため、ここでの delete others[socket.id] は不要になりました。
 });
 
 socket.on('player_update', (updatedPlayer) => {
@@ -1019,23 +1247,36 @@ socket.on('chat', data => {
   // --- 1. 左下のログ表示 ---
   const div = document.createElement('div');
   
-  // 色の設定
-  let color = '#60a5fa'; // 通常
+  // 🌟 色の設定
+  let color = '#ffffff'; // デフォルト（通常・全体）を白に設定
+  
+  // 🌟 判定：特定のタイプがある場合に色を上書き
   if (data.type === 'group') color = '#ff80ff';   // グループ（ピンク）
-  if (data.type === 'whisper') color = '#99ffff'; // 内緒話（水色）
   if (data.type === 'system') color = '#ffff99';  // システム（黄色）
+  if (data.type === 'friend') color = '#ff9900';  // 🌟 友達（メイプルオレンジ）
+  
+  // 🌟 メイプル風内緒話の判定
+  const isWhisper = data.type === 'whisper' || data.isWhisper;
+  if (isWhisper) {
+      // サーバー側から送られてくるメイプルグリーン（#00ff00）を適用
+      color = data.color || '#00ff00'; 
+  }
 
   // 🌟 名前部分をクリックできるように改造
-  // システムメッセージ以外は、クリックすると setWhisperTarget が動くようにします
   const isSystem = data.type === 'system';
+  
+  // 🌟 メイプル仕様：内緒話の時は名前の後のコロン（:）を表示しない
+  const separator = isWhisper ? '' : ':';
+
   const nameSpan = isSystem 
-    ? `<strong style="color:${color}">${data.name}:</strong>` 
-    : `<strong style="color:${color}; cursor:pointer;" onclick="setWhisperTarget('${data.name}')">${data.name}:</strong>`;
+    ? `<strong style="color:${color}">${data.name}${separator}</strong>` 
+    : `<strong style="color:${color}; cursor:pointer; ${isWhisper ? 'font-weight:bold;' : ''}" onclick="setWhisperTarget('${data.name}')">${data.name}${separator}</strong>`;
 
   // ログにメッセージを追加
+  // 🌟 名前(nameSpan)も本文も、上記で判定した color (友達ならオレンジ) が適用されます
   div.innerHTML = `<span style="color:#888;font-size:10px;margin-right:4px;">${data.time || ''}</span>` +
                   nameSpan + 
-                  ` <span style="color:${color}">${data.text}</span>`;
+                  ` <span style="color:${color}; ${isWhisper ? 'font-weight:bold;' : ''}">${data.text}</span>`;
   
   if (msgBox) {
     msgBox.appendChild(div);
@@ -1043,7 +1284,10 @@ socket.on('chat', data => {
   }
 
   // --- 2. 頭上の吹き出し表示の判定 ---
-  if (data.type === 'whisper') return;
+  // 🌟 修正ポイント：内緒話だけでなく、グループや友達チャットの場合もここで中断（吹き出しを出さない）
+  if (isWhisper || data.type === 'group' || data.type === 'friend') {
+      return; 
+  }
 
   const chatData = { text: data.text, timer: 120 };
   if (data.id === socket.id) {
@@ -1189,33 +1433,95 @@ function attack() {
 // 🔐 ユーザー登録・ログイン処理
 // ==========================================
 
-// 1. 新規登録ボタンの処理
+// ------------------------------------------
+// 📝 1. 新規登録ボタンの処理 (UI統一版)
+// ------------------------------------------
 const regBtn = document.getElementById('register-btn');
+
 if (regBtn) {
     regBtn.onclick = () => {
-        const username = document.getElementById('user-name-input').value;
-        const password = document.getElementById('user-pass-input').value;
+        // 各要素の取得
+        const nameInput = document.getElementById('user-name-input');
+        const passInput = document.getElementById('user-pass-input');
+        const loginError = document.getElementById('login-error');
 
+        const username = nameInput.value.trim();
+        const password = passInput.value;
+
+        // --- 🌟 alert を使わず UI を更新 (既存のバリデーションロジックを踏襲) ---
         if (username.length < 2 || password.length < 4) {
-            alert("名前は2文字以上、パスワードは4文字以上で入力してください");
+            if (loginError) {
+                loginError.innerText = "名前は2文字以上、パスワードは4文字以上で入力してください";
+                loginError.style.color = "#ff4444";
+            }
+
+            // 条件を満たしていない入力欄を赤枠にする (openDropForm 踏襲)
+            if (username.length < 2) {
+                nameInput.style.border = "2px solid #ff4444";
+            } else {
+                nameInput.style.border = "1px solid #ccc";
+            }
+
+            if (password.length < 4) {
+                passInput.style.border = "2px solid #ff4444";
+            } else {
+                passInput.style.border = "1px solid #ccc";
+            }
+            
             return;
         }
 
-        // サーバーの socket.on('register', ...) へ送信
+        // --- ✅ バリデーション通過時：スタイルをリセット ---
+        nameInput.style.border = "1px solid #ccc";
+        passInput.style.border = "1px solid #ccc";
+        if (loginError) loginError.innerText = "";
+
+        // サーバーの socket.on('register', ...) へ送信 (既存ロジック)
         console.log("新規登録リクエスト送信:", username);
         socket.emit('register', { username: username, password: password });
     };
 }
 
-// 2. サーバーからの登録結果（register_response）を受け取る
+// ------------------------------------------
+// 📝 2. サーバーからの登録結果（register_response）を受け取る
+// ------------------------------------------
 socket.on('register_response', (data) => {
-    // サーバー側で設定したメッセージを表示
-    alert(data.message);
-    
-    if (data.success) {
-        console.log("登録成功！そのままログインできます。");
-        // 成功した場合はパスワード欄を空にするなどの処理
-        document.getElementById('user-pass-input').value = "";
+    // 🌟 openDropForm と同じようにエラー表示用の要素を取得
+    const loginError = document.getElementById('login-error');
+    const passwordInput = document.getElementById('user-pass-input');
+    // 名前入力欄も枠線制御のために取得（変数名は環境に合わせて調整してください）
+    const nameInput = document.getElementById('user-name-input') || document.querySelector('input[type="text"]');
+
+    // --- 🌟 既存の alert(data.message) を UI 更新に置き換え ---
+    if (loginError) {
+        loginError.innerText = data.message;
+        
+        if (data.success) {
+            // ✅ 登録成功時：文字色を成功カラー（水色）に変更
+            loginError.style.color = "#00ffcc"; 
+            
+            // 枠線を通常に戻す
+            if (nameInput) nameInput.style.border = "1px solid #ccc";
+            if (passwordInput) passwordInput.style.border = "1px solid #ccc";
+
+            // --- 既存ロジック：成功した場合はパスワード欄を空にする ---
+            console.log("登録成功！そのままログインできます。");
+            if (passwordInput) {
+                passwordInput.value = "";
+                // 次にログインしやすいよう名前にフォーカス
+                if (nameInput) nameInput.focus();
+            }
+        } else {
+            // ❌ 登録失敗時：文字色をエラーカラー（赤）に変更
+            loginError.style.color = "#ff4444";
+            
+            // 失敗した項目の枠線を赤くして強調 (openDropForm 踏襲)
+            if (nameInput) nameInput.style.border = "2px solid #ff4444";
+            if (passwordInput) passwordInput.style.border = "2px solid #ff4444";
+        }
+    } else {
+        // 万が一要素がない場合のみ、フォールバックとして alert を残す
+        alert(data.message);
     }
 });
 

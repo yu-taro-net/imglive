@@ -1,7 +1,7 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Action Game - Gold Base 800</title>
+  <title>imglive</title>
   <script src="https://satisfied-nourishment-production.up.railway.app/socket.io/socket.io.js"></script>
   <!--
   <script>
@@ -93,6 +93,8 @@
                 <button type="button" id="ch-btn-5" class="ch-btn" onclick="selectChannel(5)">05<br><small>LOW</small></button>
             </div>
         </div>
+		
+		<div id="login-error" style="height: 20px; color: #ff4444; font-size: 12px; text-align: center; margin-bottom: 8px; font-weight: bold;"></div>
 
         <div style="display: flex; gap: 10px; justify-content: center;">
             <button id="start-game-btn" style="flex: 1; padding:12px; font-size:14px; cursor:pointer; background: transparent; color:#00ffcc; border:1px solid #00ffcc; border-radius:5px; font-weight:lighter; letter-spacing: 2px; transition: 0.3s; text-transform: uppercase;">Login</button>
@@ -206,17 +208,26 @@
   <div id="ui-container">
   <div style="display: flex; gap: 4px; margin-bottom: 5px;">
     <select id="chat-mode" onchange="onChatModeChange()" style="background: rgba(0,0,0,0.7); color: #60a5fa; border: 1px solid #555; border-radius: 4px; cursor: pointer;">
-      <option value="all" style="color: #60a5fa;">全体</option>
-      <option value="group" style="color: #ff80ff;">グループ</option>
-      <option value="whisper" style="color: #99ffff;">内緒話</option>
-    </select>
+  <option value="all" style="color: #60a5fa;">全体</option>
+  <option value="friend" style="color: #ff9900;">友達</option>
+  <option value="group" style="color: #ff80ff;">グループ</option>
+  <option value="whisper" style="color: #99ffff;">内緒話</option>
+</select>
 
     <input type="text" id="chat-in" placeholder="メッセージを入力してEnter..." style="flex-grow: 1;">
   </div>
 
   <div id="msg-box"></div>
+  <div id="channel-selector" style="margin-top: 10px; border-top: 1px solid #444; padding-top: 10px;">
+    <p style="font-size: 12px; color: #ccc; margin-bottom: 5px;">チャンネル移動:</p>
+    <button onclick="changeChannel(1)">CH.1</button>
+    <button onclick="changeChannel(2)">CH.2</button>
+    <button onclick="changeChannel(3)">CH.3</button>
+    <button onclick="changeChannel(4)">CH.4</button>
+    <button onclick="changeChannel(5)">CH.5</button>
 </div>
-  <script src="/src/data.js"></script>
+</div>
+  <!-- <script src="/src/data.js"></script> -->
   <script src="/src/game.js"></script>
   <script src="/src/view.js"></script>
   <script src="/src/sound.js"></script>

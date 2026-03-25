@@ -234,6 +234,27 @@ const DAMAGE_ASSETS1 = {
     '9': 'damage_assets/19.png'
 };
 
+let imageSources = {};
+let itemImages = {};
+
+/**
+ * 🎁 サーバーからアイテム画像のパス名簿を受け取る
+ */
+socket.on('init_item_images', (data) => {
+    console.log("📩 サーバーから届いた生データ:", data); // これが出るか確認
+    imageSources = data; 
+
+    for (let key in data) {
+        const img = new Image();
+        img.src = data[key];
+        itemImages[key] = img;
+        
+        img.onload = () => console.log(`🖼️ 読み込み完了: ${key}`);
+        img.onerror = () => console.error(`⚠️ 読み込み失敗: ${data[key]}`);
+    }
+});
+
+/*
 const imageSources = {
     'gold': '/item_assets/gold.png',
     'sword': '/item_assets/sword.png',
@@ -244,6 +265,27 @@ const imageSources = {
     'money1': '/item_assets/money1.png'
 };
 
+for (const key in imageSources) {
+    const img = new Image();
+    img.src = imageSources[key];
+    itemImages[key] = img;
+    
+    // 🐞 確認用：もし画像が届かなかったらコンソールに通知
+    img.onerror = () => console.error(`⚠️ 画像が見つかりません: ${img.src}`);
+}
+*/
+
+let itemCategories = {}; 
+
+/**
+ * 🎁 サーバーからアイテムのカテゴリ判別ルールを受け取る
+ */
+socket.on('init_item_categories', (data) => {
+    itemCategories = data;
+    console.log("✅ カテゴリ判別ルールを同期しました:", Object.keys(itemCategories).length, "件");
+});
+
+/*
 const itemCategories = {
     "gold": "ETC",
     "treasure": "ETC",
@@ -251,8 +293,18 @@ const itemCategories = {
     "sword": "EQUIP",      // 装備
     "shield": "EQUIP"      // 装備
 };
+*/
+
+let itemDescriptions = {}; // 解説文用
+
+// 📝 解説文名簿の受信
+socket.on('init_item_descriptions', (data) => {
+    itemDescriptions = data;
+    console.log("✅ 解説文同期完了");
+});
 
 // 🌟 アイテムの解説文（ここに追加するだけ！）
+/*
 const itemDescriptions = {
     'gold': 'ずっしりと重い純金の塊。換金用。',
     'treasure': '古びた宝箱から見つかった秘宝。',
@@ -260,6 +312,7 @@ const itemDescriptions = {
     'money1': '使い古された銅貨。',
     'money3': 'キラキラと輝く銀貨。'
 };
+*/
 
 const STAT_NAMES = {
     str: "STR", dex: "DEX", int: "INT", luk: "LUK",
@@ -267,6 +320,26 @@ const STAT_NAMES = {
     atk: "攻撃力", matk: "魔力", def: "防御力",
     moveSpeed: "移動速度", jumpPower: "ジャンプ力"
 };
+
+// view.js
+let ITEM_CONFIG = {}; // 📋 最初は空。サーバーから届いた瞬間に「あのリスト」に変身します
+
+socket.on('init_item_config', (data) => {
+    if (!data) return;
+
+    // 🌟 サーバーから届いたデータを代入。これで手書きリストと全く同じになります
+    ITEM_CONFIG = data;
+
+    // 🌟 画像の読み込みも忘れずに実行！
+    if (typeof loadItemImages === 'function') {
+        loadItemImages();
+    }
+
+    // デバッグログ
+    console.group("🔍 ITEM_CONFIG 同期完了");
+    console.log("同期された中身:", ITEM_CONFIG);
+    console.groupEnd();
+});
 
 // ==========================================
 // ⚙️ 設定・フラグ（ここを false にするとデバッグ表示が消えます）
@@ -292,8 +365,6 @@ let recentlyPickedIds = new Set();
 
 const damageImages = {};
 let loadedCount = 0;
-
-const itemImages = {};
 
 const playerSprites = [];  // 画像データを格納する箱
 // 🌟 現在選択中のキャラクター（ここを書き換えてキャラ変更）
@@ -399,6 +470,25 @@ const sprites = {
     items: {}
 };
 
+let MONSTER_CONFIGS = []; // 最初は空。サーバーから受け取る
+
+/**
+ * 👹 サーバーからモンスター設定を受け取る
+ */
+socket.on('init_monster_configs', (data) => {
+    if (!data) return;
+
+    // 1. データを上書き
+    MONSTER_CONFIGS = data;
+	
+	loadStaticImages();
+
+    // 2. 🌟 モンスターの画像を読み込む関数があれば、ここで実行
+    // 例: if (typeof loadMonsterSprites === 'function') loadMonsterSprites();
+
+    console.log("✅ MONSTER_CONFIGS をサーバーと同期しました:", MONSTER_CONFIGS.length, "件");
+});
+
 MONSTER_CONFIGS.forEach(m => {
     // 基本・ダメージ
     sprites[m.name] = new Image();
@@ -428,75 +518,90 @@ Object.keys(DAMAGE_ASSETS).forEach(num => {
     damageImages[num] = img; // damageImages['1'] で 01.png が呼び出せるようになる
 });
 
+/**
+ * 🖼️ モンスター画像および静的リソースの読み込み
+ * ご提示いただいたロジックを崩さず、エラー回避処理を追加しています。
+ */
 function loadStaticImages() {
-    // --- 💰 アイテム専用の読み込みエリア (ここを独立) ---
-    loadItemImages();
+    // --- 💰 アイテム専用の読み込みエリア ---
+    //if (typeof loadItemImages === 'function') loadItemImages();
 	
-	// 🛡️ 読み込みたいモンスターの ID リスト（ここに足すだけでOK）
+	// 🛡️ 読み込みたいモンスターの ID リスト
     const allowedIds = ["Char01", "Char02", "Char03", "Char10", "Char13", "Char16", "Char19"];
 
+    // MONSTER_CONFIGS が空の場合は実行しない
+    if (!MONSTER_CONFIGS || MONSTER_CONFIGS.length === 0) return;
+
     MONSTER_CONFIGS.forEach(m => {
-	    // 門番：リストに含まれていない ID なら無視（読み込まない）
+	    // 門番：リストに含まれていない ID なら無視
         if (!allowedIds.includes(m.id)) {
             return;
         }
-        // 基本となるフォルダパスを作成
-        // 例: /char_assets_enemy/Char01/
+
         const basePath = `/char_assets_enemy/${m.id}`;
-        const fName = m.fileName;
+        const fName = 'skeleton';
 
         // --- 🚶 Walk (移動) ---
+        // 🌟 修正：まず配列を初期化してから画像を push する
+        sprites[m.name + 'Walk'] = [];
         for (let i = 0; i < (m.walk || 0); i++) {
-            // 例: /char_assets_enemy/Char01/Walk/skeleton-Walk_0.png
-            sprites[m.name + 'Walk'][i].src = `${basePath}/Walk/${fName}-Walk_${i}.png`;
+            const img = new Image();
+            img.src = `${basePath}/Walk/${fName}-Walk_${i}.png`;
+            sprites[m.name + 'Walk'].push(img);
         }
 
         // --- ⚔️ Attack (攻撃) ---
+        sprites[m.name + 'Attack'] = [];
         for (let i = 0; i < (m.attack || 0); i++) {
-            sprites[m.name + 'Attack'][i].src = `${basePath}/Attack/${fName}-Attack_${i}.png`;
+            const img = new Image();
+            img.src = `${basePath}/Attack/${fName}-Attack_${i}.png`;
+            sprites[m.name + 'Attack'].push(img);
         }
 
-        // --- 💀 Death (死亡) ---
-		/*
-        for (let i = 0; i < (m.death || 0); i++) {
-            sprites[m.name + 'Death'][i].src = `${basePath}/Dead/${fName}-Dead_${i}.png`;
-        }
-        */
-		
         // --- 💤 Idle (待機) ---
+        sprites[m.name + 'Idle'] = [];
         for (let i = 0; i < (m.idle || 0); i++) {
-            sprites[m.name + 'Idle'][i].src = `${basePath}/Idle/${fName}-Idle_${i}.png`;
+            const img = new Image();
+            img.src = `${basePath}/Idle/${fName}-Idle_${i}.png`;
+            sprites[m.name + 'Idle'].push(img);
         }
 
         // --- 🦘 Jump (ジャンプ) ---
+        sprites[m.name + 'Jump'] = [];
         for (let i = 0; i < (m.jump || 0); i++) {
-            sprites[m.name + 'Jump'][i].src = `${basePath}/Jump/${fName}-Jump_${i}.png`;
+            const img = new Image();
+            img.src = `${basePath}/Jump/${fName}-Jump_${i}.png`;
+            sprites[m.name + 'Jump'].push(img);
         }
 
-        // ダメージ等の単体画像（もしあれば）
-        sprites[m.name].src = `${basePath}/${fName}-Idle_0.png`; // 暫定でIdleの0番
-        sprites[m.name + 'Damage'].src = `${basePath}/Idle/${fName}-Idle_0.png`;
+        // --- 💀 Death (死亡) ---
+        sprites[m.name + 'Death'] = [];
+        for (let i = 0; i < (m.death || 0); i++) {
+            const img = new Image();
+            img.src = `${basePath}/Dead/${fName}-Dead_${i}.png`;
+            sprites[m.name + 'Death'].push(img);
+        }
+
+        // ダメージ等の単体画像（描画ロジックに合わせて配列化）
+        const baseImg = new Image();
+        baseImg.src = `${basePath}/${fName}-Idle_0.png`;
+        sprites[m.name] = [baseImg]; 
+
+        const damageImg = new Image();
+        damageImg.src = `${basePath}/Idle/${fName}-Idle_0.png`;
+        sprites[m.name + 'Damage'] = [damageImg];
     });
 	
 	// --- 💀 共通の死亡エフェクト (DeathFx) ---
-    // モンスター固有のDeath画像がない場合や、共通演出として使いたい場合用
-    sprites["commonDeath"] = []; // 配列を初期化
+    sprites["commonDeath"] = [];
     for (let i = 0; i < 18; i++) {
         const img = new Image();
         img.src = `/char_assets_enemy/DeathFx/skeleton-animation_${i}.png`;
         sprites["commonDeath"].push(img);
     }
-
-    // --- 👤 プレイヤー共通 ---
-	/*
-    sprites.playerDown.src = '/player_down.png';
-    for (let i = 0; i < 4; i++) {
-        sprites.playerClimb[i].src = `/player_climb${i+1}.png`;
-    }
-    */
 }
 
-loadStaticImages();
+//loadStaticImages();
 
 function loadItemImages() {
     Object.keys(ITEM_CONFIG).forEach(key => {
@@ -521,15 +626,6 @@ function loadItemImages() {
             sprites.items[key].src = conf.src;
         }
     });
-}
-
-for (const key in imageSources) {
-    const img = new Image();
-    img.src = imageSources[key];
-    itemImages[key] = img;
-    
-    // 🐞 確認用：もし画像が届かなかったらコンソールに通知
-    img.onerror = () => console.error(`⚠️ 画像が見つかりません: ${img.src}`);
 }
 
 for (let g = 0; g < 16; g++) {
@@ -1079,7 +1175,7 @@ function getPriorityWindow(mx, my) {
 socket.on('chat', data => {
   // 🌟【修正】内緒話（whisper）の場合は、描画リストに追加しない
   // これにより、画面上の吹き出しとして描画されるのを防ぎます
-  if (data.type === 'whisper' || data.type === 'group') return;
+  if (data.type === 'whisper' || data.type === 'group' || data.type === 'friend') return;
 
   // id, text に加えて type も保存しておくと、後で描画時に色を変えられます
   chatMessages.push({ 
@@ -1432,8 +1528,10 @@ function drawGame(hero, others, enemies, items, platforms, ladders, damageTexts,
     drawUIOverlay(hero);
     
     // 7. 特殊UI表示（チャンネル表示・マウス追従アイテム）
-    drawSpecialHUD(hero);
+    drawChannelHUD(hero);
     
+	drawHeldItem()
+	
     // ==========================================
     // 🛠️ デバッグ表示（DEBUG_MODE が true の時のみ実行）
     // ==========================================
@@ -1442,31 +1540,49 @@ function drawGame(hero, others, enemies, items, platforms, ladders, damageTexts,
     }
 }
 
-function drawSpecialHUD(hero) {
-    // --- チャンネルを【右上】に表示 ---
-    if (hero && hero.channel) {
+/**
+ * 📡 チャンネル表示（画面右上に固定）
+ */
+function drawChannelHUD(hero) {
+    // heroが存在しない場合や、channelが設定されていない場合は「1」として表示する
+    if (typeof hero !== 'undefined') {
+        const channelNum = hero.channel || 1;
+
         ctx.save();
-        ctx.font = "bold 18px 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif";
+        // フォント設定（少し小さめの14px〜16pxにするとUIとして馴染みます）
+        ctx.font = "bold 16px 'Arial', sans-serif";
         ctx.textAlign = "right"; 
         
-        ctx.shadowColor = "rgba(0, 0, 0, 0.8)";
-        ctx.shadowBlur = 4;
-        ctx.shadowOffsetX = 2;
-        ctx.shadowOffsetY = 2;
+        const x = VIEW_CONFIG.SCREEN_WIDTH - 20;
+        const y = 35;
+        const text = `CH.${channelNum}`;
 
+        // 🖤 黒い縁取り（これでどんな背景でも見えます）
+        ctx.strokeStyle = "black";
+        ctx.lineWidth = 3;
+        ctx.lineJoin = "round";
+        ctx.strokeText(text, x, y);
+
+        // 💛 メインの文字色（金色のグラデーション風）
         ctx.fillStyle = "#fbbf24"; 
-        ctx.fillText(`📡 Channel: ${hero.channel}`, VIEW_CONFIG.SCREEN_WIDTH - 20, 35);
+        ctx.fillText(text, x, y);
+
         ctx.restore();
     }
-    
-    // --- 掴んでいるアイテムをマウスに追従させて描画 ---
+}
+
+// --- 📦 掴んでいるアイテム（マウスに追従） ---
+function drawHeldItem() {
+    // 捨てる動作中でなく、有効なスロットが選択されている場合
     if (!isDiscarding && typeof selectedSlotIndex !== 'undefined' && selectedSlotIndex !== -1) {
         if (inventoryVisualBuffer && inventoryVisualBuffer[selectedSlotIndex]) {
             const item = inventoryVisualBuffer[selectedSlotIndex];
             const itemImg = itemImages[item.type];
+            
             if (itemImg) {
                 ctx.save();
-                ctx.globalAlpha = 0.6;
+                ctx.globalAlpha = 0.6; // 掴んでいる感を出すための半透明
+                // マウス座標を中心に描画
                 ctx.drawImage(itemImg, mouseX - 15, mouseY - 15, 30, 30);
                 ctx.restore();
             }
@@ -1600,7 +1716,15 @@ function drawEntities(hero, others, enemies, items, frame) {
 
     // 2. 他のプレイヤー
     for (let id in others) {
-        if (others[id]) drawPlayerObj(others[id], false, id);
+        const p = others[id];
+        // 🌟 修正：プレイヤーが存在し、かつ自分と同じチャンネルにいる場合のみ描画
+        if (p && p.channel === hero.channel) {
+            // 🌟 実験：キャラの座標に名前を直接書いてみる
+            //ctx.fillStyle = "white";
+            //ctx.fillText("HERE: " + p.name, p.x, p.y); 
+
+            drawPlayerObj(p, false, id);
+        }
     }
 
     // 3. 自分自身（他人の上に重なるように描画）
@@ -1609,11 +1733,16 @@ function drawEntities(hero, others, enemies, items, frame) {
     // 🌟 4. アイテム（地面に落ちているもの）を一番「手前」に描く！
     // これにより、自分の足元に落ちたアイテムがキャラに隠れず見えるようになります。
     drawItems(items, frame);
-	
-	levelUpEffects.forEach((eff, index) => {
+    
+    // -------------------------------------------------------
+    // 5. レベルアップエフェクトの同期描画
+    // -------------------------------------------------------
+    levelUpEffects.forEach((eff, index) => {
+        // 対象のプレイヤーを特定（自分か、それとも他人名簿の中にいるか）
         const p = (hero && hero.id === eff.playerId) ? hero : (others ? others[eff.playerId] : null);
         
-        if (p) {
+        // 🌟 修正：プレイヤーが存在し、かつ「自分と同じチャンネル」にいる時だけ文字を出す
+        if (p && p.channel === hero.channel) {
             ctx.save();
             ctx.font = "bold 60px 'Arial Black'"; 
             
@@ -1632,13 +1761,16 @@ function drawEntities(hero, others, enemies, items, frame) {
             // X座標：(左端 + 幅の半分) - 調整用オフセット
             const drawX = (p.x + (p.w || 40) / 2) - offset;
             
-            // Y座標：頭上
+            // Y座標：頭上（タイマーの経過に合わせてふわっと上昇）
             const drawY = p.y - 60 - (120 - eff.timer) * 0.8;
 
             ctx.strokeText("LEVEL UP !!", drawX, drawY);
             ctx.fillText("LEVEL UP !!", drawX, drawY);
             ctx.restore();
         }
+
+        // タイマーのカウントダウンと削除処理
+        // ※これは描画の有無に関わらず実行し、時間が来たらリストから消します
         eff.timer--;
         if (eff.timer <= 0) levelUpEffects.splice(index, 1);
     });
@@ -1986,7 +2118,7 @@ function drawItemTooltip(ctx, slot, mouseX, mouseY, hero) {
 
     let baseItemName = "アイテム";
     if (typeof ITEM_CONFIG !== 'undefined' && ITEM_CONFIG[slot.type]) {
-        baseItemName = ITEM_CONFIG[slot.type].name;
+        baseItemName = ITEM_CONFIG[slot.type].display_name;
     } else {
         baseItemName = slot.type === 'shield' ? "盾" : (slot.type === 'sword' ? "剣" : slot.type);
     }
@@ -2388,25 +2520,40 @@ ladders.forEach(l => {
 
 /**
  * 👤 プレイヤーの描画司令塔
- * 役割：1人分のプレイヤーを描画するための手順を管理する
  */
 function drawPlayerObj(p, isMe, id) {
     if (!p) return;
+	
+    // 🌟 チャンネルチェックの門番
+    if (!isMe && typeof hero !== 'undefined') {
+        const myChan = hero.channel || 1;
+        const opChan = p.channel || 1;
+        if (opChan !== myChan) return;
+    }
 
     // 1. 🎭 キャラクター設定の読み込み
     const g = isMe ? selectedGroup : (p.group !== undefined ? p.group : 5);
     const v = isMe ? selectedCharVar : (p.charVar !== undefined ? p.charVar : 6);
-    loadCharFrames(g, v);
+
+    // 🌟 修正：その人の見た目(g, v)がまだロードされていない場合、ここでロードを実行
+    // これにより getPlayerCurrentImg 内部の characterData が undefined になるのを防ぎます
+    if (!playerSprites[g] || !playerSprites[g][v]) {
+        loadCharFrames(g, v);
+    }
 
     // 2. 🎨 描画準備（サイズ・座標の計算）
     const visualData = calculatePlayerVisuals(p, g, isMe);
 
-    // 3. 🖼️ 表示する画像の決定
+    // 3. 🖼️ 表示する画像の決定（ロジックは踏襲）
     const currentImg = getPlayerCurrentImg(p, g, v, frame, sprites, playerSprites, isMe);
 
-    // 4. ✍️ 実際の描画実行（無敵点滅チェック含む）
-    if (!(p.invincible > 0 && Math.floor(frame / 4) % 2 === 0)) {
+    // 4. ✍️ 実際の描画実行
+    if (currentImg && !(p.invincible > 0 && Math.floor(frame / 4) % 2 === 0)) {
         renderPlayerSprite(ctx, p, currentImg, visualData);
+    } else if (!isMe) {
+        // 画像ロード待ちの他人のためのデバッグ表示（映らない原因切り分け用）
+        ctx.fillStyle = "rgba(255,255,255,0.5)";
+        ctx.fillText("Loading image...", p.x, p.y - 10);
     }
 
     // 5. 📊 UI（HPバーと名前）の描画
@@ -2456,40 +2603,31 @@ function renderPlayerSprite(ctx, p, img, vData) {
  * プレイヤーの状態に基づいて、表示する画像(currentImg)を決定する専門の関数
  */
 function getPlayerCurrentImg(p, g, v, frame, sprites, playerSprites, isMe) {
-    const speed = isMe ? hero.vx : (p.vx || 0);
+    // 🌟 修正：速度の取得を安定化
+    const speed = isMe ? (typeof hero !== 'undefined' ? hero.vx : 0) : (p.vx || 0);
     const isMoving = Math.abs(speed) > 0.1;
     const isGrounded = !p.jumping;
+
+    // 引数として渡された g と v を使ってデータにアクセス
     const characterData = (playerSprites[g] && playerSprites[g][v]);
 
     // --- 1. ⚔️ 攻撃中 (最優先) ---
-if (p.isAttacking > 0) {
-    const frames = characterData ? characterData["Hit"] : null;
-    if (frames && frames.length > 0) {
-        // 🌟 画像が40枚あるので、持続時間を40に合わせます
-        // (サーバー側の SETTINGS.PLAYER.ATTACK_FRAME も 40 にしてください)
-        const maxDuration = 40; 
-        
-        // 現在が何ステップ目か (0 ～ 39)
-        const currentStep = Math.max(0, maxDuration - p.isAttacking);
-        
-        // 進捗率 (0.0 ～ 1.0)
-        let progress = currentStep / maxDuration;
+    if (p.isAttacking > 0) {
+        const frames = characterData ? characterData["Hit"] : null;
+        if (frames && frames.length > 0) {
+            const maxDuration = 40; 
+            const currentStep = Math.max(0, maxDuration - p.isAttacking);
+            let progress = currentStep / maxDuration;
 
-        // 🌟 緩急（イージング）の調整
-        // 指数を 0.8 から 1.5 程度に上げると、
-        // 「最初はゆっくり溜めて、後半で一気に振り抜く」鋭い動きになります。
-        // お好みで 1.0 (等速) ～ 2.0 (溜めが強い) の間で調整してみてください。
-        let easingProgress = Math.pow(progress, 1.2); 
+            // 🌟 緩急（イージング）の調整
+            let easingProgress = Math.pow(progress, 1.2); 
 
-        // 画像のインデックスを決定
-        let atkIdx = Math.floor(easingProgress * (frames.length - 1));
-        
-        // 範囲内に収める（ガード処理）
-        atkIdx = Math.max(0, Math.min(atkIdx, frames.length - 1));
+            let atkIdx = Math.floor(easingProgress * (frames.length - 1));
+            atkIdx = Math.max(0, Math.min(atkIdx, frames.length - 1));
 
-        return frames[atkIdx];
+            return frames[atkIdx];
+        }
     }
-}
 
     // --- 2. 🌀 ダウン（ロール）中 ---
     if (p.isDown) {
@@ -2531,7 +2669,7 @@ if (p.isAttacking > 0) {
         sprites.playerA
     );
 
-    // どの条件にも合致しない場合の最終バックアップ
+    // 最終バックアップ
     return sprites.playerA;
 }
 
@@ -3170,6 +3308,7 @@ function drawPlayerHP(hero) {
 }
 
 /** 2. カバンUI（元のコードの9番に相当） */
+/*
 function drawBagUI(hero) {
     const inv = hero.inventory || [];
     const counts = {
@@ -3189,8 +3328,10 @@ function drawBagUI(hero) {
     ctx.fillStyle = "white";
     ctx.fillText(`Bag: 🏆x${counts.gold} 💵x${counts.m1} 💰x${counts.m3}`, 780, 578);
 }
+*/
 
 /** 3. 経験値とデバッグ（元のコードの後半部分に相当） */
+/*
 function drawExpAndDebug(hero) {
     const expBarX = 20;
     const expBarY = 110; 
@@ -3257,6 +3398,7 @@ function drawExpAndDebug(hero) {
 
     ctx.restore(); 
 }
+*/
 
 // --- チャットの吹き出しを表示する仕組み ---
 function drawChatBubble(p, text) {
@@ -3321,10 +3463,10 @@ function drawItems(items, frame) {
 
         const config = ITEM_CONFIG[item.type] || ITEM_CONFIG["money1"]; 
         let img = null;
-        if (typeof sprites !== 'undefined' && sprites.items && sprites.items[config.spriteKey]) {
+        if (typeof sprites !== 'undefined' && sprites.items && sprites.items[config.name]) {
             img = config.isAnimated 
-                  ? sprites.items[config.spriteKey][Math.floor((frame + (offset * 10)) / 10) % 10] 
-                  : sprites.items[config.spriteKey];
+                  ? sprites.items[config.name][Math.floor((frame + (offset * 10)) / 10) % 10] 
+                  : sprites.items[config.name];
         }
 
         if (img && (img.complete || img.naturalWidth > 0)) {
