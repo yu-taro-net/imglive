@@ -91,6 +91,34 @@ const SHIELD_CHANCE = {
     // 残りの 80% は通常・壊れかけになります
 };
 
+// ⚔️ 戦闘計算エンジン
+const COMBAT_FORMULA = {
+    // 熟練度（最小ダメージの割合。0.6 = 60%）
+    MASTERY: 0.6,
+    
+    // 最大ダメージ計算 (STR*4 + DEX) * ATK / 10
+    calcMaxDamage: (p) => {
+        const str = p.str || 4;
+        const dex = p.dex || 4;
+        const atk = p.weaponAtk || 10;
+        return Math.floor(((str * 4) + dex) * atk / 10);
+    },
+
+    // 最終ダメージ決定（振れ幅を含む）
+    generateDamage: function(p) {
+        const maxDmg = this.calcMaxDamage(p);
+        const minDmg = Math.floor(maxDmg * this.MASTERY);
+        const damage = Math.floor(Math.random() * (maxDmg - minDmg + 1)) + minDmg;
+        
+        return {
+            val: damage,
+            max: maxDmg,
+            min: minDmg,
+            isCritical: damage >= Math.floor(maxDmg * 0.9) // 最大の90%以上でクリ演出
+        };
+    }
+};
+
 // ==========================================
 // 📞 ソケット通信の入り口（debugChat 搭載版）
 // ==========================================
@@ -111,131 +139,156 @@ io.on('connection', socket => {
         socket.emit('init_item_descriptions', ITEM_DESCRIPTIONS);
 
         // ------------------------------------------
-        // 🔑 ログイン (Login) 処理
-        // ------------------------------------------
-        socket.on('login', async (data) => {
-            // 🌟 修正：クライアントから送られてくる channel を受け取る
-            const { username, password, channel } = data;
+// 🔑 ログイン (Login) 処理
+// ------------------------------------------
+socket.on('login', async (data) => {
+    // 🌟 修正：クライアントから送られてくる channel を受け取る
+    const { username, password, channel } = data;
 
-            try {
-                // 1. ユーザーの存在確認
-                const sql = 'SELECT * FROM users WHERE username = ?';
-                // 🌟 修正：Promise版は [結果] を受け取る形になります
-                const [userResults] = await pool.query(sql, [username]);
+    try {
+        // 1. ユーザーの存在確認
+        const sql = 'SELECT * FROM users WHERE username = ?';
+        // 🌟 修正：Promise版は [結果] を受け取る形になります
+        const [userResults] = await pool.query(sql, [username]);
 
-                if (userResults.length === 0) {
-                    socket.emit('login_response', { success: false, message: 'ユーザー名またはパスワードが違います' });
-                    return;
-                }
+        if (userResults.length === 0) {
+            socket.emit('login_response', { success: false, message: 'ユーザー名またはパスワードが違います' });
+            return;
+        }
 
-                const user = userResults[0];
+        const user = userResults[0];
 
-                // 🌟 パスワードの照合
-                const match = await bcrypt.compare(password, user.password_hash);
+        // 🌟 パスワードの照合
+        const match = await bcrypt.compare(password, user.password_hash);
 
-                if (match) {
-                    // 2. 認証成功後、player_stats テーブルからステータスを取得
-                    const statsSql = 'SELECT * FROM player_stats WHERE user_id = ?';
-                    const [statsResults] = await pool.query(statsSql, [user.id]);
+        if (match) {
+            // 2. 認証成功後、player_stats テーブルからステータスを取得
+            const statsSql = 'SELECT * FROM player_stats WHERE user_id = ?';
+            const [statsResults] = await pool.query(statsSql, [user.id]);
 
-                    if (statsResults.length === 0) {
-                        LOG.DB(`ステータス取得失敗 (ID: ${user.id}): データが見つかりません`);
-                        socket.emit('login_response', { success: false, message: 'キャラクターデータの読み込みに失敗しました' });
-                        return;
-                    }
-
-                    const stats = statsResults[0];
-
-                    // 🌟 追記：選択されたチャンネルを確定（数値として取得し、デフォルトは1）
-                    const selectedChannel = parseInt(channel) || 1;
-                    const roomName = `channel_${selectedChannel}`;
-
-                    // ------------------------------------------------------------
-                    // 🌟 踏襲：サーバー側のメモリ(players)にDBのデータを同期する
-                    // ------------------------------------------------------------
-                    players[socket.id] = {
-                        id: user.id,
-                        name: user.username,
-                        // 🌟 追記：メモリ上にも現在のチャンネルを保存
-                        channel: selectedChannel,
-                        gold: Number(stats.gold || 0),
-                        level: stats.level,
-                        exp: stats.exp,
-                        hp: stats.hp,
-                        maxHp: stats.max_hp,
-                        mp: stats.mp,
-                        maxMp: stats.max_mp,
-                        map_id: stats.map_id,
-                        x: stats.pos_x,
-                        y: stats.pos_y,
-                        job_id: stats.job_id,
-                        // --- ⚔️ 追加ステータス ---
-                        str: stats.str || 4,
-                        dex: stats.dex || 4,
-                        luk: stats.luk || 4,
-                        ap: stats.ap || 0,
-                        // -----------------------
-                        inventory: [],
-                        lastPickupTime: 0
-                    };
-
-                    // 🌟 肝：このソケットをチャンネル専用の「部屋」に参加させる
-                    socket.join(roomName);
-
-                    // 3. 認証成功のレスポンス（DBから読み込んだステータスを同封）
-                    socket.emit('login_response', {
-                        success: true,
-                        id: user.id,
-                        username: user.username,
-                        // 🌟 追記：クライアント側にどのチャンネルで入ったか伝える
-                        channel: selectedChannel,
-                        stats: {
-                            level: stats.level,
-                            exp: stats.exp,
-                            hp: stats.hp,
-                            max_hp: stats.max_hp,
-                            mp: stats.mp,
-                            max_mp: stats.max_mp,
-                            gold: stats.gold,
-                            map_id: stats.map_id,
-                            x: stats.pos_x,
-                            y: stats.pos_y,
-                            job_id: stats.job_id,
-                            // --- ⚔️ クライアント側へ送る追加ステータス ---
-                            str: stats.str || 4,
-                            dex: stats.dex || 4,
-                            luk: stats.luk || 4,
-                            ap: stats.ap || 0
-                        },
-                        message: 'ログイン成功！'
-                    });
-
-                    // 🌟 追記：同じチャンネルにいる「他のプレイヤー」にだけ新入生を通知
-                    socket.to(roomName).emit('player_joined', players[socket.id]);
-
-                    LOG.DB(`ログイン成功: ${user.username} (Lv.${stats.level}) -> ${roomName}`);
-
-                    // ------------------------------------------------------------
-                    // 🌟 踏襲：タイムゾーン設定とログイン時間の更新
-                    // ------------------------------------------------------------
-                    try {
-                        await pool.query("SET time_zone = '+09:00';");
-                        await pool.query('UPDATE users SET last_login = NOW() WHERE id = ?', [user.id]);
-                    } catch (tzErr) {
-                        LOG.DB(`ログイン時間更新エラー: ${tzErr.message}`);
-                    }
-
-                } else {
-                    // パスワード不一致
-                    socket.emit('login_response', { success: false, message: 'ユーザー名またはパスワードが違います' });
-                }
-
-            } catch (err) {
-                // 🌟 システムエラー（DB接続切れなど）
-                console.error("❌ ログイン処理中にエラーが発生しました:", err);
-                socket.emit('login_response', { success: false, message: 'サーバーエラーが発生しました' });
+            if (statsResults.length === 0) {
+                LOG.DB(`ステータス取得失敗 (ID: ${user.id}): データが見つかりません`);
+                socket.emit('login_response', { success: false, message: 'キャラクターデータの読み込みに失敗しました' });
+                return;
             }
-        });
+
+            const stats = statsResults[0];
+
+            // 🌟 インベントリと装備詳細をDBから読み込む
+            const savedInventory = await loadUserInventory(user.id);
+
+            // 🛠【修正】インベントリを常に10枠の固定長配列に整形する
+            const fixedInventory = Array(10).fill(null);
+            savedInventory.forEach((item) => {
+                const sIdx = item.slot_index; 
+                if (sIdx !== undefined && sIdx !== null && sIdx >= 0 && sIdx < 10) {
+                    fixedInventory[sIdx] = item;
+                }
+            });
+
+            // 🌟 追記：選択されたチャンネルを確定
+            const selectedChannel = parseInt(channel) || 1;
+            const roomName = `channel_${selectedChannel}`;
+
+            // ------------------------------------------------------------
+            // 🌟 修正：最新の最大HPテーブルから正しい値を算出
+            // ------------------------------------------------------------
+            const correctMaxHP = MAX_HP_TABLE[stats.level] || stats.max_hp;
+            // 現在のHPが新しい最大HPを超えないように調整
+            const adjustedCurrentHP = stats.hp > correctMaxHP ? correctMaxHP : stats.hp;
+
+            // ------------------------------------------------------------
+            // 🌟 踏襲：サーバー側のメモリ(players)にDBのデータを同期する
+            // ------------------------------------------------------------
+            players[socket.id] = {
+                dbId: user.id,
+                id: user.id,
+                name: user.username,
+                // 🌟 追記：メモリ上にも現在のチャンネルを保存
+                channel: selectedChannel,
+                gold: Number(stats.gold || 0),
+                level: stats.level,
+                exp: stats.exp,
+                hp: adjustedCurrentHP,       // 🌟 修正後のHP
+                maxHp: correctMaxHP,        // 🌟 テーブルから取得した正しい最大HP
+                mp: stats.mp,
+                maxMp: stats.max_mp,
+                map_id: stats.map_id,
+                x: stats.pos_x,
+                y: stats.pos_y,
+                job_id: stats.job_id,
+                // --- ⚔️ 追加ステータス ---
+                str: stats.str || 4,
+                dex: stats.dex || 4,
+                luk: stats.luk || 4,
+                ap: stats.ap || 0,
+                // -----------------------
+                // 🌟 修正：整形済みのインベントリを反映
+                inventory: fixedInventory, 
+                lastPickupTime: 0
+            };
+
+            // 🌟 肝：このソケットをチャンネル専用の「部屋」に参加させる
+            socket.join(roomName);
+
+            // 3. 認証成功のレスポンス（DBから読み込んだステータスを同封）
+            socket.emit('login_response', {
+                success: true,
+                id: user.id,
+                username: user.username,
+                channel: selectedChannel,
+                stats: {
+                    level: stats.level,
+                    exp: stats.exp,
+                    hp: players[socket.id].hp,      // 🌟 同期済みメモリから取得
+                    max_hp: players[socket.id].maxHp, // 🌟 同期済みメモリから取得
+                    mp: stats.mp,
+                    max_mp: stats.max_mp,
+                    gold: stats.gold,
+                    map_id: stats.map_id,
+                    x: stats.pos_x,
+                    y: stats.pos_y,
+                    job_id: stats.job_id,
+                    // --- ⚔️ クライアント側へ送る追加ステータス ---
+                    str: stats.str || 4,
+                    dex: stats.dex || 4,
+                    luk: stats.luk || 4,
+                    ap: stats.ap || 0,
+                    // 🌟 修正：整形済みのインベントリ状態を送る
+                    inventory: fixedInventory
+                },
+                message: 'ログイン成功！'
+            });
+
+            // 🛠【追加修正】明示的にインベントリ更新イベントを個別に送信
+            socket.emit('inventory_update', fixedInventory);
+
+            // 🌟 追記：同じチャンネルにいる「他のプレイヤー」にだけ新入生を通知
+            socket.to(roomName).emit('player_joined', players[socket.id]);
+
+            LOG.DB(`ログイン成功: ${user.username} (Lv.${stats.level}) -> ${roomName} (MaxHP補正: ${correctMaxHP})`);
+
+            // ------------------------------------------------------------
+            // 🌟 踏襲：タイムゾーン設定とログイン時間の更新
+            // ------------------------------------------------------------
+            try {
+                await pool.query("SET time_zone = '+09:00';");
+                await pool.query('UPDATE users SET last_login = NOW() WHERE id = ?', [user.id]);
+            } catch (tzErr) {
+                LOG.DB(`ログイン時間更新エラー: ${tzErr.message}`);
+            }
+
+        } else {
+            // パスワード不一致
+            socket.emit('login_response', { success: false, message: 'ユーザー名またはパスワードが違います' });
+        }
+
+    } catch (err) {
+        // 🌟 システムエラー
+        console.error("❌ ログイン処理中にエラーが発生しました:", err);
+        socket.emit('login_response', { success: false, message: 'サーバーエラーが発生しました' });
+    }
+});
 
         // ------------------------------------------
 // 📝 ユーザー新規登録 (Register) + 徹底デバッグ版（環境最適化済み）
@@ -323,20 +376,46 @@ socket.on('register', async (data) => {
 // 💾 ステータス保存 (Save Data) 処理
 // ------------------------------------------
 socket.on('save_player_data', (data) => {
+    // 🌟 【デバッグ：受信データ全出力】 クライアントから届いた中身をすべて表示
+    console.log("--- 📥 [DEBUG: 受信データ詳細] ---");
+    console.log(data);
+
     // data には { userId, level, exp, gold, hp, maxHp, mp, maxMp, mapId, x, y, str, dex, luk, ap } が入っている想定
     const { userId, level, exp, gold, hp, maxHp, mp, maxMp, mapId, x, y, str, dex, luk, ap } = data;
 
     if (!userId) return;
 
-    // 🌟 修正ポイント：通信用の長い文字列ID (userId) を使って、
-    // サーバーのメモリ(players)からデータベース用の数値IDを取り出します。
-    const player = players[userId];
-    if (!player || !player.dbId) {
-        // まだログインが完了していない、またはIDが紐付いていない場合は保存をスキップ
+    // 🌟 修正ポイント：
+    // クライアントから送られた userId (文字列) をキーにするのではなく、
+    // 今まさに通信している socket.id を使ってメモリ(players)から本人を探します。
+    const player = players[socket.id]; 
+
+    // 🌟 【デバッグ：プレイヤー特定情報の出力】
+    console.log("--- 🔍 [DEBUG: 照合プレイヤー情報] ---");
+    if (player) {
+        console.table({
+            "Socket ID": socket.id,
+            "プレイヤー名": player.name,
+            "DB数値ID (dbId)": player.dbId || "⚠️未定義",
+            "受信したUserId": userId
+        });
+    } else {
+        console.warn(`[DEBUG:SAVE] players[${socket.id}] が見つかりません。保存を中止します。`);
         return;
     }
 
-    const dbUserId = player.dbId; // ここに 10 などの数値が入ります
+    if (!player || !player.dbId) {
+        // ログインが完了していない場合は保存をスキップ
+        return;
+    }
+
+    // 固定の 10 ではなく、ログインしている本人の数値IDを代入
+    const dbUserId = player.dbId; 
+
+    // 🌟 【デバッグ：SQLに送る最終値の一覧】
+    const saveParams = [level, exp, gold, hp, maxHp, mp, maxMp, mapId, x, y, str, dex, luk, ap, dbUserId];
+    console.log("--- 🚀 [DEBUG: SQL送信パラメータ] ---");
+    console.log(saveParams);
 
     // 🌟 UPDATE文の構造はそのまま踏襲
     const sql = `
@@ -346,10 +425,10 @@ socket.on('save_player_data', (data) => {
         WHERE user_id = ?
     `;
 
-    // 🌟 引数の順番を維持しつつ、最後の userId だけ dbUserId (数値) に差し替え
-    pool.query(sql, [level, exp, gold, hp, maxHp, mp, maxMp, mapId, x, y, str, dex, luk, ap, dbUserId], (err, result) => {
+    // 🌟 引数の順番を維持しつつ、最後の値を自動取得した dbUserId に差し替え
+    pool.query(sql, saveParams, (err, result) => {
         if (err) {
-            // エラーログの出力形式も踏襲（識別しやすいよう dbUserId を表示）
+            // エラーログの出力形式も踏襲
             if (typeof LOG !== 'undefined' && LOG.DB) {
                 LOG.DB(`セーブ失敗 (DB_ID: ${dbUserId}): ${err.message}`);
             } else {
@@ -357,7 +436,14 @@ socket.on('save_player_data', (data) => {
             }
             return;
         }
-        // 必要であればここに成功ログを追加してください
+
+        // 🌟 保存が成功したかどうかのログを出力
+        if (result && result.affectedRows > 0) {
+            // 成功の確証が欲しい場合は、ここのコメントを外してください
+            console.log(`✅ [SAVE SUCCESS] ${player.name} (DB_ID: ${dbUserId}) の保存に成功しました`);
+        } else {
+            console.warn(`⚠️ [SAVE WARNING] DB ID: ${dbUserId} が見つかりませんでした (affectedRows: 0)`);
+        }
     });
 });
 
@@ -370,6 +456,7 @@ socket.on('save_player_data', (data) => {
                 const name = players[socket.id] ? players[socket.id].name : socket.id;
                 debugChat(`📴 切断されました: ${name}`);
                 delete players[socket.id];
+				emitPlayerList();
             } catch (e) {
                 debugChat(`❌ disconnectエラー: ${e.message}`, 'error');
             }
@@ -408,6 +495,17 @@ socket.on('save_player_data', (data) => {
 
                     // 🔊 入室サウンド通知：同じチャンネル（部屋）にいる「自分以外」の全員に通知
                     socket.to(roomName).emit('player_joined_sound');
+
+                    // 🌟 追加：【全チャンネル対応】ログイン通知を全員（io.emit）に飛ばす
+                    // これにより、別チャンネルにいるユーザーの画面にも通知が表示されます
+                    io.emit('globalNotification', {
+                        message: `${p.name} がログインしました。`,
+                        color: "#FFFFFF",
+						senderId: socket.id, // 🌟 これを自分自身で判定するために追加
+                        type: 'LOGIN'
+                    });
+					
+					emitPlayerList();
 
                     debugChat(`👋 ${userName} さんが チャンネル ${channel} に参加しました（キャラID: ${p.group}）`);
                     LOG.SYS(`[入室データ確認] ${JSON.stringify(p)}`);
@@ -578,7 +676,8 @@ socket.on('chat', (data) => {
             }
         });
 		
-		socket.on('change_channel', (data) => {
+		// --- チャンネル変更処理（既存ロジックを完全踏襲） ---
+socket.on('change_channel', (data) => {
     const { newChannel } = data;
     const player = players[socket.id];
     
@@ -618,6 +717,11 @@ socket.on('chat', (data) => {
     // ※ player自身は roomPlayers に含まれて本人に届くので、
     // ここでは socket.to(newRoom)（自分以外）にだけ送ればOK
     socket.to(newRoom).emit('player_joined', player);
+
+    // 🌟 追記：全チャンネル対応のプレイヤーリストを更新して全員に通知
+    if (typeof emitPlayerList === 'function') {
+        emitPlayerList();
+    }
     
     console.log(`[Channel] ${player.name} moved to ${newRoom}. Room population: ${Object.keys(roomPlayers).length}`);
 });
@@ -642,131 +746,256 @@ socket.on('request_change_channel', (data) => {
     }
 });
 
-        // 📥 10. アイテムを捨てた時 (dropItem) - 複数個対応＆5ch対応版
-        socket.on('dropItem', (data) => {
-            try {
-                const player = players[socket.id];
-                if (!player || !player.inventory) return;
+        // 📥 10. アイテムを捨てた時 (dropItem) - 複数個対応＆DB保存版
+socket.on('dropItem', async (data) => {
+    try {
+        const player = players[socket.id];
+        // プレイヤーが存在しない、またはDB IDがない場合は中断
+        if (!player || !player.inventory || !player.dbId) return;
 
-                const chId = player.channel || 1;
-                const index = (typeof data === 'object') ? data.index : data;
-                const requestedAmount = (typeof data === 'object') ? data.amount : null;
+        const chId = player.channel || 1;
+        const index = (typeof data === 'object') ? data.index : data;
+        const requestedAmount = (typeof data === 'object') ? data.amount : null;
 
-                if (player.inventory[index]) {
-                    const itemToDrop = player.inventory[index];
-                    const maxCount = itemToDrop.count || itemToDrop.amount || 1;
-                    const actualDropCount = (requestedAmount !== null)
-                        ? Math.min(Math.max(1, requestedAmount), maxCount)
-                        : maxCount;
+        if (player.inventory[index]) {
+            const itemToDrop = player.inventory[index];
+            const maxCount = itemToDrop.count || itemToDrop.amount || 1;
+            const actualDropCount = (requestedAmount !== null)
+                ? Math.min(Math.max(1, requestedAmount), maxCount)
+                : maxCount;
 
-                    let itemName = SERVER_ITEM_NAMES[itemToDrop.type] || 'アイテム';
-                    const dropLogMsg = actualDropCount >= 2
-                        ? `${itemName}を${actualDropCount}個捨てました`
-                        : `${itemName}を捨てました`;
+            // 🌟 修正：アイテム種別の判定とIDの取得
+            const isEquipment = ['sword', 'shield', 'equip'].includes(String(itemToDrop.type).toLowerCase());
+            // instanceId, id, db_id のいずれかからIDを取得
+            const targetDbId = itemToDrop.instanceId || itemToDrop.id || itemToDrop.db_id;
 
-                    const catalogId = (itemToDrop.type === 'sword') ? 101 : (itemToDrop.type === 'shield' ? 102 : null);
-                    const catalogBase = (catalogId && typeof ITEM_CATALOG !== 'undefined') ? ITEM_CATALOG[catalogId] : {};
-
-                    const newItem = {
-                        id: Math.floor(Math.random() * 1000000),
-                        type: itemToDrop.type,
-                        x: player.x,
-                        y: player.y + 12,
-                        vx: 0,
-                        vy: -12,
-                        landed: false,
-                        ch: chId,
-                        lv: itemToDrop.lv !== undefined ? itemToDrop.lv : (catalogBase.lv || 0),
-                        category: itemToDrop.category || catalogBase.category || "",
-                        str: itemToDrop.str !== undefined ? itemToDrop.str : (catalogBase.str || 0),
-                        dex: itemToDrop.dex !== undefined ? itemToDrop.dex : (catalogBase.dex || 0),
-                        int: itemToDrop.int !== undefined ? itemToDrop.int : (catalogBase.int || 0),
-                        luk: itemToDrop.luk !== undefined ? itemToDrop.luk : (catalogBase.luk || 0),
-                        maxHp: itemToDrop.maxHp !== undefined ? itemToDrop.maxHp : (catalogBase.maxHp || 0),
-                        maxMp: itemToDrop.maxMp !== undefined ? itemToDrop.maxMp : (catalogBase.maxMp || 0),
-                        atk: itemToDrop.atk !== undefined ? itemToDrop.atk : (catalogBase.atk || 0),
-                        matk: itemToDrop.matk !== undefined ? itemToDrop.matk : (catalogBase.matk || 0),
-                        def: itemToDrop.def !== undefined ? itemToDrop.def : (catalogBase.def || 0),
-                        star: itemToDrop.star || 0,
-                        successCount: itemToDrop.successCount || 0,
-                        failCount: itemToDrop.failCount || 0,
-                        totalUpgrade: itemToDrop.totalUpgrade !== undefined ? itemToDrop.totalUpgrade : (catalogBase.totalUpgrade || 7),
-                        count: actualDropCount,
-                        value: (itemToDrop.type === 'money3' ? 100 : 10),
-                        isStatic: true,
-                        angle: 0,
-                        rotateSpeed: 0.15,
-                        isTradeable: itemToDrop.isTradeable !== undefined ? itemToDrop.isTradeable : (catalogBase.isTradeable !== undefined ? catalogBase.isTradeable : true),
-                        totalFirstStats: (itemToDrop.totalFirstStats !== undefined) ? itemToDrop.totalFirstStats : (catalogBase.totalFirstStats || 0),
-                        totalALLStats: (
-                            (itemToDrop.str !== undefined ? itemToDrop.str : (catalogBase.str || 0)) +
-                            (itemToDrop.dex !== undefined ? itemToDrop.dex : (catalogBase.dex || 0)) +
-                            (itemToDrop.int !== undefined ? itemToDrop.int : (catalogBase.int || 0)) +
-                            (itemToDrop.luk !== undefined ? itemToDrop.luk : (catalogBase.luk || 0)) +
-                            ((itemToDrop.maxHp !== undefined ? itemToDrop.maxHp : (catalogBase.maxHp || 0)) / 10) +
-                            ((itemToDrop.maxMp !== undefined ? itemToDrop.maxMp : (catalogBase.maxMp || 0)) / 10) +
-                            (itemToDrop.atk !== undefined ? itemToDrop.atk : (catalogBase.atk || 0)) +
-                            (itemToDrop.matk !== undefined ? itemToDrop.matk : (catalogBase.matk || 0)) +
-                            (itemToDrop.def !== undefined ? itemToDrop.def : (catalogBase.def || 0))
-                        )
-                    };
-
-                    if (droppedItems[chId]) {
-                        droppedItems[chId].push(newItem);
-                        socket.emit('chat', {
-                            id: 'SYSTEM_LOG',
-                            name: '🗑️ 廃棄',
-                            text: `[${new Date().toLocaleTimeString()}] ${dropLogMsg}`
-                        });
-                        io.to(`channel_${chId}`).emit('item_spawned', newItem);
-                    }
-
-                    if (actualDropCount < maxCount) {
-                        if (itemToDrop.count !== undefined) {
-                            itemToDrop.count -= actualDropCount;
-                        } else if (itemToDrop.amount !== undefined) {
-                            itemToDrop.amount -= actualDropCount;
-                        } else {
-                            player.inventory[index] = null;
-                        }
-                    } else {
-                        player.inventory[index] = null;
-                    }
-
-                    socket.emit('inventory_update', player.inventory);
-                    if (typeof sendState === 'function') sendState();
-                }
-            } catch (e) {
-                if (typeof debugChat === 'function') {
-                    debugChat(`❌ dropItemエラー: ${e.message}`, 'error');
-                } else {
-                    console.error(`❌ dropItemエラー: ${e.message}`);
-                }
+            // 🚨 装備品なのにIDがどこにもない場合のみエラーを投げる
+            if (isEquipment && !targetDbId) {
+                throw new Error(`DB更新用IDが見つかりません (Item: ${itemToDrop.type})`);
             }
-        });
+
+            // ------------------------------------------------------------
+            // 🗄️ データベース同期処理 (user_inventoryテーブルの更新)
+            // ------------------------------------------------------------
+            // 🌟 修正：カラム名を 'user_id' と 'slot_index' に統一して操作
+            if (actualDropCount >= maxCount) {
+                // 全数捨てる場合はレコードを削除
+                await pool.query(
+                    'DELETE FROM user_inventory WHERE user_id = ? AND slot_index = ?', 
+                    [player.dbId, index]
+                );
+            } else {
+                // 一部捨てる場合は数量を減らす更新
+                await pool.query(
+                    'UPDATE user_inventory SET quantity = quantity - ? WHERE user_id = ? AND slot_index = ?', 
+                    [actualDropCount, player.dbId, index]
+                );
+            }
+
+            // ------------------------------------------------------------
+            // 🌟 踏襲：ログ用メッセージ作成
+            // ------------------------------------------------------------
+            let itemName = (typeof SERVER_ITEM_NAMES !== 'undefined' && SERVER_ITEM_NAMES[itemToDrop.type]) 
+                            || itemToDrop.displayName || itemToDrop.name || 'アイテム';
+            const dropLogMsg = actualDropCount >= 2
+                ? `${itemName}を${actualDropCount}個捨てました`
+                : `${itemName}を捨てました`;
+
+            const catalogId = (itemToDrop.type === 'sword') ? 101 : (itemToDrop.type === 'shield' ? 102 : null);
+            const catalogBase = (catalogId && typeof ITEM_CATALOG !== 'undefined') ? ITEM_CATALOG[catalogId] : {};
+
+            // ------------------------------------------------------------
+            // 🌟 踏襲：フィールドにドロップするアイテムオブジェクト(newItem)作成
+            // ------------------------------------------------------------
+            const newItem = {
+                id: Math.floor(Math.random() * 1000000), // フィールド上の識別用
+                type: itemToDrop.type,
+                x: player.x,
+                y: player.y + 12,
+                vx: 0,
+                vy: -12,
+                landed: false,
+                ch: chId,
+                lv: itemToDrop.lv !== undefined ? itemToDrop.lv : (catalogBase.lv || 0),
+                category: itemToDrop.category || catalogBase.category || "",
+                str: itemToDrop.str !== undefined ? itemToDrop.str : (catalogBase.str || 0),
+                dex: itemToDrop.dex !== undefined ? itemToDrop.dex : (catalogBase.dex || 0),
+                int: itemToDrop.int !== undefined ? itemToDrop.int : (catalogBase.int || 0),
+                luk: itemToDrop.luk !== undefined ? itemToDrop.luk : (catalogBase.luk || 0),
+                maxHp: itemToDrop.maxHp !== undefined ? itemToDrop.maxHp : (catalogBase.maxHp || 0),
+                maxMp: itemToDrop.maxMp !== undefined ? itemToDrop.maxMp : (catalogBase.maxMp || 0),
+                atk: itemToDrop.atk !== undefined ? itemToDrop.atk : (catalogBase.atk || 0),
+                matk: itemToDrop.matk !== undefined ? itemToDrop.matk : (catalogBase.matk || 0),
+                def: itemToDrop.def !== undefined ? itemToDrop.def : (catalogBase.def || 0),
+                star: itemToDrop.star || 0,
+                successCount: itemToDrop.successCount || 0,
+                failCount: itemToDrop.failCount || 0,
+                totalUpgrade: itemToDrop.totalUpgrade !== undefined ? itemToDrop.totalUpgrade : (catalogBase.totalUpgrade || 7),
+                count: actualDropCount,
+                value: (itemToDrop.type === 'money3' ? 100 : 10),
+                isStatic: true,
+                angle: 0,
+                rotateSpeed: 0.15,
+                isTradeable: itemToDrop.isTradeable !== undefined ? itemToDrop.isTradeable : (catalogBase.isTradeable !== undefined ? catalogBase.isTradeable : true),
+                totalFirstStats: (itemToDrop.totalFirstStats !== undefined) ? itemToDrop.totalFirstStats : (catalogBase.totalFirstStats || 0),
+                totalALLStats: (
+                    (itemToDrop.str !== undefined ? itemToDrop.str : (catalogBase.str || 0)) +
+                    (itemToDrop.dex !== undefined ? itemToDrop.dex : (catalogBase.dex || 0)) +
+                    (itemToDrop.int !== undefined ? itemToDrop.int : (catalogBase.int || 0)) +
+                    (itemToDrop.luk !== undefined ? itemToDrop.luk : (catalogBase.luk || 0)) +
+                    ((itemToDrop.maxHp !== undefined ? itemToDrop.maxHp : (catalogBase.maxHp || 0)) / 10) +
+                    ((itemToDrop.maxMp !== undefined ? itemToDrop.maxMp : (catalogBase.maxMp || 0)) / 10) +
+                    (itemToDrop.atk !== undefined ? itemToDrop.atk : (catalogBase.atk || 0)) +
+                    (itemToDrop.matk !== undefined ? itemToDrop.matk : (catalogBase.matk || 0)) +
+                    (itemToDrop.def !== undefined ? itemToDrop.def : (catalogBase.def || 0))
+                ),
+                instanceId: isEquipment ? targetDbId : null // 🌟 拾い直し用にIDを保持
+            };
+
+            // フィールドリストに追加と通知
+            if (droppedItems[chId]) {
+                droppedItems[chId].push(newItem);
+                socket.emit('chat', {
+                    id: 'SYSTEM_LOG',
+                    name: '🗑️ 廃棄',
+                    text: `[${new Date().toLocaleTimeString()}] ${dropLogMsg}`
+                });
+                io.to(`channel_${chId}`).emit('item_spawned', newItem);
+            }
+
+            // ------------------------------------------------------------
+            // 🌟 踏襲：サーバーメモリ(inventory配列)の更新
+            // ------------------------------------------------------------
+            if (actualDropCount < maxCount) {
+                // 部分廃棄の場合
+                if (itemToDrop.count !== undefined) {
+                    itemToDrop.count -= actualDropCount;
+                } else if (itemToDrop.amount !== undefined) {
+                    itemToDrop.amount -= actualDropCount;
+                } else {
+                    player.inventory[index] = null;
+                }
+            } else {
+                // 全数廃棄の場合
+                player.inventory[index] = null;
+            }
+
+            // クライアントへ同期
+            socket.emit('inventory_update', player.inventory);
+            if (typeof sendState === 'function') sendState();
+            
+            // ログ出力（既存の形式を維持）
+            if (typeof LOG !== 'undefined' && LOG.DB) {
+                LOG.DB(`アイテムドロップ完了(DB同期済み): ${player.name} が ${itemName} x ${actualDropCount} を捨てました。`);
+            } else {
+                console.log(`[DROP_DONE] ${player.name} が ${itemName} x ${actualDropCount} を捨てました。`);
+            }
+        }
+    } catch (e) {
+        if (typeof debugChat === 'function') {
+            debugChat(`❌ dropItemエラー: ${e.message}`, 'error');
+        } else {
+            console.error(`❌ dropItemエラー: ${e.message}`);
+        }
+    }
+});
 
         // 🔄 11. アイテム入れ替え (swapItems)
-        socket.on('swapItems', (data) => {
+socket.on('swapItems', async (data) => {
+    try {
+        const player = players[socket.id];
+        // 🌟 プレイヤーが存在しない、またはDBのIDが特定できない場合は中断
+        // player.dbId または player.db_id のどちらかに有効な数値が入っていることを前提とします
+        const userId = player.dbId || player.db_id;
+        if (!player || !player.inventory || !userId) return;
+
+        const from = parseInt(data.from);
+        const to = parseInt(data.to);
+
+        // 範囲チェック（0〜9枠）かつ、同じ場所への移動でないこと
+        if (from >= 0 && from < 10 && to >= 0 && to < 10 && from !== to) {
+            
+            const itemFrom = player.inventory[from];
+            const itemTo = player.inventory[to];
+
+            // ------------------------------------------------------------
+            // 🗄️ データベース同期処理
+            // ------------------------------------------------------------
+            const connection = await pool.getConnection();
             try {
-                const player = players[socket.id];
-                if (!player || !player.inventory) return;
+                // 片方だけ成功してデータが重複するのを防ぐためトランザクションを開始
+                await connection.beginTransaction();
 
-                const from = data.from;
-                const to = data.to;
+                // 🌟 戦略: 個別ID(db_id)ではなく [user_id + slot_index] を条件にします。
+                // これにより、メモリ上のIDが最新でなくても、DB上の「その場所」にあるデータを確実に操作できます。
 
-                if (from >= 0 && from < 10 && to >= 0 && to < 10) {
-                    const temp = player.inventory[from];
-                    player.inventory[from] = player.inventory[to];
-                    player.inventory[to] = temp;
-
-                    socket.emit('inventory_update', player.inventory);
-                    sendState();
-                    debugChat(`🔄 [SWAP] ${from}番と${to}番を入れ替え`);
+                // 1. 移動元(from)を一旦スロット -1 へ退避（これで from 番が一時的に空く）
+                // itemFromが存在する場合のみ実行
+                if (itemFrom) {
+                    await connection.query(
+                        'UPDATE user_inventory SET slot_index = -1 WHERE user_id = ? AND slot_index = ?',
+                        [userId, from]
+                    );
                 }
-            } catch (e) {
-                debugChat(`❌ swapItemsエラー: ${e.message}`, 'error');
+
+                // 2. 移動先(to)にアイテムがあった場合、それを from 番へ移動
+                if (itemTo) {
+                    await connection.query(
+                        'UPDATE user_inventory SET slot_index = ? WHERE user_id = ? AND slot_index = ?',
+                        [from, userId, to]
+                    );
+                }
+
+                // 3. 一時退避させていたアイテム(-1番)を本来の目的地(to)へ移動
+                if (itemFrom) {
+                    await connection.query(
+                        'UPDATE user_inventory SET slot_index = ? WHERE user_id = ? AND slot_index = -1',
+                        [to, userId]
+                    );
+                }
+
+                await connection.commit();
+            } catch (dbErr) {
+                // DB更新に失敗した場合はロールバックしてエラーを投げる
+                await connection.rollback();
+                throw dbErr;
+            } finally {
+                connection.release();
             }
-        });
+
+            // ------------------------------------------------------------
+            // 🌟 サーバーメモリ上の配列(inventory)を入れ替え
+            // ------------------------------------------------------------
+            const temp = player.inventory[from];
+            player.inventory[from] = player.inventory[to];
+            player.inventory[to] = temp;
+
+            // アイテムオブジェクトが保持している slot_index プロパティも最新にする
+            if (player.inventory[from]) player.inventory[from].slot_index = from;
+            if (player.inventory[to]) player.inventory[to].slot_index = to;
+
+            // ------------------------------------------------------------
+            // 📢 クライアントへの通知 (既存の踏襲)
+            // ------------------------------------------------------------
+            socket.emit('inventory_update', player.inventory);
+            
+            if (typeof sendState === 'function') {
+                sendState();
+            }
+            
+            if (typeof debugChat === 'function') {
+                debugChat(`🔄 [SWAP] ${from}番と${to}番を入れ替え (制約回避・DB保存完了)`);
+            }
+        }
+    } catch (e) {
+        // エラーハンドリング (既存の踏襲)
+        if (typeof debugChat === 'function') {
+            debugChat(`❌ swapItemsエラー: ${e.message}`, 'error');
+        } else {
+            console.error(`❌ swapItemsエラー: ${e.message}`);
+        }
+    }
+});
 
         // 🌟 ステータス強化のリクエストを受け取る
         socket.on('upgrade_stat', (data) => {
@@ -1074,7 +1303,68 @@ const STATIC_ITEMS = Object.fromEntries(
 
 // 🌟 レベルアップに必要な経験値のリスト（テーブル）
 // index 0は使わず、index 1 = Lv1→2に必要な経験値 ... と設定します
-const LEVEL_TABLE = [0, 12, 20, 35, 60, 100, 150, 210, 280, 360, 450];
+//let LEVEL_TABLE = [0, 12, 20, 35, 60, 100, 150, 250, 280, 360, 450];
+let LEVEL_TABLE = [0]; // 最初は空に近い状態で用意
+
+/**
+ * 📈 データベースから経験値テーブルを読み込む
+ */
+async function loadExperienceTable() {
+    try {
+        // level順に全てのデータを取得
+        const [rows] = await pool.query('SELECT level, required_exp FROM player_exp_table ORDER BY level ASC');
+        
+        // 配列を一度リセット
+        LEVEL_TABLE = [0]; 
+
+        rows.forEach(row => {
+            // LEVEL_TABLE[1] に Lv1の必要経験値が入るように格納
+            LEVEL_TABLE[row.level] = Number(row.required_exp);
+        });
+
+        console.log(`[System] 経験値テーブルをDBから読み込みました (${rows.length}レベル分)`);
+        
+        // デバッグ用：Lv.7 と Lv.200 の値を確認
+        if (LEVEL_TABLE[7]) console.log(`Lv.7  MaxExp: ${LEVEL_TABLE[7]}`);
+        if (LEVEL_TABLE[200]) console.log(`Lv.200 MaxExp: ${LEVEL_TABLE[200]}`);
+
+    } catch (err) {
+        console.error('❌ 経験値テーブルの読み込みに失敗しました:', err);
+        // 失敗時のバックアップ（最低限の値を手動で入れておく）
+        LEVEL_TABLE = [0, 12, 20, 35, 60, 100, 150, 210, 280, 360, 450];
+    }
+}
+
+let MAX_HP_TABLE = [0]; // Lvごとの最大HPを格納する配列
+
+/**
+ * 🏥 データベースから最大HPテーブルを読み込む
+ */
+async function loadMaxHPTable() {
+    try {
+        // level順に全てのデータを取得
+        const [rows] = await pool.query('SELECT level, max_hp FROM player_max_hp ORDER BY level ASC');
+        
+        // 配列を一度リセット
+        MAX_HP_TABLE = [0]; 
+
+        rows.forEach(row => {
+            // MAX_HP_TABLE[row.level] にそのレベルのHPを格納
+            MAX_HP_TABLE[row.level] = Number(row.max_hp);
+        });
+
+        console.log(`[System] 最大HPテーブルをDBから読み込みました (${rows.length}レベル分)`);
+        
+        // デバッグ用確認
+        if (MAX_HP_TABLE[1]) console.log(`Lv.1   MaxHP: ${MAX_HP_TABLE[1]}`);
+        if (MAX_HP_TABLE[200]) console.log(`Lv.200 MaxHP: ${MAX_HP_TABLE[200]}`);
+
+    } catch (err) {
+        console.error('❌ 最大HPテーブルの読み込みに失敗しました:', err);
+        // 失敗時のバックアップ（Lv1の最低値など）
+        MAX_HP_TABLE = [0, 65]; 
+    }
+}
 
 // マップの構造データ
 const MAP_DATA = {
@@ -1181,10 +1471,10 @@ async function loadEnemyCatalog() {
 //loadEnemyCatalog();
 
 const ENEMY_PLAN = [
-  { plat: 0,    id: 30 }, 
-  { plat: 1,    id: 31 }, 
-  { plat: 1,    id: 31 }, 
-  { plat: 2,    id: 32 }, 
+  { plat: 0,    id: 1010 }, 
+  { plat: 1,    id: 1020 }, 
+  { plat: 1,    id: 1020 }, 
+  { plat: 2,    id: 1030 }, 
   { plat: null, id: 20 }
 ];
 
@@ -1192,9 +1482,9 @@ const ENEMY_PLAN = [
 // 🌟 モンスターごとのドロップ設定
 // ==========================================
 const DROP_DATABASE = {
-  "tier1_1":  { table: "drop2"},
-  "tier1_2":  { table: "drop4"  },
-  "tier1_3":  { table: "drop4"  },
+  "Char13":  { table: "drop2"},
+  "Char10":  { table: "drop4"  },
+  "Char19":  { table: "drop4"  },
   //"monster20": { table: "drop2"  },
 };
 
@@ -1446,7 +1736,7 @@ reset() {
   // 🌟 ジャンプ・物理演算
   applyJumpPhysics() {
     // 1. 浮遊属性の判定（IDが30, 31, 32のキャラは浮いている）
-    const isFloating = [30, 31, 32].includes(this.id);
+    const isFloating = [1010, 1020, 1030].includes(this.id);
 
     // 2. 空中にいる、またはジャンプ速度がある場合の処理
     if (this.jumpY < 0 || this.jumpV !== 0) {
@@ -1576,7 +1866,7 @@ reset() {
   // 🎯 最終座標の決定
   calculateFinalPosition() {
     // 1. キャラクターの特性（浮遊しているかどうか）を判定
-    const isFloating = [30, 31, 32].includes(this.id);
+    const isFloating = [1010, 1020, 1030].includes(this.id);
     const floatOffset = isFloating ? 12 : 0; // 浮遊キャラは地面から12px浮かせる
 
     // 現在の足場情報を取得
@@ -1642,6 +1932,9 @@ async function startServer() {
         // --- 2. データが揃った後にモンスターを配置 ---
         // 踏襲ポイント：既存の initMonsters() を呼び出します
         initMonsters();
+		
+		await loadExperienceTable();
+		await loadMaxHPTable();
 
         // --- 3. 最後にサーバーを起動 ---
         const PORT = process.env.PORT || 3000;
@@ -1668,7 +1961,7 @@ startServer();
 
 /**
  * 🌟 経験値を加算してレベルアップをチェックする専用の関数
- * レベルアップ時に最大HPを増加し、体力を全回復させます。
+ * 構造はそのままに、最大HPの取得先をテーブルに変更しました。
  */
 function addExperience(player, amount, socket) {
     // 🛡️ ガード：プレイヤーがいない、または加算量が数値でない場合は即終了
@@ -1695,13 +1988,19 @@ function addExperience(player, amount, socket) {
         // 🌟 AP（能力ポイント）の加算
         player.ap = (Number(player.ap) || 0) + 5; 
 
-        // 🌟 【追加】最大HPの増加（例：1レベルにつき20アップ）
-        player.maxHp = (Number(player.maxHp) || 100) + 20;
+        // 🌟 【修正箇所】固定値加算から「テーブル参照」に変更
+        // テーブルにデータがあればそれを採用し、なければ安全策として+20する
+        const nextMaxHP = MAX_HP_TABLE[player.level];
+        if (nextMaxHP) {
+            player.maxHp = nextMaxHP;
+        } else {
+            player.maxHp = (Number(player.maxHp) || 100) + 20; 
+        }
         
-        // 🌟 【追加】HPを全回復（レベルアップの恩恵）
+        // 🌟 【修正箇所】新しい最大HPで全回復
         player.hp = player.maxHp;
         
-        // 🌟 ここが重要！ サーバーから「レベルアップしたよ！」と全員に合図を送る
+        // 🌟 サーバーから「レベルアップしたよ！」と全員に合図を送る
         io.emit('level_up_effect', { 
             playerId: player.id 
         });
@@ -1713,8 +2012,6 @@ function addExperience(player, amount, socket) {
         console.log(`[LEVEL UP] ${player.name} が Lv.${player.level} になりました！ (MaxHP: ${player.maxHp})`);
         debugChat(`🎊${player.name}がレベル${player.level}に上がりました！最大HPが${player.maxHp}に増加し、体力が全回復しました！`);
     }
-
-    // 必要に応じてここでDB保存処理など
 }
 
 /**
@@ -2044,6 +2341,7 @@ function checkAttack(p, en) {
  * 選択されたチャンネル情報をプレイヤーデータに追加します。
  */
 function handleJoin(socket, name, channel) { // 🌟 引数に channel を追加
+    /*
     try {
         if (connection && connection.state !== 'disconnected') {
             const sql = 'INSERT INTO players2 (name) VALUES (?)';
@@ -2055,12 +2353,23 @@ function handleJoin(socket, name, channel) { // 🌟 引数に channel を追加
     } catch (e) {
         console.error("❌ handleJoin内での予期せぬエラー:", e);
     }
+    */
 
     // 🌟 修正ポイント：既にログイン処理（socket.on('login')）で読み込まれたデータを一時退避
     const existingData = players[socket.id] || {};
 
+    // 🌟 追記：現在のレベルに基づいて正しい最大経験値を算出
+    const currentLevel = (existingData.level !== undefined) ? existingData.level : 1;
+    const correctMaxExp = (typeof LEVEL_TABLE !== 'undefined' && LEVEL_TABLE[currentLevel]) 
+                          ? LEVEL_TABLE[currentLevel] 
+                          : 100;
+
     // 🌟 プレイヤーデータの作成
     players[socket.id] = {
+        // 🌟 【修正】：固定の 10 ではなく、ログイン時にDBから取得して保存していたIDをそのまま引き継ぐ
+        // existingData.dbId があればそれを使い、なければ existingData.id を予備として参照します。
+        dbId: existingData.dbId || existingData.id || null,
+
         id: socket.id,
         name: name,
         channel: channel, // 🌟 【追加】選んだチャンネル(1〜5)を保存
@@ -2081,9 +2390,9 @@ function handleJoin(socket, name, channel) { // 🌟 引数に channel を追加
         isAttacking: 0,
         
         // レベル継続処理（既存のデータがあれば引き継ぐ）
-        level: (existingData.level !== undefined ? existingData.level : 1),
+        level: currentLevel,
         exp: (existingData.exp !== undefined) ? existingData.exp : 0,
-        maxExp: 100,
+        maxExp: correctMaxExp, // 🌟 修正：100固定を廃止し、算出された最大値を割り当て
 
         // --- ⚔️ 今日決めた緻密なステータスを追加 ⚔️ ---
         // DBに保存されている値があればそれを使い、なければ初期値を設定
@@ -2092,6 +2401,8 @@ function handleJoin(socket, name, channel) { // 🌟 引数に channel を追加
         luk: existingData.luk || 4,       // 初期幸運
         ap: (existingData.ap !== undefined) ? existingData.ap : 0,        // 振り分け可能な能力ポイント
         // ------------------------------------------
+		
+		weaponAtk: existingData.weaponAtk || 10, // 🌟 武器の強さ
 
         // サイズ・HP設定（SETTINGSから取得）
         w: SETTINGS.PLAYER.DEFAULT_W * (SETTINGS.PLAYER.SCALE || 1.0),
@@ -2107,8 +2418,13 @@ function handleJoin(socket, name, channel) { // 🌟 引数に channel を追加
         lastPickupTime: 0,
     };
 
-    // 確認用のログ
-    console.log(`[Join同期完了] ${name} (HP: ${players[socket.id].hp}/${players[socket.id].maxHp}, Gold: ${players[socket.id].gold})`);
+    // 🌟 重要：作成されたデータを即座にクライアントへ同期させる
+    if (typeof emitPlayerUpdate === 'function') {
+        emitPlayerUpdate(socket.id);
+    }
+
+    // 確認用のログ（dbIdが正しく入っているかも含めて出力）
+    console.log(`[Join同期完了] ${name} (DB_ID: ${players[socket.id].dbId}, LV: ${players[socket.id].level}, Exp: ${players[socket.id].exp}/${players[socket.id].maxExp})`);
 }
 
 /**
@@ -2135,22 +2451,18 @@ function handleAttack(socket, data) {
     let targetsInRange = [];
 
     // --- ① 範囲内の敵をリストアップ ---
-    // 🌟 高さを 100 に拡大！
     const atkWidth = 80;  
     const atkHeight = 100; 
 
-    // 左右のオフセット（これまでのベストな数値を維持）
+    // 左右のオフセット
     const offsetX = (p.dir === 1) ? 60 : -(atkWidth + 20);
 
     let atkY;
     const groundThreshold = 450; 
 
-    // 🌟 高さを 20 増やした分、atkY も 20 ずつ引き上げます
     if (p.y >= groundThreshold) {
-        // 一番下の地面にいる時：-85
         atkY = p.y - 85; 
     } else {
-        // 空中の足場にいる時：-50
         atkY = p.y - 50;
     }
 
@@ -2163,22 +2475,17 @@ function handleAttack(socket, data) {
 
     // 🌟 修正：全体の enemies ではなく、現在のチャンネルの敵をループ
     currentEnemies.forEach((target) => {
-        // 敵が生きていて、消えかかっていない場合のみ計算
         if (target.alive && !target.isFading) {
-            
-            // 敵の判定サイズと座標（ジャンプを考慮）
             const enemyW = target.w || 40;
             const enemyH = target.h || 40;
             const enemyY = target.y + (target.jumpY || 0);
 
-            // 🌟 矩形同士の衝突判定（オレンジの枠の中に入っているか）
             const isHit = atkBox.x < target.x + enemyW &&
                           atkBox.x + atkBox.w > target.x &&
                           atkBox.y < enemyY + enemyH &&
                           atkBox.y + atkBox.h > enemyY;
 
             if (isHit) {
-                // 距離は後のソート用に保持（中心間の距離）
                 const dist = Math.sqrt(Math.pow(target.x - p.x, 2) + Math.pow(target.y - p.y, 2));
                 targetsInRange.push({ enemy: target, dist: dist });
             }
@@ -2187,13 +2494,15 @@ function handleAttack(socket, data) {
 
     // --- ② 最も近い敵「だけ」にダメージを与える ---
     if (targetsInRange.length > 0) {
-        // 距離が近い順に並び替えて、一番近い敵を選ぶ
         targetsInRange.sort((a, b) => a.dist - b.dist);
         const nearest = targetsInRange[0].enemy;
 
-        // 🌟 判定：このダメージ計算の直前の状態を保持
         const wasAlive = nearest.alive;
-        const damage = p.str || data.power || 4; 
+
+        // 🌟 【COMBAT_FORMULA の導入】
+        // 計算エンジンからダメージ結果を取得
+        const dmgResult = COMBAT_FORMULA.generateDamage(p);
+        const damage = dmgResult.val;
         
         nearest.hp -= damage; // 敵のHPを減らす
 
@@ -2207,12 +2516,11 @@ function handleAttack(socket, data) {
             isDead: isFatalBlow 
         });
         
-        console.log(`[2.命中確認] ch:${chId}の${nearest.type}に${damage}ダメージ。残りHP: ${nearest.hp}`);
+        console.log(`[2.命中確認] ch:${chId}の${nearest.type}に${damage}ダメージ(幅:${dmgResult.min}-${dmgResult.max})。残りHP: ${nearest.hp}`);
 
         // 攻撃された敵を「怒り状態」にして反撃の準備をさせる
         nearest.isEnraged = true;
 
-        // 1秒後に敵が反撃してくる予約
         if (nearest.isAttacking <= 0) {
             setTimeout(() => {
                 if (nearest && nearest.hp > 0) {
@@ -2221,133 +2529,151 @@ function handleAttack(socket, data) {
             }, 1000);
         }
 
-        // 敵をノックバック（後ろに弾き飛ばす）
+        // 敵をノックバック
         nearest.kbV = p.dir * (nearest.type === 'monster3' ? 6 : 12);
-        nearest.dir = (p.x < nearest.x) ? -1 : 1; // 敵をプレイヤーの方に向かせる
+        nearest.dir = (p.x < nearest.x) ? -1 : 1; 
 
         // 画面に「バシッ！」というダメージエフェクトを同じチャンネルの全員に送る
         io.to(`channel_${chId}`).emit('damage_effect', {
             x: nearest.x + (nearest.w || 40) / 2,
             y: nearest.y,
             val: damage,
-            isCritical: damage >= (p.str * 1.5), 
+            // 🌟 dmgResult からクリティカル判定を適用
+            isCritical: dmgResult.isCritical, 
             type: 'enemy_hit'
         });
 
         // --- 💀 死亡判定と報酬処理 ---
         if (isFatalBlow) {
-            nearest.alive = false; // 死亡フラグ
-
+            nearest.alive = false;
             const rewardExp = nearest.exp || 10; 
-
             socket.emit('exp_log', { amount: rewardExp }); 
-
-            // 経験値をモンスターに応じた量だけ追加
             addExperience(p, rewardExp, socket);
-            
-            console.log(`[EXP DEBUG] ログ送信完了: ${p.name} に ${rewardExp} EXP`);
-            
-            // 🌟 修正：アイテムドロップ関数に現在のチャンネルIDを渡す
             spawnDropItems(nearest, chId);
             
             nearest.hp = 0;
-            nearest.isFading = true; // 徐々に消える演出
+            nearest.isFading = true;
             nearest.deathFrame = 0;
-            
-            // スコアを加算
             p.score = (Number(p.score) || 0) + 100;
-            
-            console.log(`[DEBUG] 最終確定EXP: ${p.exp}`);
         }
     }
 }
 
 /**
- * 3. アイテムを拾ったときの処理（5ch対応・安全装置付き）
+ * 3. アイテムを拾ったときの処理（重なり対策・5ch対応・DB永続化・カバン満杯対策済み）
  * --------------------------------------------------
- * 役割：地面のアイテムを拾い、カバンや財布へ振り分けます。
+ * 役割：足元のアイテムを順番にチェックし、拾えるものから優先的に取得します。
  */
-function handlePickup(socket, itemId) {
-    // 🛡️ 安全装置：関数全体を大きな try-catch で囲みます
+function handlePickup(socket) { // 引数の itemId は不要になりました（足元を自動走査するため）
     try {
         const player = players[socket.id];
-        
-        // 🛡️ ガード：プレイヤーが存在しない、またはitemIdが空の場合は何もしない
-        if (!player || !itemId) return;
+        if (!player) return;
 
-        // 🌟 プレイヤーが所属しているチャンネルを取得
+        console.log(`--- [DEBUG: Pickup開始] Player: ${player.name || socket.id} ---`);
+
         const chId = player.channel || 1;
-        // 🌟 そのチャンネルのアイテムリストを取得
         const currentItems = droppedItems[chId] || [];
 
-        // クールタイムのチェック
         const now = Date.now();
         if (player.lastPickupTime && (now - player.lastPickupTime < 150)) {
+            console.log("DEBUG: クールタイム中のためスキップ");
             return; 
         }
 
-        // 🛡️ ガード：そのチャンネルのアイテムリスト自体が存在するか確認
-        if (!currentItems) return;
+        if (!currentItems || currentItems.length === 0) return;
 
-        // 🌟 修正：全体の droppedItems ではなく currentItems から探す
-        const item = currentItems.find(it => it.id === itemId);
-        
-        // 🛡️ ガード：アイテムが見つからない、または既に拾われている場合は終了
-        if (!item || item.isPickedUp) return;
-        
-        // --- 🌟 デバッグログ（現在の状態を確認するために維持） ---
-        if (item.id === itemId) {
-            const dx_debug = Math.abs(player.x - item.x);
-            const dy_debug = Math.abs(player.y - item.y);
-            console.log(`--- [ch:${chId} 拾う判定のチェック] ---`);
-            console.log(`横の差: ${Math.floor(dx_debug)} (基準:${SETTINGS.ITEM.PICKUP_RANGE_X})`);
-            console.log(`縦の差: ${Math.floor(dy_debug)} (基準:${SETTINGS.ITEM.PICKUP_RANGE_Y})`);
-            if (item.timer) console.log(`タイマー残数: ${item.timer}`);
-        }
+        // ------------------------------------------------------------
+        // 🌟 【修正】足元にある拾える候補アイテムをすべて抽出
+        // ------------------------------------------------------------
+        const candidates = currentItems.filter(it => {
+            if (it.isPickedUp) return false;
 
-        // 🌟 距離判定
-        let dx = Math.abs(player.x - item.x);
-        let dy = Math.abs(player.y - item.y);
+            // 距離判定
+            let dx = Math.abs(player.x - it.x);
+            let dy = Math.abs(player.y - it.y);
 
-        // --- 🌟 タイムラグ＆移動対策 🌟 ---
-        if (!item.landed) {
-            dx = 0;
-            dy = 0;
-        }
+            if (!it.landed) { dx = 0; dy = 0; }
 
-        if (dx > SETTINGS.ITEM.PICKUP_RANGE_X || dy > SETTINGS.ITEM.PICKUP_RANGE_Y) {
+            return dx <= SETTINGS.ITEM.PICKUP_RANGE_X && dy <= SETTINGS.ITEM.PICKUP_RANGE_Y;
+        });
+
+        if (candidates.length === 0) {
+            console.log("DEBUG: 拾える範囲にアイテムがありません");
             return;
         }
 
-        // 拾う権利を確定
-        item.isPickedUp = true;
+        // ------------------------------------------------------------
+        // 🌟 【修正】重なっている中から「実際に拾えるもの」を一つ選ぶ
+        // ------------------------------------------------------------
+        let targetItem = null;
+        const inventoryTypes = ['shield', 'gold', 'treasure', 'money7', 'sword', 'sweets'];
+
+        for (const item of candidates) {
+            const isInventoryItem = inventoryTypes.includes(item.type);
+
+            if (isInventoryItem) {
+                // カバンの初期化（未定義対策）
+                if (!player.inventory) player.inventory = Array(10).fill(null);
+
+                let canPickupThis = false;
+                const category = itemCategories[item.type];
+
+                // スタック可能かチェック
+                if (category === 'ETC' || category === 'USE') {
+                    const stackIndex = player.inventory.findIndex(slot => slot && slot.type === item.type);
+                    if (stackIndex !== -1) canPickupThis = true;
+                }
+
+                // 空きスロットがあるかチェック
+                if (!canPickupThis) {
+                    const emptySlotIndex = player.inventory.findIndex(slot => 
+                        slot === null || slot === undefined || (typeof slot === 'object' && Object.keys(slot).length === 0)
+                    );
+                    if (emptySlotIndex !== -1) canPickupThis = true;
+                }
+
+                if (canPickupThis) {
+                    targetItem = item;
+                    break; // 拾えるものが見つかったのでループを抜ける
+                }
+            } else {
+                // ゴールドやスコアアイテムなど、カバン制限がないものは即決定
+                targetItem = item;
+                break;
+            }
+        }
+
+        // 全候補チェックした結果、どれも拾えなかった場合
+        if (!targetItem) {
+            socket.emit('chat', {
+                id: 'SYSTEM_LOG',
+                name: '⚠️ 警告',
+                text: `[${new Date().toLocaleTimeString()}] バッグがいっぱいで拾えません！`
+            });
+            return;
+        }
+
+        // ------------------------------------------------------------
+        // 🌟 以降、元のロジックを踏襲して「targetItem」を処理
+        // ------------------------------------------------------------
+        targetItem.isPickedUp = true;
         player.lastPickupTime = now;
 
-        // 🌟 修正：そのチャンネルのリストからインデックスを探す
-        const idx = currentItems.findIndex(it => it.id === itemId);
+        const idx = currentItems.findIndex(it => it.id === targetItem.id);
         if (idx !== -1) {
-            // 🌟 修正：そのchの配列から取り出す
             const removedItem = currentItems.splice(idx, 1)[0];
-
-            // 🛡️ ガード：取り出した瞬間にデータが壊れていた場合の対策
             if (!removedItem) return;
 
-            // 🌟 金額・メダルの処理
+            // 金額・メダルの処理
             if (removedItem.type === 'medal1' || removedItem.goldValue) {
                 const baseAmount = removedItem.goldValue || 10; 
-                const fluctuation = 0.8 + (Math.random() * 0.4);
-                const amount = Math.floor(baseAmount * fluctuation);
-
+                const amount = Math.floor(baseAmount * (0.8 + Math.random() * 0.4));
                 player.gold = (player.gold || 0) + amount;
-                
-                debugChat(`[MONEY] ${player.name || 'Player'} が ${amount}G 獲得！ (合計:${player.gold}G)`);
-                
                 socket.emit('gold_log', { amount: amount });
-                // 🌟 同期をそのチャンネルに限定
                 io.to(`channel_${chId}`).emit('player_update', player);
             }
 
-            // --- 🌟 エフェクト同期の修正 🌟 ---
+            // エフェクト同期
             if (typeof lastPickedItems !== 'undefined') {
                 lastPickedItems.push({
                     type: removedItem.type,
@@ -2356,90 +2682,313 @@ function handlePickup(socket, itemId) {
                     pickerId: socket.id,
                     totalALLStats: removedItem.totalALLStats || 0,
                     totalFirstStats: removedItem.totalFirstStats || 0,
-                    ch: chId // 🌟 ここでチャンネルIDを記録
+                    ch: chId
                 });
             }
 
-            // ⚡ 即時反映させたい場合は以下を有効にするとさらに確実です
-            // io.to(`room_ch_${chId}`).emit('item_picked_effect', { ... });
-
-            // カバンの初期化（なければ10枠確保）
-            if (!player.inventory) player.inventory = Array(10).fill(null); 
-
-            // 🌟 【判定A】カバンに入るアイテムのリスト
-            const inventoryTypes = ['shield', 'gold', 'treasure', 'money7', 'sword', 'sweets'];
-
-            if (inventoryTypes.includes(removedItem.type)) {
+            const isInventoryItem = inventoryTypes.includes(removedItem.type);
+            if (isInventoryItem) {
                 let stacked = false;
                 const actualCount = removedItem.count || removedItem.amount || 1;
                 let itemName = SERVER_ITEM_NAMES[removedItem.type] || 'アイテム';
+                const pickupMsg = `${itemName}を手に入れました`;
 
-                const pickupMsg = actualCount >= 2 
-                    ? `${itemName}を${actualCount}個手に入れました` 
-                    : `${itemName}を手に入れました`;
-
-                // --- 🌟 重ね合わせ(Stack)の処理 ---
+                // スタック処理
                 const category = itemCategories[removedItem.type];
                 if (category === 'ETC' || category === 'USE') {
-                    const stackIndex = player.inventory.findIndex(slot => {
-                        return slot && slot.type === removedItem.type;
-                    });
-
+                    const stackIndex = player.inventory.findIndex(slot => slot && slot.type === removedItem.type);
                     if (stackIndex !== -1) {
                         player.inventory[stackIndex].count = (player.inventory[stackIndex].count || 0) + actualCount;
                         stacked = true;
-                        socket.emit('chat', {
-                            id: 'SYSTEM_LOG',
-                            name: '🎊 入手',
-                            text: `[${new Date().toLocaleTimeString()}] ${pickupMsg}`
-                        });
-                        socket.emit('item_pickup_log', { amount: actualCount, itemName: itemName });
+                        saveInventoryToDB(player, player.inventory[stackIndex], stackIndex);
+                        socket.emit('chat', { id: 'SYSTEM_LOG', name: '🎊 入手', text: `[${new Date().toLocaleTimeString()}] ${pickupMsg}` });
                     }
                 }
 
-                // --- 新規格納の処理 ---
+                // 新規格納
                 if (!stacked) {
-                    let emptySlotIndex = -1;
-                    for (let i = 0; i < 10; i++) {
-                        if (player.inventory[i] === null || player.inventory[i] === undefined) {
-                            emptySlotIndex = i;
-                            break;
-                        }
-                    }
+                    let emptySlotIndex = player.inventory.findIndex(slot => 
+                        slot === null || slot === undefined || (typeof slot === 'object' && Object.keys(slot).length === 0)
+                    );
 
                     if (emptySlotIndex !== -1) {
                         player.inventory[emptySlotIndex] = { 
                             ...removedItem,
+                            instanceId: removedItem.instanceId || null,
                             type: removedItem.type, 
                             count: actualCount, 
                             atk: (removedItem.atk !== undefined) ? removedItem.atk : ((removedItem.type === 'sword') ? 10 : 0), 
                             def: (removedItem.def !== undefined) ? removedItem.def : ((removedItem.type === 'shield') ? 5 : 0)
                         };
-                        socket.emit('chat', {
-                            id: 'SYSTEM_LOG',
-                            name: '🎊 入手',
-                            text: `[${new Date().toLocaleTimeString()}] ${pickupMsg}`
-                        });
+
+                        saveInventoryToDB(player, player.inventory[emptySlotIndex], emptySlotIndex);
+                        socket.emit('chat', { id: 'SYSTEM_LOG', name: '🎊 入手', text: `[${new Date().toLocaleTimeString()}] ${pickupMsg}` });
                         socket.emit('item_pickup_log', { amount: actualCount, itemName: itemName });
-                    } else {
-                        console.log("カバンがいっぱいです！");
                     }
                 }
-            } else {
-                const points = (removedItem.type === 'money3' ? 100 : 10);
-                player.score = (player.score || 0) + points;
+            } else if (!(removedItem.type === 'medal1' || removedItem.goldValue)) {
+                player.score = (player.score || 0) + (removedItem.type === 'money3' ? 100 : 10);
             }
 
             socket.emit('inventory_update', player.inventory);
-            
-            // 🌟 sendStateを呼び出す
-            if (typeof sendState === 'function') {
-                sendState(); 
-            }
+            if (typeof sendState === 'function') sendState();
         }
     } catch (error) {
-        console.error("❌ [CRITICAL] handlePickup内でエラーが発生しました:", error);
+        console.error("❌ handlePickup Error:", error);
     }
+}
+
+/**
+ * 補助関数: user_inventory と equipment_instances をセットで保存する
+ * 既存のロジックとデバッグログを完全に踏襲し、UserIDの不一致を徹底追跡
+ * 修正内容：既存のinstanceIdがある場合は、重複作成を避けるためINSERTをスキップします。
+ */
+function saveInventoryToDB(player, itemData, slotIdx) {
+    // 🔍 [TRACE:START] 関数の入り口でプレイヤーオブジェクトの全容を把握
+    console.log(`[SAVE_TRACE:1] saveInventoryToDB開始 -------------------------`);
+    console.log(`[SAVE_TRACE:1-INFO] Slot:${slotIdx}, ItemType:${itemData.type}`);
+    console.log(`[SAVE_TRACE:1-CHECK] Playerオブジェクトの状態:`, {
+        dbId: player.dbId,
+        db_id: player.db_id,
+        id: player.id,
+        group: player.group,
+        name: player.name
+    });
+
+    // 🚨 UserID特定ロジック
+    const userId = player.dbId || player.db_id || (typeof player.id === 'number' ? player.id : null);
+    
+    if (!userId) {
+        console.error(`[SAVE_TRACE:ERR] !!! userIdの特定に失敗しました !!!`);
+        console.error(`[SAVE_TRACE:ERR] 原因: player.dbId も player.db_id も数値ではありません。`);
+        console.error(`[SAVE_TRACE:ERR] 現在のplayer.id(socket.id等): ${player.id} (Type: ${typeof player.id})`);
+        return;
+    }
+
+    console.log(`[SAVE_TRACE:1-RESULT] 採用UserID: ${userId} (Type: ${typeof userId})`);
+
+    const type = String(itemData.type).toLowerCase();
+
+    // ⚔️ 1. 装備品（sword / shield / equip）の判定
+    if (type === 'sword' || type === 'shield' || type === 'equip') {
+        
+        // 🌟 追加ロジック: 既存IDの確認（拾い直し対応）
+        const existingInstanceId = itemData.instanceId || itemData.db_id;
+
+        if (existingInstanceId) {
+            console.log(`[SAVE_TRACE:2-REUSE] 既存のInstanceID(${existingInstanceId})を検出しました。新規INSERTをスキップします。`);
+            
+            // 既存IDをそのまま使ってインベントリ情報を更新(所有権移動)
+            upsertUserInventory(userId, slotIdx, itemData, existingInstanceId);
+            return; 
+        }
+
+        console.log(`[SAVE_TRACE:2] 装備品ルート(新規)確定 - INSERT準備開始`);
+        
+        const eqSql = `INSERT INTO equipment_instances (
+            player_id, item_id, name, display_name, image_name, 
+            category, atk, matk, def, str, 
+            dex, \`int\`, luk, maxHp, maxMp, 
+            totalFirstStats, totalALLStats
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`;
+
+        const eqParams = [
+            Number(userId),                                         // player_id
+            String(type),                                           // item_id
+            String(itemData.name || (type === 'sword' ? "剣" : "盾")), // name
+            String(itemData.displayName || (type === 'sword' ? "剣" : "盾")), // display_name
+            String(itemData.imageName || type),                     // image_name
+            type,                                                   // category
+            Number(itemData.atk) || 0, 
+            Number(itemData.matk) || 0, 
+            Number(itemData.def) || 0, 
+            Number(itemData.str) || 0, 
+            Number(itemData.dex) || 0, 
+            Number(itemData.int) || 0, 
+            Number(itemData.luk) || 0,
+            Number(itemData.maxHp) || 0, 
+            Number(itemData.maxMp) || 0,
+            Number(itemData.totalFirstStats) || 0, 
+            Number(itemData.totalALLStats) || 0
+        ];
+
+        console.log(`[SAVE_TRACE:3] equipment_instancesへのpool.query実行直前`);
+        console.log(`[SAVE_TRACE:3-PARAM_CHECK] player_id(FirstParam): ${eqParams[0]}`);
+
+        let isResponded = false;
+        const safetyNet = setTimeout(() => {
+            if (!isResponded) {
+                console.warn(`[SAVE_TRACE:TIMEOUT] DB(equipment_instances)から3秒間応答がありません。`);
+                console.warn(`[SAVE_TRACE:TIMEOUT] 救済措置としてInstanceID無しでインベントリ保存を試みます。`);
+                upsertUserInventory(userId, slotIdx, itemData, null);
+            }
+        }, 3000);
+
+        // 🌟 Promise形式
+        pool.query(eqSql, eqParams)
+            .then(([result]) => {
+                isResponded = true;
+                clearTimeout(safetyNet);
+                
+                const newEquipmentId = result.insertId;
+                console.log(`[SAVE_TRACE:4] equipment_instances保存成功! NewInstanceID: ${newEquipmentId}`);
+
+                // メモリ上の同期
+                if (player.inventory && player.inventory[slotIdx]) {
+                    player.inventory[slotIdx].instanceId = newEquipmentId;
+                    console.log(`[SAVE_TRACE:4-MEM] メモリ上のスロット ${slotIdx} に InstanceID を紐付けました`);
+                } else {
+                    console.warn(`[SAVE_TRACE:4-WARN] メモリ上のスロット ${slotIdx} が既に行方不明です(ログアウト等)`);
+                }
+
+                console.log(`[SAVE_TRACE:5] 次のステップ: upsertUserInventory(User:${userId}, Slot:${slotIdx}) を呼び出します`);
+                upsertUserInventory(userId, slotIdx, itemData, newEquipmentId);
+            })
+            .catch((err) => {
+                isResponded = true;
+                clearTimeout(safetyNet);
+                console.error("❌ [SAVE_TRACE:ERR-SQL] equipment_instances 保存失敗:", err.message);
+                console.error("❌ [SAVE_TRACE:ERR-SQL] 失敗したSQLパラメータ:", eqParams);
+                // 失敗してもインベントリ枠だけは確保を試みる
+                upsertUserInventory(userId, slotIdx, itemData, null);
+            });
+
+    } else {
+        // 🍎 2. 消費・ETC（装備品以外）
+        console.log(`[SAVE_TRACE:2-ELSE] 非装備品ルート - 💡直接upsertUserInventoryへ移行`);
+        console.log(`[SAVE_TRACE:2-ELSE-INFO] User:${userId}, Slot:${slotIdx}, Type:${type}`);
+        upsertUserInventory(userId, slotIdx, itemData, null);
+    }
+}
+
+/**
+ * ログイン時にユーザーのインベントリと装備詳細を読み込む (超詳細デバッグログ版)
+ * 🌟 修正点: 
+ * 1. 更新・削除用に user_inventory の主キー(i.id)を db_id として取得
+ * 2. 空白スロット再現のため、slot_index を返却オブジェクトに含めるようにしました。
+ */
+async function loadUserInventory(userId) {
+    console.log(`\n==== [LOAD_DEBUG: START] UserID: ${userId} のデータ復元プロセス開始 ====`);
+
+    // JOINを使って、インベントリ情報と装備のステータスを一度に取得する
+    // 🌟 i.id を db_slot_id として追加取得します（これが削除・更新に必要です）
+    const sql = `
+        SELECT 
+            i.id AS db_slot_id, 
+            i.slot_index, i.item_type, i.item_id, i.quantity, i.is_equipped, i.equipment_id,
+            e.name, e.display_name, e.image_name, e.atk, e.matk, e.def, 
+            e.str, e.dex, e.\`int\`, e.luk, e.maxHp, e.maxMp,
+            e.totalFirstStats, e.totalALLStats
+        FROM user_inventory i
+        LEFT JOIN equipment_instances e ON i.equipment_id = e.id
+        WHERE i.user_id = ?
+        ORDER BY i.slot_index ASC
+    `;
+
+    try {
+        console.log(`[LOAD_DEBUG:1] SQLクエリ実行中...`);
+        const [rows] = await pool.query(sql, [userId]);
+        
+        console.log(`[LOAD_DEBUG:2] DBからの応答: ${rows.length}件のアイテムが見つかりました`);
+
+        // ゲーム内プレイヤーオブジェクトに渡すための配列を成形
+        const inventory = rows.map((row, index) => {
+            console.log(` --- [Slot:${row.slot_index}] 解析開始 (${row.item_type}) ---`);
+
+            const item = {
+                slot_index: row.slot_index, // 🌟 追記：ログイン処理での配置に必要
+                type: row.item_type,   // 例: 'sword', 'shield'
+                id: row.item_id,       // クライアント表示用のID
+                db_id: row.db_slot_id, // 🌟 データベース操作用の数値ID
+                count: row.quantity,
+                isEquipped: row.is_equipped === 1,
+                instanceId: row.equipment_id
+            };
+
+            // 装備品（equipment_idがある場合）はステータスも付与
+            if (row.equipment_id) {
+                console.log(`   [Equip検出] instanceId: ${row.equipment_id} の詳細をマッピングします`);
+                
+                item.name = row.name;
+                item.displayName = row.display_name;
+                item.imageName = row.image_name;
+                item.atk = row.atk;
+                item.matk = row.matk;
+                item.def = row.def;
+                item.str = row.str;
+                item.dex = row.dex;
+                item.int = row.int;
+                item.luk = row.luk;
+                item.maxHp = row.maxHp;
+                item.maxMp = row.maxMp;
+                item.totalFirstStats = row.totalFirstStats;
+                item.totalALLStats = row.totalALLStats;
+
+                // 正常に数値が入っているかチェック
+                if (item.atk > 0 || item.def > 0) {
+                    console.log(`    -> 性能確認済: Atk:${item.atk}, Def:${item.def}, Str:${item.str}`);
+                }
+            } else {
+                console.log(`   [Item検出] 装備詳細なし (一般アイテムルート)`);
+            }
+
+            return item;
+        });
+
+        console.log(`==== [LOAD_DEBUG: END] インベントリ復元完了 (全${inventory.length}個) ====\n`);
+        return inventory;
+
+    } catch (err) {
+        console.error(`\n❌ [LOAD_DEBUG: FATAL ERROR] インベントリ読み込みに失敗しました`);
+        console.error(`エラー詳細: ${err.message}`);
+        if (err.sqlState) console.error(`SQLの状態: ${err.sqlState}`);
+        console.error(`==========================================================\n`);
+        return [];
+    }
+}
+
+/**
+ * user_inventory テーブルへの書き込み
+ * 既存ロジックを完全踏襲
+ */
+function upsertUserInventory(userId, slotIdx, itemData, equipmentId = null) {
+    console.log(`>>> [UPSERT_TRACE:1] 開始 - User:${userId} Slot:${slotIdx} Type:${itemData.type} EquipID:${equipmentId}`);
+
+    const sql = `
+        INSERT INTO user_inventory 
+            (user_id, item_type, slot_index, item_id, quantity, equipment_id)
+        VALUES (?, ?, ?, ?, ?, ?)
+        ON DUPLICATE KEY UPDATE 
+            item_type = VALUES(item_type),
+            item_id = VALUES(item_id),
+            quantity = VALUES(quantity),
+            equipment_id = VALUES(equipment_id)
+    `;
+
+    const finalItemId = (itemData.type === 'sword' || itemData.type === 'shield') 
+                        ? itemData.type 
+                        : (itemData.id || itemData.type);
+
+    const params = [
+        Number(userId), 
+        String(itemData.type), 
+        Number(slotIdx), 
+        String(finalItemId), 
+        Number(itemData.count || 1), 
+        (equipmentId !== undefined ? equipmentId : null)
+    ];
+
+    console.log(`>>> [UPSERT_TRACE:2] user_inventoryへのpool.query実行直前`);
+
+    // 🌟 Promise環境に対応
+    pool.query(sql, params)
+        .then(() => {
+            console.log(`✅ DB: user_inventory Slot ${slotIdx} 同期完了 [Type: ${itemData.type}, InstanceID: ${equipmentId}]`);
+        })
+        .catch((err) => {
+            console.error(`❌ DB: user_inventory Slot ${slotIdx} 保存エラー:`, err.message);
+            console.error(`   詳細データ: UserID=${userId}, ItemID=${finalItemId}, EquipID=${equipmentId}`);
+        });
 }
 
 /**
@@ -2774,6 +3323,15 @@ function getJSTDate() {
     const now = new Date();
     // 日本時間に変換したDateオブジェクトを返す
     return new Date(now.getTime() + (9 * 60 * 60 * 1000));
+}
+
+// 🌟 追加：ログイン中の全プレイヤーリストを全員に送る関数
+function emitPlayerList() {
+    const playerList = Object.values(players).map(p => ({
+        name: p.name || 'Player',
+        channel: p.channel || 1
+    }));
+    io.emit('updatePlayerList', playerList);
 }
 
 /**

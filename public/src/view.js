@@ -1260,112 +1260,279 @@ function handleServerEvents(data) {
     });
 }
 
+// 1. 通知を保存しておくための配列（空のリスト）
+let gameNotifications = [];
+
+/**
+ * 通知を追加するための専用関数
+ * これを呼び出すとリストにメッセージが追加されます
+ */
+function addNotification(text, color = "#ffffff") {
+    gameNotifications.push({
+        text: text,
+        color: color,
+        timer: 180, // 約3秒間表示
+        alpha: 1.0  // 最初はくっきり表示
+    });
+
+    // メッセージが溜まりすぎると画面が埋まるので、5件までに制限
+    if (gameNotifications.length > 5) {
+        gameNotifications.shift(); // 一番古いものを消す
+    }
+    
+    console.log("通知ログを追加しました:", text); // 確認用
+}
+
+/**
+ * 画面の右下に通知を描画する関数
+ */
+function drawNotificationArea(ctx, canvasWidth, canvasHeight) {
+    if (gameNotifications.length === 0) return; // 通知がなければ何もしない
+
+    const paddingRight = 20;
+    const paddingBottom = 40; 
+    const lineHeight = 25;
+
+    ctx.save();
+    ctx.font = "bold 14px sans-serif";
+    ctx.textAlign = "right"; // 右側に揃える
+
+    gameNotifications.forEach((note, index) => {
+        // 新しいものほど下に、古いものほど上に押し上げられる計算
+        const y = canvasHeight - paddingBottom - ((gameNotifications.length - 1 - index) * lineHeight);
+        const x = canvasWidth - paddingRight;
+
+        ctx.globalAlpha = note.alpha;
+
+        // 文字の影を描く（読みやすくするため）
+        ctx.fillStyle = "black";
+        ctx.fillText(note.text, x + 1, y + 1);
+
+        // 文字の本体を描く
+        ctx.fillStyle = note.color;
+        ctx.fillText(note.text, x, y);
+
+        // 時間を減らして、終わり際に少しずつ透明にする
+        note.timer--;
+        if (note.timer < 30) {
+            note.alpha -= 0.03;
+        }
+    });
+
+    ctx.restore();
+
+    // 表示時間が終わった通知をリストから削除する
+    gameNotifications = gameNotifications.filter(note => note.timer > 0);
+}
+
+// 🌟 ファイルの冒頭（socket.on の外）
+if (typeof window.currentChannelId === 'undefined') {
+    window.currentChannelId = null;
+}
+if (typeof window.prevPlayerIds === 'undefined') {
+    window.prevPlayerIds = new Set();
+}
+
+// 🌟 追加：ログイン通知が出たばかりの人を一時的に記憶するセット（2重通知防止用）
+if (typeof window.recentLoginIds === 'undefined') {
+    window.recentLoginIds = new Set();
+}
+
+// 🌟 サーバーから届く全プレイヤー向けの共通通知
+socket.on('globalNotification', (data) => {
+    // 🌟 通知の送信元（id）が自分自身だったら、何もせずに終了する
+    if (data && data.senderId === socket.id) {
+        return; 
+    }
+
+    if (data && data.message) {
+        // 右下のログエリアに表示
+        if (typeof addNotification === 'function') {
+            addNotification(data.message, data.color || "#FFFFFF");
+        }
+        
+        // ログイン音を鳴らす
+        if (typeof playInviteSound === 'function') {
+            playInviteSound();
+        }
+
+        // 🌟 ログイン通知（type: 'LOGIN'）の場合、そのIDを一時的に記録する
+        if (data.type === 'LOGIN' && data.senderId) {
+            window.recentLoginIds.add(data.senderId);
+            // 3秒後に解除（その後のチャンネル移動は「入室」として判定させるため）
+            setTimeout(() => {
+                window.recentLoginIds.delete(data.senderId);
+            }, 500);
+        }
+    }
+});
+
+// 🌟 サーバーから届いたリストを保持するための変数（関数の外に置く）
+let currentOnlinePlayers = [];
+
+socket.on('updatePlayerList', (playerList) => {
+    currentOnlinePlayers = playerList;
+});
+
+/**
+ * 🎨 Canvas内にログイン中のプレイヤー一覧を描画する
+ */
+function drawOnlineList(ctx) {
+    if (!currentOnlinePlayers || currentOnlinePlayers.length === 0) return;
+
+    // 表示位置の設定（右上のCH.表示の下あたり）
+    const startX = VIEW_CONFIG.SCREEN_WIDTH - 140; // 右端から140px
+    const startY = 80;                             // CH表示(通常30-50px)の下
+    const lineHeight = 18;                         // 1行の高さ
+
+    ctx.save();
+
+    // 1. 半透明の背景ボックス
+    ctx.fillStyle = "rgba(0, 0, 0, 0.4)";
+    const bgHeight = (currentOnlinePlayers.length + 1) * lineHeight + 10;
+    ctx.fillRect(startX - 10, startY - 20, 130, bgHeight);
+
+    // 2. タイトル "ONLINE (人数)"
+    ctx.font = "bold 12px sans-serif";
+    ctx.textAlign = "right";
+    ctx.fillStyle = "#FFD700"; // 金色
+    ctx.fillText(`ONLINE (${currentOnlinePlayers.length})`, startX + 110, startY);
+
+    // 3. 各プレイヤーの名前とチャンネル
+    ctx.font = "11px sans-serif";
+    currentOnlinePlayers.forEach((p, index) => {
+        const y = startY + (index + 1) * lineHeight;
+        
+        // 名前（白）
+        ctx.fillStyle = "white";
+        ctx.textAlign = "right";
+        ctx.fillText(`${p.name}`, startX + 110, y);
+
+        // チャンネル番号（緑）を名前の左側に
+        ctx.fillStyle = "#66FF66";
+        ctx.textAlign = "left";
+        ctx.fillText(`ch${p.channel}`, startX, y);
+    });
+
+    ctx.restore();
+}
+
+/*
+// 🌟 サーバーからプレイヤーリストを受け取る
+socket.on('updatePlayerList', (playerList) => {
+    updateOnlineListUI(playerList);
+});
+
+// 🌟 一覧を画面に表示するための関数
+function updateOnlineListUI(playerList) {
+    // 画面に一覧を表示する要素がなければ作る（例：IDが 'online-list' の div）
+    let listDiv = document.getElementById('online-list');
+    
+    if (!listDiv) {
+        listDiv = document.createElement('div');
+        listDiv.id = 'online-list';
+        listDiv.style = "position:fixed; top:10px; left:10px; background:rgba(0,0,0,0.6); color:white; padding:10px; border-radius:5px; font-size:12px; pointer-events:none; z-index:1000;";
+        document.body.appendChild(listDiv);
+    }
+
+    // 中身を書き換え
+    let html = `<strong>ログイン中 (${playerList.length}名)</strong><br>`;
+    playerList.forEach(p => {
+        html += `[ch${p.channel}] ${p.name}<br>`;
+    });
+    listDiv.innerHTML = html;
+}
+*/
+
 socket.on('state', (data) => {
-    // 1. 受信確認（これは表示されるはずです）
-    //console.log("🔥 受信チェック！");
+    // 1. 受信確認
     if (!data) return;
     
     handleServerEvents(data);
 
-    // 🌟 【最優先】アイテムの判定を「myHero」のチェックより上で行う！
-    // これにより、自分のデータが届いていなくても音の判定だけは確実に行われます。
+    // 🌟 【最優先】アイテムの判定
     const allItemsFromServer = data.items || [];
     const currentItems = allItemsFromServer.filter(it => !it.isPickedUp);
     const currentTotalCount = allItemsFromServer.length;
 
-    // 初回のみ window.lastCount を今の数で初期化
-    if (typeof window.lastCount === 'undefined') {
+    // 🌟 追加：自分のデータから「現在のチャンネル」を取得
+    const myHeroData = data.players[socket.id];
+    const serverChannel = myHeroData ? myHeroData.channel : null;
+
+    // --- 🔊 ドロップ音の判定処理（完全ガード版） ---
+
+    // 判定に使うフラグ
+    let isChannelJustChanged = false;
+
+    // 🌟 判定：チャンネルが以前と違う、または初回受信の場合
+    if (serverChannel !== window.currentChannelId || typeof window.lastCount === 'undefined') {
+        window.lastCount = currentTotalCount;
+        window.currentChannelId = serverChannel;
+        isChannelJustChanged = true; // この瞬間は「移動直後」フラグを立てる
+        console.log("📥 チャンネル切り替え検知：基準値を同期しました（音は鳴らしません）");
+    } 
+    else {
+        // 同じチャンネル内での更新：数が増えていたら音を出す
+        if (currentTotalCount > window.lastCount) {
+            console.log("🌟 AAA：アイテムドロップ検知！"); 
+            if (typeof playDropSound === 'function') {
+                playDropSound(); 
+            }
+        }
         window.lastCount = currentTotalCount;
     }
 
-    // 🌟 判定：数が増えていたら文字を出す
-    if (currentTotalCount > window.lastCount) {
-        console.log("🌟 AAA：アイテムドロップ検知！"); 
-        if (typeof playDropSound === 'function') {
-            playDropSound();
-        }
-    }
-    // 記憶を更新
-    window.lastCount = currentTotalCount;
-	
-	console.log("⭐️確認の表示1");
+    // --- 👥 他プレイヤーの入室音判定処理 ---
+    const currentPlayerIdsInMyChannel = new Set();
+    let hasNewArrival = false;
 
-    // --------------------------------------------------
-    // ✋ ここから下は「自分のデータがある時だけ」実行する（ブレーキ）
-    // --------------------------------------------------
-    const myHero = data.players[socket.id];
-    if (!myHero) {
-        // 自分のデータがない場合、描画はできませんが、音の処理は終わっているのでここで終了してOK
-        return; 
-    }
-	
-	//console.log("⭐️確認の表示2");
-	
-	/*
-    // インベントリの残像処理（土田さんの元のロジックを維持）
-    if (myHero.inventory) {
-        myHero.inventory = myHero.inventory.filter(slot => 
-            slot && slot.type !== null && slot.type !== undefined && slot.count > 0
-        );
-    }
-    const isActuallyEmpty = !myHero.inventory || myHero.inventory.length === 0;
-    if (isActuallyEmpty) {
-        inventoryVisualBuffer = [];
-        myHero.inventory = [];
-    } else {
-        inventoryVisualBuffer = JSON.parse(JSON.stringify(myHero.inventory));
-    }
+    if (myHeroData) {
+        for (let id in data.players) {
+            if (id === socket.id) continue; // 自分は除外
 
-    // 描画用のデータ準備
-    const currentEnemies = data.enemies || [];
-    const others = {};
-    for (let id in data.players) {
-        if (id !== socket.id) {
-            others[id] = data.players[id];
-        }
-    }
-
-    // 🎨 106行目付近：描画実行
-    if (typeof drawGame === 'function') {
-        drawGame(
-            myHero,            
-            others,
-            currentEnemies,
-            currentItems,
-            data.platforms || [],
-            data.ladders || [],
-            damageTexts || [],
-            Math.floor(Date.now() / 16)
-        ); 
-
-        // 🐞 描画側のデバッグログ
-        if (selectedSlotIndex !== -1) {
-            console.log("描画チェック開始: 選択スロット =" + selectedSlotIndex);
-            
-            if (myHero && myHero.inventory) {
-                const item = myHero.inventory[selectedSlotIndex];
-                if (item) {
-                    console.log("アイテム発見！描画します: " + item.type);
+            const p = data.players[id];
+            // 自分と同じチャンネルにいる人だけをチェック対象にする
+            if (p.channel === serverChannel) {
+                currentPlayerIdsInMyChannel.add(id);
+                
+                // 🌟 前回はいなかったIDが入ってきた場合
+                if (!window.prevPlayerIds.has(id)) {
                     
-                    ctx.save();
-                    ctx.setTransform(1, 0, 0, 1, 0, 0); // 座標をリセット
-                    ctx.globalAlpha = 0.8;
-                    ctx.fillStyle = "red"; // 確実に見えるように一旦「赤」
-                    ctx.fillRect(mouseX - 15, mouseY - 15, 30, 30);
-                    
-                    ctx.fillStyle = "white";
-                    ctx.font = "bold 16px Arial";
-                    ctx.fillText(item.type, mouseX + 20, mouseY);
-                    ctx.restore();
-                } else {
-                    console.log("選択したスロットは空です");
+                    // 🌟 修正：自分が移動した直後でなく、かつ「今ログインしたばかりの人」でなければ通知を出す
+                    if (!isChannelJustChanged && !window.recentLoginIds.has(id)) {
+                        hasNewArrival = true;
+                        const arrivalName = p.name || "Player";
+                        addNotification(`${arrivalName} が入室しました。`, "#66FF66"); // 明るい緑
+                    }
                 }
-            } else {
-                console.log("myHero または inventory が見つかりません");
+            }
+        }
+
+        // 🌟 新入室者がいて、かつ「自分が移動した瞬間」ではない場合に音を鳴らす
+        if (hasNewArrival && !isChannelJustChanged) {
+            console.log("👥 新しいプレイヤーが入室しました");
+            if (typeof playInviteSound === 'function') {
+                playInviteSound();
             }
         }
     }
-	*/
+    // 今回のメンバーを「前回分」として記憶
+    window.prevPlayerIds = currentPlayerIdsInMyChannel;
+
+    // ---------------------------------------
+
+    console.log("⭐️確認の表示1");
+    
+    // --------------------------------------------------
+    // ✋ ここから下は「自分のデータがある時だけ」実行する（ブレーキ）
+    // --------------------------------------------------
+    if (!myHeroData) {
+        return; 
+    }
+    
+    const myHero = myHeroData;
+
+    /* (以下、既存の描画ロジックのため省略) */
 });
 
 socket.on('exp_log', (data) => {
@@ -1433,7 +1600,8 @@ socket.on('player_die_sound', () => {
 socket.on('player_joined_sound', () => {
     // 指定された playInviteSound() を実行
     if (typeof playInviteSound === 'function') {
-        playInviteSound();
+	    // socket.on('state',で鳴らしている
+        //playInviteSound();
     } else {
         console.warn("playInviteSound が定義されていません。");
     }
@@ -1529,8 +1697,17 @@ function drawGame(hero, others, enemies, items, platforms, ladders, damageTexts,
     
     // 7. 特殊UI表示（チャンネル表示・マウス追従アイテム）
     drawChannelHUD(hero);
+	
+	if (typeof drawOnlineList === 'function') {
+        drawOnlineList(ctx);
+    }
     
-	drawHeldItem()
+	drawHeldItem();
+	
+	// 🌟 ここに追加！一番手前に通知を出す
+    if (typeof drawNotificationArea === 'function') {
+        drawNotificationArea(ctx, VIEW_CONFIG.SCREEN_WIDTH, VIEW_CONFIG.SCREEN_HEIGHT);
+    }
 	
     // ==========================================
     // 🛠️ デバッグ表示（DEBUG_MODE が true の時のみ実行）
@@ -1708,71 +1885,85 @@ function drawDebugLayer(hero, enemies, items, platforms) {
 }
 
 /**
- * 🏃 キャラクターやアイテムなどの「動くもの」を一括管理
+ * 🏃 キャラクターやアイテムなどの「動くもの」を一括管理して描画する
  */
 function drawEntities(hero, others, enemies, items, frame) {
-    // 1. 敵（モンスター）を一番奥に描く
+    // -------------------------------------------------------
+    // 1. 敵（モンスター）を描画
+    // -------------------------------------------------------
+    // 重なりの順序として、モンスターを一番奥に配置します
     drawEnemies(enemies, hero, frame);
 
-    // 2. 他のプレイヤー
+    // -------------------------------------------------------
+    // 2. 他のプレイヤーを描画
+    // -------------------------------------------------------
     for (let id in others) {
         const p = others[id];
-        // 🌟 修正：プレイヤーが存在し、かつ自分と同じチャンネルにいる場合のみ描画
-        if (p && p.channel === hero.channel) {
-            // 🌟 実験：キャラの座標に名前を直接書いてみる
-            //ctx.fillStyle = "white";
-            //ctx.fillText("HERE: " + p.name, p.x, p.y); 
-
+        
+        // 🌟 修正：HPバーの誤表示を防ぐためのガード
+        // 「データが存在する」かつ「自分自身ではない(socket.id比較)」かつ「同じチャンネル」の場合のみ描画
+        if (p && id !== socket.id && p.channel === hero.channel) {
+            // 第2引数に false を渡すことで、頭上にHPバーを描画させます
             drawPlayerObj(p, false, id);
         }
     }
 
-    // 3. 自分自身（他人の上に重なるように描画）
+    // -------------------------------------------------------
+    // 3. 自分自身を描画
+    // -------------------------------------------------------
+    // 他人のプレイヤーの上に重なるように最後に描画します
+    // 第2引数に true を渡すことで、自分の頭上のHPバー描画をスキップさせます
     drawPlayerObj(hero, true);
 
-    // 🌟 4. アイテム（地面に落ちているもの）を一番「手前」に描く！
-    // これにより、自分の足元に落ちたアイテムがキャラに隠れず見えるようになります。
+    // -------------------------------------------------------
+    // 4. アイテム（地面に落ちているもの）を描画
+    // -------------------------------------------------------
+    // 🌟 アイテムを一番「手前」に描くことで、キャラに隠れて拾い忘れるのを防ぎます
     drawItems(items, frame);
     
     // -------------------------------------------------------
     // 5. レベルアップエフェクトの同期描画
     // -------------------------------------------------------
     levelUpEffects.forEach((eff, index) => {
-        // 対象のプレイヤーを特定（自分か、それとも他人名簿の中にいるか）
+        // エフェクトの対象プレイヤーを特定（自分か他人か）
         const p = (hero && hero.id === eff.playerId) ? hero : (others ? others[eff.playerId] : null);
         
-        // 🌟 修正：プレイヤーが存在し、かつ「自分と同じチャンネル」にいる時だけ文字を出す
+        // 🌟 プレイヤーが存在し、かつ「自分と同じチャンネル」にいる時だけエフェクトを表示
         if (p && p.channel === hero.channel) {
             ctx.save();
-            ctx.font = "bold 60px 'Arial Black'"; 
             
-            // 🌟 メイプル風のカラーデザインに変更
-            ctx.fillStyle = "#80FF00";   // 内側：明るいライムグリーン
+            // テキストのデザイン設定（メイプル風ライムグリーン）
+            ctx.font = "bold 60px 'Arial Black'"; 
+            ctx.fillStyle = "#80FF00";   // 文字色：明るい緑
             ctx.strokeStyle = "#004400"; // 縁取り：濃い緑
             ctx.lineWidth = 4;
             ctx.textAlign = "center";
 
-            // 🌟 土田さんの「130」の調整ロジックをそのまま維持
+            // 表示位置の微調整（土田さんの 130 オフセットロジックを維持）
             let offset = 0;
             if (hero.id !== eff.playerId) {
                 offset = 130; 
             }
 
-            // X座標：(左端 + 幅の半分) - 調整用オフセット
+            // X座標：キャラクターの中央位置から計算
             const drawX = (p.x + (p.w || 40) / 2) - offset;
             
-            // Y座標：頭上（タイマーの経過に合わせてふわっと上昇）
+            // Y座標：頭上からタイマーに合わせてふわっと上昇させる演出
             const drawY = p.y - 60 - (120 - eff.timer) * 0.8;
 
+            // 縁取りと文字を描画
             ctx.strokeText("LEVEL UP !!", drawX, drawY);
             ctx.fillText("LEVEL UP !!", drawX, drawY);
+            
             ctx.restore();
         }
 
-        // タイマーのカウントダウンと削除処理
-        // ※これは描画の有無に関わらず実行し、時間が来たらリストから消します
+        // タイマーのカウントダウン
+        // 描画の有無に関わらず時間は進め、0になったらリストから削除する
         eff.timer--;
-        if (eff.timer <= 0) levelUpEffects.splice(index, 1);
+        if (eff.timer <= 0) {
+            levelUpEffects.splice(index, 1);
+        }
     });
 }
 
@@ -2674,34 +2865,74 @@ function getPlayerCurrentImg(p, g, v, frame, sprites, playerSprites, isMe) {
 }
 
 /**
- * プレイヤーのHPバーと名前を描画する専門の関数
+ * プレイヤーの頭上UI（HPバーと名前）を描画する専門関数
+ * * @param {CanvasRenderingContext2D} ctx - 描画対象のキャンバスコンテキスト
+ * @param {Object} p - 描画対象のプレイヤーデータ (x, y, hp, name, jumpY など)
+ * @param {Boolean} isMe - 自分自身かどうか（自分ならHPバーを非表示にする）
+ * @param {Number} pW - プレイヤーの描画幅
+ * @param {Number} frame - 現在のアニメーションフレーム（将来的な演出用）
  */
 function drawPlayerUI(ctx, p, isMe, pW, frame) {
+    
+    // --- 1. HPバーの描画 (自分以外のプレイヤーのみ表示) ---
     if (!isMe) {
+        // 設定値の読み込み
         const barW = VIEW_CONFIG.hpBar.width; 
         const barH = VIEW_CONFIG.hpBar.height;
+        
+        // バーの水平位置を計算（プレイヤーの中央に配置）
         const barX = p.x + (VIEW_CONFIG.player.hitboxW / 2) - (barW / 2);
+        
+        // 地面にいるか空中にいるかでHPバーの基準高さを切り替え
         const currentBaseY = (p.y > VIEW_CONFIG.groundThreshold) 
             ? VIEW_CONFIG.groundY 
             : (p.y + VIEW_CONFIG.player.drawH * 0.4);
+        
+        // 描画の高さ調整（ジャンプ中なども考慮）
         const currentDrawH = 60; 
         const barY = currentBaseY - currentDrawH - (p.jumpY || 0) - 25;
+        
+        // HPの割合計算 (0.0 〜 1.0)
         const hpRate = Math.max(0, Math.min(1, p.hp / 100));
+        
+        // 残りHPに応じて色を変更（20%以下で赤、50%以下で黄色、それ以外は緑）
         let hpColor = (hpRate <= 0.2) ? "#ff0000" : (hpRate <= 0.5 ? "#ffff00" : "#00ff00");
+        
+        // HPバーの外枠（黒い縁取り）を描画
         ctx.fillStyle = "black";
         ctx.fillRect(barX - 1, barY - 1, barW + 2, barH + 2);
+        
+        // HPバーの本体（現在の残りHP分）を描画
         ctx.fillStyle = hpColor;
         ctx.fillRect(barX, barY, barW * hpRate, barH);
     }
+
+    // --- 2. プレイヤー名の描画 (自分も他人も表示) ---
     const nameText = p.name || "Player";
-    let nameY = p.y + ((p.y > VIEW_CONFIG.groundThreshold) ? VIEW_CONFIG.playerName.offsetY_ground : VIEW_CONFIG.playerName.offsetY_air);
-    if (nameY < VIEW_CONFIG.playerName.safeMargin) nameY = VIEW_CONFIG.playerName.safeMargin;
-    ctx.font = `bold ${VIEW_CONFIG.playerName.fontSize} Arial`; // ついでにフォントサイズも設定から取得
+    
+    // 名前の表示高さを計算（地面/空中でオフセットを変更）
+    let nameY = p.y + ((p.y > VIEW_CONFIG.groundThreshold) 
+        ? VIEW_CONFIG.playerName.offsetY_ground 
+        : VIEW_CONFIG.playerName.offsetY_air);
+    
+    // 画面外（上側）に名前が突き抜けないようにマージンを確保
+    if (nameY < VIEW_CONFIG.playerName.safeMargin) {
+        nameY = VIEW_CONFIG.playerName.safeMargin;
+    }
+    
+    // フォントの設定
+    ctx.font = `bold ${VIEW_CONFIG.playerName.fontSize} Arial`;
+    
+    // テキストの幅を計測して、背景の黒帯（半透明）のサイズを決定
     const nameW = ctx.measureText(nameText).width + VIEW_CONFIG.playerName.paddingW;
+    
+    // 名前の背景（読みやすくするための半透明の黒い四角）
     ctx.fillStyle = "rgba(0, 0, 0, 0.5)";
     ctx.fillRect(p.x + pW / 2 - nameW / 2, nameY - 15, nameW, 20);
+    
+    // 名前のテキストを描画
     ctx.fillStyle = "white";
-    ctx.textAlign = "center";
+    ctx.textAlign = "center"; // 中央揃え
     ctx.fillText(nameText, p.x + pW / 2, nameY);
 }
 
@@ -3146,22 +3377,34 @@ function drawItemLogsUI() {
 
 /**
  * 画面上部のステータスUIを描画する
- * LEVEL_TABLEに基づいてMAXEXPを動的に変更し、HPとEXPの両方をなめらかに表示します。
+ * サーバーから受け取った hero.maxExp を使用して、
+ * HPとEXPの両方をなめらかに表示します。
  */
 function drawTopStatusUI(hero) {
     if (!hero) return;
 
-    // 🌟 1. なめらか表示の計算処理（displayHp を hero.hp に近づける）
+    // 🌟 1. なめらか表示の計算処理（HP）
     if (typeof displayHp === 'undefined') displayHp = hero.hp;
     const hpDiff = hero.hp - displayHp;
     if (Math.abs(hpDiff) > 0.1) {
-        displayHp += hpDiff * 0.1; // ここの 0.1 を小さくするとよりゆっくり動きます
+        displayHp += hpDiff * 0.1;
     } else {
         displayHp = hero.hp;
     }
 
-    // 🌟 レベルごとの必要経験値テーブル
-    const LEVEL_TABLE = [0, 12, 20, 35, 60, 100, 150, 210, 280, 360, 450];
+    // 🌟 2. なめらか表示の計算処理（EXP）
+    // displayExp が未定義なら現在の hero.exp で初期化
+    if (typeof displayExp === 'undefined') displayExp = hero.exp;
+    const expDiff = (hero.exp || 0) - displayExp;
+    if (Math.abs(expDiff) > 0.1) {
+        displayExp += expDiff * 0.1;
+    } else {
+        displayExp = hero.exp;
+    }
+
+    // 🌟 3. 最大経験値の取得（テーブルは削除し、hero.maxExp を参照）
+    // サーバー側で LEVEL_TABLE に基づいて計算された値がここに入ります。
+    const nextMaxExp = hero.maxExp || 200;
 
     // 配置設定
     const x = 20; 
@@ -3176,7 +3419,12 @@ function drawTopStatusUI(hero) {
     // 1. 背景パネル
     ctx.fillStyle = "rgba(0, 0, 0, 0.6)";
     ctx.beginPath();
-    ctx.roundRect(x, y, panelW, panelH, 10);
+    // ブラウザ互換性を考慮し、roundRectが使えない場合は通常の矩形
+    if (ctx.roundRect) {
+        ctx.roundRect(x, y, panelW, panelH, 10);
+    } else {
+        ctx.rect(x, y, panelW, panelH);
+    }
     ctx.fill();
     ctx.strokeStyle = "rgba(255, 255, 255, 0.3)";
     ctx.stroke();
@@ -3195,22 +3443,18 @@ function drawTopStatusUI(hero) {
     ctx.fillStyle = "#333";
     ctx.fillRect(hpBarX, hpBarY, barWidth, barHeight);
     
-    // バーの色判定（実際のHPではなく表示上の割合で色を変える）
+    // バーの色判定
     ctx.fillStyle = hpRate > 0.3 ? "#2ecc71" : "#e74c3c";
     ctx.fillRect(hpBarX, hpBarY, barWidth * hpRate, barHeight);
     
-    // HPテキスト（数値は現在の正確な値を表示）
+    // HPテキスト
     ctx.fillStyle = "#fff";
     ctx.font = "12px Arial";
     ctx.textAlign = "center";
     ctx.fillText(`${Math.floor(hero.hp)} / ${hero.maxHp}`, hpBarX + barWidth/2, hpBarY + 14);
 
-    // 4. EXPバー (LEVEL_TABLEを参照して修正)
-    const currentLv = hero.level || 1;
-    const nextMaxExp = LEVEL_TABLE[currentLv] || LEVEL_TABLE[LEVEL_TABLE.length - 1];
-    
+    // 4. EXPバー (hero.maxExp を分母に使用)
     const expRate = Math.min(1, displayExp / nextMaxExp); 
-    
     const expBarY = y + 40;
     
     // EXP背景
@@ -3227,9 +3471,10 @@ function drawTopStatusUI(hero) {
     ctx.font = "bold 10px Arial";
     ctx.fillText("EXP", hpBarX - 30, expBarY + 10);
 
-    // テキスト表示
+    // 🌟 EXPテキスト表示 (hero.exp / hero.maxExp)
     ctx.font = "10px Arial";
     ctx.textAlign = "right";
+    // 描画上の値(Math.floor(displayExp))を使用して、なめらかに数字が増えるようにしています
     ctx.fillText(`${Math.floor(displayExp)} / ${nextMaxExp}`, hpBarX + barWidth - 5, expBarY + 10);
 
     ctx.restore();

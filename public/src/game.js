@@ -863,6 +863,26 @@ if (nameInput) {
     };
 }
 
+/**
+ * 🌟 チャンネルボタンの「現在地」表示を更新する補助関数
+ * login_response の外側に定義しておくと、チャンネル移動時にも使い回せます
+ */
+function updateChannelUI(currentChannel) {
+    const channelBox = document.querySelector('.channel-box');
+    if (!channelBox) return;
+
+    const buttons = channelBox.querySelectorAll('button');
+    buttons.forEach(btn => {
+        // ボタンの onclick 属性（例: "changeChannel(1)"）に現在のch番号が含まれるか確認
+        const onclickText = btn.getAttribute('onclick');
+        if (onclickText && onclickText.includes(`changeChannel(${currentChannel})`)) {
+            btn.classList.add('active'); // 一致したら光らせる
+        } else {
+            btn.classList.remove('active'); // それ以外は消す
+        }
+    });
+}
+
 // ------------------------------------------
 // 🔑 サーバーから「OK」が来たら、ステータスを反映して開始
 // ------------------------------------------
@@ -870,14 +890,13 @@ socket.on('login_response', (data) => {
     // 🌟 openDropForm と同様に要素を取得
     const loginError = document.getElementById('login-error');
     const passwordInput = document.getElementById('user-pass-input');
-    const nameInput = document.getElementById('user-name-input'); // nameInputの取得も念のため追加
+    const nameInput = document.getElementById('user-name-input'); 
 
     if (data.success) {
         // --- ✅ 成功時：既存ロジックをそのまま実行 ---
         
         // 🌟 【修正ポイント】
-        // data.id (DBの数値ID) ではなく socket.id (通信用の一意な文字列ID) を代入します。
-        // これにより、チャンネル移動通知の判定 (userId === myId) が正しく動くようになります。
+        // data.id (DBの数値ID) ではなく socket.id (通信用の一意な文字列ID) を代入
         myId = socket.id; 
         
         console.log(`[LOGIN SUCCESS] Player: ${data.username} (Internal ID: ${socket.id})`);
@@ -908,16 +927,19 @@ socket.on('login_response', (data) => {
                 console.log(`[RESTORE] Status: Lv.${hero.level}, Pos:(${hero.x}, ${hero.y})`);
             }
 
-            // 選択されていた初期情報を反映
-            hero.channel = selectedChannel; 
+            // 🌟 修正：サーバー側から確定したチャンネル（data.channel）を優先して反映
+            hero.channel = data.channel || selectedChannel; 
             hero.group = selectedGroup;
             hero.charVar = selectedCharVar; 
+
+            // 🔥 【追加】HTMLボタンの見た目を更新（現在のchを光らせる）
+            updateChannelUI(hero.channel);
         }
 
         // 3. サーバーに参加を伝える
         socket.emit('join', { 
             name: userName, 
-            channel: selectedChannel,
+            channel: hero.channel, // 🌟 確定したチャンネルで参加
             group: selectedGroup,
             x: hero.x,
             y: hero.y
@@ -936,12 +958,11 @@ socket.on('login_response', (data) => {
         }
 
         // 4. ゲームのメインループを開始
-        // 既に動いている場合は二重起動しないようチェック（環境に合わせて調整してください）
         if (typeof update === 'function') {
             update();
         }
 
-        console.log(`[START] Player: ${userName}, Channel: ${selectedChannel}, Group: ${selectedGroup}`);
+        console.log(`[START] Player: ${userName}, Channel: ${hero.channel}, Group: ${selectedGroup}`);
         
     } else {
         // --- ❌ 失敗時：alert を使わず UI を更新 (openDropForm 踏襲) ---
@@ -956,12 +977,26 @@ socket.on('login_response', (data) => {
         if (nameInput) nameInput.style.border = "2px solid #ff4444";
         if (passwordInput) {
             passwordInput.style.border = "2px solid #ff4444";
-            // 利便性のためパスワードを空にして再入力を促す
             passwordInput.value = "";
             setTimeout(() => passwordInput.focus(), 10);
         }
     }
 });
+
+/**
+ * チャンネルボタンの表示を更新する
+ */
+function updateChannelButtons(currentChannel) {
+    const buttons = document.querySelectorAll('.channel-box button');
+    buttons.forEach(btn => {
+        // ボタンのテキスト（CH.1など）から数字を抽出、またはonclickの引数と比較
+        if (btn.getAttribute('onclick') === `changeChannel(${currentChannel})`) {
+            btn.classList.add('active');
+        } else {
+            btn.classList.remove('active');
+        }
+    });
+}
 
 // 3. 【新規】新規登録ボタンの処理（念のためここにも置いておきます）
 /*
@@ -1082,9 +1117,29 @@ socket.on('player_moved_channel', (data) => {
 });
 
 // game.js に追加
+/**
+ * 🔄 チャンネルを切り替える
+ */
 function changeChannel(number) {
+    // 🌟 1. すでにそのチャンネルにいる場合は何もしない（無駄な通信を防ぐ）
+    if (typeof hero !== 'undefined' && hero.channel === number) {
+        console.log(`すでに CH.${number} に接続しています。`);
+        return;
+    }
+
     console.log(`チャンネル ${number} へ移動中...`);
+
+    // 🌟 2. サーバーに移動リクエストを送る
     socket.emit('change_channel', { newChannel: number });
+
+    // 🌟 3. UI（ボタンの見た目）を即座に更新する
+    // これにより、クリックした瞬間にボタンが黄色く光ります
+    updateChannelUI(number);
+
+    // 🌟 4. キャラクターの保持しているチャンネル情報を更新
+    if (typeof hero !== 'undefined') {
+        hero.channel = number;
+    }
 }
 
 /*
@@ -1552,7 +1607,7 @@ function saveGameData() {
     };
 
     socket.emit('save_player_data', saveData);
-    // console.log("オートセーブ実行:", saveData); // デバッグ用
+    console.log("オートセーブ実行:", saveData); // デバッグ用
 }
 
 // 🌟 10秒ごとに自動実行
