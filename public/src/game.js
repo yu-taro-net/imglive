@@ -466,21 +466,49 @@ const loginOverlay = document.getElementById('login-overlay');
 const nameInput = document.getElementById('user-name-input');
 const startBtn = document.getElementById('start-game-btn');
 
+// --- 履歴管理用の変数を定義（関数の外に置くことで保持されます） ---
+let chatHistory = [];
+let historyIndex = -1;
+
 chatIn.onkeydown = e => {
     // 🌟 1. 日本語入力の「変換確定エンター」を無視するガード
-    // これを入れないと、Chrome等で確定時と送信時で2回送られてしまいます
     if (e.isComposing || e.keyCode === 229) {
         return;
     }
 
+    // --- 🌟 追加：上下キーで履歴を遡る処理 ---
+    if (e.key === 'ArrowUp') {
+        if (chatHistory.length > 0 && historyIndex < chatHistory.length - 1) {
+            e.preventDefault(); // カーソルが文頭に移動するのを防止
+            historyIndex++;
+            chatIn.value = chatHistory[historyIndex];
+        }
+    } else if (e.key === 'ArrowDown') {
+        if (historyIndex > 0) {
+            e.preventDefault();
+            historyIndex--;
+            chatIn.value = chatHistory[historyIndex];
+        } else if (historyIndex === 0) {
+            historyIndex = -1;
+            chatIn.value = ""; // 一番新しい位置に戻ったら空にする
+        }
+    }
+
     // 2. エンターキーが押され、かつ入力欄が空でない場合に実行
-    if (e.key === 'Enter' && chatIn.value.trim() !== '') {
+    // 🌟 修正：.trim() !== '' を削除し、スペースのみでも送信可能にしました
+    if (e.key === 'Enter' && chatIn.value !== '') {
         const chatMode = document.getElementById('chat-mode');
         const selectedValue = chatMode.value;
 
         let type = 'all';
         let targetName = '';
+        let fullInputVal = chatIn.value; // 🌟 履歴保存用に現在の全入力を保持
         let val = chatIn.value;
+
+        // --- 🌟 追加：発言を履歴に格納 ---
+        chatHistory.unshift(fullInputVal); // 配列の先頭に追加
+        if (chatHistory.length > 20) chatHistory.pop(); // 最大20件まで保持
+        historyIndex = -1; // 参照位置をリセット
 
         // --- 送信モードの判定ロジック ---
         
@@ -491,11 +519,10 @@ chatIn.onkeydown = e => {
             // グループチャット
             type = 'group';
         } else if (selectedValue === 'friend') {
-            // 🌟 友達チャット（ここを追加！）
+            // 🌟 友達チャット
             type = 'friend';
         } else if (selectedValue === 'whisper') {
             // 🌟 「内緒話(新規入力)...」が選ばれている場合
-            // 入力欄の「名前 本文」から分割する
             const parts = val.split(' ');
             if (parts.length >= 2) {
                 targetName = parts[0];
@@ -507,13 +534,11 @@ chatIn.onkeydown = e => {
             }
         } else if (selectedValue.startsWith('whisper:')) {
             // 🌟 専用の「内緒話：名前」が選ばれている場合
-            // メニューの value (whisper:名前) から名前を取得
             type = 'whisper';
             targetName = selectedValue.split(':')[1];
         }
 
         // 🌟【自分への内緒話を禁止するガード】
-        // 相手の名前が自分(hero.name)と同じだった場合、送信を中止します
         if (type === 'whisper' && targetName === (typeof hero !== 'undefined' ? hero.name : "")) {
             alert("自分自身に内緒話は送れません！");
             chatIn.value = ''; // 入力内容をクリア
@@ -533,41 +558,79 @@ chatIn.onkeydown = e => {
     }
 };
 
-// メニュー（セレクトボックス）が変更された時に呼ばれる関数
+// ==========================================
+// 💬 チャットモード変更処理 (オリジナルUI・深緑版)
+// ==========================================
+
 function onChatModeChange() {
     const chatMode = document.getElementById('chat-mode');
-    
-    // 🌟 選択されたオプションの色をプルダウン全体に反映させる
+    if (!chatMode) return;
+
+    // 選択されたオプションの色をプルダウン全体に反映
     const selectedOption = chatMode.options[chatMode.selectedIndex];
     chatMode.style.color = selectedOption.style.color;
 
     // 「内緒話 (新規入力)」が選ばれたら
     if (chatMode.value === 'whisper') {
-        // 名前を入力してもらうポップアップを出す
-        const name = prompt("内緒話をしたい相手の名前を入力してください");
-        
-        // 🌟 修正ポイント：入力があった場合のみ処理を進める
-        if (name && name.trim() !== "") {
-            const trimmedName = name.trim();
+        const overlay = document.getElementById('whisper-overlay');
+        const input = document.getElementById('whisper-target-name');
+        const error = document.getElementById('whisper-error');
 
-            // 🌟 自分の名前（hero.name）だった場合は、何もせず全体に戻す
-            if (trimmedName === (typeof hero !== 'undefined' ? hero.name : "")) {
-                alert("自分自身に内緒話は送れません"); // 理由を伝えるとより親切です
-                chatMode.value = 'all';
-                chatMode.style.color = "#60a5fa"; // 色も全体（水色）に戻す
-                return;
-            }
-
-            // 自分以外なら、専用メニューを作る
-            // ※ setWhisperTarget 側でも chatMode.style.color を更新するようにしておくと完璧です
-            if (typeof setWhisperTarget === 'function') {
-                setWhisperTarget(trimmedName);
-            }
-        } else {
-            // キャンセルされた、または空欄なら「全体」に戻しておく
-            chatMode.value = 'all';
-            chatMode.style.color = "#60a5fa"; // 色も全体（水色）に戻す
+        if (overlay && input) {
+            overlay.style.display = 'block';
+            input.value = ""; 
+            input.style.border = "1px solid #2e7d32"; // 枠線を緑に戻す
+            if (error) error.innerText = ""; 
+            input.focus(); 
         }
+    }
+}
+
+/**
+ * 内緒話ウィンドウの「決定」ボタン
+ */
+function submitWhisperName() {
+    const chatMode = document.getElementById('chat-mode');
+    const nameInput = document.getElementById('whisper-target-name');
+    const errorDiv = document.getElementById('whisper-error');
+    const name = nameInput.value.trim();
+
+    // 1. 空チェック
+    if (!name) {
+        if (errorDiv) errorDiv.innerText = "名前を入力してください";
+        nameInput.style.border = "2px solid #ff5252";
+        return;
+    }
+
+    // 2. 自分自身の名前チェック
+    const myName = (typeof hero !== 'undefined' ? hero.name : "");
+    if (name === myName) {
+        if (errorDiv) errorDiv.innerText = "自分自身に内緒話は送れません";
+        nameInput.style.border = "2px solid #ff5252";
+        return;
+    }
+
+    // 自分以外なら、専用メニューを作る関数を呼び出す
+    if (typeof setWhisperTarget === 'function') {
+        setWhisperTarget(name);
+    }
+    
+    closeWhisperWindow();
+}
+
+/**
+ * 内緒話ウィンドウを閉じる
+ */
+function closeWhisperWindow() {
+    const overlay = document.getElementById('whisper-overlay');
+    const chatMode = document.getElementById('chat-mode');
+
+    if (overlay) overlay.style.display = 'none';
+
+    // 入力せずに閉じた場合、モードを「全体(all)」に戻す
+    if (chatMode && chatMode.value === 'whisper') {
+        chatMode.value = 'all';
+        chatMode.style.color = "#60a5fa"; 
     }
 }
 
@@ -830,6 +893,8 @@ startBtn.onclick = () => {
     // --- 3. フォーカスを外してサーバーへ送信 (既存ロジック踏襲) ---
     nameInput.blur();
     passwordInput.blur();
+	
+	window.isGameStarted = true;
 
     // 🌟 修正ポイント：すでに定義済みの selectedChannel をデータに含める
     console.log("ログインリクエスト送信:", userName, "選択チャンネル:", selectedChannel);
@@ -883,39 +948,183 @@ function updateChannelUI(currentChannel) {
     });
 }
 
+// ゲーム全体で共有するツールチップ用変数
+window.currentHoverSlot = null; // 現在マウスが乗っているアイテム情報
+window.rawMouseX = 0;           // ブラウザ上の生のマウスX
+window.rawMouseY = 0;           // ブラウザ上の生のマウスY
+
+// ------------------------------------------
+// 🛡️ ツールチップ描画エンジン（左右100px・下部150px拡張・完全踏襲版）
+// ------------------------------------------
+let tooltipCtx = null;
+
+// --- ⚙️ 調整用定数（ソース上で変更可能） ---
+const sideMargin = 100;     // 🌟 左右の拡張分
+const bottomMargin = 200;   // 🌟 下方向の拡張分
+const SHOW_DEBUG = false;    // 🌟 trueでデバッグ表示ON / falseで非表示
+// ----------------------------------------------
+
+// 🌟 マウス位置を更新する専用の窓口
+document.addEventListener('mousemove', (e) => {
+    window.rawMouseX = e.clientX;
+    window.rawMouseY = e.clientY;
+});
+
+// 画像オブジェクトのキャッシュ
+const tooltipImageCache = {};
+
+function renderTooltip() {
+    const tCanvas = document.getElementById('tooltip-layer');
+    const stageCanvas = document.getElementById('stage');
+    
+    if (!tCanvas || !stageCanvas) return;
+    
+    tooltipCtx = tCanvas.getContext('2d');
+    
+    const baseWidth = 800;
+    const baseHeight = 600;
+
+    // 🌟 拡張サイズの計算
+    const extendedWidth = baseWidth + (sideMargin * 2);
+    const extendedHeight = baseHeight + bottomMargin; // 下方向に150px拡張
+
+    // 🌟 内部解像度（DPR 2倍想定）を同期
+    const targetInternalWidth = extendedWidth * 2;
+    const targetInternalHeight = extendedHeight * 2;
+
+    if (tCanvas.width !== targetInternalWidth || tCanvas.height !== targetInternalHeight) {
+        tCanvas.width = targetInternalWidth;
+        tCanvas.height = targetInternalHeight;
+    }
+
+    // 🌟 配置修正
+    if (tCanvas.parentElement !== stageCanvas.parentElement) {
+        stageCanvas.parentElement.appendChild(tCanvas);
+    }
+
+    // 🌟 物理配置とサイズ設定
+    tCanvas.style.zIndex = "2147483647"; 
+    tCanvas.style.pointerEvents = "none";
+    tCanvas.style.position = "absolute"; 
+    tCanvas.style.top = "0px";           
+    tCanvas.style.left = `-${sideMargin}px`; 
+    tCanvas.style.width = `${extendedWidth}px`; 
+    tCanvas.style.height = `${extendedHeight}px`; // 🌟 高さも拡張
+    tCanvas.style.transform = "none";    
+    tCanvas.style.margin = "0";
+
+    tCanvas.style.border = SHOW_DEBUG ? "2px solid yellow" : "none"; 
+    tCanvas.style.display = "block";
+    tCanvas.style.visibility = "visible";
+
+    // 🌟 描画スケーリングと原点補正
+    tooltipCtx.setTransform(1, 0, 0, 1, 0, 0); 
+    tooltipCtx.clearRect(0, 0, tCanvas.width, tCanvas.height); 
+    
+    tooltipCtx.scale(2, 2); 
+    tooltipCtx.translate(sideMargin, 0);
+
+    // --- デバッグ用の描画 ---
+    if (SHOW_DEBUG) {
+        tooltipCtx.fillStyle = "blue";
+        tooltipCtx.fillRect(10, 10, 40, 40);
+
+        // Stage範囲（本来の画面枠 800x600）を赤い線で可視化
+        tooltipCtx.strokeStyle = "red";
+        tooltipCtx.lineWidth = 1;
+        tooltipCtx.strokeRect(0, 0, baseWidth, baseHeight);
+
+        // 拡張した下部エリア（150px分）を緑の線で可視化
+        tooltipCtx.strokeStyle = "green";
+        tooltipCtx.strokeRect(0, baseHeight, baseWidth, bottomMargin);
+    }
+
+    // 座標計算
+    const rect = tCanvas.getBoundingClientRect();
+    
+    // 🌟 画面伸縮率の算出（拡張後のサイズを基準にする）
+    const scaleX = extendedWidth / (rect.width || extendedWidth);
+    const scaleY = extendedHeight / (rect.height || extendedHeight);
+    
+    // 🌟 マウス座標を計算
+    const canvasX = (window.rawMouseX - rect.left) * scaleX - sideMargin;
+    const canvasY = (window.rawMouseY - rect.top) * scaleY;
+
+    if (typeof window.rawMouseX !== 'undefined') {
+        
+        // 🌟 【全プロパティ手動流し込み & 画像解決】
+        if (window.currentHoverSlot) {
+            const item = window.currentHoverSlot;
+            //const master = ITEM_MASTER[String(item.id)];
+            
+            //if (master) {
+            //    Object.assign(item, master);
+            //}
+
+            const imgName = item.image_name || item.type || item.id;
+            const imgPath = `item_assets/${imgName}.png`;
+
+            if (!tooltipImageCache[imgPath]) {
+                const img = new Image();
+                img.src = imgPath;
+                tooltipImageCache[imgPath] = img;
+            }
+            item.img = tooltipImageCache[imgPath]; 
+        }
+
+        if (SHOW_DEBUG) {
+            tooltipCtx.beginPath();
+            tooltipCtx.arc(canvasX, canvasY, 10, 0, Math.PI * 2); 
+            tooltipCtx.fillStyle = "red";
+            tooltipCtx.fill();
+
+            tooltipCtx.fillStyle = "yellow";
+            tooltipCtx.font = "bold 14px sans-serif"; 
+            tooltipCtx.fillText(`(${Math.round(canvasX)},${Math.round(canvasY)})`, canvasX + 20, canvasY);
+        }
+        
+        // 🌟 【本番描画】
+        if (window.currentHoverSlot && typeof drawItemTooltip === 'function') {
+            drawItemTooltip(tooltipCtx, window.currentHoverSlot, canvasX, canvasY, window.hero);
+        }
+    }
+    
+    requestAnimationFrame(renderTooltip);
+}
+
+// 描画開始
+renderTooltip();
+
 // ------------------------------------------
 // 🔑 サーバーから「OK」が来たら、ステータスを反映して開始
 // ------------------------------------------
 socket.on('login_response', (data) => {
-    // 🌟 openDropForm と同様に要素を取得
     const loginError = document.getElementById('login-error');
     const passwordInput = document.getElementById('user-pass-input');
     const nameInput = document.getElementById('user-name-input'); 
 
     if (data.success) {
-        // --- ✅ 成功時：既存ロジックをそのまま実行 ---
-        
-        // 🌟 【修正ポイント】
-        // data.id (DBの数値ID) ではなく socket.id (通信用の一意な文字列ID) を代入
         myId = socket.id; 
-        
         console.log(`[LOGIN SUCCESS] Player: ${data.username} (Internal ID: ${socket.id})`);
 
-        // 成功したのでスタイルとエラーをクリア
         if (loginError) loginError.innerText = "";
         if (nameInput) nameInput.style.border = "1px solid #ccc";
         if (passwordInput) passwordInput.style.border = "1px solid #ccc";
 
-        // 1. ログイン画面（オーバーレイ）を非表示にする
+        // 🚀 【救出処理・同期】
+        const tCanvas = document.getElementById('tooltip-layer');
+        const stageCanvas = document.getElementById('stage');
+        if (tCanvas && stageCanvas) {
+            stageCanvas.parentElement.appendChild(tCanvas); 
+            console.log("🌟 Tooltip Layer synced with Stage!");
+        }
+
         const loginOverlay = document.getElementById('login-overlay');
         if (loginOverlay) loginOverlay.style.display = 'none';
 
-        // 2. 自分のキャラクターに情報をセット
         const userName = data.username;
         if (typeof hero !== 'undefined') {
             hero.name = userName;
-            
-            // DBから届いたステータスを反映
             if (data.stats) {
                 hero.level = data.stats.level || 1;
                 hero.hp    = data.stats.hp || 100;
@@ -924,56 +1133,40 @@ socket.on('login_response', (data) => {
                 hero.x     = data.stats.x || 100;
                 hero.y     = data.stats.y || 400;
                 hero.jobId = data.stats.job_id || 0;
-                console.log(`[RESTORE] Status: Lv.${hero.level}, Pos:(${hero.x}, ${hero.y})`);
             }
-
-            // 🌟 修正：サーバー側から確定したチャンネル（data.channel）を優先して反映
             hero.channel = data.channel || selectedChannel; 
             hero.group = selectedGroup;
             hero.charVar = selectedCharVar; 
 
-            // 🔥 【追加】HTMLボタンの見た目を更新（現在のchを光らせる）
-            updateChannelUI(hero.channel);
+            if (typeof updateChannelUI === 'function') {
+                updateChannelUI(hero.channel);
+            }
         }
 
-        // 3. サーバーに参加を伝える
         socket.emit('join', { 
             name: userName, 
-            channel: hero.channel, // 🌟 確定したチャンネルで参加
+            channel: hero.channel,
             group: selectedGroup,
             x: hero.x,
             y: hero.y
         });
 
-        // AudioContext の再開
         if (typeof audioCtx !== 'undefined' && audioCtx.state === 'suspended') {
-            audioCtx.resume().then(() => {
-                console.log("AudioContext active.");
-            });
+            audioCtx.resume();
         }
         
-        // BGMの再生
         if (typeof playBGM === 'function') {
             playBGM();
         }
 
-        // 4. ゲームのメインループを開始
         if (typeof update === 'function') {
             update();
         }
-
-        console.log(`[START] Player: ${userName}, Channel: ${hero.channel}, Group: ${selectedGroup}`);
-        
     } else {
-        // --- ❌ 失敗時：alert を使わず UI を更新 (openDropForm 踏襲) ---
-        console.error("ログイン失敗:", data.message);
-
         if (loginError) {
             loginError.innerText = data.message;
             loginError.style.color = "#ff4444";
         }
-
-        // 入力欄の枠を赤くして警告
         if (nameInput) nameInput.style.border = "2px solid #ff4444";
         if (passwordInput) {
             passwordInput.style.border = "2px solid #ff4444";
@@ -1269,10 +1462,17 @@ socket.on('state', s => {
 });
 
 socket.on('player_update', (updatedPlayer) => {
-    // 自分のIDと一致するデータの時、自分自身の情報を更新する
+    // 1. 自分の情報の時だけ hero 変数を更新
     if (updatedPlayer.id === socket.id) {
-        // hero は view.js 等で使っているプレイヤー変数名に合わせてください
+        // hero.js や view.js で使っている変数 hero を更新
         hero.gold = updatedPlayer.gold; 
+        
+        // 🌟 ショップが開いているなら、所持金表示を最新にする
+        const goldDisplay = document.getElementById('shop-user-gold');
+        if (goldDisplay) {
+            // 引数名の updatedPlayer.gold を使います
+            goldDisplay.innerText = updatedPlayer.gold.toLocaleString();
+        }
     }
 });
 
@@ -1344,11 +1544,16 @@ socket.on('chat', data => {
       return; 
   }
 
+  // 🌟 吹き出し用データ作成
   const chatData = { text: data.text, timer: 120 };
+
+  // 🌟 修正：新しい吹き出しを出す前に null を代入して古いものを即座に消去する
   if (data.id === socket.id) {
-    hero.chat = chatData;
+    hero.chat = null; // 一旦クリア
+    setTimeout(() => { hero.chat = chatData; }, 0); // 即時セット
   } else if (others[data.id]) {
-    others[data.id].chat = chatData;
+    others[data.id].chat = null; // 一旦クリア
+    setTimeout(() => { others[data.id].chat = chatData; }, 0); // 即時セット
   }
 });
 
@@ -1361,6 +1566,391 @@ socket.on('user_counts', (counts) => {
         }
     }
 });
+
+/**
+ * 🛒 ショップUI描画関数
+ * 提示されたロジック・スタイル・ランク判定を完全に踏襲し、
+ * IDの精度問題（小数点バグ）とスロット同期バグを修正した完結版
+ */
+function renderShopUI(data) {
+
+    console.log("--- 🛒 renderShopUI 実行開始 ---");
+    console.log("📥 届いたデータ(data):", data);
+    
+    // サーバーから届いた最新情報を hero オブジェクトに同期
+    if (data) {
+        if (data.myItems) {
+            hero.inventory = data.myItems;
+            console.log("✅ hero.inventory を同期しました。");
+        }
+        if (data.gold !== undefined) {
+            hero.gold = data.gold;
+            console.log("✅ hero.gold を同期しました:", hero.gold);
+        }
+    }
+
+    const shopOverlay = document.getElementById('shop-overlay');
+    const itemList = document.getElementById('shop-item-list');
+    const sellList = document.getElementById('user-sell-list');
+    const goldDisplay = document.getElementById('shop-user-gold');
+
+    if (!shopOverlay || !itemList || !sellList) {
+        console.error("❌ ショップのDOM要素が見つかりません。");
+        return;
+    }
+
+    // 1. 所持金を表示
+    if (typeof hero !== 'undefined') {
+        goldDisplay.innerText = (hero.gold || 0).toLocaleString();
+    }
+
+    // 2. 商品リストを生成（購入リスト）
+    itemList.innerHTML = ''; 
+    console.log(`📝 商品リスト生成開始（全 ${data.inventory.length} 件）`);
+
+    data.inventory.forEach((item) => {
+        const row = document.createElement('div');
+        row.style = "display: flex; align-items: center; padding: 3px; border-bottom: 1px solid #333; background: rgba(0,0,0,0.2); margin-bottom: 2px; cursor: default;";
+        
+        const actualItemId = item.item_id || item.id;
+        const imgName = item.image_name || item.type || actualItemId;
+        const imgPath = `item_assets/${imgName}.png`;
+
+        // 🌟 アイテム名の安全な処理（シングルクォート対策）
+const safeBuyName = (item.display_name || item.name || "アイテム").replace(/'/g, "\\'");
+
+// 🌟 重要: buyItem の引数に 'アイテム種別' と '表示名' を追加
+row.innerHTML = `
+    <div class="shop-item-row-div" 
+         ondblclick="buyItem('${String(actualItemId)}', '${item.type || item.item_type}', '${safeBuyName}')" 
+         onclick="selectShopItem(this)">
+        <div style="width: 38px; height: 38px; min-width: 38px; background: #ffffff; border: 1px solid #ddd; margin-right: 12px; display: flex; align-items: center; justify-content: center; border-radius: 4px; overflow: hidden; pointer-events: none;">
+            <img src="${imgPath}" style="max-width: 30px; max-height: 30px; image-rendering: pixelated;" onerror="this.src='assets/items/default.png'">
+        </div>
+        <div style="flex-grow: 1; font-family: sans-serif; pointer-events: none;">
+            <div style="font-weight: bold; color: #000; font-size: 13px;">${item.display_name || item.name}</div>
+            <div style="font-size: 11px; color: #333;">${(item.price || 0).toLocaleString()} メル</div>
+        </div>
+    </div>
+    <button onclick="buyItem('${String(actualItemId)}', '${item.type || item.item_type}', '${safeBuyName}')" 
+            style="display:none; background: linear-gradient(to bottom, #ffebad, #ffc44d); border: 1px solid #e6a700; color: #000; padding: 4px 12px; cursor: pointer; border-radius: 5px; font-weight: bold; font-family: inherit; font-size: 11px; box-shadow: 0 1px 0 rgba(255,255,255,0.5) inset; transition: filter 0.2s;">
+        買う
+    </button>
+`;
+
+        row.onmouseenter = () => { window.currentHoverSlot = item; };
+        row.onmouseleave = () => { window.currentHoverSlot = null; };
+        itemList.appendChild(row);
+    });
+
+    // 3. 自分の所持アイテムリストを生成（売却リスト）
+    sellList.innerHTML = ''; 
+    const myItems = hero.inventory || [];
+    console.log(`📝 所持アイテムリスト生成開始（全 ${myItems.length} 件）`);
+
+    myItems.forEach((item, index) => {
+        if (!item) return;
+
+        const row = document.createElement('div');
+        row.style = "display: flex; align-items: center; padding: 3px; border-bottom: 1px solid #333; background: rgba(0,0,0,0.2); margin-bottom: 2px; cursor: default;";
+        
+        const imgName = item.image_name || item.type || item.id;
+        const imgPath = `item_assets/${imgName}.png`;
+        
+        let itemName = item.display_name || item.name || "";
+        let displayPrice = 0;
+        let iconGlowStyle = "";
+
+        // オリジナルの名称出し分けロジックを維持
+        if (imgName === 'sweets') { itemName = "おいしいケーキ"; displayPrice = 50; }
+        else if (imgName === 'scroll_star') { itemName = "スターの書"; displayPrice = 25000; }
+        else if (imgName === 'gold') { itemName = "金塊"; displayPrice = 500; }
+        else if (imgName === 'treasure') { itemName = "ひみつの宝箱"; displayPrice = 2500; }
+        else if (imgName === 'sword') { itemName = "マニアックソード"; displayPrice = 250; }
+        else if (imgName === 'shield') { itemName = "トリシールド"; displayPrice = 150; }
+        else {
+            displayPrice = Math.floor((item.price || 0) * 0.5);
+        }
+
+        const isEquipment = (
+            item.type === 'sword' || 
+            item.type === 'shield' || 
+            item.category === 'weapon1' || 
+            item.category === 'shield1' || 
+            item.category === 'armor1' ||
+            ['sword', 'armor', 'shield'].includes(item.item_type)
+        );
+
+        // オリジナルのランク判定ロジックを維持
+        if (isEquipment && item.totalALLStats !== undefined && item.totalFirstStats !== undefined) {
+            const bonus = item.totalALLStats - item.totalFirstStats;
+            let rankName = "";
+            let rankGlowColor = "";
+
+            if (bonus >= 30)       { rankGlowColor = "#ff0000"; rankName = "(神級)"; }
+            else if (bonus >= 25) { rankGlowColor = "#00ff00"; rankName = "(超伝説)"; }
+            else if (bonus >= 20) { rankGlowColor = "#ffff00"; rankName = "(極上)"; }
+            else if (bonus >= 15) { rankGlowColor = "#ff00ff"; rankName = "(伝説)"; }
+            else if (bonus >= 10) { rankGlowColor = "#00ccff"; rankName = "(希少)"; }
+            else if (bonus >= 5)  { rankGlowColor = "#ff9900"; rankName = "(良品)"; }
+            else if (bonus >= 0)  { rankGlowColor = "";        rankName = "(標準)"; }
+            else                  { rankGlowColor = "";        rankName = "(粗悪)"; }
+
+            if (!itemName.includes("(")) itemName = `${itemName}${rankName}`;
+            if (rankGlowColor) {
+                iconGlowStyle = `filter: drop-shadow(0 0 5px ${rankGlowColor});`;
+            }
+        }
+
+        // 🌟 修正ポイント: 装備固有IDがあれば優先し、カタログIDをフォールバックに
+        const sendId = item.equipment_id || item.instanceId || item.id || item.item_id;
+        const targetSlot = (item.slot_index !== undefined) ? item.slot_index : index;
+        const safeItemName = itemName.replace(/'/g, "\\'");
+
+        // 🌟 修正箇所: item.instanceId (または equipment_id) があれば装備品とみなす
+const isEquip = !!(item.instanceId || item.equipment_id);
+
+// 🌟 重要: ${String(sendId)} をシングルクォートで囲い、完全に文字列として送信
+// 🌟 第4引数に所持数、第5引数に装備フラグを追加
+row.innerHTML = `
+    <div class="sell-item-row-div" 
+         onclick="event.stopPropagation(); selectSellItem(event, this)"
+         ondblclick="sellItem('${String(sendId)}', ${targetSlot}, '${safeItemName}', ${item.count || 1}, ${isEquip})">
+        <div style="width: 38px; height: 38px; min-width: 38px; background: #ffffff; border: 1px solid #ddd; margin-right: 12px; display: flex; align-items: center; justify-content: center; border-radius: 4px; overflow: hidden; position: relative; pointer-events: none;">
+            <img src="${imgPath}" style="max-width: 30px; max-height: 30px; image-rendering: pixelated; ${iconGlowStyle}" onerror="this.src='assets/items/default.png'">
+            <span style="position: absolute; bottom: 0; right: 0; font-size: 9px; background: rgba(0,0,0,0.7); color: white; padding: 0 3px; border-radius: 2px; font-family: sans-serif; line-height: 1.5;">
+                ${item.count || 1}
+            </span>
+        </div>
+        <div style="flex-grow: 1; font-family: sans-serif; pointer-events: none; text-align: left;">
+            <div style="font-weight: bold; color: #000; font-size: 13px;">${itemName}</div>
+            <div style="font-size: 11px; color: #333;">${displayPrice.toLocaleString()} メル</div>
+        </div>
+    </div>
+    <button onclick="sellItem('${String(sendId)}', ${targetSlot}, '${safeItemName}', ${item.count || 1}, ${isEquip})" 
+            style="display:none; background: linear-gradient(to bottom, #ffebad, #ffc44d); border: 1px solid #e6a700; color: #000; padding: 4px 12px; cursor: pointer; border-radius: 5px; font-weight: bold; font-family: inherit; font-size: 11px; box-shadow: 0 1px 0 rgba(255,255,255,0.5) inset; transition: filter 0.2s;">
+        売る
+    </button>
+`;
+
+        row.onmouseenter = () => { window.currentHoverSlot = item; };
+        row.onmouseleave = () => { window.currentHoverSlot = null; };
+
+        sellList.appendChild(row);
+    });
+
+    console.log("🏁 ショップUIの更新が完了しました。");
+}
+
+// 🛒 サーバーからのショップ入室命令を受け取る
+socket.on('open_shop_ui', (data) => {
+    console.log("--- 🛒 [DEBUG: ShopUI開始] ---");
+    window.lastShopData = data; // データをグローバルに保持
+    document.getElementById('shop-overlay').style.display = 'block';
+    renderShopUI(data);
+});
+
+// 🌟 購入・売却後の更新イベントを受け取った時
+socket.on('update_shop', (newData) => {
+    // ショップが開いている時だけ描画を更新
+    if (document.getElementById('shop-overlay').style.display === 'block') {
+        window.lastShopData = newData;
+        renderShopUI(newData);
+    }
+});
+
+function selectShopItem(element) {
+    // 1. 一旦、全部の「選択中」を解除する
+    document.querySelectorAll('.shop-item-row-div').forEach(el => {
+        el.classList.remove('selected');
+    });
+    // 2. 今クリックしたやつだけ「選択中」にする
+    element.classList.add('selected');
+}
+
+// 全ての選択を解除する関数
+function deselectAllItems() {
+    document.querySelectorAll('.shop-item-row-div').forEach(el => {
+        el.classList.remove('selected');
+    });
+}
+
+// 💰 売却アイテムを選択した時の処理
+function selectSellItem(event, element) {
+    // 1. 他の売却アイテムの選択（selectedクラス）をすべて解除
+    document.querySelectorAll('.sell-item-row-div').forEach(el => {
+        el.classList.remove('selected');
+    });
+
+    // 2. クリックされた要素に selected クラスを付与
+    element.classList.add('selected');
+
+    // (任意) 購入側の選択も解除して、画面全体で1つだけ選ばれている状態にする場合
+    // document.querySelectorAll('.shop-item-row-div').forEach(el => el.classList.remove('selected'));
+
+    console.log("💰 売却アイテムを選択しました");
+}
+
+/**
+ * アイテム売却確認ダイアログを表示
+ * @param {string} itemId - アイテムのID
+ * @param {number} slotIndex - インベントリ内のスロット番号
+ * @param {string} displayName - 表示用アイテム名
+ * @param {number} currentCount - 現在持っている個数
+ * @param {boolean} isEquipment - 装備品かどうか（追加）
+ */
+function sellItem(itemId, slotIndex, displayName, currentCount = 1, isEquipment = false) {
+    console.log("1. sellItem関数が呼ばれました。ID:", itemId, "Slot:", slotIndex, "装備:", isEquipment);
+
+    const overlay = document.getElementById('sell-confirm');
+    const message = document.getElementById('sell-confirm-message');
+    const btnYes = document.getElementById('sell-confirm-yes');
+    const btnNo = document.getElementById('sell-confirm-no');
+    
+    // 🌟 個数入力エリア全体（ラベルと入力欄を囲む親要素）と入力欄自体を取得
+    const qtyArea = document.getElementById('sell-quantity-area'); 
+    const inputQty = document.getElementById('sell-quantity');
+
+    // メッセージをセット
+    if (message) {
+        message.innerText = `${displayName} を売却しますか？`;
+    }
+
+    // 🌟 装備品判定による表示切り替え
+    if (isEquipment) {
+        // 装備品なら個数入力エリアを隠し、個数を1に固定
+        if (qtyArea) qtyArea.style.display = 'none';
+        if (inputQty) {
+            inputQty.value = "1";
+            inputQty.max = 1;
+        }
+    } else {
+        // ETCや消費アイテムなら個数入力エリアを表示し、最大数をセット
+        if (qtyArea) qtyArea.style.display = 'block';
+        if (inputQty) {
+            inputQty.value = "1";
+            inputQty.max = currentCount;
+            inputQty.focus();
+        }
+    }
+
+    // ダイアログを表示
+    overlay.style.display = 'flex';
+
+    // 「はい」ボタンの処理
+    btnYes.onclick = () => {
+        // 🌟 装備品なら強制的に1、そうでなければ入力値を取得
+        const quantity = isEquipment ? 1 : (inputQty ? parseInt(inputQty.value) : 1);
+
+        // バリデーション（装備品以外の場合のみチェック）
+        if (!isEquipment && (isNaN(quantity) || quantity <= 0 || quantity > currentCount)) {
+            alert(`1個から${currentCount}個の間で入力してください。`);
+            return;
+        }
+
+        overlay.style.display = 'none'; // 閉じる
+        
+        if (typeof socket === 'undefined') {
+            console.error("エラー: socketが見つかりません");
+            return;
+        }
+
+        console.log(`2. サーバーへ売却リクエストを送ります... (${quantity}個)`);
+        
+        socket.emit('sell_request', { 
+            itemId: itemId, 
+            slotIndex: slotIndex,
+            quantity: quantity
+        });
+    };
+
+    // 「いいえ」ボタンの処理
+    btnNo.onclick = () => {
+        console.log("売却がキャンセルされました");
+        overlay.style.display = 'none'; // 閉じる
+    };
+}
+
+// game.js
+/**
+ * アイテム購入確認ダイアログを表示
+ * @param {string} itemId - アイテムのID
+ * @param {string} itemType - アイテムの種別 ('equipment', 'consume', 'etc' など)
+ * @param {string} displayName - 表示用のアイテム名
+ */
+function buyItem(itemId, itemType, displayName) {
+    console.log("1. buyItem関数が呼ばれました。ID:", itemId, "Type:", itemType);
+
+    const overlay = document.getElementById('custom-confirm');
+    const message = document.getElementById('confirm-message'); // メッセージ用要素
+    const btnYes = document.getElementById('confirm-yes');
+    const btnNo = document.getElementById('confirm-no');
+    
+    // 🌟 追加：個数入力エリア(親)と入力欄(input)の取得
+    const qtyArea = document.getElementById('confirm-quantity-area');
+    const inputQty = document.getElementById('buy-quantity');
+
+    // メッセージをセット（アイテム名を表示する場合）
+    if (message) {
+        message.innerText = `${displayName} を購入しますか？`;
+    }
+
+    // 🌟 修正ポイント：装備品判定による表示切り替え
+    const isEquipment = (itemType === 'sword' || itemType === 'shield');
+
+    if (isEquipment) {
+        // 装備品なら個数エリアを隠し、値は1に固定
+        if (qtyArea) qtyArea.style.display = 'none';
+        if (inputQty) {
+            inputQty.value = "1";
+            inputQty.max = 1;
+        }
+    } else {
+        // 消費・ETCなら個数エリアを表示し、入力可能にする
+        if (qtyArea) qtyArea.style.display = 'block';
+        if (inputQty) {
+            inputQty.value = "1";
+            inputQty.max = 99; // 最大購入数制限
+            inputQty.focus();
+        }
+    }
+
+    // ダイアログを表示
+    overlay.style.display = 'flex';
+
+    // 「はい」ボタンの処理
+    btnYes.onclick = () => {
+        // 🌟 装備品なら強制的に1、そうでなければ入力値を取得
+        const quantity = isEquipment ? 1 : (inputQty ? parseInt(inputQty.value) : 1);
+
+        // 🌟 バリデーションチェック（装備品以外の場合）
+        if (!isEquipment && (isNaN(quantity) || quantity <= 0)) {
+            alert("購入する個数を正しく入力してください。");
+            return;
+        }
+
+        overlay.style.display = 'none'; // 閉じる
+        
+        if (typeof socket === 'undefined') {
+            console.error("エラー: socketが見つかりません");
+            return;
+        }
+
+        console.log(`2. サーバーへ購入リクエストを送ります... (ID: ${itemId}, 個数: ${quantity})`);
+        
+        // 🌟 itemIdとquantityをサーバーへ送信
+        socket.emit('buy_request', { 
+            itemId: itemId,
+            quantity: quantity 
+        });
+    };
+
+    // 「いいえ」ボタンの処理
+    btnNo.onclick = () => {
+        console.log("購入がキャンセルされました");
+        overlay.style.display = 'none'; // 閉じる
+    };
+}
 
 // ============================================================
 // 🎨 [SECTION 7: INITIALIZER] 起動・エントリーポイント
@@ -1389,28 +1979,44 @@ function update() {
 
     // 5. サーバー同期と描画
     // 🌟 修正：heroオブジェクトの必要な情報を整理して送る
-    // hero.climbing を含めることで、他プレイヤー視点でもハシゴ登りが見えるようになります
     socket.emit('move', {
         x: hero.x,
         y: hero.y,
-		vx: hero.vx || 0,         // 🌟 歩行判定に必要
+        vx: hero.vx || 0,         // 🌟 歩行判定に必要
         dir: hero.dir,
-		jumping: hero.jumping,     // 🌟 ジャンプアニメーションの判定用
+        jumping: hero.jumping,     // 🌟 ジャンプアニメーションの判定用
         isAttacking: hero.isAttacking,
         climbing: hero.climbing, // 🌟 これを追加！
-		invincible: hero.invincible, // 🌟 被弾・無敵状態を同期
+        invincible: hero.invincible, // 🌟 被弾・無敵状態を同期
         currentFrame: frame
     });
 
     // 🌟 修正：攻撃の「のっそり」対策
-    // 攻撃が始まった瞬間（isAttackingが20になった瞬間）だけ、即座に攻撃イベントを発火
     if (hero.isAttacking === 20) {
         socket.emit('player_attack', { id: socket.id });
     }
 
+    // --- [描画処理：ここから] ---
+    
+    // A. メインのゲーム画面描画（背面のCanvas）
     if (typeof drawGame === 'function') {
         drawGame(hero, others, enemies, items, platforms, ladders, damageTexts, frame);
     }
+
+    // B. 🌟 ツールチップ専用レイヤー（最前面Canvas）の更新
+    // tCtxが初期化されているか確認してから実行します
+    if (typeof tCtx !== 'undefined') {
+        // 1. 前のフレームの描画を一旦きれいに消す
+        //tCtx.clearRect(0, 0, window.innerWidth, window.innerHeight);
+
+        // 2. マウスがアイテムの上にある(hoveringSlotが存在する)なら、最前面に描く
+        if (typeof hoveringSlot !== 'undefined' && hoveringSlot) {
+            // 第1引数に tCtx を渡すことで、ショップ画面より手前に描画されます
+            //drawItemTooltip(tCtx, hoveringSlot, mouseX, mouseY, hero);
+        }
+    }
+
+    // --- [描画処理：ここまで] ---
 
     // 6. エラー防止用の最終接地保証（元のロジックを維持）
     if (typeof isTouchingAnything !== 'undefined' && isTouchingAnything) {

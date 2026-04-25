@@ -219,18 +219,89 @@
     .inventory-slot.equipped {
       border: 2px solid gold !important;
     }
+	
+	.confirm-overlay {
+    position: fixed;
+    top: 0; left: 0; width: 100%; height: 100%;
+    background: rgba(0, 0, 0, 0.5); /* 背景を暗くする */
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 50001;
+}
+
+.confirm-box {
+    background: #333;
+    border: 2px solid #eee;
+    border-radius: 10px;
+    padding: 20px;
+    width: 280px;
+    text-align: center;
+    color: white;
+    box-shadow: 0 0 15px rgba(0,0,0,0.5);
+}
+
+.confirm-buttons {
+    margin-top: 15px;
+    display: flex;
+    justify-content: space-around;
+}
+
+.confirm-buttons button {
+    padding: 5px 20px;
+    cursor: pointer;
+    border-radius: 5px;
+    border: none;
+    font-weight: bold;
+}
+
+#confirm-yes { background: #ffcc00; color: #000; }
+#confirm-no { background: #888; color: #fff; }
+
+#confirm-yes:hover { background: #ffea00; }
+
+#tooltip-layer {
+    position: fixed;      /* 画面の決まった位置に固定します */
+    top: 0;               /* 一番上から */
+    left: 0;              /* 一番左から */
+    width: 100vw;         /* 画面の横幅いっぱい */
+    height: 100vh;        /* 画面の縦幅いっぱい */
+    z-index: 50000;       /* 💡 ここが重要！ショップより大きい数字にして一番手前にします */
+    pointer-events: none; /* 💡 これがないと下のボタンが押せなくなるので必須です */
+}
+
+#shop-overlay {
+    z-index: 10000; /* 💡 ツールチップ(99999)より低く設定 */
+}
+
   </style>
 </head>
 <body>
+<div id="whisper-overlay" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.7); z-index:3000;">
+    <div style="position:absolute; top:50%; left:50%; transform:translate(-50%, -50%); background:#1a1a1a; padding:20px; border:2px solid #2e7d32; border-radius:10px; text-align:center; color:white; min-width:300px; box-shadow: 0 0 20px rgba(46, 125, 50, 0.4);">
+        <h3 style="margin-top:0; color:#4caf50;">内緒話の相手</h3>
+        <p style="font-size: 14px; margin-bottom: 10px;">相手の名前を入力してください</p>
+        
+        <input type="text" id="whisper-target-name" placeholder="名前を入力..." 
+               style="width:80%; padding:10px; margin-bottom:15px; background:#000; color:white; border:1px solid #2e7d32; border-radius:5px; outline: none;">
+        
+        <div id="whisper-error" style="color: #ff5252; font-size: 12px; margin-bottom: 10px; height: 14px;"></div>
 
+        <div style="display:flex; justify-content:space-around;">
+            <button onclick="submitWhisperName()" style="padding:10px 20px; cursor:pointer; background:#2e7d32; color:white; border:none; border-radius:5px; font-weight: bold;">決定</button>
+            <button onclick="closeWhisperWindow()" style="padding:10px 20px; cursor:pointer; background:#444; color:white; border:none; border-radius:5px;">キャンセル</button>
+        </div>
+    </div>
+</div>
 <!-- ログイン画面 -->
 <div id="login-overlay">
   <div class="login-card">
     <h2>冒険の準備</h2>
     
     <p style="color:#888; font-size:12px; margin-bottom:5px;">NAME / PASSWORD</p>
-    <input type="text" id="user-name-input" class="login-input" placeholder="NAME" maxlength="10">
-    <input type="password" id="user-pass-input" class="login-input" placeholder="****">
+<input type="text" id="user-name-input" class="login-input" placeholder="NAME" maxlength="10">
+
+<input type="password" id="user-pass-input" class="login-input" placeholder="****" autocomplete="new-password">
     
     <p style="color:#888; font-size:12px; margin-bottom:10px;">SELECT CHANNEL</p>
     <div class="ch-btn-grid">
@@ -253,7 +324,215 @@
 </div>
 
 <!-- ゲーム画面本体 -->
-<canvas id="stage" width="800" height="600"></canvas>
+<div id="game-wrapper" style="position: relative; width: 800px; height: 600px;">
+  <canvas id="stage" width="800" height="600" 
+    style="position: absolute; top:0; left:0; z-index: 1; width: 800px; height: 600px;"></canvas>
+  
+  <canvas id="tooltip-layer" width="800" height="600" 
+    style="position: absolute; top:0; left:0; z-index: 9999; 
+           pointer-events: none; border: 2px solid yellow; 
+           width: 800px; height: 600px; box-sizing: border-box;">
+  </canvas>
+</div>
+
+</div>
+
+<style>
+    /* 🌟 可愛らしさのポイント：丸ゴシック系フォントを優先 */
+    #shop-overlay {
+        font-family: 'Hiragino Maru Gothic ProN', 'Rounded M+ 1c', 'Kosugi Maru', 'Meiryo', sans-serif;
+        font-size: 12px;
+        image-rendering: pixelated;
+        user-select: none;
+        color: #444; /* 真っ黒より少し柔らかい色に */
+    }
+
+    /* 商店の土台（角を少し丸く、影を柔らかく） */
+    .maple-window {
+        background: #fafafa;
+        border: 2px solid #555; /* 枠線を少し太くしてクッキリ */
+        border-radius: 6px;
+        box-shadow: 4px 4px 0px rgba(0,0,0,0.15);
+    }
+
+    /* ボタンをより「ぷっくり」させる */
+    .maple-btn {
+        background: linear-gradient(to bottom, #ffffff, #e0e0e0);
+        border: 1px solid #999;
+        border-radius: 4px;
+        color: #555;
+        cursor: pointer;
+        font-size: 11px;
+        padding: 3px 10px;
+        box-shadow: 0 1px 0 rgba(255,255,255,0.8) inset;
+        font-weight: bold;
+    }
+    .maple-btn:hover { background: #f5f5f5; border-color: #777; }
+
+    /* オレンジ色のボタンをより鮮やかに、可愛く */
+    .maple-btn-orange {
+        background: linear-gradient(to bottom, #ffea9e, #ffb821);
+        border: 2px solid #d48e00;
+        color: #5e4300;
+        border-radius: 5px;
+        font-weight: bold;
+        padding: 4px 14px;
+        text-shadow: 1px 1px 0px rgba(255,255,255,0.3);
+    }
+    .maple-btn-orange:hover { filter: brightness(1.05); }
+
+    /* スクロールバーも少し丸みを持たせる */
+    #shop-overlay ::-webkit-scrollbar { width: 14px; }
+    #shop-overlay ::-webkit-scrollbar-track { background: #e8e4d8; border-left: 1px solid #bbb; }
+    #shop-overlay ::-webkit-scrollbar-thumb { 
+        background: #ccc4b4; 
+        border: 2px solid #e8e4d8; 
+        border-radius: 7px; 
+    }
+	
+	/* アイテム行の基本：幅を100%に固定 */
+.shop-item-row-div {
+    display: flex;
+    align-items: center;
+    width: 100% !important; /* 強制的に幅いっぱいにする */
+    box-sizing: border-box;  /* paddingを含めて100%にする */
+    padding: 8px 12px;       /* 左右に少し余裕を持たせるとメイプルっぽいです */
+    border-bottom: 1px solid #eee;
+    background-color: #ffffff;
+    cursor: pointer;
+    user-select: none;
+    transition: transform 0.05s;
+    outline: none;
+}
+
+/* ホバーと選択のCSSは前回と同じでOK */
+.shop-item-row-div:hover {
+    background-color: #f5f9ff !important;
+    outline: 1px solid #a8caff !important;
+    outline-offset: -1px;
+}
+.shop-item-row-div.selected {
+    background-color: #e1efff !important;
+    outline: 2px solid #7cb1ff !important;
+    outline-offset: -2px;
+}
+
+/* 売却アイテム行の基本：ショップアイテムと構造を完全一致させる */
+.sell-item-row-div {
+    display: flex;
+    align-items: center;
+    width: 100% !important;
+    box-sizing: border-box;
+    padding: 8px 12px;
+    /* 背景は売却側のリストデザイン（ドット柄）を活かすため透過のままにするか、白にするか選べます */
+	border-bottom: 1px solid #eee;
+    background-color: #ffffff; 
+    cursor: pointer;
+    user-select: none;
+    transition: transform 0.05s;
+    outline: none;
+    /* 下線が必要ない場合はここを削除、必要ならショップ側に合わせて追加してください */
+}
+
+/* 売却ホバー：購入側の青系に対し、こちらは赤系で統一感を出す */
+.sell-item-row-div:hover {
+    background-color: #fff5f5 !important; /* ごく薄い赤 */
+    outline: 1px solid #ffabab !important;
+    outline-offset: -1px;
+}
+
+/* 売却選択：購入側の青に対し、こちらはメイプルらしいオレンジ系 */
+.sell-item-row-div.selected {
+    background-color: #fff0e5 !important; /* 薄いオレンジ */
+    outline: 2px solid #ff7f50 !important;
+    outline-offset: -2px;
+}
+
+</style>
+
+<div id="shop-overlay" class="maple-window" style="display: none; position: absolute; top: 40%; left: 50%; transform: translate(-50%, -50%); width: 700px; padding: 0; z-index: 9999;">
+    
+    <div style="background: linear-gradient(to bottom, #bfcddb, #96a7b8); border-bottom: 2px solid #777; padding: 5px 12px; display: flex; justify-content: space-between; align-items: center; border-radius: 4px 4px 0 0;">
+        <span style="font-weight: bold; color: white; text-shadow: 1px 1px 1px rgba(0,0,0,0.5); font-size: 13px;">[SHOP] よろず屋にようこそ！</span>
+        <button class="maple-btn" onclick="document.getElementById('shop-overlay').style.display='none'" style="background: #ff6b6b; color: white; border-color: #c0392b; min-width: 24px;">✕</button>
+    </div>
+
+    <div style="display: flex; background: #efefef; border-bottom: 1px solid #ccc; padding: 18px 10px;">
+        <div style="width: 50%; display: flex; flex-direction: column; align-items: center; border-right: 2px dashed #ccc; gap: 10px;">
+            <button class="maple-btn" onclick="document.getElementById('shop-overlay').style.display='none'">商店から出る</button>
+            <button class="maple-btn-orange" style="font-size: 13px;">アイテムを買う</button>
+        </div>
+        <div style="width: 50%; display: flex; flex-direction: column; align-items: center; gap: 10px; padding-left: 10px;">
+            <button class="maple-btn-orange" style="font-size: 13px;">アイテムを売る</button>
+            <div style="background: #fff; border: 2px solid #ddd; border-radius: 4px; padding: 3px 12px; width: 170px; text-align: right; box-shadow: inset 1px 1px 3px rgba(0,0,0,0.05);">
+                <span id="shop-user-gold" style="font-weight: bold; font-family: 'Verdana', sans-serif; font-size: 14px; color: #333;">0</span>
+                <span style="font-size: 11px; margin-left: 4px; color: #666; font-weight: bold;">メル</span>
+            </div>
+        </div>
+    </div>
+
+    <div style="display: flex; background: #ddd; padding: 2px; gap: 2px;">
+        
+        <div style="flex: 1; background: white; border-radius: 3px; overflow: hidden;">
+            <div style="display: flex; background: #e8e4d8; padding: 3px 3px 0 3px;">
+                <div style="background: #d34a4a; color: white; padding: 3px 15px; border-radius: 4px 4px 0 0; font-weight: bold; font-size: 11px;">全体</div>
+            </div>
+            <div id="shop-item-list" style="height: 275px; overflow-y: scroll; border-top: 2px solid #d34a4a; background-image: radial-gradient(#eee 10%, transparent 10%); background-size: 20px 20px;">
+                </div>
+        </div>
+
+        <div style="flex: 1; background: #fffcf2; border-radius: 3px; overflow: hidden;">
+            <div style="display: flex; background: #e8e4d8; padding: 3px 3px 0 3px;">
+                <div style="background: #d34a4a; color: white; padding: 3px 15px; border-radius: 4px 4px 0 0; font-weight: bold; font-size: 11px;">全体</div>
+                <div style="padding: 3px 15px; color: #888; font-size: 11px;">装備</div>
+                <div style="padding: 3px 15px; color: #888; font-size: 11px;">消費</div>
+                <div style="padding: 3px 15px; color: #888; font-size: 11px;">ETC</div>
+            </div>
+            <div id="user-sell-list" style="height: 275px; overflow-y: scroll; border-top: 2px solid #d34a4a; background-image: radial-gradient(#eee 10%, transparent 10%); background-size: 20px 20px;">
+                </div>
+        </div>
+    </div>
+
+    <div style="background: #f0f0f0; border-top: 1px solid #ccc; padding: 6px 12px; border-radius: 0 0 6px 6px;">
+        <span style="display:none; color: #e67e22; font-weight: bold; font-size: 11px;">♪ 掘り出し物があるかもしれないよ！</span>
+    </div>
+</div>
+
+<div id="custom-confirm" class="confirm-overlay" style="display: none;">
+    <div class="confirm-box">
+        <p id="confirm-message">このアイテムを購入しますか？</p>
+        
+        <div id="confirm-quantity-area" style="margin-bottom: 15px; text-align: center;">
+            <label for="buy-quantity" style="font-size: 14px; margin-right: 5px;">個数:</label>
+            <input type="number" id="buy-quantity" value="1" min="1" max="99" 
+                style="width: 60px; padding: 5px; border-radius: 4px; border: 1px solid #444; background: #1e293b; color: white; text-align: center;">
+        </div>
+
+        <div class="confirm-buttons">
+            <button id="confirm-no">いいえ</button>
+            <button id="confirm-yes">はい</button>
+        </div>
+    </div>
+</div>
+
+<div id="sell-confirm" class="confirm-overlay" style="display: none;">
+    <div class="confirm-box">
+        <p id="sell-confirm-message">このアイテムを売却しますか？</p>
+        <p id="sell-price-info" style="font-size: 0.9em; color: #ffd700;"></p> 
+        
+        <div id="sell-quantity-area" style="margin: 10px 0; text-align: center;">
+            <label for="sell-quantity" style="font-size: 14px; margin-right: 5px; color: #94a3b8;">個数:</label>
+            <input type="number" id="sell-quantity" value="1" min="1" 
+                style="width: 60px; padding: 5px; border-radius: 4px; border: 1px solid #444; background: #1e293b; color: white; text-align: center;">
+            <span id="sell-max-qty" style="font-size: 12px; color: #64748b; margin-left: 5px;"></span>
+        </div>
+
+        <div class="confirm-buttons">
+            <button id="sell-confirm-no">いいえ</button>
+            <button id="sell-confirm-yes" class="sell-btn">はい</button>
+        </div>
+    </div>
+</div>
 
 <!-- UI操作エリア -->
 <div id="ui-container">
@@ -314,6 +593,35 @@
     document.getElementById(`ch-btn-${ch}`).classList.add('active');
   }
   */
+  // 🌟 新しいツールチップ用のキャンバスを取得
+//const tCanvas = document.getElementById('tooltip-layer');
+//const tCtx = tCanvas.getContext('2d');
+
+// メインのcanvasで使っているdpr（解像度）の設定があれば合わせます
+// もし dpr という変数がない場合は const dpr = window.devicePixelRatio || 1; としてください
+/*
+function setupTooltipCanvas() {
+    const dpr = window.devicePixelRatio || 1;
+    
+    // キャンバスのサイズを画面ぴったりに合わせる
+    tCanvas.width = window.innerWidth * dpr;
+    tCanvas.height = window.innerHeight * dpr;
+    
+    // 表示上のサイズを調整
+    tCanvas.style.width = window.innerWidth + 'px';
+    tCanvas.style.height = window.innerHeight + 'px';
+    
+    // 描画の細かさをメインと合わせる
+    tCtx.scale(dpr, dpr);
+}
+
+// 実行する
+setupTooltipCanvas();
+*/
+
+// 画面のサイズが変わった時もぴったり重なるようにする
+//window.addEventListener('resize', setupTooltipCanvas);
+
 </script>
 
 </body>

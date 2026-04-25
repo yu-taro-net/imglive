@@ -12,6 +12,9 @@ const GROUP_COUNT   = 16;  // グループの総数 (00〜15)
 const VAR_COUNT     = 15;  // 各グループ内のキャラ数 (01〜15)
 const MAX_LOGS = 5;        // 画面に表示するログの最大数
 
+window.isGameStarted = false;
+window.hoveredItemForTooltip = null;
+
 const VIEW_CONFIG = {
   // --- 画面の基本サイズ ---
   SCREEN_WIDTH: 800,
@@ -522,6 +525,7 @@ Object.keys(DAMAGE_ASSETS).forEach(num => {
  * 🖼️ モンスター画像および静的リソースの読み込み
  * ご提示いただいたロジックを崩さず、エラー回避処理を追加しています。
  */
+/*
 function loadStaticImages() {
     // --- 💰 アイテム専用の読み込みエリア ---
     //if (typeof loadItemImages === 'function') loadItemImages();
@@ -593,6 +597,97 @@ function loadStaticImages() {
     });
 	
 	// --- 💀 共通の死亡エフェクト (DeathFx) ---
+    sprites["commonDeath"] = [];
+    for (let i = 0; i < 18; i++) {
+        const img = new Image();
+        img.src = `/char_assets_enemy/DeathFx/skeleton-animation_${i}.png`;
+        sprites["commonDeath"].push(img);
+    }
+}
+*/
+
+function loadStaticImages() {
+    const allowedIds = ["Char01", "Char02", "Char03", "Char10", "Char13", "Char16", "Char19", "Monster1"];
+
+    if (!MONSTER_CONFIGS || MONSTER_CONFIGS.length === 0) return;
+
+    MONSTER_CONFIGS.forEach(m => {
+        if (!allowedIds.includes(m.id)) return;
+
+        const basePath = `/char_assets_enemy/${m.id}`;
+        
+        // 🌟 IDによってファイル名とルールの「接頭辞」を切り替える
+        let fName;
+        let isMonsterType = m.id.startsWith("Monster"); // "Monster"で始まるIDかどうか
+
+        if (isMonsterType) {
+            // Monster1版：ファイル名は無し（直接 tile000.png など）
+            fName = "tile"; 
+        } else {
+            // Char01版：ファイル名は skeleton-Attack_0.png
+            fName = "skeleton";
+        }
+
+        // --- 各アクションの読み込みヘルパー関数 ---
+        const loadSet = (actionName, folderName, fileSuffix) => {
+            const key = m.name + actionName;
+            sprites[key] = [];
+            
+            let count = 0;
+
+            // 🌟 修正：Monster1の強制指定
+            if (m.id === "Monster1") {
+                if (actionName === 'Idle')   count = 27;
+                if (actionName === 'Walk')   count = 20;
+                if (actionName === 'Attack') count = 17;
+                if (actionName === 'Death')  count = 27;
+                if (actionName === 'Jump')   count = 0;
+            } else {
+                // 🌟 修正：Charシリーズ用。DBの新しい列名(anim_walk)と、
+                // 従来のプロパティ名(walk)の両方をチェックして、ある方を使う
+                const lowerName = actionName.toLowerCase(); // 'walk'
+                const dbColName = "anim_" + lowerName;      // 'anim_walk'
+                
+                count = m[dbColName] || m[lowerName] || 0;
+            }
+
+            for (let i = 0; i < count; i++) {
+                const img = new Image();
+                let fullPath;
+                
+                if (isMonsterType) {
+                    // Monster1版：tile000.png, tile001.png の形式
+                    const num = String(i).padStart(3, '0');
+                    fullPath = `${basePath}/${folderName}/${fName}${num}.png`;
+                } else {
+                    // Char01版：skeleton-Attack_0.png の形式
+                    fullPath = `${basePath}/${folderName}/${fName}-${fileSuffix}_${i}.png`;
+                }
+                
+                img.src = fullPath;
+                sprites[key].push(img);
+            }
+        };
+
+        // --- 実行（元のスッキリした呼び出し形式を維持） ---
+        loadSet('Walk',   'Walk', 'Walk');
+        loadSet('Attack', 'Attack', 'Attack');
+        loadSet('Idle',   'Idle', 'Idle');
+        loadSet('Jump',   'Jump', 'Jump');
+        loadSet('Death',  'Death', 'Death'); 
+
+        // ダメージ等の単体画像
+        const idleKey = isMonsterType ? 'tile000' : `${fName}-Idle_0`;
+        const baseImg = new Image();
+        baseImg.src = `${basePath}/Idle/${idleKey}.png`;
+        sprites[m.name] = [baseImg]; 
+
+        const damageImg = new Image();
+        damageImg.src = `${basePath}/Idle/${idleKey}.png`;
+        sprites[m.name + 'Damage'] = [damageImg];
+    });
+
+    // --- 共通エフェクト ---
     sprites["commonDeath"] = [];
     for (let i = 0; i < 18; i++) {
         const img = new Image();
@@ -858,6 +953,12 @@ window.addEventListener('keydown', (e) => {
 });
 
 window.addEventListener('keydown', (e) => {
+    
+	// 🌟 ログイン前（window.isGameStartedが設定されていない、またはfalse）なら何もしない
+    if (!window.isGameStarted) {
+        return;
+    }
+	
     // 1. ガード処理（入力フォームにフォーカスがある時は反応させない）
     if (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA') return;
 
@@ -1177,6 +1278,10 @@ socket.on('chat', data => {
   // これにより、画面上の吹き出しとして描画されるのを防ぎます
   if (data.type === 'whisper' || data.type === 'group' || data.type === 'friend') return;
 
+  // 🌟【追加：重なり防止】
+  // 同じプレイヤー(data.id)の古い吹き出しが配列に残っていたら、新しいのを入れる前に削除する
+  chatMessages = chatMessages.filter(msg => msg.id !== data.id);
+
   // id, text に加えて type も保存しておくと、後で描画時に色を変えられます
   chatMessages.push({ 
     id: data.id, 
@@ -1455,84 +1560,118 @@ socket.on('state', (data) => {
     const currentItems = allItemsFromServer.filter(it => !it.isPickedUp);
     const currentTotalCount = allItemsFromServer.length;
 
-    // 🌟 追加：自分のデータから「現在のチャンネル」を取得
+    // 🌟 自分のデータから現在のチャンネルを取得
     const myHeroData = data.players[socket.id];
     const serverChannel = myHeroData ? myHeroData.channel : null;
 
-    // --- 🔊 ドロップ音の判定処理（完全ガード版） ---
-
-    // 判定に使うフラグ
+    // --- 🔊 ドロップ音・入室音の判定 (既存ロジックを完全維持) ---
     let isChannelJustChanged = false;
-
-    // 🌟 判定：チャンネルが以前と違う、または初回受信の場合
     if (serverChannel !== window.currentChannelId || typeof window.lastCount === 'undefined') {
         window.lastCount = currentTotalCount;
         window.currentChannelId = serverChannel;
-        isChannelJustChanged = true; // この瞬間は「移動直後」フラグを立てる
-        console.log("📥 チャンネル切り替え検知：基準値を同期しました（音は鳴らしません）");
-    } 
-    else {
-        // 同じチャンネル内での更新：数が増えていたら音を出す
+        isChannelJustChanged = true; 
+        console.log("📥 チャンネル切り替え検知：基準値を同期しました");
+    } else {
         if (currentTotalCount > window.lastCount) {
             console.log("🌟 AAA：アイテムドロップ検知！"); 
-            if (typeof playDropSound === 'function') {
-                playDropSound(); 
-            }
+            if (typeof playDropSound === 'function') playDropSound(); 
         }
         window.lastCount = currentTotalCount;
     }
 
-    // --- 👥 他プレイヤーの入室音判定処理 ---
     const currentPlayerIdsInMyChannel = new Set();
     let hasNewArrival = false;
-
     if (myHeroData) {
         for (let id in data.players) {
-            if (id === socket.id) continue; // 自分は除外
-
+            if (id === socket.id) continue;
             const p = data.players[id];
-            // 自分と同じチャンネルにいる人だけをチェック対象にする
             if (p.channel === serverChannel) {
                 currentPlayerIdsInMyChannel.add(id);
-                
-                // 🌟 前回はいなかったIDが入ってきた場合
                 if (!window.prevPlayerIds.has(id)) {
-                    
-                    // 🌟 修正：自分が移動した直後でなく、かつ「今ログインしたばかりの人」でなければ通知を出す
                     if (!isChannelJustChanged && !window.recentLoginIds.has(id)) {
                         hasNewArrival = true;
                         const arrivalName = p.name || "Player";
-                        addNotification(`${arrivalName} が入室しました。`, "#66FF66"); // 明るい緑
+                        addNotification(`${arrivalName} が入室しました。`, "#66FF66");
                     }
                 }
             }
         }
-
-        // 🌟 新入室者がいて、かつ「自分が移動した瞬間」ではない場合に音を鳴らす
         if (hasNewArrival && !isChannelJustChanged) {
-            console.log("👥 新しいプレイヤーが入室しました");
-            if (typeof playInviteSound === 'function') {
-                playInviteSound();
-            }
+            if (typeof playInviteSound === 'function') playInviteSound();
         }
     }
-    // 今回のメンバーを「前回分」として記憶
     window.prevPlayerIds = currentPlayerIdsInMyChannel;
-
-    // ---------------------------------------
 
     console.log("⭐️確認の表示1");
     
-    // --------------------------------------------------
-    // ✋ ここから下は「自分のデータがある時だけ」実行する（ブレーキ）
-    // --------------------------------------------------
-    if (!myHeroData) {
-        return; 
-    }
+    // ✋ 自分のデータがない場合は終了
+    if (!myHeroData) return;
+
+    // 🌟 重要：上書きされる前の「詳細なインベントリ」をJSONコピーで完全に保護
+    // upsertUserInventoryでは保存されない「性能数値」をここで保持します
+    const oldInventory = (window.hero && window.hero.inventory) ? JSON.parse(JSON.stringify(window.hero.inventory)) : [];
     
     const myHero = myHeroData;
 
-    /* (以下、既存の描画ロジックのため省略) */
+    // ==================================================
+    // 🛡️ 【詳細消失対策：ID/スロット二重照合版】
+    // ==================================================
+    if (myHero.inventory && Array.isArray(myHero.inventory)) {
+        
+        console.log("--- [GRID DRAW CHECK] ---", myHero.inventory);
+
+        myHero.inventory.forEach((newItem) => {
+            if (!newItem) return;
+
+            // 🌟 紐付けキー(ID)の特定
+            const newKey = newItem.equipment_id || newItem.instanceId;
+
+            // 古いデータから同じ装備を探す（ID一致を最優先、次にスロット番号）
+            const oldItem = oldInventory.find(old => {
+                const oldKey = old.equipment_id || old.instanceId;
+                const isIdMatch = (newKey && oldKey && String(newKey) === String(oldKey));
+                const isSlotMatch = (newItem.slot_index === old.slot_index && newItem.id === old.id);
+                return isIdMatch || isSlotMatch;
+            });
+
+            // 詳細データ（totalALLStats）が消えて届いた場合に復元
+            if (oldItem) {
+                const isDataLost = (typeof newItem.totalALLStats === 'undefined' || newItem.totalALLStats === 0);
+                
+                if (isDataLost && oldItem.totalALLStats > 0) {
+                    // loadUserInventory の JOIN 結果に含まれるすべての詳細項目を復元
+                    const props = [
+                        'name', 'displayName', 'imageName', 'atk', 'matk', 'def',
+                        'str', 'dex', 'int', 'luk', 'maxHp', 'maxMp', 
+                        'totalFirstStats', 'totalALLStats'
+                    ];
+
+                    props.forEach(p => {
+                        // 新しいデータに値がない、または 0 の場合のみ上書き
+                        if (newItem[p] === undefined || newItem[p] === 0 || newItem[p] === "") {
+                            newItem[p] = oldItem[p];
+                        }
+                    });
+
+                    // ID項目の相互補完（サーバーとクライアントの名称差異を吸収）
+                    if (!newItem.instanceId && oldItem.instanceId) newItem.instanceId = oldItem.instanceId;
+                    if (!newItem.equipment_id && oldItem.equipment_id) newItem.equipment_id = oldItem.equipment_id;
+                    if (!newItem.type && oldItem.type) newItem.type = oldItem.type;
+
+                    console.log(`🔧 Slot:${newItem.slot_index} (ID:${newKey}) の詳細データを救出しました`);
+                }
+            }
+        });
+
+        // 描画用のバッファを最新（復元済み）の状態に更新
+        if (typeof inventoryVisualBuffer !== 'undefined') {
+            inventoryVisualBuffer = myHero.inventory;
+        }
+    }
+    // ==================================================
+
+    // 最後にグローバル変数を更新
+    window.hero = myHero;
 });
 
 socket.on('exp_log', (data) => {
@@ -1541,7 +1680,8 @@ socket.on('exp_log', (data) => {
     // アイテムログを表示する「本物の箱」にデータを入れます
     if (typeof itemLogs !== 'undefined') {
         itemLogs.push({
-            text: `✨ Exp: 経験値を ${data.amount} 獲得した！`,
+            //text: `✨ Exp: 経験値を ${data.amount} 獲得した！`,
+            text: `経験値を得ました。 (+${data.amount})`,
             timer: 500 // 3秒間
         });
 
@@ -1559,7 +1699,8 @@ socket.on('gold_log', (data) => {
     
     if (typeof itemLogs !== 'undefined') {
         itemLogs.push({
-            text: `💰 Gold: ${data.amount} GOLD 手に入れました！`, // ← ここを書き換え
+            //text: `💰 Gold: ${data.amount} GOLD 手に入れました！`, // ← ここを書き換え
+            text: `ゴールドを得ました。(+${data.amount})`, // ← ここを書き換え
             timer: 500 
         });
 
@@ -1650,8 +1791,8 @@ socket.on('item_pickup_log', (data) => {
 
     // 1. メッセージを作成
     let logMsg = data.amount >= 2 
-        ? `${data.itemName}を${data.amount}個手に入れました` 
-        : `${data.itemName}を手に入れました`;
+        ? `アイテムを得ました。(${data.itemName} ${data.amount}個)` 
+        : `アイテムを得ました。(${data.itemName})`;
 
     if (typeof itemLogs !== 'undefined') {
         // 2. 🌟 exp_logと同じ形式（timer）でデータを追加します
@@ -2253,17 +2394,21 @@ function drawGameWindows(hero) {
 function drawUIOverlay(hero) {
     if (!hero) return; // 🌟 heroが空っぽの時は何もしない（これでエラーを防ぐ）
 	
-    // 1. 基本UIパーツの描画
+    // 1. 基本UIパーツの描画（背面Canvas: ctx）
     drawItemLogsUI();
     drawTopStatusUI(hero);
 
-    // 🌟 分離された所持金表示（必要に応じて呼び出し）
+    // 🌟 分離された所持金表示
     drawGoldUI(hero);
 
     // ==========================================
     // 🎒 インベントリグリッド（メインループ部分）
     // ==========================================
+    // 🌟 修正：まずホバー状態を一度クリアします（マウスが外れた時に消すため）
+    window.hoveredItemForTooltip = null;
+
     if (hero && hero.inventory) {
+        // グリッド背景などは背面に描画
         drawInventoryGrid(ctx, hero.inventory);
 
         const startX = 20;
@@ -2276,96 +2421,132 @@ function drawUIOverlay(hero) {
             const x = startX + (index * (slotSize + spacing));
             const y = startY;
 
+            // マウスがアイテムの上にあるか判定
             if (mouseX >= x && mouseX <= (x + slotSize) &&
                 mouseY >= y && mouseY <= (y + slotSize)) {
 
-                ctx.save();
-                // 整理したツールチップ関数を呼び出す
-                drawItemTooltip(ctx, slot, mouseX, mouseY, hero);
-                ctx.restore();
+                // 🌟 修正：ここでは ctx に描画せず、情報を記憶するだけにする
+                // これにより、インベントリがショップの裏にあってもデータだけは取れます
+                window.hoveredItemForTooltip = slot;
             }
         });
     }
 
-    // 🌟 整理：重なり順を管理する配列に基づいてウィンドウ群を描画
+    // 🌟 整理：重なり順を管理する配列に基づいてウィンドウ群を描画（背面Canvas）
     drawGameWindows(hero);
+	
+    // ==========================================
+    // ✨ ツールチップ描画の実行（最前面Canvas: tCtx）
+    // ==========================================
+    // 🌟 修正：ここで tCtx を使って、ショップUIよりも手前に一気に描画します
+    if (typeof tCtx !== 'undefined') {
+        // 1. 前のフレームの残像を消す
+        //tCtx.clearRect(0, 0, window.innerWidth, window.innerHeight);
+
+        // 2. もしインベントリ（または今後実装するショップ）でアイテムを触っていたら描画
+        if (window.hoveredItemForTooltip) {
+            drawItemTooltip(tCtx, window.hoveredItemForTooltip, mouseX, mouseY, hero);
+        }
+    }
 }
 
 // ==========================================
-// 🎨 アイテム詳細ツールチップ描画関数 (BONUS 8段階評価版)
+// 🎨 アイテム詳細ツールチップ描画関数 (ショップ連動・8段階評価版)
 // ==========================================
 function drawItemTooltip(ctx, slot, mouseX, mouseY, hero) {
-    const isEquipment = (slot.type === 'sword' || slot.type === 'shield');
+    if (!slot) return;
+
+    // 🛡️ 1. 現在のCanvas状態（フォント、色、座標系）をすべて保存
+    ctx.save();
+
+    // 装備判定の拡張
+    const isEquipment = (
+        slot.type === 'sword' || 
+        slot.type === 'shield' || 
+        slot.category === 'weapon1' || 
+        slot.category === 'shield1' || 
+        slot.category === 'armor1' ||
+        ['sword', 'armor', 'shield'].includes(slot.item_type)
+    );
     
-    // --- 1. ロジック踏襲：ステータス・ランク・名称解決 ---
-    let reqLevel = (slot.lv !== undefined) ? parseInt(slot.lv) : 0;
+    // --- 🌟 動的ステータス計算ロジック ---
+    let totalFirstStats = slot.totalFirstStats;
+    let totalALLStats = slot.totalALLStats;
+    const statKeys = ['str', 'dex', 'int', 'luk', 'maxHp', 'maxMp', 'atk', 'matk', 'def'];
+
+    if (isEquipment) {
+        if (totalFirstStats === undefined && typeof ITEM_CATALOG !== 'undefined') {
+            const catalogItem = ITEM_CATALOG[slot.id || slot.item_id];
+            if (catalogItem) {
+                totalFirstStats = statKeys.reduce((acc, key) => {
+                    let val = (catalogItem[key] || 0);
+                    if (key === 'maxHp' || key === 'maxMp') val = val / 10;
+                    return acc + val;
+                }, 0);
+            }
+        }
+        if (totalALLStats === undefined) {
+            totalALLStats = statKeys.reduce((acc, key) => {
+                let val = (parseInt(slot[key]) || 0);
+                if (key === 'maxHp' || key === 'maxMp') val = val / 10;
+                return acc + val;
+            }, 0);
+        }
+    }
+
+    // --- ランク・名称解決 ---
+    let reqLevel = (slot.lv !== undefined) ? parseInt(slot.lv) : 7;
     let starCount = (slot.star !== undefined) ? parseInt(slot.star) : 0;
     let successCount = (slot.successCount !== undefined) ? parseInt(slot.successCount) : 0;
+    
     let categoryName = "";
     if (isEquipment) {
-        const catMap = { "weapon": "武器", "shield": "盾", "armor": "防具" };
+        const catMap = { "weapon1": "武器", "shield1": "盾", "armor1": "防具" };
         categoryName = catMap[slot.category] || (slot.type === 'sword' ? "片手剣" : "盾");
     }
 
     let baseItemName = "アイテム";
     if (typeof ITEM_CONFIG !== 'undefined' && ITEM_CONFIG[slot.type]) {
-        baseItemName = ITEM_CONFIG[slot.type].display_name;
+        baseItemName = ITEM_CONFIG[slot.type].display_name || ITEM_CONFIG[slot.type].name;
     } else {
-        baseItemName = slot.type === 'shield' ? "盾" : (slot.type === 'sword' ? "剣" : slot.type);
+        baseItemName = slot.name || (slot.type === 'shield' ? "盾" : (slot.type === 'sword' ? "剣" : slot.type));
     }
     if (isEquipment && successCount > 0) baseItemName = `${baseItemName} (+${successCount})`;
 
     let itemName = baseItemName;
     let statusText = "";
     let displayColor = "#ffffff";
-    let glowColor = null; // 🌟 グロー用カラー変数
+    let glowColor = null;
 
-    // 🌟 判定：ボーナス値に基づいた 8段階のランク・色判定
-    if (isEquipment && slot.totalALLStats !== undefined && slot.totalFirstStats !== undefined) {
-        const bonus = slot.totalALLStats - slot.totalFirstStats;
+    if (isEquipment && totalALLStats !== undefined && totalFirstStats !== undefined) {
+        const bonus = totalALLStats - totalFirstStats;
         let rankName = "";
-
-        // 灰 < 白 < 橙 < 青 < 紫 < 黄 < 緑 < 赤 の順に判定
-        if (bonus >= 30) {
-            displayColor = "#ff0000"; rankName = "(神級)";
-            glowColor = displayColor; // 神級は赤く光る
-        } else if (bonus >= 25) {
-            displayColor = "#00ff00"; rankName = "(超伝説)";
-            glowColor = displayColor; // 超伝説は緑に光る
-        } else if (bonus >= 20) {
-            displayColor = "#ffff00"; rankName = "(極上)";
-            glowColor = displayColor; // 極上は黄色に光る
-        } else if (bonus >= 15) {
-            displayColor = "#ff00ff"; rankName = "(伝説)";
-            glowColor = displayColor; // 伝説は紫に光る
-        } else if (bonus >= 10) {
-            displayColor = "#00ccff"; rankName = "(希少)";
-            glowColor = displayColor; // 希少は青く光る
-        } else if (bonus >= 5) {
-            displayColor = "#ff9900"; rankName = "(良品)";
-        } else if (bonus >= 0) {
-            displayColor = "#ffffff"; rankName = "(標準)";
-        } else {
-            displayColor = "#aaaaaa"; rankName = "(粗悪)"; 
-        }
+        if (bonus >= 30) { displayColor = "#ff0000"; rankName = "(神級)"; glowColor = displayColor; }
+        else if (bonus >= 25) { displayColor = "#00ff00"; rankName = "(超伝説)"; glowColor = displayColor; }
+        else if (bonus >= 20) { displayColor = "#ffff00"; rankName = "(極上)"; glowColor = displayColor; }
+        else if (bonus >= 15) { displayColor = "#ff00ff"; rankName = "(伝説)"; glowColor = displayColor; }
+        else if (bonus >= 10) { displayColor = "#00ccff"; rankName = "(希少)"; glowColor = displayColor; }
+        else if (bonus >= 5) { displayColor = "#ff9900"; rankName = "(良品)"; }
+        else if (bonus >= 0) { displayColor = "#ffffff"; rankName = "(標準)"; }
+        else { displayColor = "#aaaaaa"; rankName = "(粗悪)"; }
         itemName = `${baseItemName}${rankName}`;
-
     } else {
-        // ETC/消費アイテム
-        if (typeof itemDescriptions !== 'undefined' && itemDescriptions[slot.type]) {
+        // ETC/消費アイテム・ショップ商品
+        if (slot.description) {
+            statusText = slot.description;
+        } else if (typeof itemDescriptions !== 'undefined' && itemDescriptions[slot.type]) {
             statusText = itemDescriptions[slot.type];
         } else {
-            statusText = `個数 : ${slot.count}`;
+            statusText = `個数 : ${slot.count || slot.quantity || 1}`;
         }
     }
 
-    // --- 2. レイアウト計算 ---
+    // --- レイアウト計算 ---
     const padding = 12;
     const iconSize = 40; 
     const iconTextGap = 15;
     const lineHeight = 16;
-    const statsToShow = ['str', 'dex', 'int', 'luk', 'maxHp', 'maxMp', 'atk', 'matk', 'def'];
-    const activeStats = isEquipment ? statsToShow.filter(k => {
+    const activeStats = isEquipment ? statKeys.filter(k => {
         const val = parseInt(slot[k]);
         return !isNaN(val) && val !== 0; 
     }) : [];
@@ -2375,23 +2556,18 @@ function drawItemTooltip(ctx, slot, mouseX, mouseY, hero) {
     ctx.font = '12px sans-serif';
     const statusWidth = ctx.measureText(statusText).width;
 
-    // 横幅を 240px 以上に設定
     let boxWidth = padding + iconSize + iconTextGap + Math.max(nameWidth, statusWidth, 180) + padding;
     if (boxWidth < 240) boxWidth = 240;
 
-    // 高さ計算
-    const reqLines = isEquipment ? (1 + (slot.totalFirstStats !== undefined ? 1 : 0) + (slot.totalALLStats !== undefined ? 1 : 0) + 1) : 0;
+    const reqLines = isEquipment ? (1 + (totalFirstStats !== undefined ? 1 : 0) + (totalALLStats !== undefined ? 1 : 0) + 1) : 0;
     let boxHeight = isEquipment ? 115 + (activeStats.length * lineHeight) + (reqLines * 12) : 65;
 
     let popupX = mouseX + 15;
     let popupY = mouseY + 15;
-    if (popupX + boxWidth > canvas.width) popupX = mouseX - boxWidth - 10;
-    if (popupY + boxHeight > canvas.height) popupY = mouseY - boxHeight - 10;
-    if (popupX < 5) popupX = 5;
-    if (popupY < 5) popupY = 5;
+    //if (popupX + boxWidth > (canvas.width / dpr)) popupX = mouseX - boxWidth - 10;
+    //if (popupY + boxHeight > (canvas.height / dpr)) popupY = mouseY - boxHeight - 10;
 
-    // --- 3. 枠の描画 ---
-    ctx.save();
+    // --- 描画開始 ---
     ctx.fillStyle = 'rgba(15, 15, 15, 0.95)';
     ctx.beginPath();
     if (typeof ctx.roundRect === 'function') { ctx.roundRect(popupX, popupY, boxWidth, boxHeight, 5); }
@@ -2400,9 +2576,7 @@ function drawItemTooltip(ctx, slot, mouseX, mouseY, hero) {
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
     ctx.lineWidth = 1;
     ctx.stroke();
-    ctx.restore();
 
-    // スターフォース
     if (isEquipment && starCount > 0) {
         ctx.font = '14px sans-serif';
         ctx.fillStyle = '#ffff00';
@@ -2414,44 +2588,35 @@ function drawItemTooltip(ctx, slot, mouseX, mouseY, hero) {
     const textStartX = popupX + padding + iconSize + iconTextGap;
     const rightValueX = popupX + boxWidth - 12;
 
-    // 🌟 修正ポイント：アイコン描画（グロー効果）
-    let itemImg = itemImages[slot.type];
+    // アイコン描画
+    //let itemImg = (typeof itemImages !== 'undefined') ? itemImages[slot.type] : null;
+	let itemImg = slot.img || ((typeof itemImages !== 'undefined') ? itemImages[slot.type] : null);
     if (itemImg && itemImg.complete && itemImg.naturalWidth !== 0) {
         ctx.save();
         if (glowColor) {
-            // インベントリ同様、2回重ねて描画し発色を強める
             ctx.shadowBlur = 15;
             ctx.shadowColor = glowColor;
-            ctx.drawImage(itemImg, popupX + padding, contentTop, iconSize, iconSize);
-            
-            ctx.shadowBlur = 5; // 芯の光
-            ctx.drawImage(itemImg, popupX + padding, contentTop, iconSize, iconSize);
-        } else {
-            ctx.drawImage(itemImg, popupX + padding, contentTop, iconSize, iconSize);
         }
+        ctx.drawImage(itemImg, popupX + padding, contentTop, iconSize, iconSize);
         ctx.restore();
     }
 
-    // アイテム名描画 (ランクの色を適用)
+    // テキスト描画
     ctx.font = 'bold 15px sans-serif';
     ctx.fillStyle = displayColor;
     ctx.textAlign = 'left';
     ctx.textBaseline = 'top';
     ctx.fillText(itemName, textStartX, contentTop);
 
-    // --- 4. 詳細・ステータス描画 ---
     if (isEquipment) {
-        // 装備分類
         ctx.font = '11px sans-serif';
         ctx.fillStyle = '#aaaaaa';
         ctx.fillText(`装備分類 : ${categoryName}`, textStartX, contentTop + 20);
 
-        // REQエリア
         let currentReqY = contentTop + 35;
         const heroLevel = hero ? (hero.level || 0) : 0;
         ctx.font = 'bold 10px sans-serif';
 
-        // REQ LEV
         ctx.textAlign = 'left';
         ctx.fillStyle = (heroLevel < reqLevel) ? '#ff0000' : '#ffff00';
         ctx.fillText("・REQ LEV", textStartX, currentReqY);
@@ -2459,77 +2624,51 @@ function drawItemTooltip(ctx, slot, mouseX, mouseY, hero) {
         ctx.fillText(reqLevel, rightValueX, currentReqY);
         currentReqY += 12;
 
-        // REQ First
-        if (slot.totalFirstStats !== undefined) {
+        if (totalFirstStats !== undefined) {
             ctx.textAlign = 'left'; ctx.fillStyle = '#ffffff';
             ctx.fillText("・REQ First", textStartX, currentReqY);
-            ctx.textAlign = 'right'; ctx.fillText(slot.totalFirstStats, rightValueX, currentReqY);
+            ctx.textAlign = 'right'; ctx.fillText(Math.floor(totalFirstStats), rightValueX, currentReqY);
             currentReqY += 12;
         }
-        // REQ ALL
-        if (slot.totalALLStats !== undefined) {
+        if (totalALLStats !== undefined) {
             ctx.textAlign = 'left'; ctx.fillStyle = '#ffffff';
             ctx.fillText("・REQ ALL", textStartX, currentReqY);
-            ctx.textAlign = 'right'; ctx.fillText(slot.totalALLStats, rightValueX, currentReqY);
+            ctx.textAlign = 'right'; ctx.fillText(Math.floor(totalALLStats), rightValueX, currentReqY);
             currentReqY += 12;
         }
-        
-        // BONUS表示
-        if (slot.totalALLStats !== undefined && slot.totalFirstStats !== undefined) {
-            const bonus = slot.totalALLStats - slot.totalFirstStats;
-            const displayBonus = Math.round(bonus * 10) / 10;
-
-            ctx.textAlign = 'left'; 
-            ctx.fillStyle = displayColor; // ボーナス値自体もランク色で
+        if (totalALLStats !== undefined && totalFirstStats !== undefined) {
+            const bonus = totalALLStats - totalFirstStats;
+            ctx.textAlign = 'left'; ctx.fillStyle = displayColor;
             ctx.fillText("・BONUS", textStartX, currentReqY);
-            ctx.textAlign = 'right'; 
-            ctx.fillText((bonus >= 0 ? "+" : "") + displayBonus, rightValueX, currentReqY);
+            ctx.textAlign = 'right'; ctx.fillText((bonus >= 0 ? "+" : "") + Math.round(bonus * 10) / 10, rightValueX, currentReqY);
             currentReqY += 12;
         }
 
-        // ステータス一覧
         let currentY = currentReqY + 5;
         ctx.font = '12px sans-serif';
         activeStats.forEach(key => {
             const labelMap = { str: "STR", dex: "DEX", int: "INT", luk: "LUK", maxHp: "最大HP", maxMp: "最大MP", atk: "攻撃力", matk: "魔力", def: "防御力" };
-            const label = (typeof STAT_NAMES !== 'undefined' && STAT_NAMES[key]) ? STAT_NAMES[key] : (labelMap[key] || key.toUpperCase());
-
             ctx.textAlign = 'left'; ctx.fillStyle = '#ffffff';
-            ctx.fillText(label, textStartX, currentY);
+            ctx.fillText(labelMap[key] || key.toUpperCase(), textStartX, currentY);
             ctx.textAlign = 'right';
             ctx.fillText(`+${slot[key]}`, rightValueX, currentY);
             currentY += lineHeight;
         });
 
-        // 強化可能回数
         const total = slot.totalUpgrade || 7;
         const used = (slot.successCount || 0) + (slot.failCount || 0);
-        ctx.save();
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
-        ctx.beginPath();
-        ctx.moveTo(textStartX, currentY + 5);
-        ctx.lineTo(popupX + boxWidth - 10, currentY + 5);
-        ctx.stroke();
-        ctx.restore();
-
         ctx.textAlign = 'left'; ctx.fillStyle = '#ffff00';
-        ctx.fillText(`アップグレード可能回数 : ${total - used}`, textStartX, currentY + 12);
-
+        ctx.fillText(`アップグレード可能回数 : ${total - used}`, textStartX, currentY + 10);
     } else {
-        // ETC/消費アイテム
-        ctx.save();
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.2)';
-        ctx.beginPath();
-        ctx.moveTo(textStartX, contentTop + 25);
-        ctx.lineTo(popupX + boxWidth - 10, contentTop + 25);
-        ctx.stroke();
-        ctx.restore();
-
         ctx.textAlign = 'left';
         ctx.font = '12px sans-serif';
         ctx.fillStyle = '#ffffff';
-        ctx.fillText(statusText, textStartX, contentTop + 32);
+        // 説明文が長い場合の簡易折り返し等はせず、元のロジックを維持
+        ctx.fillText(statusText, textStartX, contentTop + 30);
     }
+
+    // 🛡️ 2. 元の状態に復元（これで他の描画がズレない）
+    ctx.restore();
 }
 
 // --- 📊 独立させた Player Status ウィンドウ描画関数 ---
@@ -2951,24 +3090,72 @@ function drawEnemies(enemies, hero, frame) {
 
         // --- 3. ✨ 透明度設定 ---
         if (en.isFading) {
+            // 徐々に消えていく透明度の計算
             ctx.globalAlpha = Math.max(0, 1 - (en.deathFrame / VIEW_CONFIG.enemy.deathAnimDuration));
         } else if (en.spawnAlpha !== undefined) {
             ctx.globalAlpha = en.spawnAlpha;
         }
 
-        // --- 4. 🖼️ 画像とサイズの準備 (外出しした関数を呼び出し) ---
-        const { img, drawW, drawH } = getEnemyVisualData(en, sprites, frame, hero);
+        // --- 4. 🖼️ 画像とサイズの準備 ---
+        let { img, drawW, drawH } = getEnemyVisualData(en, sprites, frame, hero);
+
+        // 🌟 Monster1 専用：死亡演出中（isFading）なら専用アニメーションに差し替える
+        const isMonster1 = (en.id === "Monster1" || en.type === "Monster1");
+
+        if (en.isFading && isMonster1) {
+            // en.name が空の場合を考慮してフォールバックを用意
+            const nameKey = en.name || en.type || "Monster1";
+            const deathKey = nameKey + "Death";
+            const deathSprites = sprites[deathKey];
+            
+            // 🔍 【デバッグ行：チャットエリア通知】
+            // 死亡した最初のフレーム(deathFrame === 1)で状況を報告
+            if (en.deathFrame === 1) {
+                let statusMsg = "";
+                if (!deathSprites) {
+                    statusMsg = `⚠️ [Error] ${deathKey} が sprites にありません (Name:${en.name})`;
+                } else if (deathSprites.length === 0) {
+                    statusMsg = `⚠️ [Warning] ${deathKey} は空(0枚)です`;
+                } else {
+                    statusMsg = `✅ [Info] ${deathKey} 再生開始 (${deathSprites.length}枚)`;
+                }
+                
+                // 🌟 debugChat またはクライアント側の通知関数を試行
+                if (typeof debugChat === 'function') {
+                    debugChat(statusMsg);
+                } else if (typeof addChatLog === 'function') {
+                    addChatLog(statusMsg, 'system');
+                }
+                console.log(statusMsg);
+            }
+
+            if (deathSprites && deathSprites.length > 0) {
+                const progress = en.deathFrame / VIEW_CONFIG.enemy.deathAnimDuration;
+                const deathIdx = Math.min(Math.floor(progress * deathSprites.length), deathSprites.length - 1);
+                img = deathSprites[deathIdx];
+
+                // 🔍 【デバッグ行】画像がnullの場合も通知
+                if (!img && en.deathFrame === 1) {
+                    const errorMsg = `❌ [Error] ${deathKey} の画像(Idx:${deathIdx})がnullです`;
+                    if (typeof debugChat === 'function') debugChat(errorMsg);
+                    else if (typeof addChatLog === 'function') addChatLog(errorMsg, 'system');
+                }
+            }
+        }
 
         // --- 5. 📏 描画位置の計算と実行 ---
         if (img && img.complete && img.naturalWidth !== 0) {
             const s = en.scale || 1.0;
-            const finalW = drawW * s;
-            const finalH = drawH * s;
+			
+            // 🌟 全ての状態で原寸の20%（0.2倍）を適用する
+            // s（個別の倍率設定）も掛け合わせることで、さらに微調整も効くようにします
+            const finalW = img.naturalWidth * s * 0.25;
+            const finalH = img.naturalHeight * s * 0.25;
+	
             const baseX = en.x + en.w / 2;
 
             let enemyFootOffset = 0;
             if (en.y > VIEW_CONFIG.groundThreshold) {
-                // 設定リストから取得し、なければ -7 を使う
                 enemyFootOffset = VIEW_CONFIG.groupOffsets[en.type] || -7;
             }
 
@@ -2979,13 +3166,62 @@ function drawEnemies(enemies, hero, frame) {
             const finalY = baseY + (en.jumpY || 0);
 
             ctx.translate(baseX, finalY);
-            if (en.dir === 1) ctx.scale(-1, 1);
+
+            // 🌟 向きの反転処理
+            let shouldFlip = (en.dir === 1);
+            if (isMonster1) {
+                shouldFlip = !shouldFlip;
+            }
+
+            if (shouldFlip) ctx.scale(-1, 1);
+
+            // 🖼️ 画像の描画（死亡アニメまたは通常アニメ）
             ctx.drawImage(img, -finalW / 2, -finalH, finalW, finalH);
+
+            // 🔢 【動作確認用】Monster1の頭上にコマ番号を表示
+            //if (isMonster1) {
+            if (false) {
+                ctx.save();
+                if (shouldFlip) ctx.scale(-1, 1);
+                
+                ctx.fillStyle = "yellow";
+                ctx.font = "bold 16px Arial";
+                ctx.textAlign = "center";
+                
+                let currentIdx;
+                let statusLabel;
+
+                if (en.isFading) {
+                    const progress = en.deathFrame / VIEW_CONFIG.enemy.deathAnimDuration;
+                    currentIdx = Math.min(Math.floor(progress * 27), 26);
+                    statusLabel = "DeathIdx: ";
+                } else {
+                    currentIdx = Math.floor(frame / 12) % 27;
+                    statusLabel = "Index: ";
+                }
+                
+                ctx.fillText(statusLabel + currentIdx, 0, -finalH - 20);
+                ctx.restore();
+            }
+        } else {
+            // 🔍 【デバッグ行】描画失敗時の通知
+            if (en.isFading && isMonster1 && en.deathFrame === 1) {
+                const failMsg = `❌ [Fail] Monster1描画条件未達 (img exists: ${!!img})`;
+                if (typeof debugChat === 'function') debugChat(failMsg);
+                else if (typeof addChatLog === 'function') addChatLog(failMsg, 'system');
+            }
         }
 
         ctx.restore();
 
-        // --- 7. 🏥 HPバー描画 (外出しした関数を呼び出し) ---
+        // --- 6. 💥 共通デスエフェクトの描画判定 ---
+        if (en.isFading && (en.id !== "Monster1" && en.type !== "Monster1")) {
+            if (typeof drawCommonDeathEffect === 'function') {
+                drawCommonDeathEffect(en);
+            }
+        }
+
+        // --- 7. 🏥 HPバー描画 ---
         drawEnemyHPBar(en, frame);
     });
 }
@@ -3001,14 +3237,29 @@ function getEnemyVisualData(en, sprites, frame, hero) {
 
     // --- 1. 💀 死亡・消滅アニメーション (最優先) ---
     if (en.isFading) {
-        const ds = sprites["commonDeath"];
-        if (ds && ds.length > 0) {
-            const frameInterval = 40 / ds.length;
-            const animationIdx = Math.floor(en.deathFrame / frameInterval);
-            const safeIdx = Math.min(animationIdx, ds.length - 1);
-            img = ds[safeIdx];
-            drawW = VIEW_CONFIG.enemy.commonDeathSize.w;
-            drawH = VIEW_CONFIG.enemy.commonDeathSize.h;
+        // 🌟 Monster1 かどうかの判定
+        if (en.id === "Monster1" || en.type === "Monster1") {
+            // Monster1専用：読み込んだ 'Monster1Death' アニメーションを使用する
+            const ds = sprites[en.name + "Death"];
+            if (ds && ds.length > 0) {
+                const progress = en.deathFrame / VIEW_CONFIG.enemy.deathAnimDuration;
+                const safeIdx = Math.min(Math.floor(progress * ds.length), ds.length - 1);
+                img = ds[safeIdx];
+                // サイズは Monster1 の通常時と同じ倍率 (0.2) を適用
+                drawW = img.width * 0.2;
+                drawH = img.height * 0.2;
+            }
+        } else {
+            // 共通：従来のドクロ等のエフェクト
+            const ds = sprites["commonDeath"];
+            if (ds && ds.length > 0) {
+                const frameInterval = 40 / ds.length;
+                const animationIdx = Math.floor(en.deathFrame / frameInterval);
+                const safeIdx = Math.min(animationIdx, ds.length - 1);
+                img = ds[safeIdx];
+                drawW = VIEW_CONFIG.enemy.commonDeathSize.w;
+                drawH = VIEW_CONFIG.enemy.commonDeathSize.h;
+            }
         }
         return { img, drawW, drawH }; // 確定したら即座に返す
     }
@@ -3072,7 +3323,6 @@ function getEnemyVisualData(en, sprites, frame, hero) {
     if (isDamaged) {
         img = sprites[en.type + "Damage"];
         if (img && img.complete) {
-            // monster3も、他の敵も、画像本来のサイズに 0.2倍（VIEW_CONFIG.enemy.defaultScale）をかける方式に統一
             drawW = img.width * VIEW_CONFIG.enemy.defaultScale;
             drawH = img.height * VIEW_CONFIG.enemy.defaultScale;
         }
@@ -3083,12 +3333,20 @@ function getEnemyVisualData(en, sprites, frame, hero) {
     if (en.waitTimer > 0) {
         const idles = sprites[en.type + "Idle"];
         if (idles && idles.length > 0) {
-            // 【修正後】
-            const total = (en.type !== 'monster1') ? Math.min(idles.length, 3) : 1;
+            // 🌟 修正ポイント：
+            // Monster1の場合は全枚数(27枚)を使い、それ以外は最大3枚にする
+            let total;
+            if (en.id === "Monster1" || en.type === "Monster1") {
+                total = idles.length; // 27枚すべて使う
+            } else {
+                total = Math.min(idles.length, 3); // 従来通り最大3枚
+            }
+            
             img = idles[AnimUtils.getIdx(frame, 12, total)];
         } else {
             img = sprites[en.type];
         }
+
         if (img) {
             drawW = img.width * 0.2;
             drawH = img.height * 0.2;
@@ -4486,6 +4744,46 @@ canvas.addEventListener('mousemove', (e) => {
         canvas.style.cursor = "default";
     }
 });
+
+// 既存の怪しい設定を上書きして固定する
+window.tCanvas = document.getElementById('tooltip-layer');
+window.tCtx = window.tCanvas.getContext('2d');
+
+// 🌟 サイズを強制再固定
+window.tCanvas.width = 800;
+window.tCanvas.height = 600;
+
+/*
+function drawDebug() {
+    // 1. 前のフレームを消去
+    tCtx.clearRect(0, 0, 800, 600);
+
+    // 2. 左上に青い四角（レイヤーが生きている証拠）
+    tCtx.fillStyle = "blue";
+    tCtx.fillRect(10, 10, 30, 30);
+
+    // 3. マウス位置に赤い点
+    if (typeof window.mouseX !== 'undefined') {
+        tCtx.beginPath();
+        tCtx.arc(window.mouseX, window.mouseY, 10, 0, Math.PI * 2);
+        tCtx.fillStyle = "red";
+        tCtx.fill();
+        tCtx.closePath();
+    }
+
+    requestAnimationFrame(drawDebug);
+}
+drawDebug();
+*/
+
+/*
+// マウス位置を更新する専用の窓口
+document.addEventListener('mousemove', (e) => {
+    const rect = tCanvas.getBoundingClientRect();
+    window.mouseX = e.clientX - rect.left;
+    window.mouseY = e.clientY - rect.top;
+});
+*/
 
 // ==========================================
 // 📋 2. 表示に関する基本設定（VIEW_CONFIG）
