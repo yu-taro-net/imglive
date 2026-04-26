@@ -1868,10 +1868,10 @@ async function loadEnemyCatalog() {
 
 const ENEMY_PLAN = [
   { plat: 0,    id: 2010 }, 
-  { plat: 1,    id: 1020 }, 
-  { plat: 1,    id: 1020 }, 
-  { plat: 2,    id: 1030 }, 
-  { plat: null, id: 20 }
+  { plat: 1,    id: 2020 }, 
+  { plat: 1,    id: 2020 }, 
+  { plat: 2,    id: 2300 }, 
+  { plat: null, id: 2160 }
 ];
 
 // ==========================================
@@ -1879,6 +1879,7 @@ const ENEMY_PLAN = [
 // ==========================================
 const DROP_DATABASE = {
   "Monster1":  { table: "drop2"},
+  "Monster2":  { table: "drop2"},
   "Char13":  { table: "drop2"},
   "Char10":  { table: "drop4"  },
   "Char19":  { table: "drop4"  },
@@ -2131,26 +2132,27 @@ reset() {
   }
 
   // 🌟 ジャンプ・物理演算
-  applyJumpPhysics() {
-    // 1. 浮遊属性の判定（IDが30, 31, 32のキャラは浮いている）
-    const isFloating = [1010, 1020, 1030, 2010].includes(this.id);
+applyJumpPhysics() {
+  // 1. 浮遊属性の判定
+  // 1000番台の特定ID、または 2000番台すべて（2000〜2999）を対象にする
+  const isFloating = [1010, 1020, 1030].includes(this.id) || (this.id >= 2000 && this.id < 3000);
 
-    // 2. 空中にいる、またはジャンプ速度がある場合の処理
-    if (this.jumpY < 0 || this.jumpV !== 0) {
-      this.jumpV += 0.5;        // 重力を加算（落下速度が増す）
-      this.jumpY += this.jumpV;  // 座標を更新
+  // 2. 空中にいる、またはジャンプ速度がある場合の処理
+  if (this.jumpY < 0 || this.jumpV !== 0) {
+    this.jumpV += 0.5;         // 重力を加算
+    this.jumpY += this.jumpV;  // 座標を更新
 
-      // 地面（y=0）に着地した判定
-      if (this.jumpY >= 0) {
-        this.jumpY = 0;         // 座標を地面に固定
-        this.jumpV = 0;         // 速度をリセット
-      }
-    } 
-    // 3. 地上にいて、かつ浮遊キャラでない場合、低確率(1%)でジャンプ
-    else if (!isFloating && Math.random() < 0.01) {
-      this.jumpV = -7;          // 上方向への初速を与える
+    // 地面（y=0）に着地した判定
+    if (this.jumpY >= 0) {
+      this.jumpY = 0;          // 座標を地面に固定
+      this.jumpV = 0;          // 速度をリセット
     }
+  } 
+  // 3. 地上にいて、かつ浮遊キャラでない場合、低確率(1%)でジャンプ
+  else if (!isFloating && Math.random() < 0.01) {
+    this.jumpV = -7;           // 上方向への初速を与える
   }
+}
 
   // 🐾 AI移動ロジック
   updateAI() {
@@ -3851,22 +3853,84 @@ function updateEnemies() {
                 // ダメージ点滅タイマー
                 if (e.damageTimer > 0) e.damageTimer--;
 
-                // 攻撃アニメーション管理
+                // --- 🌟 攻撃アニメーションと判定の管理 ---
                 if (e.isAttacking > 0) {
                     e.isAttacking--;
-                } else if (e.isEnraged) {
-                    // 🌟 怒り状態なら1%の確率で攻撃開始
-                    if (Math.random() < 0.01) e.isAttacking = 22;
+
+                    // ⚔️ 振り下ろし判定：22から始まるカウントのうち、15〜8の時だけ当たり判定を出す
+                    // これにより「振りかぶっている間」や「振り切った後」は当たらないようになります
+                    if (e.isAttacking <= 15 && e.isAttacking >= 8) {
+                        e.isAttackingHitFrame = true;
+                    } else {
+                        e.isAttackingHitFrame = false;
+                    }
+                } else {
+                    e.isAttackingHitFrame = false; // 攻撃していない時は判定OFF
+                    if (e.isEnraged) {
+                        // 🌟 怒り状態なら1%の確率で攻撃開始 (22フレーム設定)
+                        if (Math.random() < 0.01) e.isAttacking = 22;
+                    }
                 }
+
+                // --- 🌟 プレイヤーへのダメージ判定処理の呼び出し ---
+                // ※この関数の外または下で定義されているダメージチェックを呼び出します
+                checkMonsterHitsPlayers(e, chId);
+
             } catch (err) {
                 console.error(`[ENEMY ERROR] ch:${chId}, index:${index}, ID:${e.id}`, err);
             }
         });
 
         // 3. 🌟 重要：そのチャンネル（Room）にいるプレイヤーだけに、そのchの敵データを送る
-        // これにより、別のchの敵が画面に映るのを防ぎます
         io.to(`channel_${chId}`).emit('update_enemies', currentEnemies);
     });
+}
+
+/**
+ * ⚔️ モンスターの攻撃がプレイヤーに当たっているか計算する関数
+ */
+function checkMonsterHitsPlayers(enemy, chId) {
+    // そのチャンネルにいるソケットIDのリストを取得
+    const room = io.sockets.adapter.rooms.get(`channel_${chId}`);
+    if (!room) return;
+
+    room.forEach(socketId => {
+        const player = players[socketId]; // サーバー側で保持しているプレイヤーデータ
+        if (!player || player.hp <= 0) return;
+
+        // 1. 本体の接触判定（常に有効）
+        let isHit = isRectOverlapping(
+            enemy.x, enemy.y, enemy.w, enemy.h,
+            player.x, player.y, player.w, player.h
+        );
+
+        // 2. 🌟 攻撃判定フレーム中なら、剣の範囲(swordRange)を追加
+        if (enemy.isAttackingHitFrame) {
+            let swordRange = 60; // 剣の見た目に合わせた長さ
+            // 向き(dir: 1が右, -1が左)に応じて、判定ボックスの位置をずらす
+            let attackX = (enemy.dir === 1) ? (enemy.x + enemy.w) : (enemy.x - swordRange);
+            
+            let swordHit = isRectOverlapping(
+                attackX, enemy.y, swordRange, enemy.h,
+                player.x, player.y, player.w, player.h
+            );
+
+            if (swordHit) isHit = true;
+        }
+
+        // ヒットした場合の処理
+        if (isHit) {
+            // ここに player.hp -= 10; などのダメージ処理や、
+            // io.to(socketId).emit('player_hit') などの通知を書きます
+        }
+    });
+}
+
+/**
+ * 📐 汎用：2つの四角形が重なっているか判定する
+ */
+function isRectOverlapping(x1, y1, w1, h1, x2, y2, w2, h2) {
+    return x1 < x2 + w2 && x1 + w1 > x2 && y1 < y2 + h2 && y1 + h1 > y2;
 }
 
 /**
