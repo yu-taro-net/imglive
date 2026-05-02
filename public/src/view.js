@@ -347,7 +347,7 @@ socket.on('init_item_config', (data) => {
 // ==========================================
 // ⚙️ 設定・フラグ（ここを false にするとデバッグ表示が消えます）
 // ==========================================
-let DEBUG_MODE = true; 
+let DEBUG_MODE = false; 
 
 // ============================================================
 // 📊 [SECTION 2: STATE] データ・変数
@@ -1596,7 +1596,7 @@ socket.on('state', (data) => {
     }
     window.prevPlayerIds = currentPlayerIdsInMyChannel;
 
-    console.log("⭐️確認の表示1");
+    //console.log("⭐️確認の表示1");
     
     // ✋ 自分のデータがない場合は終了
     if (!myHeroData) return;
@@ -1612,7 +1612,7 @@ socket.on('state', (data) => {
     // ==================================================
     if (myHero.inventory && Array.isArray(myHero.inventory)) {
         
-        console.log("--- [GRID DRAW CHECK] ---", myHero.inventory);
+        //console.log("--- [GRID DRAW CHECK] ---", myHero.inventory);
 
         myHero.inventory.forEach((newItem) => {
             if (!newItem) return;
@@ -3074,6 +3074,7 @@ function drawPlayerUI(ctx, p, isMe, pW, frame) {
 // ==========================================
 function drawEnemies(enemies, hero, frame) {
     enemies.forEach(en => {
+        
         // --- 1. 🛑 描画判定 ---
         if (!en.alive && !en.isFading) return;
 
@@ -3084,175 +3085,99 @@ function drawEnemies(enemies, hero, frame) {
 
         // --- 3. ✨ 透明度設定 ---
         if (en.isFading) {
-            // 徐々に消えていく透明度の計算
             ctx.globalAlpha = Math.max(0, 1 - (en.deathFrame / VIEW_CONFIG.enemy.deathAnimDuration));
         } else if (en.spawnAlpha !== undefined) {
             ctx.globalAlpha = en.spawnAlpha;
         }
 
-        // --- 4. 🖼️ 画像とサイズの準備 ---
-        let { img, drawW, drawH } = getEnemyVisualData(en, sprites, frame, hero);
+        // --- 4. 🖼️ 画像とサイズの準備 (footYを追加) ---
+        let { img, drawW, drawH, footY } = getEnemyVisualData(en, sprites, frame, hero);
 
-        // 🌟 修正：Monster1 だけでなく、IDやタイプに "Monster" が含まれるすべての敵を判定
         const isMonsterType = (String(en.id).includes("Monster") || String(en.type).includes("Monster"));
 
-        // 🌟 Monster16 (ID: 2160) 専用の判定
-        const isMonster16 = (en.id === 2160 || String(en.type).includes("Monster16"));
-
+        // 💀 死亡時ログ出力ロジック (既存を踏襲)
         if (en.isFading && isMonsterType) {
-            // en.name が空の場合を考慮してフォールバックを用意
             const nameKey = en.name || en.type || "Monster";
             const deathKey = nameKey + "Death";
             const deathSprites = sprites[deathKey];
             
-            // 🔍 【デバッグ行：チャットエリア通知】
             if (en.deathFrame === 1) {
                 let statusMsg = "";
-                if (!deathSprites) {
-                    statusMsg = `⚠️ [Error] ${deathKey} が sprites にありません (Name:${en.name})`;
-                } else if (deathSprites.length === 0) {
-                    statusMsg = `⚠️ [Warning] ${deathKey} は空(0枚)です`;
-                } else {
-                    statusMsg = `✅ [Info] ${deathKey} 再生開始 (${deathSprites.length}枚)`;
-                }
+                if (!deathSprites) statusMsg = `⚠️ [Error] ${deathKey} が sprites にありません (Name:${en.name})`;
+                else if (deathSprites.length === 0) statusMsg = `⚠️ [Warning] ${deathKey} は空(0枚)です`;
+                else statusMsg = `✅ [Info] ${deathKey} 再生開始 (${deathSprites.length}枚)`;
                 
-                if (typeof debugChat === 'function') {
-                    debugChat(statusMsg);
-                } else if (typeof addChatLog === 'function') {
-                    addChatLog(statusMsg, 'system');
-                }
+                if (typeof debugChat === 'function') debugChat(statusMsg);
+                else if (typeof addChatLog === 'function') addChatLog(statusMsg, 'system');
                 console.log(statusMsg);
-            }
-
-            if (deathSprites && deathSprites.length > 0) {
-                const progress = en.deathFrame / VIEW_CONFIG.enemy.deathAnimDuration;
-                const deathIdx = Math.min(Math.floor(progress * deathSprites.length), deathSprites.length - 1);
-                img = deathSprites[deathIdx];
-
-                // 🔍 【デバッグ行】画像がnullの場合も通知
-                if (!img && en.deathFrame === 1) {
-                    const errorMsg = `❌ [Error] ${deathKey} の画像(Idx:${deathIdx})がnullです`;
-                    if (typeof debugChat === 'function') debugChat(errorMsg);
-                    else if (typeof addChatLog === 'function') addChatLog(errorMsg, 'system');
-                }
             }
         }
 
         // --- 5. 📏 描画位置の計算と実行 ---
         if (img && img.complete && img.naturalWidth !== 0) {
-            const s = en.scale || 1.0;
-            
-            // 🌟 全ての状態で原寸の25%（0.25倍）を適用する
-            const finalW = img.naturalWidth * s * 0.25;
-            const finalH = img.naturalHeight * s * 0.25;
-    
-            // 🌟 修正：サーバー座標(en.x)とお尻を固定しようとすると、Attack時の画像サイズ変更でズレるため、
-            // サーバーの当たり判定の中央（baseX）を基準点とする。
             const baseX = en.x + en.w / 2;
 
-            let enemyFootOffset = 0;
-            if (en.y > VIEW_CONFIG.groundThreshold) {
-                enemyFootOffset = VIEW_CONFIG.groupOffsets[en.type] || -7;
-            }
+            // 🌟 【修正：判定の強化】大文字小文字を区別せず 'monster16' かチェック
+            const typeLower = String(en.type).toLowerCase();
+            const isFloatingUnit = (typeLower === 'monster16');
 
-            let baseY = (en.type === 'monster3' || en.y > VIEW_CONFIG.groundThreshold)
-                ? VIEW_CONFIG.groundY
-                : (en.y + en.h + enemyFootOffset);
-
-            // 🌟 修正：Monster16 の Walk 時のみ描画基準を上にシフトし、上下中央揃えを適用
-            let offsetY = -finalH; // デフォルトは足元基準
-
-            if (isMonster16) {
-                const isWalking = (en.waitTimer <= 0 && !en.isFading);
-
-                if (isWalking) {
-                    baseY -= 80;            // Walk時のみ、より高い位置に持ち上げ
-                    offsetY = -finalH / 2;  // Walk時のみ、上下中央揃え
-                } else {
-                    offsetY = -finalH;
+            let baseY;
+            if (isFloatingUnit) {
+                // 🚀 浮遊系はサーバーの y 座標を信じ、地面吸着ロジックを完全にスルーする
+                baseY = en.y + en.h;
+            } else {
+                // それ以外の地上系モンスター
+                let enemyFootOffset = 0;
+                if (en.y > VIEW_CONFIG.groundThreshold) {
+                    enemyFootOffset = VIEW_CONFIG.groupOffsets[en.type] || -7;
                 }
+
+                // 地面基準か、空中（サーバーy）基準かを判定
+                baseY = (typeLower === 'monster3' || en.y > VIEW_CONFIG.groundThreshold)
+                    ? VIEW_CONFIG.groundY
+                    : (en.y + en.h + enemyFootOffset);
             }
 
             const finalY = baseY + (en.jumpY || 0);
 
-            // 基準点（当たり判定の中央）へ移動
-            ctx.translate(baseX, finalY);
+            // 描画のガタつきを防ぐため、整数座標に丸める
+            ctx.translate(Math.round(baseX), Math.round(finalY));
 
-            // 🌟 向きの反転処理
             let shouldFlip = (en.dir === 1);
-            if (isMonsterType) {
-                shouldFlip = !shouldFlip;
-            }
-
+            if (isMonsterType) shouldFlip = !shouldFlip;
             if (shouldFlip) ctx.scale(-1, 1);
 
-            // 🖼️ 画像の描画
-            // 🌟 修正ポイント：画像の中心を基準点(0,0)に重ねる
-            // これにより、Attack.jpgのように武器を突き出して画像が横に伸びても、
-            // キャラクターの重心が当たり判定の中央に残り続けます。
-            ctx.drawImage(img, -finalW / 2, offsetY, finalW, finalH);
+            // 🖼️ 画像の描画 (基準点 footY で位置を合わせる)
+            ctx.drawImage(img, -drawW / 2, -footY, drawW, drawH);
 
-            // 🔍 【追加：デバッグ表示】攻撃判定枠（Attack Box）
+            // 🔍 【攻撃判定枠（Attack Box）】
             if (en.isAttackingHitFrame) {
                 ctx.save();
                 ctx.strokeStyle = "rgba(255, 0, 0, 0.8)";
                 ctx.lineWidth = 2;
-                
                 let swordRange = 60; 
-                // 画像の中心付近から前方に突き出すように調整
-                let attackX = finalW / 4; 
-                
-                ctx.strokeRect(attackX, offsetY, swordRange, finalH);
+                ctx.strokeRect(-drawW / 2 + drawW * 0.5, -footY, swordRange, drawH);
                 ctx.fillStyle = "rgba(255, 0, 0, 0.2)";
-                ctx.fillRect(attackX, offsetY, swordRange, finalH);
+                ctx.fillRect(-drawW / 2 + drawW * 0.5, -footY, swordRange, drawH);
                 ctx.restore();
             }
 
-            // 🔍 【追加：カウント確認用】
+            // 🔍 【攻撃カウント表示】
             if (en.isAttacking > 0) {
                 ctx.save();
                 if (shouldFlip) ctx.scale(-1, 1);
-                
                 ctx.fillStyle = "#ffffff";
                 ctx.strokeStyle = "#000000";
                 ctx.lineWidth = 3;
                 ctx.font = "bold 16px Arial";
                 ctx.textAlign = "center";
-                
                 const countText = `AtkCount: ${en.isAttacking}`;
-                ctx.strokeText(countText, 0, offsetY - 30);
-                ctx.fillText(countText, 0, offsetY - 30);
+                ctx.strokeText(countText, 0, -footY - 30);
+                ctx.fillText(countText, 0, -footY - 30);
                 ctx.restore();
             }
 
-            // 🔢 【動作確認用】コマ番号を表示
-            if (false) { 
-                ctx.save();
-                if (shouldFlip) ctx.scale(-1, 1);
-                
-                ctx.fillStyle = "yellow";
-                ctx.font = "bold 16px Arial";
-                ctx.textAlign = "center";
-                
-                let currentIdx;
-                let statusLabel;
-                const nameKey = en.name || en.type || "Monster";
-                const dSprites = sprites[nameKey + "Death"];
-
-                if (en.isFading && dSprites) {
-                    const progress = en.deathFrame / VIEW_CONFIG.enemy.deathAnimDuration;
-                    currentIdx = Math.min(Math.floor(progress * dSprites.length), dSprites.length - 1);
-                    statusLabel = "DeathIdx: ";
-                } else {
-                    currentIdx = Math.floor(frame / 12) % 8;
-                    statusLabel = "Index: ";
-                }
-                
-                ctx.fillText(statusLabel + currentIdx, 0, offsetY - 50);
-                ctx.restore();
-            }
         } else {
-            // 🔍 【デバッグ行】描画失敗時の通知
             if (en.isFading && isMonsterType && en.deathFrame === 1) {
                 const failMsg = `❌ [Fail] ${en.type} 描画条件未達 (img exists: ${!!img})`;
                 if (typeof debugChat === 'function') debugChat(failMsg);
@@ -3262,158 +3187,157 @@ function drawEnemies(enemies, hero, frame) {
 
         ctx.restore();
 
-        // --- 6. 💥 共通デスエフェクト ---
+        // 💥 共通デスエフェクト
         if (en.isFading && !isMonsterType) {
-            if (typeof drawCommonDeathEffect === 'function') {
-                drawCommonDeathEffect(en);
-            }
+            if (typeof drawCommonDeathEffect === 'function') drawCommonDeathEffect(en);
         }
 
-        // --- 7. 🏥 HPバー描画 ---
+        // 🏥 HPバー描画
         drawEnemyHPBar(en, frame);
     });
 }
 
 /**
- * 敵の状態に基づいて、表示する画像とサイズを決定する関数
+ * 画像の透明ピクセルをスキャンして、実体の「一番下のピクセル（足元）」を特定する
+ */
+function getVisualFootY(img) {
+    if (img._footY !== undefined) return img._footY;
+
+    try {
+        const tempCanvas = document.createElement('canvas');
+        const tCtx = tempCanvas.getContext('2d', { willReadFrequently: true });
+        tempCanvas.width = img.naturalWidth;
+        tempCanvas.height = img.naturalHeight;
+        tCtx.drawImage(img, 0, 0);
+
+        const pixels = tCtx.getImageData(0, 0, tempCanvas.width, tempCanvas.height).data;
+        
+        for (let y = tempCanvas.height - 1; y >= 0; y--) {
+            for (let x = 0; x < tempCanvas.width; x++) {
+                const alpha = pixels[(y * tempCanvas.width + x) * 4 + 3];
+                if (alpha > 20) {
+                    img._footY = y; 
+                    return y;
+                }
+            }
+        }
+    } catch (e) {
+        console.warn("Foot detection failed:", e);
+    }
+    
+    img._footY = img.naturalHeight;
+    return img._footY;
+}
+
+/**
+ * 敵の状態に基づいて、表示する画像とサイズ、および足元位置を決定する関数
  */
 function getEnemyVisualData(en, sprites, frame, hero) {
     let img = null;
-    let drawW = en.w;
-    let drawH = en.h;
     const isDamaged = Math.abs(en.kbV) > 1.5;
-
-    // 🌟 汎用判定：IDまたはタイプに "Monster" が含まれるか
     const isMonsterType = (String(en.id).includes("Monster") || String(en.type).includes("Monster"));
-    // Monsterシリーズ共通の表示スケール (0.2)
-    const monsterScale = 0.2;
+    const monsterScale = (en.scale || 1.0) * 0.25;
 
-    // --- 1. 💀 死亡・消滅アニメーション (最優先) ---
+    // --- 内部処理用：画像決定後の共通サイズ計算関数 ---
+    const finalize = (targetImg, scale) => {
+        if (!targetImg) return { img: null, drawW: en.w, drawH: en.h, footY: en.h };
+        const s = scale;
+        const w = targetImg.naturalWidth * s;
+        const h = targetImg.naturalHeight * s;
+        
+        // 🌟 自動接地スキャンを実行
+        const rawFoot = getVisualFootY(targetImg);
+        
+        // 🌟 【修正】浮遊系の場合、さらに浮かせるためのオフセットを適用
+        // ここでも toLowerCase() で判定を確実にします
+        const typeLower = String(en.type).toLowerCase();
+        let floatOffset = (typeLower === 'monster16') ? -40 : 0; 
+
+        return { img: targetImg, drawW: w, drawH: h, footY: (rawFoot * s) - floatOffset };
+    };
+
+    // --- 1. 💀 死亡・消滅アニメーション ---
     if (en.isFading) {
         if (isMonsterType) {
-            // 🌟 Monster系専用：読み込んだ 'Name + Death' アニメーションを使用する
             const nameKey = en.name || en.type || "Monster";
             const ds = sprites[nameKey + "Death"];
-            
             if (ds && ds.length > 0) {
                 const progress = en.deathFrame / VIEW_CONFIG.enemy.deathAnimDuration;
                 const safeIdx = Math.min(Math.floor(progress * ds.length), ds.length - 1);
-                img = ds[safeIdx];
-                // サイズは Monster 共通の倍率を適用
-                drawW = img.width * monsterScale;
-                drawH = img.height * monsterScale;
+                return finalize(ds[safeIdx], monsterScale);
             }
         } else {
-            // 共通：従来のドクロ等のエフェクト
             const ds = sprites["commonDeath"];
             if (ds && ds.length > 0) {
                 const frameInterval = 40 / ds.length;
-                const animationIdx = Math.floor(en.deathFrame / frameInterval);
-                const safeIdx = Math.min(animationIdx, ds.length - 1);
+                const safeIdx = Math.min(Math.floor(en.deathFrame / frameInterval), ds.length - 1);
                 img = ds[safeIdx];
-                drawW = VIEW_CONFIG.enemy.commonDeathSize.w;
-                drawH = VIEW_CONFIG.enemy.commonDeathSize.h;
+                return { img, drawW: VIEW_CONFIG.enemy.commonDeathSize.w, drawH: VIEW_CONFIG.enemy.commonDeathSize.h, footY: VIEW_CONFIG.enemy.commonDeathSize.h };
             }
         }
-        return { img, drawW, drawH }; // 確定したら即座に返す
+        return finalize(img, monsterScale);
     }
 
     // --- 2. 🦘 ジャンプ中 ---
     if ((en.jumpY || 0) < -1) {
         const jumps = sprites[en.type + "Jump"];
         if (jumps && jumps.length > 0) {
-            const jumpIdx = Math.floor((en.jumpFrame || 0) / 6) % jumps.length;
-            img = jumps[jumpIdx];
+            img = jumps[Math.floor((en.jumpFrame || 0) / 6) % jumps.length];
         } else {
             const walks = sprites[en.type + "Walk"];
             img = (walks && walks.length > 0) ? walks[0] : sprites[en.type];
         }
-        if (img) {
-            drawW = img.width * monsterScale;
-            drawH = img.height * monsterScale;
-        }
-        return { img, drawW, drawH };
+        return finalize(img, monsterScale);
     }
 
-    // --- 3. 💢 激昂（エンレージ）状態 ---
+    // --- 3. 💢 激昂 ---
     if (en.isEnraged) {
         const dx = hero ? Math.abs(en.x - hero.x) : 999;
         const dy = hero ? Math.abs(en.y - hero.y) : 999;
-
         if (dx < VIEW_CONFIG.enemy.enragedRangeX && dy < VIEW_CONFIG.enemy.enragedRangeY) {
-            // 近距離：攻撃
             const atk = sprites[en.type + "Attack"];
             img = (atk && atk.length > 0) ? atk[Math.floor(frame / 3) % atk.length] : sprites[en.type];
         } else {
-            // 遠距離：待機 or 移動
-            const isWaiting = en.waitTimer > 0;
-            const sKey = isWaiting ? en.type + "Idle" : en.type + "Walk";
+            const sKey = en.waitTimer > 0 ? en.type + "Idle" : en.type + "Walk";
             const anims = sprites[sKey];
             img = (anims && anims.length > 0) ? anims[Math.floor(frame / 8) % anims.length] : sprites[en.type];
         }
-        if (img) {
-            drawW = img.width * monsterScale;
-            drawH = img.height * monsterScale;
-        }
-        return { img, drawW, drawH };
+        return finalize(img, monsterScale);
     }
 
-    // --- 4. ⚔️ 通常の攻撃中 ---
+    // --- 4. ⚔️ 攻撃中 ---
     if (en.isAttacking > 0) {
         const atk = sprites[en.type + "Attack"];
         if (atk && atk.length > 0) {
             const currentFrame = 22 - en.isAttacking;
-            const atkIdx = Math.max(0, Math.min(currentFrame, atk.length - 1));
-            img = atk[atkIdx];
+            img = atk[Math.max(0, Math.min(currentFrame, atk.length - 1))];
         }
-        if (img) {
-            drawW = img.width * monsterScale;
-            drawH = img.height * monsterScale;
-        }
-        return { img, drawW, drawH };
+        return finalize(img, monsterScale);
     }
 
-    // --- 5. 🤕 ダメージを受けている ---
+    // --- 5. 🤕 ダメージ ---
     if (isDamaged) {
         img = sprites[en.type + "Damage"];
-        if (img && img.complete) {
-            // Monster系なら共通スケール、それ以外は設定値
-            const s = isMonsterType ? monsterScale : VIEW_CONFIG.enemy.defaultScale;
-            drawW = img.width * s;
-            drawH = img.height * s;
-        }
-        return { img, drawW, drawH };
+        return finalize(img, monsterScale);
     }
 
-    // --- 6. 💤 待機中 ---
+    // --- 6. 💤 待機 ---
     if (en.waitTimer > 0) {
         const idles = sprites[en.type + "Idle"];
         if (idles && idles.length > 0) {
-            // 🌟 修正ポイント：
-            // Monster系の場合は全枚数を使い、それ以外は最大3枚にする
             let total = isMonsterType ? idles.length : Math.min(idles.length, 3);
-            
             img = idles[AnimUtils.getIdx(frame, 12, total)];
         } else {
             img = sprites[en.type];
         }
-
-        if (img) {
-            drawW = img.width * monsterScale;
-            drawH = img.height * monsterScale;
-        }
-        return { img, drawW, drawH };
+        return finalize(img, monsterScale);
     }
 
-    // --- 7. 🚶 通常の移動 (歩き) ---
+    // --- 7. 🚶 通常移動 ---
     const walks = sprites[en.type + "Walk"];
     img = (walks && walks.length > 0) ? walks[Math.floor(frame / 2) % walks.length] : sprites[en.type];
-    if (img) {
-        drawW = img.width * monsterScale;
-        drawH = img.height * monsterScale;
-    }
-
-    return { img, drawW, drawH };
+    
+    return finalize(img, monsterScale);
 }
 
 /**

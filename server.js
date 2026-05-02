@@ -1868,9 +1868,11 @@ async function loadEnemyCatalog() {
 
 const ENEMY_PLAN = [
   { plat: 0,    id: 2010 }, 
+  { plat: 1,    id: 2050 }, 
   { plat: 1,    id: 2020 }, 
-  { plat: 1,    id: 2020 }, 
-  { plat: 2,    id: 2300 }, 
+  { plat: 2,    id: 2080 }, 
+  { plat: 2,    id: 2080 }, 
+  { plat: 2,    id: 2080 }, 
   { plat: null, id: 2160 }
 ];
 
