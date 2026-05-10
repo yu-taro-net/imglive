@@ -335,6 +335,160 @@
   </canvas>
 </div>
 
+<!-- 🏪 露店管理ウィンドウ（SHOPデザイン統合版） -->
+<div id="vending-window" class="maple-window" style="
+    display: none; 
+    position: absolute; 
+    top: 50%; 
+    left: 50%; 
+    transform: translate(-50%, -50%); 
+    width: 320px; 
+    padding: 0; 
+    z-index: 10000; /* shop-overlay(9999)より手前に配置 */
+    font-family: 'Hiragino Maru Gothic ProN', 'Rounded M+ 1c', sans-serif;">
+    
+    <!-- ヘッダー（SHOPと同じグラデーション） -->
+    <div style="
+        background: linear-gradient(to bottom, #bfcddb, #96a7b8); 
+        border-bottom: 2px solid #777; 
+        padding: 6px 12px; 
+        display: flex; 
+        justify-content: space-between; 
+        align-items: center; 
+        border-radius: 4px 4px 0 0;">
+        <span style="font-weight: bold; color: white; text-shadow: 1px 1px 1px rgba(0,0,0,0.5); font-size: 13px;">[露店管理] アイテムを並める</span>
+        <button class="maple-btn" onclick="closeVendingMenu()" style="background: #ff6b6b; color: white; border-color: #c0392b; min-width: 24px;">✕</button>
+    </div>
+    
+    <!-- コンテンツエリア -->
+    <div style="padding: 15px; background: #efefef;">
+        <p style="margin-top: 0; font-size: 12px; color: #666; margin-bottom: 10px;">🎒 インベントリから販売するアイテムを選択</p>
+        
+		<!-- 🌟 追加：店名入力欄 -->
+    <div style="margin-bottom: 10px;">
+        <label style="font-size: 11px; font-weight: bold; color: #444; display: block; margin-bottom: 4px;">露店の名前</label>
+        <input type="text" id="vending-title-input" placeholder="いらっしゃいませ！" style="width: 100%; padding: 5px; border: 2px solid #ddd; border-radius: 4px; box-sizing: border-box; font-size: 12px;">
+    </div>
+	
+        <!-- アイテムリスト（SHOPのリスト背景を再現） -->
+        <div id="vending-item-list" style="
+            height: 120px; 
+            background: white; 
+            border: 2px inset #ddd; 
+            border-radius: 4px;
+            margin-bottom: 15px; 
+            overflow-y: auto;
+            background-image: radial-gradient(#eee 10%, transparent 10%); 
+            background-size: 20px 20px;
+            padding: 2px;">
+            <!-- アイテム追加時にここへ挿入される -->
+        </div>
+
+        <!-- 価格入力（1行に収まるよう調整済み） -->
+        <div style="display:none; margin-bottom: 15px;">
+            <label style="font-size: 11px; font-weight: bold; color: #444; display: block; margin-bottom: 4px;">販売価格 (1個あたり)</label>
+            <div style="
+                background: #fff; 
+                border: 2px solid #ddd; 
+                border-radius: 4px; 
+                padding: 3px 8px; 
+                display: flex; 
+                align-items: center; 
+                justify-content: flex-end; /* 右寄せにする */
+                box-shadow: inset 1px 1px 3px rgba(0,0,0,0.05);">
+                
+                <input type="number" id="vending-price" placeholder="0" style="
+                    width: 100%; 
+                    border: none; 
+                    outline: none; 
+                    text-align: right; 
+                    font-family: 'Verdana', sans-serif; 
+                    font-weight: bold; 
+                    font-size: 14px; 
+                    color: #333;
+                    background: transparent;
+                    margin-right: 4px;">
+                
+                <span style="
+                    font-size: 11px; 
+                    color: #666; 
+                    font-weight: bold; 
+                    white-space: nowrap; /* 💡 これで絶対に改行させない */
+                    flex-shrink: 0;      /* 💡 文字が潰れるのを防ぐ */
+                ">メル</span>
+            </div>
+        </div>
+
+        <!-- 決定ボタン（SHOPのオレンジボタンを使用） -->
+        <button id="vending-confirm-btn" class="maple-btn-orange" onclick="startVending()" style="width: 100%; font-size: 14px; cursor: pointer;">
+            この内容で露店を開く
+        </button>
+    </div>
+
+    <!-- フッター（SHOPと同じ装飾） -->
+    <div style="background: #f0f0f0; border-top: 1px solid #ccc; padding: 6px 12px; border-radius: 0 0 6px 6px;">
+        <span style="color: #e67e22; font-weight: bold; font-size: 11px;">※アイテムをクリックでリストから除外</span>
+    </div>
+</div>
+
+<!-- 🏪 【修正版】他プレイヤーの露店表示ウィンドウ（管理窓とデザインを統一） -->
+<div id="other-vending-window" class="maple-window" style="
+    display: none; 
+    position: absolute; 
+    top: 50%; 
+    left: 50%; 
+    transform: translate(-50%, -50%); 
+    width: 320px; 
+    padding: 0; 
+    z-index: 11000; 
+    font-family: 'Hiragino Maru Gothic ProN', 'Rounded M+ 1c', sans-serif;">
+    
+    <!-- ヘッダー（管理窓と同じグラデーション） -->
+    <div style="
+        background: linear-gradient(to bottom, #bfcddb, #96a7b8); 
+        border-bottom: 2px solid #777; 
+        padding: 6px 12px; 
+        display: flex; 
+        justify-content: space-between; 
+        align-items: center; 
+        border-radius: 4px 4px 0 0;">
+        <span class="vending-title-display" style="font-weight: bold; color: white; text-shadow: 1px 1px 1px rgba(0,0,0,0.5); font-size: 13px;">露店名を表示中...</span>
+        <button class="maple-btn" onclick="document.getElementById('other-vending-window').style.display='none'" style="background: #ff6b6b; color: white; border-color: #c0392b; min-width: 24px;">✕</button>
+    </div>
+    
+    <!-- コンテンツエリア -->
+    <div style="padding: 15px; background: #efefef;">
+        <p style="margin-top: 0; font-size: 12px; color: #666; margin-bottom: 10px;">🛒 購入するアイテムを選択してください</p>
+        
+        <!-- 商品リスト（ドット背景・インセット枠） -->
+        <div id="other-vending-items" style="
+            height: 180px; 
+            background: white; 
+            border: 2px inset #ddd; 
+            border-radius: 4px;
+            margin-bottom: 15px; 
+            overflow-y: auto;
+            background-image: radial-gradient(#eee 10%, transparent 10%); 
+            background-size: 20px 20px;
+            padding: 2px;">
+            <!-- 商品リストが動的に挿入される -->
+            <p style="text-align: center; color: #888; font-size: 12px; margin-top: 20px;">商品を読み込み中...</p>
+        </div>
+
+        <!-- 決定ボタン（管理窓と同じオレンジボタン） -->
+        <button id="vending-buy-btn" class="maple-btn-orange" style="width: 100%; font-size: 14px; cursor: pointer; display: none;">
+            選択したアイテムを購入する
+        </button>
+    </div>
+
+    <!-- フッター（所持金表示） -->
+    <div style="background: #f0f0f0; border-top: 1px solid #ccc; padding: 8px 12px; border-radius: 0 0 6px 6px; display: flex; justify-content: space-between; align-items: center;">
+        <span style="font-size: 11px; color: #666; font-weight: bold;">あなたの所持金:</span>
+        <div style="text-align: right;">
+            <span id="user-money-display" style="font-weight: bold; font-family: 'Verdana', sans-serif; font-size: 13px; color: #333;">-</span>
+            <span style="font-size: 10px; margin-left: 2px; color: #666; font-weight: bold;">メル</span>
+        </div>
+    </div>
 </div>
 
 <style>
@@ -382,9 +536,17 @@
     .maple-btn-orange:hover { filter: brightness(1.05); }
 
     /* スクロールバーも少し丸みを持たせる */
-    #shop-overlay ::-webkit-scrollbar { width: 14px; }
-    #shop-overlay ::-webkit-scrollbar-track { background: #e8e4d8; border-left: 1px solid #bbb; }
-    #shop-overlay ::-webkit-scrollbar-thumb { 
+    #shop-overlay ::-webkit-scrollbar, 
+    #vending-window ::-webkit-scrollbar,
+    #other-vending-window ::-webkit-scrollbar { width: 14px; }
+    
+    #shop-overlay ::-webkit-scrollbar-track,
+    #vending-window ::-webkit-scrollbar-track,
+    #other-vending-window ::-webkit-scrollbar-track { background: #e8e4d8; border-left: 1px solid #bbb; }
+    
+    #shop-overlay ::-webkit-scrollbar-thumb,
+    #vending-window ::-webkit-scrollbar-thumb,
+    #other-vending-window ::-webkit-scrollbar-thumb { 
         background: #ccc4b4; 
         border: 2px solid #e8e4d8; 
         border-radius: 7px; 
@@ -405,7 +567,7 @@
     outline: none;
 }
 
-/* ホバーと選択のCSSは前回と同じでOK */
+/* ホバーと選択のCSS */
 .shop-item-row-div:hover {
     background-color: #f5f9ff !important;
     outline: 1px solid #a8caff !important;
@@ -424,14 +586,12 @@
     width: 100% !important;
     box-sizing: border-box;
     padding: 8px 12px;
-    /* 背景は売却側のリストデザイン（ドット柄）を活かすため透過のままにするか、白にするか選べます */
 	border-bottom: 1px solid #eee;
     background-color: #ffffff; 
     cursor: pointer;
     user-select: none;
     transition: transform 0.05s;
     outline: none;
-    /* 下線が必要ない場合はここを削除、必要ならショップ側に合わせて追加してください */
 }
 
 /* 売却ホバー：購入側の青系に対し、こちらは赤系で統一感を出す */
@@ -457,7 +617,7 @@
         <button class="maple-btn" onclick="document.getElementById('shop-overlay').style.display='none'" style="background: #ff6b6b; color: white; border-color: #c0392b; min-width: 24px;">✕</button>
     </div>
 
-    <div style="display: flex; background: #efefef; border-bottom: 1px solid #ccc; padding: 18px 10px;">
+    <div style="padding: 18px 10px; display: flex; background: #efefef; border-bottom: 1px solid #ccc;">
         <div style="width: 50%; display: flex; flex-direction: column; align-items: center; border-right: 2px dashed #ccc; gap: 10px;">
             <button class="maple-btn" onclick="document.getElementById('shop-overlay').style.display='none'">商店から出る</button>
             <button class="maple-btn-orange" style="font-size: 13px;">アイテムを買う</button>
@@ -531,6 +691,30 @@
             <button id="sell-confirm-no">いいえ</button>
             <button id="sell-confirm-yes" class="sell-btn">はい</button>
         </div>
+    </div>
+</div>
+
+<div id="vending-notice-modal" style="display:none; position:fixed; top:30%; left:50%; transform:translateX(-50%); background:rgba(0,0,0,0.85); color:#fff; border:1px solid #ffcc00; padding:20px; z-index:11000; min-width:250px; text-align:center; border-radius:10px; box-shadow: 0 5px 15px rgba(0,0,0,0.5);">
+    <p id="vending-notice-text" style="margin-bottom:15px; font-weight:bold;"></p>
+    <button id="vending-notice-close-btn" style="padding:5px 20px; cursor:pointer; background:#444; color:#fff; border:1px solid #777; border-radius:4px;">閉じる</button>
+</div>
+
+<div id="vending-quantity-modal" style="display:none; position:fixed; top:50%; left:50%; transform:translate(-50%, -50%); background:rgba(0,0,0,0.9); color:#fff; border:2px solid #888; padding:20px; z-index:10000; min-width:280px; border-radius:8px; box-shadow: 0 0 15px rgba(0,0,0,0.5); font-family: sans-serif;">
+    <h3 id="modal-item-name" style="margin-top:0; color:#ffcc00; font-size:18px; border-bottom:1px solid #444; padding-bottom:10px;">アイテム名</h3>
+    
+    <div style="margin: 15px 0;">
+        <label style="display:block; margin-bottom:5px;">出品する数 (所持: <span id="modal-max-quantity">0</span>)</label>
+        <input type="number" id="modal-quantity-input" min="1" style="width:100%; padding:8px; box-sizing:border-box; background:#222; color:#fff; border:1px solid #555;">
+    </div>
+
+    <div style="margin: 15px 0;">
+        <label style="display:block; margin-bottom:5px;">1個あたりの販売価格 (G)</label>
+        <input type="number" id="modal-price-input" min="0" value="1000" style="width:100%; padding:8px; box-sizing:border-box; background:#222; color:#fff; border:1px solid #555;">
+    </div>
+
+    <div style="display:flex; justify-content: space-between; margin-top:20px;">
+        <button id="modal-confirm-btn" style="flex:1; margin-right:5px; padding:10px; cursor:pointer; background:#2ecc71; color:white; border:none; font-weight:bold; border-radius:4px;">出品確定</button>
+        <button id="modal-cancel-btn" style="flex:1; margin-left:5px; padding:10px; cursor:pointer; background:#e74c3c; color:white; border:none; font-weight:bold; border-radius:4px;">キャンセル</button>
     </div>
 </div>
 

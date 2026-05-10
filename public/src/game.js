@@ -655,6 +655,10 @@ function handlePlayerInput(hero, items, ladders, chatIn) {
  * 移動とハシゴに関するロジック
  */
 function handleMovementAndLadder(hero, ladders) {
+
+    // 🌟 追加：露店を開いている間は移動・ハシゴ操作を禁止
+    if (hero.is_vending) return;
+	
     // 🌟 修正：硬直中（ノックバック中）は入力を受け付けない
     if (hero.isStunned) {
         // キー入力による水平速度をリセットし、以降の処理（移動・ハシゴ）をスキップ
@@ -725,6 +729,9 @@ function handleMovementAndLadder(hero, ladders) {
  * 押しっぱなしでの「連続攻撃」と「連続取得（爆速設定）」を完全にサポート
  */
 function handleActions(hero, items) {
+
+    if (hero.is_vending) return; // 露店中はアクション（ジャンプ・攻撃・拾う）不可
+	
     // ==========================================
     // E. ジャンプ (Cキー)
     // ==========================================
@@ -1391,74 +1398,172 @@ socket.on('change_channel_response', (data) => {
 // ============================================================
 // 例: socket.emit('move', ...), socket.on('updatePlayers', ...)
 // 📡 サーバーから「現在の世界の状態（state）」が届いた時の処理
-socket.on('state', s => {
+socket.on('state', (data) => {
     // -------------------------------------------------------
-    // 0. 自分のデータを特定（フィルタリングの基準にするため先に取得）
+    // 1. 基本チェックと共通処理
     // -------------------------------------------------------
-    const myData = s.players[socket.id];
+    if (!data) return;
+    
+    // 既存のサーバーイベントハンドラ（必要に応じて実行）
+    if (typeof handleServerEvents === 'function') handleServerEvents(data);
 
     // -------------------------------------------------------
-    // 1. 周辺環境（自分以外）のデータを最新にする
+    // 2. 自分のデータ（myData）の特定とチャンネル判定
     // -------------------------------------------------------
-    enemies   = s.enemies;   // 敵の位置やHPを更新
-    platforms = s.platforms; // 足場（床）の情報を更新
-    ladders   = s.ladders;   // ハシゴの情報を更新
+    const myHeroData = data.players[socket.id];
+    if (!myHeroData) return;
 
-    // 他のプレイヤー情報の更新（チャンネルフィルタリング版）
-    others = {}; 
-    if (myData) {
-        for (let id in s.players) {
-            // 自分自身ではない ＆＆ 相手が自分と同じチャンネルにいる
-            if (id !== socket.id && s.players[id].channel === myData.channel) {
-                others[id] = s.players[id];
+    const serverChannel = myHeroData.channel;
+
+    // -------------------------------------------------------
+    // 3. 音・通知の判定（チャンネル・アイテム・入室）
+    // -------------------------------------------------------
+    const allItemsFromServer = data.items || [];
+    const currentTotalCount = allItemsFromServer.length;
+    let isChannelJustChanged = false;
+
+    // チャンネル切り替え・アイテムドロップ音判定
+    if (serverChannel !== window.currentChannelId || typeof window.lastCount === 'undefined') {
+        window.lastCount = currentTotalCount;
+        window.currentChannelId = serverChannel;
+        isChannelJustChanged = true; 
+        console.log("📥 チャンネル切り替え検知：基準値を同期しました");
+    } else {
+        if (currentTotalCount > window.lastCount) {
+            console.log("🌟 AAA：アイテムドロップ検知！"); 
+            if (typeof playDropSound === 'function') playDropSound(); 
+        }
+        window.lastCount = currentTotalCount;
+    }
+
+    // 他プレイヤーの入室通知・入室音判定
+    const currentPlayerIdsInMyChannel = new Set();
+    let hasNewArrival = false;
+    
+    for (let id in data.players) {
+        if (id === socket.id) continue;
+        const p = data.players[id];
+        if (p.channel === serverChannel) {
+            currentPlayerIdsInMyChannel.add(id);
+            if (!window.prevPlayerIds.has(id)) {
+                if (!isChannelJustChanged && !window.recentLoginIds.has(id)) {
+                    hasNewArrival = true;
+                    const arrivalName = p.name || "Player";
+                    if (typeof addNotification === 'function') {
+                        addNotification(`${arrivalName} が入室しました。`, "#66FF66");
+                    }
+                }
             }
+        }
+    }
+    if (hasNewArrival && !isChannelJustChanged) {
+        if (typeof playInviteSound === 'function') playInviteSound();
+    }
+    window.prevPlayerIds = currentPlayerIdsInMyChannel;
+
+    // -------------------------------------------------------
+    // 4. 周辺環境（自分以外）のフィルタリング更新
+    // -------------------------------------------------------
+    enemies   = data.enemies;   
+    platforms = data.platforms; 
+    ladders   = data.ladders;   
+
+    // 他プレイヤー情報（同チャンネルのみ）
+    others = {}; 
+    for (let id in data.players) {
+        if (id !== socket.id && data.players[id].channel === serverChannel) {
+            others[id] = data.players[id];
         }
     }
 
     // -------------------------------------------------------
-    // 2. アイテム情報の更新（既存のアニメ状態を守りながら）
+    // 5. アイテムのガタつき防止（既存アニメ状態の維持）
     // -------------------------------------------------------
-    items = s.items.map(si => { 
-        // 今画面にあるアイテム(existing)の中に、同じIDのものがあるか探す
+    items = allItemsFromServer.filter(it => !it.isPickedUp).map(si => { 
         const existing = items.find(it => it.id === si.id); 
-        
-        // もし既にあるなら、座標などの新しい数値(si)ではなく、
-        // 今の見た目状態(existing)を優先して、ガタつきを防ぐ
         return existing ? existing : si; 
     });
 
     // -------------------------------------------------------
-    // 3. 自分のデータ（hero）をサーバーの値と「完全同期」させる
+    // 6. 🛡️ 重要：詳細消失対策（インベントリと店名の保護）
     // -------------------------------------------------------
-    if (myData) {
-        // --- A. 基本情報の同期 ---
-        hero.inventory = myData.inventory || []; // 所持品リスト
-        hero.score     = myData.score || 0;      // スコア
-        hero.channel   = myData.channel;         // 現在のチャンネル
+    // 上書きされる前のデータを退避
+    const oldInventory = (window.hero && window.hero.inventory) ? JSON.parse(JSON.stringify(window.hero.inventory)) : [];
+    const oldVendingTitle = (window.hero && window.hero.vending_title) ? window.hero.vending_title : "";
 
-        // --- B. 成長要素（レベル・経験値）の同期 ---
-        hero.level  = myData.level;              // 現在のレベル
-        hero.exp    = myData.exp;                // 現在の経験値
-        hero.maxExp = myData.maxExp || 100;      // 次のレベルまでに必要な経験値
+    // A. 露店タイトルの保護（サーバーから届いた値が空なら以前の値を維持）
+    if (!myHeroData.vending_title && oldVendingTitle) {
+        myHeroData.vending_title = oldVendingTitle;
+    }
 
-        // --- C. 生命力（HP）の同期 ---
-        hero.hp    = myData.hp;                  // 現在の体力
-        hero.maxHp = myData.maxHp || 100;        // 体力の最大値
+    // B. インベントリの詳細項目復元
+    if (myHeroData.inventory && Array.isArray(myHeroData.inventory)) {
+        myHeroData.inventory.forEach((newItem) => {
+            if (!newItem) return;
 
-        // --- D. ステータス（能力値）の同期 ---
-        hero.str = myData.str || 50;             // 攻撃力（STR）
-        hero.dex = myData.dex;                   // 器用さ（DEX）
-        hero.luk = myData.luk;                   // 運（LUK）
-        
-        // AP（ステータスに振り分けられる未割り当てポイント）
-        hero.ap = (myData.ap !== undefined) ? myData.ap : 0;
+            const newKey = newItem.equipment_id || newItem.instanceId;
+            const oldItem = oldInventory.find(old => {
+                // ✨ 修正点1: 比較対象の old が存在しない場合はスキップ
+                if (!old) return false;
+
+                const oldKey = old.equipment_id || old.instanceId;
+                const isIdMatch = (newKey && oldKey && String(newKey) === String(oldKey));
+                const isSlotMatch = (newItem.slot_index === old.slot_index && newItem.id === old.id);
+                return isIdMatch || isSlotMatch;
+            });
+
+            // ✨ 修正点2: oldItem が見つかった場合（＝過去のデータに存在する場合）のみ詳細を復元
+            if (oldItem) {
+                const isDataLost = (typeof newItem.totalALLStats === 'undefined' || newItem.totalALLStats === 0);
+                if (isDataLost && oldItem.totalALLStats > 0) {
+                    const props = [
+                        'name', 'displayName', 'imageName', 'atk', 'matk', 'def',
+                        'str', 'dex', 'int', 'luk', 'maxHp', 'maxMp', 
+                        'totalFirstStats', 'totalALLStats'
+                    ];
+                    props.forEach(p => {
+                        if (newItem[p] === undefined || newItem[p] === 0 || newItem[p] === "") {
+                            newItem[p] = oldItem[p];
+                        }
+                    });
+                    if (!newItem.instanceId && oldItem.instanceId) newItem.instanceId = oldItem.instanceId;
+                    if (!newItem.equipment_id && oldItem.equipment_id) newItem.equipment_id = oldItem.equipment_id;
+                    if (!newItem.type && oldItem.type) newItem.type = oldItem.type;
+                    console.log(`🔧 Slot:${newItem.slot_index} (ID:${newKey}) の詳細を救出しました`);
+                }
+            }
+        });
     }
 
     // -------------------------------------------------------
-    // 4. 仕上げ
+    // 7. 最終同期（window.hero の更新）
     // -------------------------------------------------------
-    // ステップ1のループ内で既に「自分以外」かつ「同チャンネル」のみに
-    // 絞り込んでいるため、ここでの delete others[socket.id] は不要になりました。
+    // myHeroData の値を hero に反映
+    hero.inventory     = myHeroData.inventory || [];
+    hero.gold          = (myHeroData.gold !== undefined) ? myHeroData.gold : hero.gold; // 所持金同期を追加
+    hero.score         = myHeroData.score || 0;
+    hero.channel       = myHeroData.channel;
+    hero.level         = myHeroData.level;
+    hero.exp           = myHeroData.exp;
+    hero.maxExp         = myHeroData.maxExp || 100;
+    hero.hp            = myHeroData.hp;
+    hero.maxHp         = myHeroData.maxHp || 100;
+    hero.str           = myHeroData.str || 50;
+    hero.dex           = myHeroData.dex;
+    hero.luk           = myHeroData.luk;
+    hero.ap            = (myHeroData.ap !== undefined) ? myHeroData.ap : 0;
+
+    // ✨ 🌟 露店状態と店名をここで最終確定
+    hero.is_vending    = !!myHeroData.is_vending; 
+    hero.vending_title = myHeroData.vending_title || ""; 
+
+    // グローバル変数全体を最新に
+    window.hero = hero;
+
+    // 描画バッファの更新
+    if (typeof inventoryVisualBuffer !== 'undefined') {
+        inventoryVisualBuffer = window.hero.inventory;
+    }
 });
 
 socket.on('player_update', (updatedPlayer) => {
@@ -1988,6 +2093,12 @@ function update() {
         isAttacking: hero.isAttacking,
         climbing: hero.climbing, // 🌟 これを追加！
         invincible: hero.invincible, // 🌟 被弾・無敵状態を同期
+		
+		// --- 🌟 ここを追加！ ---
+        is_vending: hero.is_vending,       // 露店を開いているか
+        vending_title: hero.vending_title, // 店の名前
+        // -----------------------
+		
         currentFrame: frame
     });
 
@@ -2185,6 +2296,812 @@ socket.on('register_response', (data) => {
         alert(data.message);
     }
 });
+
+// --- デバッグ開始 ---
+if (typeof hero !== 'undefined') {
+    let _isVending = hero.is_vending;
+
+    Object.defineProperty(hero, 'is_vending', {
+        get: function() {
+            return _isVending;
+        },
+        set: function(value) {
+            if (value === true && _isVending === false) {
+                //console.warn("⚠️ [DEBUG] is_vending が TRUE に書き換えられました！");
+                console.trace(); // これで実行元の行番号がわかります
+            }
+            _isVending = value;
+        },
+        configurable: true
+    });
+    console.log("✅ 露店フラグの監視を開始しました。");
+}
+// --- デバッグ終了 ---
+
+// 🏪 サーバーから「誰かが開店した」通知が届いた時
+socket.on('vending_opened', (data) => {
+    const shopTitle = data.vending_title || data.title || "いらっしゃいませ！";
+    console.log(`露店開店の通知を受信: ${shopTitle} (ID: ${data.id})`);
+
+    if (data.id === socket.id) {
+        // 🌟 自分の看板を出す
+        if (typeof hero !== 'undefined') {
+            hero.is_vending = true;
+            hero.vending_title = shopTitle;
+            // 自分のアイテムリストも同期（任意）
+            hero.vending_items = data.items || [];
+        }
+    } else {
+        // 🌟 他人の看板を出す
+        // 環境に合わせて otherPlayers か others を安全に取得
+        const targetList = (typeof otherPlayers !== 'undefined') ? otherPlayers : (typeof others !== 'undefined' ? others : {});
+        const targetPlayer = targetList[data.id];
+        
+        if (targetPlayer) {
+            targetPlayer.is_vending = true;
+            targetPlayer.vending_title = shopTitle;
+            
+            // 🔥 【追加箇所】サーバーから届いた陳列アイテムを保存
+            // これにより、看板クリック時にこのリストを参照して表示できるようになります
+            targetPlayer.vending_items = data.items || [];
+            
+            // 座標の同期（データがある場合のみ）
+            if (data.x !== undefined) targetPlayer.x = data.x;
+            if (data.y !== undefined) targetPlayer.y = data.y;
+            
+            console.log(`プレイヤー ${data.id} の露店状態とアイテムリスト(${targetPlayer.vending_items.length}件)を反映しました: ${shopTitle}`);
+        }
+    }
+});
+
+/**
+ * 📡 サーバーから「誰かが閉店（または切断・完売）」通知が届いた時
+ * 購入者の閲覧ウィンドウを強制終了し、状況に応じたメッセージを表示します
+ */
+socket.on('vending_closed', (data) => {
+    console.log(`露店閉店の通知を受信 (ID: ${data.id}, 理由: ${data.reason || 'manual/disconnect'})`);
+
+    // --- 🛒 購入者側の強制終了ロジック ---
+    // 今開いている露店の店主ID(data.id)が、通知された閉店IDと一致する場合
+    if (typeof window.currentVendingOwnerId !== 'undefined' && window.currentVendingOwnerId === data.id) {
+        const otherVendingWin = document.getElementById('other-vending-window');
+        
+        // 🌟 ウィンドウが表示されている場合のみ、通知を出して閉じる
+        if (otherVendingWin && otherVendingWin.style.display !== 'none') {
+            otherVendingWin.style.display = 'none';
+
+            // ✅ 独自UIでメッセージを出し分け表示
+            const noticeModal = document.getElementById('vending-notice-modal');
+            const noticeText = document.getElementById('vending-notice-text');
+            const closeBtn = document.getElementById('vending-notice-close-btn');
+
+            if (noticeModal && noticeText) {
+                // 理由(reason)に基づいてテキストをセット
+                if (data.reason === 'sold_out') {
+                    noticeText.innerText = "全ての商品が売り切れました。";
+                    noticeText.style.color = "#ffcc00"; // 完売はゴールド系の色
+                } else {
+                    noticeText.innerText = "販売者が販売を中止しました。";
+                    noticeText.style.color = "#ffffff";
+                }
+
+                noticeModal.style.display = 'block';
+
+                // 閉じるボタンの処理
+                closeBtn.onclick = () => {
+                    noticeModal.style.display = 'none';
+                };
+            }
+        }
+        
+        // 閲覧状態のリセット
+        window.currentVendingOwnerId = null;
+        window.currentHoverSlot = null; // ツールチップのクリア
+    }
+    // ------------------------------------
+
+    if (data.id === socket.id) {
+        // 自分の状態をリセット
+        if (typeof hero !== 'undefined') {
+            hero.is_vending = false;
+            hero.vending_title = "";
+            hero.vending_items = []; // アイテムデータもクリア
+        }
+        
+        // 自分の管理ウィンドウも開いていれば閉じる
+        const myVendingWin = document.getElementById('vending-window');
+        if (myVendingWin) {
+            myVendingWin.style.display = 'none';
+        }
+
+    } else {
+        // 他人の状態をリセット
+        const targetList = (typeof otherPlayers !== 'undefined') ? otherPlayers : (typeof others !== 'undefined' ? others : {});
+        const targetPlayer = targetList[data.id];
+        
+        if (targetPlayer) {
+            targetPlayer.is_vending = false;
+            targetPlayer.vending_title = "";
+            targetPlayer.vending_items = []; // アイテムデータもクリア
+        }
+    }
+});
+
+// 📡 サーバーから「露店準備UIを開け」と言われた時の処理
+socket.on('request_open_vending_ui', () => {
+    // 1. 露店管理ウィンドウを表示する
+    const win = document.getElementById('vending-window');
+    if (win) {
+        win.style.display = 'block';
+    }
+
+    // 2. 入力欄に初期値をセットし、フォーカスを合わせる
+    const titleInput = document.getElementById('vending-title-input');
+    if (titleInput) {
+        //titleInput.value = "いらっしゃいませ！";
+        titleInput.focus(); 
+    }
+    
+    console.log("[Vending] 露店開設UIを表示しました。");
+});
+
+// 🏪 露店メニューを開く
+function openVendingMenu() {
+    const win = document.getElementById('vending-window');
+    if (win) {
+        win.style.display = 'block';
+        // インベントリからアイテムリストを同期させる処理をここに入れると便利です
+        console.log("露店メニューを表示しました");
+    }
+}
+
+/**
+ * 🛒 現在の露店バッファにあるアイテムデータを取得する
+ * (startVending から呼び出されます)
+ */
+function getVendingItemsData() {
+    console.log("📤 サーバー送信用のアイテムデータを抽出します:", vendingItemsBuffer);
+    return vendingItemsBuffer; 
+}
+
+/**
+ * 🚀 実際に販売を開始する処理
+ * チェックロジックやボタン装飾を維持しつつ、看板表示の確実性を高める同期処理を追加しました。
+ */
+function startVending() {
+    const listContainer = document.getElementById('vending-item-list');
+    const btn = document.getElementById('vending-confirm-btn'); // ボタンのID
+    const titleInput = document.getElementById('vending-title-input'); // 店名入力欄のID
+    
+    // 🛒 1. チェック: リストにアイテムがあるか？ (既存ロジックを完全踏襲)
+    if (!listContainer || listContainer.children.length === 0 || 
+        listContainer.innerHTML.includes("アイテムがありません")) {
+        alert("販売するアイテムをリストに追加してください");
+        return;
+    }
+
+    // 🌟 2. 状態を更新
+    // 確実な送信のため、一度変数(inputTitle)に格納します
+    let inputTitle = "いらっしゃいませ！";
+    if (typeof hero !== 'undefined') {
+        hero.is_vending = true; 
+        
+        // 🌟 入力欄から店名を取得
+        inputTitle = (titleInput && titleInput.value.trim() !== "") 
+                        ? titleInput.value 
+                        : "いらっしゃいませ！";
+        hero.vending_title = inputTitle;
+    }
+
+    // 🛒 3. 陳列アイテムのデータを取得
+    const vendingItems = typeof getVendingItemsData === 'function' ? getVendingItemsData() : []; 
+
+    // 📡 4. サーバーへ確定情報を送る
+    if (typeof socket !== 'undefined' && typeof hero !== 'undefined') {
+        // A. 露店システムへの開店通知
+        socket.emit('open_vending', {
+            title: inputTitle,
+            items: vendingItems
+        });
+
+        // 🌟 B. 看板を周囲に即時反映させるための強制同期
+        // open_vendingだけでは看板が出ない場合があるため、moveイベントで状態を確定させます
+        socket.emit('move', {
+            x: hero.x, y: hero.y, vx: hero.vx, dir: hero.dir,
+            jumping: hero.jumping, isAttacking: hero.isAttacking,
+            invincible: hero.invincible, climbing: hero.climbing,
+            is_vending: true,
+            vending_title: inputTitle 
+        });
+    }
+
+    // 🌟 5. ボタンのテキストと色を切り替え
+    if (btn) {
+        btn.innerText = "露店を開いています";
+        btn.disabled = true; // 開店中はボタンを無効化
+        
+        // 🎨 既存のCSSに負けないよう important を付与してグレーアウト
+        btn.style.setProperty('background', '#888888', 'important');
+        btn.style.setProperty('border-color', '#666666', 'important');
+        btn.style.cursor = "default";
+    }
+    
+    console.log("露店を開始しました。陳列数:", listContainer.children.length, "店名:", inputTitle);
+}
+
+/**
+ * ❌ 露店メニューを閉じる関数
+ * 看板を消去し、ボタンのデザインを元に戻します。
+ */
+function closeVendingMenu() {
+    const win = document.getElementById('vending-window');
+    const btn = document.getElementById('vending-confirm-btn');
+
+    if (win) {
+        win.style.display = 'none';
+        
+        if (typeof hero !== 'undefined') {
+            hero.is_vending = false;
+            hero.vending_title = ""; 
+        }
+
+        if (typeof socket !== 'undefined' && typeof hero !== 'undefined') {
+            socket.emit('close_vending');
+
+            // 閉店状態を周囲に即時同期
+            socket.emit('move', {
+                x: hero.x, y: hero.y, vx: hero.vx, dir: hero.dir,
+                jumping: hero.jumping, isAttacking: hero.isAttacking,
+                invincible: hero.invincible, climbing: hero.climbing,
+                is_vending: false,
+                vending_title: "" 
+            });
+        }
+
+        if (btn) {
+            btn.innerText = "この内容で露店を開く";
+            btn.disabled = false;
+            // JSで付与した強制スタイルを解除
+            btn.style.removeProperty('background');
+            btn.style.removeProperty('border-color');
+            btn.style.cursor = "pointer";
+        }
+    }
+}
+
+/**
+ * ❌ 露店メニューを閉じる関数
+ * 看板を消去し、サーバーへ閉店を通知し、ボタンの色を含めたUI状態を完全にリセットします。
+ */
+function closeVendingMenu() {
+    const win = document.getElementById('vending-window');
+    const btn = document.getElementById('vending-confirm-btn');
+
+    if (win) {
+        // 1. HTMLウィンドウを非表示にする
+        win.style.display = 'none';
+        
+        // 2. 露店フラグをオフにする
+        if (typeof hero !== 'undefined') {
+            hero.is_vending = false;
+            hero.vending_title = ""; // 自分の画面から即座に消去
+        }
+
+        // 3. サーバーに閉店を通知
+        if (typeof socket !== 'undefined' && typeof hero !== 'undefined') {
+            socket.emit('close_vending'); // 閉店専用イベント
+
+            // move同期でも閉店を送信（既存の同期ロジックを維持）
+            socket.emit('move', {
+                x: hero.x, y: hero.y, vx: hero.vx, dir: hero.dir,
+                jumping: hero.jumping, isAttacking: hero.isAttacking,
+                invincible: hero.invincible, climbing: hero.climbing,
+                is_vending: false,
+                vending_title: "" 
+            });
+        }
+
+        // 🌟 4. ボタンの状態を元に戻す
+        if (btn) {
+            btn.innerText = "この内容で露店を開く";
+            btn.disabled = false;
+            
+            // 🎨 修正：JSで付与した強制スタイルを削除して、元のCSS（オレンジ）に戻します
+            btn.style.removeProperty('background');
+            btn.style.removeProperty('border-color');
+            btn.style.cursor = "pointer";
+        }
+
+        console.log("[UI] 露店を終了し、ボタンをリセットしました。");
+    }
+}
+
+/**
+ * 🏪 他プレイヤーの露店を開く処理 (既存ロジックを完全踏襲)
+ * @param {Object} p - クリックされたプレイヤーオブジェクト
+ */
+function openOtherPlayerVending(p) {
+    console.log(`[Vending] ${p.vending_title} (Owner: ${p.id}) のデータを読み込みます...`);
+
+    // 1. サーバーへ最新の商品リストを要求する
+    if (socket) {
+        socket.emit('request_vending_data', { ownerId: p.id });
+    }
+
+    // 2. UIの枠組みを表示
+    const otherVendingWin = document.getElementById('other-vending-window');
+    const itemsContainer = document.getElementById('other-vending-items'); // 商品リストを表示する場所
+
+    if (otherVendingWin) {
+        otherVendingWin.style.display = 'block';
+        
+        // 店名などをUIにセット
+        const titleEl = otherVendingWin.querySelector('.vending-title-display');
+        if (titleEl) titleEl.innerText = p.vending_title || "無名の露店";
+
+        // 🌟 データが届くまでの間、リストを「読み込み中...」にする
+        if (itemsContainer) {
+            itemsContainer.innerHTML = '<p style="text-align: center; padding: 20px; color: #ccc; font-size: 12px;">商品を読み込み中...</p>';
+        }
+    }
+
+    // 3. SEの再生
+    if (typeof playMenuUpSound === 'function') {
+        playMenuUpSound();
+    }
+}
+
+/**
+ * 📡 サーバーから最新の露店商品リストが返ってきた時の処理
+ * デザイン・判定ロジックを完全踏襲 ＋ 詳細なデバッグログを追加
+ */
+socket.on('vending_data_res', (data) => {
+
+    // ⚠️ これで「不明」になったアイテムの生データを確認
+    const bugItem = data.items.find(i => i && !i.display_name && !i.name);
+    if (bugItem) {
+        console.error("🚨 犯人はサーバーです！送られてきたデータに既に名前がありません:", bugItem);
+    } else {
+        console.log("✅ サーバーのデータは正常です。フロントの描画ロジックを疑いましょう。");
+    }
+	
+    // 【最上位デバッグ】パケット全体の確認
+    console.log("%c🏪 [VENDING_RECEIVE] サーバーから露店データを受信しました", "background: #2ecc71; color: white; padding: 2px 5px; font-weight: bold;", data);
+
+    const itemsContainer = document.getElementById('other-vending-items');
+    if (!itemsContainer) {
+        console.error("❌ [ERROR] 'other-vending-items' が見つかりません。HTML側のIDを確認してください。");
+        return;
+    }
+
+    // 🌟 同期用の店主ID保存
+    window.currentVendingOwnerId = data.ownerId;
+
+    // 1. リストの初期化
+    itemsContainer.innerHTML = '';
+
+    const items = data.items || [];
+
+    if (items.length === 0) {
+        itemsContainer.innerHTML = '<p style="text-align: center; padding: 20px; color: #999; font-size: 12px;">商品は売り切れ、またはありません。</p>';
+        return;
+    }
+
+    // 2. 届いたアイテムをループして HTML を生成
+    items.forEach((item, index) => {
+        // --- 🔍 アイテム個別の詳細ログ開始 ---
+        console.group(`📦 露店アイテム解析 [Index:${index}]`);
+
+        // ID取得元の調査
+        const idCheck = {
+            item_id: item.item_id,
+            data_item_id: item.data?.item_id,
+            itemData_id: item.itemData?.item_id,
+            raw_id: item.id
+        };
+        const targetItemId = Number(idCheck.item_id || idCheck.data_item_id || idCheck.itemData_id || idCheck.raw_id || 0);
+        console.log(`[1. ID特定] 結果: ${targetItemId}`, idCheck);
+
+        // DBカタログ情報の調査
+        const dbDisplayName = (item.data && item.data.display_name) || item.display_name;
+        const dbImageName = (item.data && item.data.image_name) || item.image_name;
+        console.log(`[2. DB情報] display_name: ${dbDisplayName}, image_name: ${dbImageName}`, { full_data: item.data });
+
+        const itemRow = document.createElement('div');
+        itemRow.className = 'shop-item-row-div';
+        itemRow.style.justifyContent = "space-between";
+        itemRow.style.borderBottom = "1px solid #eee";
+        itemRow.style.padding = "8px";
+
+        // --- 🌟 名称と画像の決定ロジック (既存踏襲) ---
+        let displayName = "";
+        let forcedIconPath = null;
+
+        if (targetItemId === 201) {
+            displayName = dbDisplayName || "おいしいケーキ";
+            forcedIconPath = `item_assets/${dbImageName || "sweets"}.png`;
+        } else if (targetItemId === 101) {
+            displayName = dbDisplayName || "マニアックソード";
+        } else if (targetItemId === 102) {
+            displayName = dbDisplayName || "トリシールド";
+        } else {
+            displayName = dbDisplayName || item.displayName || item.name || (item.data && item.data.name) || "不明なアイテム";
+        }
+        console.log(`[3. 名称決定] "${displayName}"`);
+
+        // アイテムタイプの特定
+        const rawType = item.item_type || item.type || (item.data && item.data.type) || item.category || "item";
+        const finalType = String(rawType).toLowerCase();
+
+        // --- 🏷️ ランク判定・グロー効果ロジック (既存踏襲) ---
+        let iconGlowStyle = ""; 
+        const isEquipment = (
+            item.type === 'sword' || 
+            item.type === 'shield' || 
+            item.category === 'weapon1' || 
+            item.category === 'shield1' || 
+            item.category === 'armor1' ||
+            ['sword', 'armor', 'shield'].includes(item.item_type)
+        );
+
+        const currentAllStats = item.totalALLStats ?? (item.data && item.data.totalALLStats);
+        const currentFirstStats = item.totalFirstStats ?? (item.data && item.data.totalFirstStats);
+
+        if (isEquipment && currentAllStats !== undefined && currentFirstStats !== undefined) {
+            const bonus = currentAllStats - currentFirstStats;
+            let rankName = "";
+            let rankGlowColor = "";
+
+            if (bonus >= 30)      { rankGlowColor = "#ff0000"; rankName = "(神級)"; }
+            else if (bonus >= 25) { rankGlowColor = "#00ff00"; rankName = "(超伝説)"; }
+            else if (bonus >= 20) { rankGlowColor = "#ffff00"; rankName = "(極上)"; }
+            else if (bonus >= 15) { rankGlowColor = "#ff00ff"; rankName = "(伝説)"; }
+            else if (bonus >= 10) { rankGlowColor = "#00ccff"; rankName = "(希少)"; }
+            else if (bonus >= 5)  { rankGlowColor = "#ff9900"; rankName = "(良品)"; }
+            else if (bonus >= 0)  { rankGlowColor = "";        rankName = "(標準)"; }
+            else                  { rankGlowColor = "";        rankName = "(粗悪)"; }
+
+            if (!displayName.includes("(")) displayName = `${displayName}${rankName}`;
+            if (rankGlowColor) {
+                iconGlowStyle = `filter: drop-shadow(0 0 4px ${rankGlowColor});`;
+            }
+            console.log(`[4. ランク判定] ${rankName} (Bonus: ${bonus})`);
+        }
+
+        const price = item.price ? item.price.toLocaleString() : "0";
+        const count = item.count || item.quantity || 1;
+        
+        // --- 🖼️ アイコンパスの特定 (DBの image_name 優先) ---
+        let iconPath = forcedIconPath || item.iconUrl;
+        
+        if (!iconPath) {
+            if (dbImageName) {
+                iconPath = `item_assets/${dbImageName}${dbImageName.includes('.') ? '' : '.png'}`;
+            } else {
+                iconPath = `item_assets/${item.type || finalType}.png`;
+            }
+        }
+        console.log(`[5. 画像パス] ${iconPath}`);
+
+        const targetOwnerId = data.ownerId;
+        const targetDbId = item.db_id || item.id;
+        console.log(`[6. 実行ボタン] buyFromVending('${targetOwnerId}', '${targetDbId}')`);
+
+        console.groupEnd(); // 個別ログ終了
+
+        // 🌟 innerHTML 出力
+        itemRow.innerHTML = `
+            <div style="display: flex; align-items: center; gap: 10px; pointer-events: none; flex: 1;">
+                <div style="width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,0.03); border-radius: 4px;">
+                    <img src="${iconPath}" 
+                         onerror="console.warn('⚠️ 画像読込失敗: ${iconPath}'); this.onerror=null; this.src='assets/items/default.png';" 
+                         style="max-width: 28px; max-height: 28px; image-rendering: pixelated; ${iconGlowStyle}">
+                </div>
+                <div style="display: flex; flex-direction: column; gap: 2px;">
+                    <span style="color: #333; font-weight: bold; font-size: 12px;">
+                        ${displayName} 
+                        ${(!isEquipment && count > 1) ? `<span style="color: #777; font-weight: normal; font-size: 10px;">(${count}個)</span>` : ''}
+                    </span>
+                    <div style="display: flex; align-items: center; gap: 3px;">
+                        <span style="color: #d34a4a; font-weight: bold; font-size: 11px; font-family: 'Verdana', sans-serif;">${price}</span>
+                        <span style="color: #888; font-size: 9px; font-weight: bold;">メル</span>
+                    </div>
+                </div>
+            </div>
+
+            <button onclick="buyFromVending('${targetOwnerId}', '${targetDbId}')" 
+                    class="maple-btn-orange"
+                    style="padding: 2px 10px; font-size: 11px; cursor: pointer; min-width: 55px; position: relative; z-index: 999; pointer-events: auto;">
+                購入
+            </button>
+        `;
+        
+        itemRow.onmouseenter = () => { window.currentHoverSlot = item; };
+        itemRow.onmouseleave = () => { window.currentHoverSlot = null; };
+
+        itemsContainer.appendChild(itemRow);
+    });
+});
+
+/**
+ * 🛒 露店専用の購入関数（ガチガチデバッグ版）
+ * 既存のロジックを完全に維持しつつ、動作を実況中継します。
+ */
+function buyFromVending(ownerId, dbId) {
+    // 1. 関数が呼ばれた瞬間に青いログを出す（これが出なければボタンの設定ミス）
+    console.log("%c🚀 [VENDING_DEBUG] buyFromVendingが呼び出されました", "background: blue; color: white; padding: 2px 5px;");
+    console.log("├─ 受信OwnerID:", ownerId);
+    console.log("├─ 受信dbId:", dbId);
+    console.log("└─ 現在のsocket.id:", socket ? socket.id : "socket未定義");
+
+    // 自分の店なら中断
+    if (ownerId === socket.id) {
+        console.warn("⚠️ [VENDING_DEBUG] 自店舗購入のため中断しました。");
+        alert("自分の店でアイテムを買うことはできません。");
+        return;
+    }
+
+    // 2. 確認ダイアログの状態をログ
+    const isConfirmed = confirm("このアイテムを購入しますか？");
+    console.log("├─ 購入確認ダイアログの結果:", isConfirmed);
+
+    if (!isConfirmed) {
+        console.log("└─ 購入がキャンセルされました。");
+        return;
+    }
+
+    // 3. サーバー送信直前のデータをログ
+    console.log("%c✉️ [VENDING_DEBUG] サーバーへ 'vending_buy_req' を送信します...", "color: cyan; font-weight: bold;");
+    
+    socket.emit('vending_buy_req', {
+        ownerId: ownerId,
+        dbId: dbId
+    });
+}
+
+// 🛒 露店購入成功時の処理
+socket.on('vending_buy_success', (data) => {
+    console.log("💰 購入成功。最新の所持金を受け取りました:", data.newMoney);
+
+    // 1. メモリ上のプレイヤーデータを更新
+    // あなたのコードで 'drawGoldUI' に渡しているオブジェクトを更新します
+    if (typeof myPlayer !== 'undefined' && myPlayer) {
+        myPlayer.gold = data.newMoney; 
+        // これで次回の drawGoldUI(myPlayer) 実行時に新しい数値が描画されます
+    }
+
+    // 2. エラー（null is not an object）対策：
+    // もしインベントリの再描画などを関数で行っている場合、
+    // アイテムが消えたことによる参照エラーを防ぐために、
+    // アイテムリストの整合性をチェックするか、安全な再読み込みを推奨します
+    // 例: requestInventoryUpdate();
+});
+
+// 💰 自分の店の商品が売れた時（販売者側）
+socket.on('vending_item_sold', (data) => {
+    // 1. ログ出力 (data.dbId はサーバーから送られてくる売れたアイテムのID)
+    console.log(`%c📢 商品売却成功: ${data.buyerName} が購入しました (ID: ${data.dbId})`, "color: #27ae60; font-weight: bold;");
+
+    // 2. 所持金の更新
+    if (typeof myPlayer !== 'undefined' && myPlayer) {
+        myPlayer.gold = data.newMoney;
+        // 所持金表示UIがあれば更新（例: updateMoneyUI() など）
+    }
+
+    // 3. 🌟 重要：売れたアイテムを露店販売リストから即座に削除
+    // これにより、バッファ(vendingItemsBuffer)と表示(DOM)の両方が同期されます
+    if (data.dbId) {
+        removeItemFromVending(data.dbId);
+		//markItemAsSold(data.dbId);
+    }
+
+    // 4. 通知メッセージの表示
+    if (typeof showSystemMessage === 'function') {
+        showSystemMessage(`${data.buyerName} さんにアイテムが売れました！`, "#27ae60");
+    }
+});
+
+// サーバーからのシステムメッセージを受信
+socket.on('system_message', (data) => {
+    // 1. 既存の通知システムがあれば表示（addNotificationなど）
+    if (typeof addNotification === 'function') {
+        addNotification(data.text, data.color || "#FFFFFF");
+    }
+
+    // 2. 「いっぱいです」というキーワードが含まれている場合、アラートを表示
+    if (data.text && data.text.includes("いっぱいです")) {
+        alert("🎒 インベントリ制限\n\n" + data.text);
+    }
+});
+
+// ==========================================
+// 📦 露店データ管理用バッファ
+// ==========================================
+let vendingItemsBuffer = []; // サーバー送信用のデータを保持する箱
+
+/**
+ * 🗑️ 露店リストからアイテムを削除する関数 (データと見た目を同期)
+ */
+function removeItemFromVending(itemId) {
+    // 1. 配列から削除
+    vendingItemsBuffer = vendingItemsBuffer.filter(i => (i.db_id || i.id) != itemId);
+    
+    // 2. 画面(DOM)から削除
+    const el = document.getElementById(`vending-item-${itemId}`);
+    if (el) el.remove();
+    
+    // 3. ホバー中のツールチップをクリア
+    window.currentHoverSlot = null;
+
+    // リストが空になったらメッセージを戻す（任意）
+    const listContainer = document.getElementById('vending-item-list');
+    if (listContainer && vendingItemsBuffer.length === 0) {
+        listContainer.innerHTML = '<p style="color: #999; text-align: center; padding: 10px;">アイテムがありません</p>';
+    }
+    
+    console.log(`[Vending] ID:${itemId} をリストから削除しました。残りの数: ${vendingItemsBuffer.length}`);
+}
+
+// 売れたものを見せる用
+function markItemAsSold(itemId) {
+    const targetId = String(itemId);
+    const itemEl = document.getElementById(`vending-item-${targetId}`);
+
+    if (itemEl) {
+        // 1. クリックやホバーを無効化
+        itemEl.style.pointerEvents = "none";
+        // 2. 見た目を薄くする（透過）
+        itemEl.style.opacity = "0.5";
+        itemEl.style.background = "#f0f0f0";
+        
+        // 3. 削除ボタンを「売却済」ラベルに差し替える
+        const deleteBtn = itemEl.querySelector('button');
+        if (deleteBtn) {
+            deleteBtn.outerHTML = `<span style="color: #888; font-weight: bold; font-size: 10px; padding: 2px 5px;">[売却済]</span>`;
+        }
+        
+        console.log(`✅ アイテム ${targetId} を売却済み表示にしました。`);
+    }
+
+    // バッファからは削除（店を開き直したときは消えてOKなため）
+    vendingItemsBuffer = vendingItemsBuffer.filter(i => String(i.db_id || i.id) !== targetId);
+}
+
+/**
+ * 🏪 露店追加関数 (既存のロジック・デバッグ・スタイルを完全踏襲)
+ */
+function addItemToVendingList(item) {
+    const listContainer = document.getElementById('vending-item-list');
+    
+    // ==========================================
+    // 🔍 完璧デバッグセクション (そのまま維持 + 追跡強化)
+    // ==========================================
+    console.group(`🏪 露店追加デバッグ: ${item?.name || '不明なアイテム'}`);
+    console.log("1. 受信データ:", item);
+
+    // 画像パス解決のロジック
+    let finalIconPath = "";
+    let solveMethod = "";
+
+    if (item?.iconUrl && item.iconUrl !== "") {
+        finalIconPath = item.iconUrl;
+        solveMethod = "iconUrlから取得";
+    } else if (item?.image_name) {
+        finalIconPath = `item_assets/${item.image_name}`;
+        solveMethod = "image_nameから生成";
+    } else if (item?.type) {
+        finalIconPath = `item_assets/${item.type}.png`;
+        solveMethod = `⚠️ image_name不在のため type('${item.type}') から生成`;
+    }
+
+    console.log(`2. パス解決トレース: ${solveMethod}`);
+    console.log(`3. 最終解決URL: "${finalIconPath}"`);
+    
+    if (finalIconPath) {
+        const imgTest = new Image();
+        imgTest.onload = () => {
+            console.log("✅ 画像読み込み成功:", imgTest.src);
+            console.log(`   サイズ: ${imgTest.width}x${imgTest.height}px`);
+        };
+        imgTest.onerror = () => {
+            console.error("❌ 画像読み込み失敗！パスが間違っているかファイルが存在しません。");
+            console.error("   ブラウザが試行した絶対パス:", imgTest.src);
+        };
+        imgTest.src = finalIconPath;
+    } else {
+        console.warn("⚠️ 有効な画像パス（iconUrl, image_name, type）が特定できません。");
+    }
+    console.groupEnd();
+
+    if (!listContainer || !item) return;
+
+    // --- 【追加箇所】配列バッファへのデータ格納 ---
+    const itemId = item.db_id || item.id;
+    const isAlreadyIn = vendingItemsBuffer.some(i => (i.db_id || i.id) === itemId);
+    if (isAlreadyIn) {
+        console.warn("⚠️ このアイテムは既にリストに含まれています。");
+        return;
+    }
+    vendingItemsBuffer.push(item); 
+    // ------------------------------------------
+
+    if (listContainer.innerHTML.includes("アイテムがありません")) {
+        listContainer.innerHTML = '';
+    }
+
+    const existing = document.getElementById(`vending-item-${itemId}`);
+    if (existing) return;
+
+    // 🏷️ アイテム名の判定とランク判定
+    let displayName = item.displayName || item.name || item.item_name || item.itemName || "名称不明アイテム";
+    let iconGlowStyle = ""; 
+
+    const isEquipment = (
+        item.type === 'sword' || 
+        item.type === 'shield' || 
+        item.category === 'weapon1' || 
+        item.category === 'shield1' || 
+        item.category === 'armor1' ||
+        ['sword', 'armor', 'shield'].includes(item.item_type)
+    );
+
+    if (isEquipment && item.totalALLStats !== undefined && item.totalFirstStats !== undefined) {
+        const bonus = item.totalALLStats - item.totalFirstStats;
+        let rankName = "";
+        let rankGlowColor = "";
+
+        if (bonus >= 30)      { rankGlowColor = "#ff0000"; rankName = "(神級)"; }
+        else if (bonus >= 25) { rankGlowColor = "#00ff00"; rankName = "(超伝説)"; }
+        else if (bonus >= 20) { rankGlowColor = "#ffff00"; rankName = "(極上)"; }
+        else if (bonus >= 15) { rankGlowColor = "#ff00ff"; rankName = "(伝説)"; }
+        else if (bonus >= 10) { rankGlowColor = "#00ccff"; rankName = "(希少)"; }
+        else if (bonus >= 5)  { rankGlowColor = "#ff9900"; rankName = "(良品)"; }
+        else if (bonus >= 0)  { rankGlowColor = "";        rankName = "(標準)"; }
+        else                  { rankGlowColor = "";        rankName = "(粗悪)"; }
+
+        if (!displayName.includes("(")) displayName = `${displayName}${rankName}`;
+        if (rankGlowColor) {
+            iconGlowStyle = `filter: drop-shadow(0 0 4px ${rankGlowColor});`;
+        }
+    } else {
+        displayName = displayName.replace(/\(標準\)$/, "");
+    }
+
+    // 🖼️ 要素の作成
+    const itemEl = document.createElement('div');
+    itemEl.id = `vending-item-${itemId}`;
+    itemEl.style = "display: flex; justify-content: space-between; padding: 5px; border-bottom: 1px solid #eee; font-size: 12px; align-items: center; cursor: default;";
+    
+    itemEl.onmouseenter = () => { window.currentHoverSlot = item; };
+    itemEl.onmouseleave = () => { window.currentHoverSlot = null; };
+
+    const displayPrice = item.price ? item.price.toLocaleString() : "0";
+
+    // HTML構造 (修正点: onclickで専用の削除関数を呼ぶように変更)
+    itemEl.innerHTML = `
+        <div style="display: flex; align-items: center; pointer-events: none; flex: 1;">
+            <div style="width: 24px; height: 24px; margin-right: 8px; display: flex; align-items: center; justify-content: center; overflow: visible;">
+                ${finalIconPath ? `
+                    <img src="${finalIconPath}" 
+                         onerror="this.src='assets/items/default.png'" 
+                         style="max-width: 24px; max-height: 24px; image-rendering: pixelated; ${iconGlowStyle}">
+                ` : `
+                    <div style="width: 16px; height: 16px; background: #ccc; border-radius: 2px;"></div>
+                `}
+            </div>
+            <div style="display: flex; flex-direction: column;">
+                <span style="color: #333; font-weight: bold;">${displayName}</span>
+                <span style="color: #444; font-size: 10px;">価格: <span style="color: #d32f2f;">${displayPrice}</span> メル</span>
+            </div>
+            ${(!isEquipment && (item.count || item.quantity)) ? `<span style="color: #888; margin-left: 8px; font-size: 11px;">[${item.count || item.quantity}個]</span>` : ''}
+        </div>
+        <button onclick="removeItemFromVending('${itemId}')" 
+                style="font-size: 10px; color: red; border: none; background: none; cursor: pointer; padding: 2px 5px;">[削除]</button>
+    `;
+    
+    listContainer.appendChild(itemEl);
+    console.log(`${displayName} を価格 ${displayPrice} メルで販売リストに追加しました。現在のバッファ:`, vendingItemsBuffer);
+}
 
 // ------------------------------------------
 // 💾 サーバーに今のステータスを送る関数

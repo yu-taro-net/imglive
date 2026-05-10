@@ -347,7 +347,7 @@ socket.on('init_item_config', (data) => {
 // ==========================================
 // ⚙️ 設定・フラグ（ここを false にするとデバッグ表示が消えます）
 // ==========================================
-let DEBUG_MODE = false; 
+let DEBUG_MODE = true; 
 
 // ============================================================
 // 📊 [SECTION 2: STATE] データ・変数
@@ -1108,17 +1108,19 @@ function openDropForm(slotIndex, item) {
 }
 
 // ==========================================
-// 🖱️ マウスクリック時の判定処理 (22ウィンドウ対応版)
+// 🖱️ マウスクリック時の判定処理 (独自UI数量入力・ランク判定強化版)
 // ==========================================
 canvas.addEventListener('mousedown', (event) => {
     const rect = canvas.getBoundingClientRect();
     const clickX = event.clientX - rect.left;
     const clickY = event.clientY - rect.top;
 
+    // 🚩 DEBUG: クリックの起点ログ
+    console.log(`[ClickEvent] Canvas(${Math.round(clickX)}, ${Math.round(clickY)})`);
+
     // 1. 🌟 重なりを考慮して、どのウィンドウがクリックされたか判定
     let priorityWindow = "none";
     
-    // windowStackを後ろから（＝手前に表示されている順に）チェック
     for (let i = windowStack.length - 1; i >= 0; i--) {
         const name = windowStack[i];
         const win = gameWindows[name];
@@ -1127,29 +1129,26 @@ canvas.addEventListener('mousedown', (event) => {
             if (clickX >= win.x && clickX <= win.x + win.w && 
                 clickY >= win.y && clickY <= win.y + win.h) {
                 priorityWindow = name;
-                break; // 一番手前の窓が見つかったら終了
+                break; 
             }
         }
     }
 
     // 2. 🌟 ウィンドウを触った場合の共通処理
     if (priorityWindow !== "none") {
+        console.log(`[ClickDebug] ウィンドウ「${priorityWindow}」を優先検知. 背後の判定は無視されます.`);
         const win = gameWindows[priorityWindow];
 
-        // 触った窓を最前面に移動
         windowStack = windowStack.filter(item => item !== priorityWindow);
         windowStack.push(priorityWindow);
 
-        // --- ❌ 共通：閉じるボタンの判定 ---
         if (win.isMouseOverClose(clickX, clickY)) {
             win.isOpen = false;
             if (typeof playMenuDownSound === 'function') playMenuDownSound();
             return;
         }
 
-        // --- 📊 Status 専用の判定処理 ---
         if (priorityWindow === "status") {
-            // タブ切り替え
             if (clickY >= win.y + 35 && clickY <= win.y + 60) {
                 if (clickX >= win.x + 20 && clickX <= win.x + 90) {
                     currentTab = "status";
@@ -1162,7 +1161,6 @@ canvas.addEventListener('mousedown', (event) => {
                     return;
                 }
             }
-            // AP強化ボタン
             if (currentTab === "ap") {
                 const btnX = win.x + 150;
                 const btnW = 100;
@@ -1181,20 +1179,116 @@ canvas.addEventListener('mousedown', (event) => {
             }
         }
 
-        // --- 🖐️ 共通：ドラッグ開始判定 (全ウィンドウ共通) ---
         if (win.isMouseOverHeader(clickX, clickY)) {
             win.isDragging = true;
             win.dragOffsetX = clickX - win.x;
             win.dragOffsetY = clickY - win.y;
             return;
         }
-        return; // 窓を触っている間は下のゲーム世界をクリックさせない
+        return; 
     }
 
-    // 3. 🎒 どの窓も触っていない場合の操作（アイテムスロット・捨て処理）
+    // 3. 🎒 どの窓も触っていない場合の操作 (自分のインベントリ判定)
     if (clickY >= 130 && clickY <= 170) {
+        console.log(`[ClickDebug] インベントリ行(y:130-170)を検知.`);
         const index = Math.floor((clickX - 20) / 48);
         if (index >= 0 && index < 10) {
+            console.log(`[ClickDebug] スロットIndex: ${index} をクリック.`);
+            
+            const item = inventoryVisualBuffer && inventoryVisualBuffer[index];
+            const vendingWin = document.getElementById('vending-window');
+            const isVendingOpen = vendingWin && vendingWin.style.display === 'block';
+
+            // 🌟 露店出品モード (独自UI連携)
+            if (item && isVendingOpen) {
+                let baseName = item.name || item.item_name || "アイテム";
+                if (typeof ITEM_CONFIG !== 'undefined' && ITEM_CONFIG[item.type]) {
+                    baseName = ITEM_CONFIG[item.type].display_name || ITEM_CONFIG[item.type].name;
+                }
+
+                const checkStr = `${item.category} ${item.item_type} ${item.type}`.toLowerCase();
+                const isEquip = checkStr.includes('weapon') || checkStr.includes('armor') || checkStr.includes('shield') || checkStr.includes('sword') || checkStr.includes('equip');
+                
+                let rankName = "";
+                if (isEquip) {
+                    const bonus = (item.totalALLStats || 0) - (item.totalFirstStats || 0);
+                    if (bonus >= 30)      { rankName = "(神級)"; }
+                    else if (bonus >= 25) { rankName = "(超伝説)"; }
+                    else if (bonus >= 20) { rankName = "(極上)"; }
+                    else if (bonus >= 15) { rankName = "(伝説)"; }
+                    else if (bonus >= 10) { rankName = "(希少)"; }
+                    else if (bonus >= 5)  { rankName = "(良品)"; }
+                    else if (bonus >= 0)  { rankName = "(標準)"; }
+                    else                  { rankName = "(粗悪)"; }
+                }
+
+                const displayPromptName = `${baseName}${rankName}`;
+                const totalOwned = item.count || 1;
+
+                // --- 独自UI(モーダル)の表示制御 ---
+                const modal = document.getElementById('vending-quantity-modal');
+                const qInput = document.getElementById('modal-quantity-input');
+                const pInput = document.getElementById('modal-price-input');
+                const confirmBtn = document.getElementById('modal-confirm-btn');
+                const cancelBtn = document.getElementById('modal-cancel-btn');
+
+                // モーダルに情報をセット
+                document.getElementById('modal-item-name').innerText = displayPromptName;
+                document.getElementById('modal-max-quantity').innerText = totalOwned;
+                
+                // 数量設定
+                qInput.value = isEquip ? 1 : totalOwned;
+                qInput.disabled = isEquip; // 装備品は1固定
+                pInput.value = 1000; // デフォルト価格
+
+                modal.style.display = 'block';
+
+                // イベントのクリーンアップと再登録 (クロージャでindexとitemを保持)
+                confirmBtn.onclick = null;
+                cancelBtn.onclick = null;
+
+                cancelBtn.onclick = () => {
+                    modal.style.display = 'none';
+                };
+
+                confirmBtn.onclick = () => {
+                    const sellCount = parseInt(qInput.value);
+                    const price = parseInt(pInput.value);
+
+                    if (isNaN(sellCount) || sellCount <= 0 || sellCount > totalOwned) {
+                        alert("有効な数量を入力してください。");
+                        return;
+                    }
+                    if (isNaN(price) || price < 0) {
+                        alert("有効な価格を入力してください。");
+                        return;
+                    }
+
+                    const iconPath = item.imageName ? `item_assets/${item.imageName}.png` : `item_assets/${item.type}.png`;
+                    
+                    const itemToSend = { 
+                        ...item, 
+                        name: displayPromptName, 
+                        displayName: displayPromptName,
+                        iconUrl: iconPath,
+                        price: price,
+                        count: sellCount,
+                        originalIndex: index 
+                    };
+
+                    console.log(`[Vending] 出品確定: ${displayPromptName} x${sellCount} @${price}G`);
+
+                    if (typeof addItemToVendingList === 'function') {
+                        addItemToVendingList(itemToSend);
+                        if (typeof playMouseClickSound === 'function') playMouseClickSound();
+                    }
+                    modal.style.display = 'none';
+                };
+
+                return; // プロンプトの代わりにモーダルを出したので、mousedownの残りの処理は行わない
+            }
+
+            // アイテム移動・スワップロジック
             if (selectedSlotIndex !== -1 && selectedSlotIndex !== index) {
                 socket.emit('swapItems', { from: selectedSlotIndex, to: index });
                 if (typeof playDropSound === 'function') playDropSound();
@@ -1204,19 +1298,49 @@ canvas.addEventListener('mousedown', (event) => {
                 selectedSlotIndex = -1; 
                 canvas.style.cursor = "grab";
                 if (typeof playDropSound === 'function') playDropSound();
-            } else if (inventoryVisualBuffer && inventoryVisualBuffer[index]) {
+            } else if (item) {
                 selectedSlotIndex = index; 
                 canvas.style.cursor = "grabbing"; 
                 if (typeof playHoverSound === 'function') playHoverSound();
             }
+            return; 
         }
     } else {
-        // --- 🗑️ アイテムを地面に捨てる処理 ---
         if (selectedSlotIndex !== -1) {
+            console.log(`[ClickDebug] インベントリ外をクリック. アイテムを捨てる判定へ.`);
             const item = inventoryVisualBuffer[selectedSlotIndex];
             if (item) {
-                // 🌟 分離した関数を呼び出す
                 openDropForm(selectedSlotIndex, item);
+                selectedSlotIndex = -1;
+                canvas.style.cursor = "grab";
+                return;
+            }
+        }
+    }
+
+    // 4. 🏪 他プレイヤーの露店看板クリック判定
+    const targetPlayers = (typeof others !== 'undefined') ? others : (typeof players !== 'undefined') ? players : {};
+    
+    for (let id in targetPlayers) {
+        const p = targetPlayers[id];
+
+        if (p.is_vending && p.id !== hero.id) {
+            if (p.vending_rect) {
+                const r = p.vending_rect;
+                const isInsideX = clickX >= r.x && clickX <= r.x + r.w;
+                const isInsideY = clickY >= r.y && clickY <= r.y + r.h;
+
+                if (isInsideX && isInsideY) {
+                    console.log(`✅ [HIT] 露店看板へのクリックを検知しました！`);
+                    if (typeof playMouseClickSound === 'function') playMouseClickSound();
+
+                    if (typeof openOtherPlayerVending === 'function') {
+                        openOtherPlayerVending(p); 
+                    } else {
+                        console.warn("⚠️ [Error] 関数 openOtherPlayerVending が未定義です。");
+                    }
+                    return; 
+                }
             }
         }
     }
@@ -1543,6 +1667,7 @@ function updateOnlineListUI(playerList) {
 }
 */
 
+/*
 socket.on('state', (data) => {
     // 1. 受信確認
     if (!data) return;
@@ -1667,6 +1792,7 @@ socket.on('state', (data) => {
     // 最後にグローバル変数を更新
     window.hero = myHero;
 });
+*/
 
 socket.on('exp_log', (data) => {
     console.log("経験値の電波を受信しました！", data);
@@ -1722,9 +1848,25 @@ socket.on('update_player_visual', (data) => {
     }
 });
 
-socket.on('inventory_update', (newInventory) => {
-    console.log("アイテム専用窓口で更新を受け取りました！");
-    inventoryVisualBuffer = newInventory; 
+socket.on('inventory_update', (data) => {
+    console.log("🎒 アイテム専用窓口で更新を受け取りました！");
+    
+    if (data && data.inventory) {
+        // 1. 表示用のバッファを更新
+        inventoryVisualBuffer = data.inventory;
+
+        // 2. プレイヤー本体のデータも更新 (重要！)
+        if (window.hero) {
+            window.hero.inventory = data.inventory;
+        }
+
+        // 3. もしインベントリ画面を開いているなら、再描画関数を呼ぶ
+        if (typeof renderInventory === 'function') {
+            renderInventory();
+        }
+        
+        console.log("✅ インベントリデータを同期しました:", data.inventory);
+    }
 });
 
 socket.on('player_die_sound', () => {
@@ -2015,6 +2157,32 @@ function drawDebugLayer(hero, enemies, items, platforms) {
         ctx.fillText(`Attack: ${hero.isAttacking}`, atkX, atkY - 5);
         ctx.restore();
     }
+	
+	// --- G. 他プレイヤーの露店判定の可視化（マゼンタ色） ---
+    // others は drawGame から渡される他プレイヤーのリストを想定
+    if (typeof others !== 'undefined') {
+        Object.values(others).forEach(p => {
+            if (p.is_vending && p.vending_rect) {
+                const r = p.vending_rect;
+                
+                // 判定エリアを枠線で表示
+                ctx.strokeStyle = "magenta";
+                ctx.lineWidth = 2;
+                ctx.setLineDash([]); // 点線を解除
+                ctx.strokeRect(r.x, r.y, r.w, r.h);
+
+                // 塗りつぶし（半透明）
+                ctx.fillStyle = "rgba(255, 0, 255, 0.2)";
+                ctx.fillRect(r.x, r.y, r.w, r.h);
+
+                // 座標情報のテキスト
+                ctx.fillStyle = "magenta";
+                ctx.font = "bold 10px Arial";
+                ctx.fillText(`Shop: ${p.vending_title || 'No Title'}`, r.x, r.y - 15);
+                ctx.fillText(`Rect: ${Math.round(r.x)},${Math.round(r.y)}`, r.x, r.y - 5);
+            }
+        });
+    }
 
     ctx.restore();
 }
@@ -2026,7 +2194,6 @@ function drawEntities(hero, others, enemies, items, frame) {
     // -------------------------------------------------------
     // 1. 敵（モンスター）を描画
     // -------------------------------------------------------
-    // 重なりの順序として、モンスターを一番奥に配置します
     drawEnemies(enemies, hero, frame);
 
     // -------------------------------------------------------
@@ -2035,71 +2202,154 @@ function drawEntities(hero, others, enemies, items, frame) {
     for (let id in others) {
         const p = others[id];
         
-        // 🌟 修正：HPバーの誤表示を防ぐためのガード
-        // 「データが存在する」かつ「自分自身ではない(socket.id比較)」かつ「同じチャンネル」の場合のみ描画
         if (p && id !== socket.id && p.channel === hero.channel) {
-            // 第2引数に false を渡すことで、頭上にHPバーを描画させます
             drawPlayerObj(p, false, id);
+
+            // 🏪 他人の露店看板を表示（開店中の場合のみ）
+            if (p.is_vending) {
+                drawVendingSign(p);
+            }
         }
     }
 
     // -------------------------------------------------------
     // 3. 自分自身を描画
     // -------------------------------------------------------
-    // 他人のプレイヤーの上に重なるように最後に描画します
-    // 第2引数に true を渡すことで、自分の頭上のHPバー描画をスキップさせます
     drawPlayerObj(hero, true);
+
+    // 🏪 自分の露店看板を表示（自分が開店中の場合）
+    if (hero && hero.is_vending) {
+        drawVendingSign(hero);
+    }
 
     // -------------------------------------------------------
     // 4. アイテム（地面に落ちているもの）を描画
     // -------------------------------------------------------
-    // 🌟 アイテムを一番「手前」に描くことで、キャラに隠れて拾い忘れるのを防ぎます
     drawItems(items, frame);
     
     // -------------------------------------------------------
     // 5. レベルアップエフェクトの同期描画
     // -------------------------------------------------------
     levelUpEffects.forEach((eff, index) => {
-        // エフェクトの対象プレイヤーを特定（自分か他人か）
         const p = (hero && hero.id === eff.playerId) ? hero : (others ? others[eff.playerId] : null);
         
-        // 🌟 プレイヤーが存在し、かつ「自分と同じチャンネル」にいる時だけエフェクトを表示
         if (p && p.channel === hero.channel) {
             ctx.save();
             
-            // テキストのデザイン設定（メイプル風ライムグリーン）
             ctx.font = "bold 60px 'Arial Black'"; 
-            ctx.fillStyle = "#80FF00";   // 文字色：明るい緑
-            ctx.strokeStyle = "#004400"; // 縁取り：濃い緑
+            ctx.fillStyle = "#80FF00";   
+            ctx.strokeStyle = "#004400"; 
             ctx.lineWidth = 4;
             ctx.textAlign = "center";
 
-            // 表示位置の微調整（土田さんの 130 オフセットロジックを維持）
             let offset = 0;
             if (hero.id !== eff.playerId) {
                 offset = 130; 
             }
 
-            // X座標：キャラクターの中央位置から計算
             const drawX = (p.x + (p.w || 40) / 2) - offset;
-            
-            // Y座標：頭上からタイマーに合わせてふわっと上昇させる演出
             const drawY = p.y - 60 - (120 - eff.timer) * 0.8;
 
-            // 縁取りと文字を描画
             ctx.strokeText("LEVEL UP !!", drawX, drawY);
             ctx.fillText("LEVEL UP !!", drawX, drawY);
             
             ctx.restore();
         }
 
-        // タイマーのカウントダウン
-        // 描画の有無に関わらず時間は進め、0になったらリストから削除する
         eff.timer--;
         if (eff.timer <= 0) {
             levelUpEffects.splice(index, 1);
         }
     });
+}
+
+/**
+ * 🏪 露店看板の描画ヘルパー
+ * デザインを完全踏襲しつつ、他プレイヤー視点での「倍ズレ」を手動オフセットで解消します。
+ */
+function drawVendingSign(p) {
+    // 🌟 露店フラグを絶対条件にします
+    if (!p || !p.is_vending) return;
+
+    // 同期処理で守られた p.vending_title を参照
+    const title = p.vending_title || ""; 
+
+    ctx.save();
+    
+    // 文字の長さに合わせて看板のサイズを自動調整
+    ctx.font = "bold 13px sans-serif";
+    
+    // 🌟 描画用の変数：中身が空の場合のみ、見た目上のフォールバックを表示
+    let displayTitle = title;
+    if (!title || title === "") {
+        displayTitle = "Loading title..."; 
+    }
+    const textWidth = ctx.measureText(displayTitle).width;
+    const padding = 10;
+    const signW = textWidth + (padding * 2);
+    const signH = 24;
+
+    // 🛠 手動調整用パラメータ
+    // hero.id と一致しない（他人である）場合のみ、手動で位置を戻します。
+    // 右にずれている分を左に戻すため、マイナスの値を設定します。
+    let manualOffsetX = 0;
+    if (typeof hero !== 'undefined' && p.id !== hero.id) {
+        // 🌟 レベルアップエフェクトと同様の調整値（右に寄る分を左に-130戻す）
+        // まだずれる場合は、この数値を -140 や -120 などに微調整してください。
+        manualOffsetX = -130; 
+    }
+
+    // 表示位置：キャラクターの頭上中央（手動オフセットを適用）
+    const charCenter = p.x + (p.w || 40) / 2 + manualOffsetX;
+    const signX = charCenter - (signW / 2);
+    const signY = p.y - 55; // 頭上55pxの位置
+    const rectY = signY - 17; // 四角形の描画開始位置
+
+    // 看板の影（少し浮いている感じを出す）
+    ctx.shadowColor = "rgba(0, 0, 0, 0.4)";
+    ctx.shadowBlur = 4;
+    ctx.shadowOffsetY = 2;
+
+    // 看板の背景（ゴールド〜オレンジのグラデーション）
+    const grad = ctx.createLinearGradient(signX, rectY, signX, rectY + signH);
+    grad.addColorStop(0, "#FFD700"); // 上部：ゴールド
+    grad.addColorStop(1, "#FFA500"); // 下部：オレンジ
+    
+    ctx.fillStyle = grad;
+    ctx.strokeStyle = "#8B4513"; // フチ：濃い茶色
+    ctx.lineWidth = 2;
+
+    // 角丸ボックスの描画
+    if (typeof ctx.roundRect === "function") {
+        ctx.beginPath();
+        ctx.roundRect(signX, rectY, signW, signH, 8);
+        ctx.fill();
+        ctx.stroke();
+    } else {
+        ctx.fillRect(signX, rectY, signW, signH);
+        ctx.strokeRect(signX, rectY, signW, signH);
+    }
+
+    // 看板の文字
+    ctx.shadowBlur = 0; // 文字には影をつけない
+    ctx.fillStyle = "#3E2723"; // 文字色：深い焦げ茶
+    
+    // 💡 ズレ防止のため textAlign は left に固定し、計算済みの座標を使用
+    ctx.textAlign = "left"; 
+    
+    // 🌟 内部データではなく表示用変数を使用
+    ctx.fillText(displayTitle, signX + padding, signY); 
+
+    // --- 💡 [追記] クリック判定用の座標データを保存 ---
+    // 他のユーザーがこの看板をクリックしたかどうかを判定するために使用します。
+    p.vending_rect = {
+        x: signX,
+        y: rectY,
+        w: signW,
+        h: signH
+    };
+	
+    ctx.restore();
 }
 
 /**
@@ -2445,7 +2695,7 @@ function drawUIOverlay(hero) {
 }
 
 // ==========================================
-// 🎨 アイテム詳細ツールチップ描画関数 (ショップ連動・8段階評価版)
+// 🎨 アイテム詳細ツールチップ描画関数 (ショップ・露店連動版)
 // ==========================================
 function drawItemTooltip(ctx, slot, mouseX, mouseY, hero) {
     if (!slot) return;
@@ -2558,8 +2808,6 @@ function drawItemTooltip(ctx, slot, mouseX, mouseY, hero) {
 
     let popupX = mouseX + 15;
     let popupY = mouseY + 15;
-    //if (popupX + boxWidth > (canvas.width / dpr)) popupX = mouseX - boxWidth - 10;
-    //if (popupY + boxHeight > (canvas.height / dpr)) popupY = mouseY - boxHeight - 10;
 
     // --- 描画開始 ---
     ctx.fillStyle = 'rgba(15, 15, 15, 0.95)';
@@ -2582,9 +2830,22 @@ function drawItemTooltip(ctx, slot, mouseX, mouseY, hero) {
     const textStartX = popupX + padding + iconSize + iconTextGap;
     const rightValueX = popupX + boxWidth - 12;
 
-    // アイコン描画
-    //let itemImg = (typeof itemImages !== 'undefined') ? itemImages[slot.type] : null;
-	let itemImg = slot.img || ((typeof itemImages !== 'undefined') ? itemImages[slot.type] : null);
+    // --- 🖼️ アイコン描画ロジックの強化 ---
+    let itemImg = slot.img || ((typeof itemImages !== 'undefined') ? itemImages[slot.type] : null);
+
+    // 🌟 HTMLの露店リストから iconUrl が渡された場合の自動解決
+    if (!itemImg && slot.iconUrl) {
+        if (!window.itemImageCache) window.itemImageCache = {};
+        if (window.itemImageCache[slot.iconUrl]) {
+            itemImg = window.itemImageCache[slot.iconUrl];
+        } else {
+            const img = new Image();
+            img.src = slot.iconUrl;
+            window.itemImageCache[slot.iconUrl] = img;
+            itemImg = img;
+        }
+    }
+
     if (itemImg && itemImg.complete && itemImg.naturalWidth !== 0) {
         ctx.save();
         if (glowColor) {
@@ -2657,11 +2918,10 @@ function drawItemTooltip(ctx, slot, mouseX, mouseY, hero) {
         ctx.textAlign = 'left';
         ctx.font = '12px sans-serif';
         ctx.fillStyle = '#ffffff';
-        // 説明文が長い場合の簡易折り返し等はせず、元のロジックを維持
         ctx.fillText(statusText, textStartX, contentTop + 30);
     }
 
-    // 🛡️ 2. 元の状態に復元（これで他の描画がズレない）
+    // 🛡️ 2. 元の状態に復元
     ctx.restore();
 }
 
@@ -4700,6 +4960,35 @@ canvas.addEventListener('mousemove', (e) => {
 
     // 窓の上にカーソルがある場合は、これ以降の判定（アイテム等）をスキップ
     if (foundWindow) return;
+
+    // ------------------------------------------
+    // 🏪 露店看板の判定（新規追加ロジック）
+    // ------------------------------------------
+    let foundVending = false;
+    // otherPlayers または others を安全に参照
+    const targetList = (typeof otherPlayers !== 'undefined') ? otherPlayers : (typeof others !== 'undefined' ? others : {});
+
+    for (let id in targetList) {
+        const p = targetList[id];
+        // 露店を開設しているプレイヤーが対象
+        if (p.is_vending) {
+            // 看板の当たり判定範囲（描画ロジックに合わせて調整してください）
+            const signW = 120; 
+            const signH = 40;  
+            const signX = p.x - signW / 2;
+            const signY = p.y - 80; // プレイヤー頭上の高さ
+
+            if (mouseX >= signX && mouseX <= signX + signW &&
+                mouseY >= signY && mouseY <= signY + signH) {
+                canvas.style.cursor = "pointer";
+                foundVending = true;
+                break;
+            }
+        }
+    }
+
+    // 看板の上にいる場合はバッグ判定をスキップして終了
+    if (foundVending) return;
 
     // ------------------------------------------
     // 📦 バッグ・アイテム判定（ロジックを完全踏襲）

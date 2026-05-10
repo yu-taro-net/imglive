@@ -225,7 +225,10 @@ socket.on('login', async (data) => {
                 // -----------------------
                 // 🌟 修正：整形済みのインベントリを反映
                 inventory: fixedInventory, 
-                lastPickupTime: 0
+                lastPickupTime: 0,
+				// 🌟 追加：露店システム用の初期状態
+                is_vending: false,      // 自分が店を開いているか
+                vending_title: ""      // 看板に表示する店名
             };
 
             // 🌟 肝：このソケットをチャンネル専用の「部屋」に参加させる
@@ -448,19 +451,34 @@ socket.on('save_player_data', (data) => {
 });
 
         // ------------------------------------------
-        // 👋 接続解除 (Disconnect)
-        // ------------------------------------------
-        socket.on('disconnect', () => {
-            LOG.SYS(`ユーザーが切断しました: ${socket.id}`);
-            try {
-                const name = players[socket.id] ? players[socket.id].name : socket.id;
-                debugChat(`📴 切断されました: ${name}`);
-                delete players[socket.id];
-				emitPlayerList();
-            } catch (e) {
-                debugChat(`❌ disconnectエラー: ${e.message}`, 'error');
-            }
-        });
+// 👋 接続解除 (Disconnect)
+// ------------------------------------------
+socket.on('disconnect', () => {
+    LOG.SYS(`ユーザーが切断しました: ${socket.id}`);
+    try {
+        const p = players[socket.id];
+        const name = p ? p.name : socket.id;
+
+        // 🌟 露店を開設していた場合、全体リストから削除する
+        if (active_venders[socket.id]) {
+            delete active_venders[socket.id];
+            LOG.SYS(`[Vending] 切断に伴い露店を閉鎖しました: ${name}`);
+            
+            // ✅ 【追加】閲覧中の全ユーザーに閉店を通知
+            // これによりフロント側の socket.on('vending_closed') が発火します
+            io.emit('vending_closed', { id: socket.id });
+        }
+
+        debugChat(`📴 切断されました: ${name}`);
+
+        // プレイヤーデータの削除とリスト更新
+        delete players[socket.id];
+        emitPlayerList();
+
+    } catch (e) {
+        debugChat(`❌ disconnectエラー: ${e.message}`, 'error');
+    }
+});
 
         // ==========================================
         // 👤 プレイヤーの参加・変更セクション
@@ -533,20 +551,26 @@ socket.on('save_player_data', (data) => {
             }
         });
 
-        // 2. 移動
         socket.on('move', (data) => {
-            const p = players[socket.id];
-            if (p) {
-                p.x = data.x;
-                p.y = data.y;
-                p.vx = data.vx;
-                p.dir = data.dir;
-                p.jumping = data.jumping;
-                p.isAttacking = data.isAttacking;
-                p.invincible = data.invincible;
-                p.climbing = data.climbing;
-            }
-        });
+    const p = players[socket.id];
+    if (p) {
+        p.x = data.x;
+        p.y = data.y;
+        p.vx = data.vx;
+        p.dir = data.dir;
+        p.jumping = data.jumping;
+        p.isAttacking = data.isAttacking;
+        p.invincible = data.invincible;
+        p.climbing = data.climbing;
+
+        // 🌟 修正：店名の上書きを防止
+        // 露店状態（看板を出すかどうか）のフラグだけ同期し、
+        // タイトルは open_vending イベントに任せる
+        if (data.is_vending !== undefined) {
+            p.is_vending = data.is_vending;
+        }
+    }
+});
 
         // 攻撃イベントの中継（攻撃のキレを良くするため）
         socket.on('player_attack', (data) => {
@@ -1393,6 +1417,496 @@ socket.on('sell_request', async (data) => {
     }
 });
 
+// ============================================================
+// 🏪 [SECTION 6: INTERACTION] 露店開設リクエスト
+// 役割: クライアントからの開店要請を受け、状態を全ユーザーに同期する
+// ============================================================
+
+// ==========================================
+// 12. 露店開設イベント (在庫連動版：開店時は減らさない)
+// ==========================================
+socket.on('open_vending', (data) => {
+    const p = players[socket.id];
+    
+    // プレイヤーが存在しない場合は中断
+    if (!p) return;
+
+    // 🌟 店名を確定させてサーバー側の変数に保存
+    const inputTitle = data.title || data.vending_title || p.vending_title || "No Name Shop";
+    p.vending_title = inputTitle;
+
+    // --- 🌟 ロジック踏襲: 準備中（アイテム0）なら状態更新も通知もしない ---
+    if (!data.items || data.items.length === 0) {
+        p.is_vending = false; 
+        p.vending_items = []; // プレイヤー情報のリストもリセット
+
+        active_venders[socket.id] = {
+            dbId: p.dbId,
+            name: p.name,
+            vending_title: p.vending_title, 
+            channel: p.channel,
+            map_id: p.map_id, 
+            x: p.x,
+            y: p.y,
+            items: [] 
+        };
+
+        console.log(`[Vending] ${p.name} は準備中のため、同期通知をスキップしました: ${p.vending_title}`);
+        return; // ❌ アイテムがない場合はここで終了
+    }
+
+    // --- ここから下は「アイテムが1つ以上ある場合」のみ実行される ---
+
+    // 🌟 【修正ポイント】
+    // クライアントから送られた「出品データ」を整理する。
+    // ここではインベントリ (p.inventory) から個数を引かずに、
+    // 「どのスロット(originalIndex)から何個(count)出すか」という情報だけを保存する。
+    const formattedVendingItems = data.items.map(vItem => {
+        // インベントリの現物を確認
+        const invItem = p.inventory[vItem.originalIndex];
+        if (invItem) {
+            return {
+                ...invItem,       // アイテムの基本情報（名前、画像など）
+                count: vItem.count, // 出品したい数
+                price: vItem.price, // 販売価格
+                originalIndex: vItem.originalIndex // 🌟 重要：売れた時に減らすためのスロット番号
+            };
+        }
+        return null;
+    }).filter(i => i !== null);
+
+    // 1. サーバー側のプレイヤー個別の状態を正式に「開店中」に更新
+    p.is_vending = true;
+    
+    // 🔥 整理した出品リストを保存（売れた瞬間にここを参照してインベントリを減らす）
+    p.vending_items = formattedVendingItems;
+
+    // 2. 外部管理用の active_venders に詳細情報を登録
+    active_venders[socket.id] = {
+        dbId: p.dbId,
+        name: p.name,
+        vending_title: p.vending_title,
+        channel: p.channel,
+        map_id: p.map_id, 
+        x: p.x,
+        y: p.y,
+        items: formattedVendingItems
+    };
+
+    // 3. 全員（同じチャンネルの人）に開店を知らせる
+    io.to(`channel_${p.channel}`).emit('vending_opened', {
+        id: socket.id,
+        vending_title: p.vending_title,
+        title: p.vending_title,
+        items: formattedVendingItems, // 受信を確実にする
+        x: p.x,
+        y: p.y
+    });
+
+    console.log(`[Vending] ${p.name} が在庫連動モードで開店しました: ${p.vending_title}`);
+});
+
+// 🛒 📡 クライアントからの商品リスト要求を受け取る
+socket.on('request_vending_data', async (data) => {
+    const ownerId = data.ownerId;
+    
+    // 1. 全プレイヤーの中から、店主(ownerId)のデータを探す
+    const owner = players[ownerId]; 
+
+    console.log(`\n========== 🔍 [VENDING_GIGA_DEBUG] START: ${ownerId} ==========`);
+
+    if (owner && owner.is_vending) {
+        console.log(`[Vending] ${ownerId} の商品リストをカタログ情報を紐付けて返信します`);
+
+        // --- 🌟 店主のインベントリから詳細情報を抽出して結合する ---
+        // DB照会を行うために Promise.all を使用します
+        const itemsWithDetails = await Promise.all((owner.vending_items || []).map(async (vItem, idx) => {
+            if (!vItem) return null;
+
+            console.log(`\n--- 📦 [Item:${idx}] の解析開始 ---`);
+            console.log(`[DEBUG] 1. 出品データ(vItem):`, JSON.stringify(vItem));
+
+            // 店主のインベントリ(inventory)から元のアイテム情報を参照
+            const sIdx = vItem.originalIndex;
+            const invItem = (owner.inventory && owner.inventory[sIdx]) 
+                ? owner.inventory[sIdx] 
+                : null;
+
+            if (invItem) {
+                console.log(`[DEBUG] 2. 在庫データ(invItem)発見:`, JSON.stringify(invItem));
+            } else {
+                console.warn(`[DEBUG] 2. 在庫データ(invItem)が inventory[${sIdx}] に見つかりません`);
+            }
+
+            // 🌟 IDの確定（型を数値に変換して確実に判定できるようにします）
+            const rawId = vItem.id || vItem.item_id || (invItem ? invItem.item_id : null);
+            const resolvedId = (rawId !== undefined && rawId !== null) ? Number(rawId) : 0;
+            console.log(`[DEBUG] 3. 確定したID: ${resolvedId} (型: ${typeof rawId})`);
+
+            // 🌟 DBからマスター情報を一本釣り（3つのテーブルを振り分け）
+            let dbMaster = null;
+            let tableName = "";
+
+            if (resolvedId > 0) {
+                // IDの番台によって参照テーブルを決定
+                if (resolvedId >= 100 && resolvedId < 200) {
+                    tableName = "item_equip_catalog";
+                } else if (resolvedId >= 200 && resolvedId < 300) {
+                    tableName = "item_consume_catalog";
+                } else if (resolvedId >= 300 && resolvedId < 400) {
+                    tableName = "item_etc_catalog";
+                }
+
+                if (tableName) {
+                    try {
+                        // 🌟 【修正の決定打】WHERE句を id から item_id に変更
+                        console.log(`[DEBUG] 4. SQL実行: SELECT * FROM ${tableName} WHERE item_id = ${resolvedId}`);
+                        const [rows] = await pool.query(`SELECT * FROM ${tableName} WHERE item_id = ?`, [resolvedId]);
+                        
+                        if (rows && rows.length > 0) {
+                            dbMaster = rows[0];
+                            console.log(`[DEBUG] 4. ✅ DB照合成功 (${tableName}):`, JSON.stringify(dbMaster));
+                        } else {
+                            console.error(`[DEBUG] 4. ❌ DB照合失敗: ${tableName} に item_id:${resolvedId} が存在しません`);
+                        }
+                    } catch (dbErr) {
+                        console.error(`[DEBUG] 4. ‼️ SQLエラー:`, dbErr.message);
+                    }
+                } else {
+                    console.warn(`[DEBUG] 4. ⚠️ 該当するカタログテーブルが判定できませんでした (ID: ${resolvedId})`);
+                }
+            }
+
+            const resItem = {
+                ...vItem,
+                // クライアント側の描画ロジックが期待する 'data' 階層を動的に生成
+                data: {
+                    item_id: resolvedId,
+                    // 🌟 修正：DBの display_name を最優先に変更
+                    display_name: dbMaster?.display_name || dbMaster?.name || vItem.display_name || vItem.name || (invItem ? (invItem.display_name || invItem.name) : null) || `不明(ID:${resolvedId})`,
+                    image_name: dbMaster?.image_name || vItem.image_name || vItem.imageName || (invItem ? (invItem.image_name || invItem.image || invItem.type) : null) || "default",
+                    type: dbMaster?.type || vItem.type || (invItem ? invItem.type : 'item'),
+                    // ランク判定（グロー効果）に必要なステータスも引き継ぐ
+                    totalALLStats: vItem.totalALLStats ?? (invItem ? invItem.totalALLStats : undefined),
+                    totalFirstStats: vItem.totalFirstStats ?? (invItem ? invItem.totalFirstStats : undefined)
+                }
+            };
+
+            console.log(`[DEBUG] 5. 最終送信データ名: "${resItem.data.display_name}"`);
+            return resItem;
+        }));
+
+        const finalItems = itemsWithDetails.filter(i => i !== null);
+        console.log(`\n[Vending] 送信準備完了: ${finalItems.length}件のアイテム`);
+        console.log(`========== 🔍 [VENDING_GIGA_DEBUG] END: ${ownerId} ==========\n`);
+
+        // 2. 要求したクライアントだけに、その店の商品リストを送り返す
+        socket.emit('vending_data_res', {
+            ownerId: ownerId,
+            items: finalItems 
+        });
+    } else {
+        console.warn(`[Vending] 店主 ${ownerId} が見つからないか、閉店しています`);
+        socket.emit('vending_data_res', { ownerId: ownerId, items: [] });
+    }
+});
+
+// 🛒 露店でのアイテム購入リクエスト (構造維持・完売時自動閉店・数量同期修正版)
+socket.on('vending_buy_req', async (data) => {
+    // 1. 受信直後のログ
+    console.log("\n%c========== 🔍 [VENDING_DEBUG] 🚀 購入リクエスト開始 ==========", "color: #3498db; font-weight: bold;");
+    console.log("├─ [1.受信データ]:", JSON.stringify(data));
+    
+    const ownerId = data.ownerId;
+    const dbIdRaw = data.dbId; 
+    const buyerId = socket.id;
+
+    if (ownerId === buyerId) {
+        console.warn("└─ [中止] 自分の店の商品は購入できません。");
+        return;
+    }
+
+    const buyer = players[buyerId];
+    const seller = players[ownerId];
+
+    if (!buyer || !seller) {
+        console.error("└─ [エラー] プレイヤーデータが見つかりません. buyer:", !!buyer, "seller:", !!seller);
+        socket.emit('system_message', { text: "通信エラーが発生しました。" });
+        return;
+    }
+
+    // 🌟 データベース接続を先に取得
+    const connection = await pool.getConnection(); 
+    try {
+        await connection.beginTransaction();
+
+        // 🌟 IDの参照と数値化
+        let buyerDbId = Number(buyer.db_id || buyer.user_id || buyer.player_id || buyer.id);
+        let sellerDbId = Number(seller.db_id || seller.user_id || seller.player_id || seller.id);
+
+        if (isNaN(buyerDbId) || buyerDbId === 0) {
+            const [rows] = await connection.query("SELECT id FROM users WHERE username = ?", [buyer.name]);
+            if (rows.length > 0) buyerDbId = rows[0].id;
+        }
+        if (isNaN(sellerDbId) || sellerDbId === 0) {
+            const [rows] = await connection.query("SELECT id FROM users WHERE username = ?", [seller.name]);
+            if (rows.length > 0) sellerDbId = rows[0].id;
+        }
+
+        console.log(`├─ [2.ID検証完了]: BuyerDBID=${buyerDbId}, SellerDBID=${sellerDbId}`);
+
+        if (!buyerDbId || !sellerDbId) throw new Error(`数値ID特定不可`);
+
+        // 🌟 【重要】メモリ上の露店データからアイテムを特定
+        const itemInVending = seller.vending_items?.find(i => i && String(i.db_id || i.id) === String(dbIdRaw));
+        console.log("├─ [3.露店メモリ照合]:", itemInVending ? "✅ 発見" : "❌ 未発見", itemInVending);
+
+        if (!itemInVending) throw new Error("VENDING_DATA_MISMATCH");
+
+        // 🌟 DB上の本物のIDを「スロット番号」から再特定
+        const originalSlot = itemInVending.originalIndex;
+        const [invRows] = await connection.query(
+            "SELECT * FROM user_inventory WHERE user_id = ? AND slot_index = ? LIMIT 1",
+            [sellerDbId, originalSlot]
+        );
+
+        if (invRows.length === 0) throw new Error("ITEM_NOT_FOUND_IN_DB_BY_SLOT");
+
+        const itemData = invRows[0];
+        const realDbId = itemData.id; 
+        const equipmentId = itemData.equipment_id || null;
+        const numericItemId = Number(itemData.item_id);
+        const itemType = (itemData.item_type || "item").toLowerCase();
+
+        // 🌟 数量と価格 (確実に数値化)
+        const buyQty = Number(itemInVending.count || itemInVending.quantity || 1); 
+        const pricePerOne = Number(itemInVending.price); 
+        const totalPrice = pricePerOne * buyQty;         
+
+        // 判定：装備品かどうか
+        const isEquipment = itemType.includes('shield') || itemType.includes('weapon') || itemType.includes('armor') || itemType.includes('equipment');
+
+        let finalSlotIndex = -1;
+        let isNewSlot = true;
+        let mergedDbId = null;
+
+        // スタック合流判定
+        if (!isEquipment) {
+            const [existingItems] = await connection.query(
+                "SELECT id, slot_index FROM user_inventory WHERE user_id = ? AND item_id = ? AND is_equipped = 0 LIMIT 1",
+                [buyerDbId, numericItemId]
+            );
+            if (existingItems.length > 0) {
+                finalSlotIndex = existingItems[0].slot_index;
+                mergedDbId = existingItems[0].id;
+                isNewSlot = false;
+            }
+        }
+
+        // 新規スロット決定
+        if (isNewSlot) {
+            const [slots] = await connection.query("SELECT slot_index FROM user_inventory WHERE user_id = ? ORDER BY slot_index ASC", [buyerDbId]);
+            const usedSlots = slots.map(s => Number(s.slot_index));
+            let nextSlot = 0; while (usedSlots.includes(nextSlot)) { nextSlot++; }
+            if (nextSlot > 9) throw new Error("INVENTORY_FULL");
+            finalSlotIndex = nextSlot;
+        }
+
+        // 🌟 A & B. ゴールド更新
+        await connection.query("UPDATE player_stats SET gold = gold - ? WHERE user_id = ?", [totalPrice, buyerDbId]);
+        await connection.query("UPDATE player_stats SET gold = gold + ? WHERE user_id = ?", [totalPrice, sellerDbId]);
+
+        // 🌟 C. アイテム移動
+        await connection.query("UPDATE user_inventory SET quantity = quantity - ? WHERE id = ?", [buyQty, realDbId]);
+        await connection.query("DELETE FROM user_inventory WHERE id = ? AND quantity <= 0", [realDbId]);
+
+        if (isNewSlot) {
+            const [resIns] = await connection.query(
+                `INSERT INTO user_inventory (user_id, item_type, quantity, slot_index, item_id, is_equipped, equipment_id) VALUES (?, ?, ?, ?, ?, 0, ?)`,
+                [buyerDbId, itemData.item_type, buyQty, finalSlotIndex, numericItemId, equipmentId]
+            );
+            mergedDbId = resIns.insertId;
+        } else {
+            await connection.query("UPDATE user_inventory SET quantity = quantity + ? WHERE id = ?", [buyQty, mergedDbId]);
+        }
+
+        await connection.commit();
+
+        // --- ✅ 🧠 メモリ上のデータ「完全同期」 ---
+        if (buyer.gold !== undefined) buyer.gold -= totalPrice;
+        if (seller.gold !== undefined) seller.gold += totalPrice;
+
+        // 1. 【販売者側メモリ】
+        if (Array.isArray(seller.inventory)) {
+            const sIdx = itemInVending.originalIndex;
+            if (seller.inventory[sIdx]) {
+                const currentQty = Number(seller.inventory[sIdx].quantity || seller.inventory[sIdx].count || 0) - buyQty;
+                if (currentQty <= 0) { seller.inventory[sIdx] = null; } 
+                else { 
+                    seller.inventory[sIdx].quantity = currentQty; 
+                    seller.inventory[sIdx].count = currentQty; 
+                }
+            }
+        }
+        
+        // 🌟 販売中リストの更新
+        if (seller.vending_items) {
+            seller.vending_items = seller.vending_items
+                .map(i => {
+                    if (String(i.db_id || i.id) === String(dbIdRaw)) {
+                        const newQty = Number(i.count || i.quantity || 0) - buyQty;
+                        return newQty > 0 ? { ...i, count: newQty, quantity: newQty } : null;
+                    }
+                    return i;
+                })
+                .filter(i => i !== null);
+
+            for (let vItem of seller.vending_items) {
+                const tid = Number(vItem.item_id || vItem.id);
+                let catTable = (tid >= 100 && tid < 200) ? "item_equip_catalog" : (tid >= 200 && tid < 300) ? "item_consume_catalog" : (tid >= 300 && tid < 400) ? "item_etc_catalog" : "";
+                if (catTable) {
+                    const [cRows] = await connection.query(`SELECT display_name, image_name FROM ${catTable} WHERE item_id = ?`, [tid]);
+                    if (cRows.length > 0) {
+                        vItem.name = cRows[0].display_name;
+                        vItem.display_name = cRows[0].display_name;
+                        vItem.image_name = cRows[0].image_name;
+                    }
+                }
+            }
+        }
+
+        // 2. 【購入者側メモリ更新】
+        if (!Array.isArray(buyer.inventory)) buyer.inventory = new Array(10).fill(null);
+        
+        if (!isNewSlot && buyer.inventory[finalSlotIndex]) {
+            const target = buyer.inventory[finalSlotIndex];
+            const oldQty = Number(target.quantity || target.count || 0);
+            const newQty = oldQty + buyQty;
+            target.quantity = newQty;
+            target.count = newQty;
+            console.log(`│ [DEBUG] 合流更新完了: Slot ${finalSlotIndex} (${oldQty} -> ${newQty})`);
+        } else {
+            const newItemForBuyer = { ...itemInVending, db_id: mergedDbId, id: mergedDbId, quantity: buyQty, count: buyQty, slot_index: finalSlotIndex, is_equipped: 0, equipment_id: equipmentId };
+            delete newItemForBuyer.price; delete newItemForBuyer.originalIndex;
+            buyer.inventory[finalSlotIndex] = newItemForBuyer;
+            console.log(`│ [DEBUG] 新規スロット追加: Slot ${finalSlotIndex}`);
+        }
+
+        // 🌟🌟🌟 【ピンポイント名称再補完】 🌟🌟🌟
+        const targetItem = buyer.inventory[finalSlotIndex];
+        if (targetItem) {
+            const tid = Number(numericItemId);
+            let catalogTable = (tid >= 100 && tid < 200) ? "item_equip_catalog" : (tid >= 200 && tid < 300) ? "item_consume_catalog" : (tid >= 300 && tid < 400) ? "item_etc_catalog" : "";
+            if (catalogTable) {
+                const [catRows] = await connection.query(`SELECT display_name, image_name FROM ${catalogTable} WHERE item_id = ?`, [tid]);
+                if (catRows.length > 0) {
+                    targetItem.name = catRows[0].display_name;
+                    targetItem.display_name = catRows[0].display_name;
+                    targetItem.image_name = catRows[0].image_name;
+                }
+            }
+        }
+
+        // --- ✅ 📡 クライアント送信 ---
+        const finalGold = buyer.gold !== undefined ? buyer.gold : (buyer.money || 0);
+        const purchasedName = targetItem?.display_name || targetItem?.name || "アイテム";
+
+        socket.emit('vending_buy_success', { dbId: dbIdRaw, newMoney: finalGold });
+        socket.emit('inventory_update', { inventory: buyer.inventory }); 
+        socket.emit('system_message', { text: `${purchasedName} x${buyQty} を購入しました。` });
+
+        io.to(ownerId).emit('vending_item_sold', { dbId: dbIdRaw, newMoney: (seller.gold || 0), buyerName: buyer.name });
+        io.to(ownerId).emit('inventory_update', { inventory: seller.inventory });
+
+        // 🌟🌟🌟 【完売チェック：自動閉店ロジック】 🌟🌟🌟
+        if (!seller.vending_items || seller.vending_items.length === 0) {
+            console.log(`│ [VENDING] ${seller.name} の露店は完売しました。自動終了します。`);
+            seller.is_vending = false;
+            seller.vending_title = "";
+            if (typeof active_venders !== 'undefined' && active_venders[ownerId]) {
+                delete active_venders[ownerId];
+            }
+            // 全員に閉店を通知
+            io.emit('vending_closed', { id: ownerId, reason: 'sold_out' });
+            // 本人に通知
+            io.to(ownerId).emit('system_message', { text: "商品が完売したため、露店を終了しました。" });
+        } else {
+            // まだ在庫がある場合は露店データを更新配信
+            io.emit('vending_data_res', { ownerId: ownerId, items: seller.vending_items });
+        }
+
+        console.log(`%c========== 🔍 [VENDING_DEBUG] ✨ 正常終了: ${purchasedName} ==========`, "color: #2ecc71; font-weight: bold;");
+
+    } catch (err) {
+        if (connection) await connection.rollback();
+        console.error("❌ [VENDING_ERROR]:", err);
+        socket.emit('system_message', { text: `購入エラー: ${err.message}` });
+    } finally {
+        if (connection) connection.release();
+    }
+});
+
+// ------------------------------------------------------------
+// 🏃 [SECTION 6: MOVEMENT] 移動同期
+// ------------------------------------------------------------
+socket.on('move', (data) => {
+    const p = players[socket.id];
+    if (p) {
+        // 基本移動同期
+        p.x = data.x;
+        p.y = data.y;
+        p.vx = data.vx;
+        p.dir = data.dir;
+        p.jumping = data.jumping;
+        p.isAttacking = data.isAttacking;
+        p.invincible = data.invincible;
+        p.climbing = data.climbing;
+
+        // 🌟 修正：店名が勝手に上書きされないようガードをかける
+        // 1. data.vending_title が存在し、かつ空文字でない場合のみ上書きを許可
+        if (data.vending_title !== undefined && data.vending_title !== "") {
+            p.vending_title = data.vending_title;
+        }
+        
+        // 2. 露店フラグの同期
+        if (data.is_vending !== undefined) {
+            p.is_vending = data.is_vending;
+            
+            // 🌟 修正ポイント：
+            // 「Shop」という固定文字を削除し、サーバーが現在保持している名前を優先します。
+            if (p.is_vending && (!p.vending_title || p.vending_title === "")) {
+                // もし今の p.vending_title があるならそれを維持、なければ空文字にする。
+                // これにより、どこからも "Shop" という文字は発生しなくなります。
+                p.vending_title = p.vending_title || ""; 
+            }
+        }
+    }
+});
+
+// ------------------------------------------------------------
+// ❌ 露店閉鎖リクエスト（手動で閉じる場合）
+// ------------------------------------------------------------
+socket.on('close_vending', () => {
+    const p = players[socket.id];
+    if (p) {
+        // 1. サーバー側の状態を「非開店」に更新
+        p.is_vending = false;
+        // 店名は保持しておいても良いが、看板を表示させないためにフラグを優先
+        
+        // 2. 外部管理用のリストから削除
+        if (active_venders[socket.id]) {
+            delete active_venders[socket.id];
+        }
+
+        // 3. 周囲のプレイヤーに「看板を消して」と通知
+        io.to(`channel_${p.channel}`).emit('vending_closed', {
+            id: socket.id
+        });
+
+        console.log(`[Vending] ${p.name} が露店を閉じました。`);
+    }
+});
+
         // 🌟 ステータス強化のリクエストを受け取る
         socket.on('upgrade_stat', (data) => {
             const player = players[socket.id];
@@ -1424,6 +1938,7 @@ socket.on('sell_request', async (data) => {
 // 役割: 全プレイヤー、モンスター、アイテムの「現在の数値」を保持する場所
 // ============================================================
 let players = {};         // 参加中のプレイヤーたち
+let active_venders = {}; // 🌟 追加：キーをsocket.idにして、店名や座標、出品アイテムを格納
 let lastPickedItems = []; // 🌟 拾われた情報を一時保存する箱（ここがベスト！）
 
 // ============================================================
@@ -2782,7 +3297,7 @@ function executeAdminCommand(socket, p, text) {
         const args = text.split(' ');
         const amount = parseInt(args[1]);
 
-        // 1. バリデーション（数値かどうか、0より大きいか）
+        // 1. バリデーション
         if (isNaN(amount) || amount <= 0) {
             socket.emit('chat', { 
                 id: 'SYSTEM_LOG', 
@@ -2805,89 +3320,83 @@ function executeAdminCommand(socket, p, text) {
         // 3. 所持金を減らす
         p.gold -= amount;
 
-        // 4. 地面にドロップするアイテムオブジェクト(newItem)作成
+        // 4. アイテムオブジェクト作成
         const chId = p.channel || 1;
         const newItem = {
-            id: Math.floor(Math.random() * 1000000), // フィールド上の識別用
-            type: 'medal1',                         // ゴールド用の見た目
-            x: p.x,                                 // プレイヤーの現在位置（横移動なし）
-            y: p.y + 12,                            // dropItemと同じ出現位置
-            
-            // --- 🌟 物理パラメータ（垂直移動と反時計回り回転のみ） ---
-            vx: 0,                                 // 🌟 横移動なし
-            vy: -12,                               // dropItemと同じ上方向への強い跳ね上げ
-            landed: false,                         // クライアント側で物理演算を開始させる
-            
+            id: Math.floor(Math.random() * 1000000),
+            type: 'medal1',
+            x: p.x,
+            y: p.y + 12,
+            vx: 0,
+            vy: -12,
+            landed: false,
             ch: chId,
-            goldValue: amount,                     // 拾った時に加算される額
-			isPlayerDrop: true, // 🌟 プレイヤーが捨てたフラグ
-            amount: amount,                        // ログ表示用
+            goldValue: amount,
+            isPlayerDrop: true,
+            amount: amount,
             count: 1,
             isStatic: true,
             angle: 0,
-            rotateSpeed: -0.15,                    // 🌟 負の値で「反時計回り」に回転
+            rotateSpeed: -0.15,
             isPickedUp: false
         };
 
-        // 5. アイテムリストに追加して同期
+        // 5. リスト追加と同期
         if (typeof droppedItems !== 'undefined') {
             if (!droppedItems[chId]) droppedItems[chId] = [];
             droppedItems[chId].push(newItem);
             
-            // ログの表示（dropItemの形式に合わせる）
             socket.emit('chat', {
                 id: 'SYSTEM_LOG',
                 name: '💰 廃棄',
                 text: `[${new Date().toLocaleTimeString()}] ${amount}Gを捨てました`
             });
 
-            // 🌟 クライアント側が反応するイベント名(item_spawned)で通知
             io.to(`channel_${chId}`).emit('item_spawned', newItem);
-            
-            // 自分のステータス（所持金表示）を更新
             socket.emit('player_update', p);
-            
-            // 入手ログの逆バージョンとしてマイナス表示を出す
-            //socket.emit('gold_log', { amount: -amount }); 
             
             if (typeof sendState === 'function') sendState();
             
-            // サーバー側コンソールログ
             if (typeof LOG !== 'undefined' && LOG.SUCCESS) {
                 LOG.SUCCESS(`💸 ${p.name} が ${amount}G をドロップしました`);
             }
         }
-        return true; // ← これにより、通常のチャット（吹き出し）処理がキャンセルされます
+        return true;
     }
 	
-	// ============================================================
-// 🛒 【コマンド8】ショップ入室（修正版）
-// ============================================================
-if (text === '/shop') {
-    console.log("--- [1] コマンド検知しました ---");
+	// 🛒 【コマンド8】ショップ入室（修正版）
+    if (text === '/shop') {
+        console.log("--- [1] コマンド検知しました ---");
+        (async () => {
+            try {
+                const shopInventory = await getShopInventory(pool);
+                console.log("--- [2] DBからの応答を共通関数で処理完了 ---");
 
-    (async () => {
-        try {
-            // 🌟 共通関数を呼び出すだけ！
-            const shopInventory = await getShopInventory(pool);
+                socket.emit('open_shop_ui', {
+                    shopName: "よろず屋",
+                    inventory: shopInventory
+                });
+                console.log(`--- [3] 全${shopInventory.length}件のアイテム送信完了 ---`);
+            } catch (err) {
+                console.error("❌ ショップ入室エラー:", err.message);
+            }
+        })();
+        return true; 
+    }
 
-            console.log("--- [2] DBからの応答を共通関数で処理完了 ---");
+    // 🏪 【コマンド9】フリーマーケット（露店）開設 🌟新規追加
+    if (text === '/freemarket') {
+        console.log(`--- [Vending] ${p.name} が露店コマンドを入力 ---`);
 
-            // ショップUIを開く命令
-            socket.emit('open_shop_ui', {
-                shopName: "よろず屋",
-                inventory: shopInventory
-            });
-            
-            console.log(`--- [3] 全${shopInventory.length}件のアイテム送信完了（自動拡張版） ---`);
-
-        } catch (err) {
-            console.error("❌ ショップ入室エラー:", err.message);
+        // クライアント側で店名入力プロンプトを出すためのトリガーを送信
+        // または、デフォルト名で即時開店させる場合はサーバー側で完結させます
+        socket.emit('request_open_vending_ui'); 
+        
+        if (typeof LOG !== 'undefined' && LOG.SUCCESS) {
+            LOG.SUCCESS(`🏪 ${p.name} の露店開設プロセスを開始しました`);
         }
-    })();
-
-    return true; 
-}
+        return true;
+    }
 
     return false; // どのコマンドにも該当しなかった
 }
