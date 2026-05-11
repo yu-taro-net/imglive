@@ -2673,37 +2673,44 @@ function openOtherPlayerVending(p) {
 /**
  * 📡 サーバーから最新の露店商品リストが返ってきた時の処理
  * 購入ボタンを廃止し、エリア全体のダブルクリック(ondblclick)で購入に統合
- * 【最終不退転：外部からの消失・点滅を物理的に差し止める修正版】
+ * 【最終不退転：消失防止＋入室時の描画漏れ対策版】
  */
 socket.on('vending_data_res', (data) => {
 
     const itemsContainer = document.getElementById('other-vending-items');
     if (!itemsContainer) {
-        // コンテナがない＝ウィンドウ自体が消されている
-        console.error("❌ [ERROR] 'other-vending-items' が消失しています。外部コードによる削除の疑いがあります。");
+        console.error("❌ [ERROR] 'other-vending-items' が消失しています。");
         return;
     }
 
-    // --- 🛡️ 物理防波堤：0.3秒以内の連続更新は物理的に無視する ---
     const now = Date.now();
     const lastUpdate = parseInt(itemsContainer.dataset.lastTick || 0);
+
+    // --- 🌟 改善：入室時の描画漏れ対策 ---
+    // 前回の更新から1秒以上経過している場合は、別人の店に入ったか再入室したと判断。
+    // キャッシュをクリアして、サーバーからのデータを強制的に描画プロセスへ通します。
+    if (now - lastUpdate > 1000) {
+        itemsContainer.dataset.lastPureHash = ""; 
+        console.log("🔄 [VENDING] 再入室を検知。キャッシュをリセットして描画を強制します。");
+    }
+
+    // --- 🛡️ 物理防波堤：0.3秒以内の連続更新は物理的に無視する ---
     if (now - lastUpdate < 300) { 
         return; 
     }
     itemsContainer.dataset.lastTick = now;
 
-    // --- 🛡️ 消失プロテクト：外部（game.js等）から非表示にされていても強制復帰する ---
+    // --- 🛡️ 消失プロテクト：外部（game.js等）からの非表示を強制復帰 ---
     const parentWindow = itemsContainer.closest('.vending-window') || itemsContainer.parentElement;
     if (parentWindow) {
         const currentStyle = window.getComputedStyle(parentWindow).display;
         if (currentStyle === 'none') {
-            // もしデータが届いているのに非表示なら、外部からの干渉とみなして再表示
-            console.warn("⚠️ 外部干渉によるウィンドウ消失を検知。表示を強制的に維持します。");
+            console.warn("⚠️ 外部干渉によるウィンドウ消失を検知。表示を強制維持します。");
             parentWindow.style.setProperty('display', 'block', 'important');
         }
     }
 
-    // ⚠️ サーバーデータ異常チェック（既存ロジック維持）
+    // ⚠️ サーバーデータ異常チェック
     const bugItem = (data.items || []).find(i => i && !i.display_name && !i.name);
     if (bugItem) {
         console.error("🚨 サーバーデータ異常:", bugItem);
@@ -2723,7 +2730,7 @@ socket.on('vending_data_res', (data) => {
     }).join('|');
 
     if (itemsContainer.dataset.lastPureHash === pureDataHash) {
-        // 内容が同じなら、DOM操作（点滅の元）を一切行わない
+        // 内容が完全に同じなら、DOM操作（点滅の元）を一切行わない
         return;
     }
     itemsContainer.dataset.lastPureHash = pureDataHash;
@@ -2731,14 +2738,12 @@ socket.on('vending_data_res', (data) => {
     // 🌟 1. リストの初期化（条件付き）
     if (items.length === 0) {
         if (!itemsContainer.querySelector('.empty-vending-msg')) {
-            // innerHTMLを直接書き換えず、replaceChildrenなどを使うとより安全ですが、
-            // 既存の挙動を尊重してメッセージをセットします。
             itemsContainer.innerHTML = '<p class="empty-vending-msg" style="text-align: center; padding: 20px; color: #999; font-size: 12px;">商品は売り切れ、またはありません。</p>';
         }
         return;
     }
 
-    // 商品があるのに「空メッセージ」がある場合のみクリア。
+    // 商品があるのに「空メッセージ」がある場合のみクリア
     const emptyMsg = itemsContainer.querySelector('.empty-vending-msg');
     if (emptyMsg) {
         itemsContainer.innerHTML = '';
