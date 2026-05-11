@@ -2653,7 +2653,7 @@ function openOtherPlayerVending(p) {
 
 /**
  * 📡 サーバーから最新の露店商品リストが返ってきた時の処理
- * 【点滅完全ゼロ：ピンポイント差分更新・既存ロジック完全踏襲版】
+ * 【点滅絶対回避：プロパティ・ミューテーション・ガード版】
  */
 
 // 🌟 スコープ外でキャッシュを保持
@@ -2699,7 +2699,10 @@ socket.on('vending_data_res', (data) => {
 
     // 商品がゼロの場合
     if (items.length === 0) {
-        itemsContainer.innerHTML = '<p style="text-align: center; padding: 20px; color: #999; font-size: 12px;">商品は売り切れ、またはありません。</p>';
+        const emptyMsg = '<p style="text-align: center; padding: 20px; color: #999; font-size: 12px;">商品は売り切れ、またはありません。</p>';
+        if (itemsContainer.innerHTML !== emptyMsg) {
+            itemsContainer.innerHTML = emptyMsg;
+        }
         return;
     }
 
@@ -2776,7 +2779,7 @@ socket.on('vending_data_res', (data) => {
 
             if (!displayName.includes("(")) displayName = `${displayName}${rankName}`;
             if (rankGlowColor) {
-                iconGlowStyle = `filter: drop-shadow(0 0 4px ${rankGlowColor});`;
+                iconGlowStyle = `drop-shadow(0px 0px 4px ${rankGlowColor})`;
             }
         }
 
@@ -2800,7 +2803,6 @@ socket.on('vending_data_res', (data) => {
         let itemRow = currentRows[index];
 
         if (!itemRow) {
-            // 【初回のみ】枠組みを生成
             itemRow = document.createElement('div');
             itemRow.className = 'shop-item-row-div';
             Object.assign(itemRow.style, {
@@ -2827,33 +2829,36 @@ socket.on('vending_data_res', (data) => {
             itemsContainer.appendChild(itemRow);
         }
 
-        // 🌟 ここから「中身だけ」をピンポイントで書き換え
+        // --- 🌟 究極の点滅ガード：今の値と新しい値が違う場合のみ代入する ---
         const imgEl = itemRow.querySelector('.vending-item-img');
         const nameEl = itemRow.querySelector('.vending-item-name');
         const priceEl = itemRow.querySelector('.vending-item-price');
 
-        // 画像の変更（パスまたはグロースタイルが変わった時だけ）
-        const currentImgSrc = imgEl.getAttribute('src');
-        if (currentImgSrc !== iconPath) {
+        // 画像パスの比較 (完全一致なら代入すらしない)
+        const absoluteIconPath = new URL(iconPath, window.location.href).href;
+        if (imgEl.src !== absoluteIconPath) {
             imgEl.src = iconPath;
-            imgEl.onerror = () => { imgEl.src = 'assets/items/default.png'; };
+            imgEl.onerror = () => { if(imgEl.src !== 'assets/items/default.png') imgEl.src = 'assets/items/default.png'; };
         }
-        if (imgEl.style.cssText.indexOf(iconGlowStyle) === -1) {
-            imgEl.style.cssText = `max-width: 28px; max-height: 28px; image-rendering: pixelated; ${iconGlowStyle}`;
+        
+        // フィルタ（グロー）の比較
+        const finalFilter = iconGlowStyle || "none";
+        if (imgEl.style.filter !== finalFilter) {
+            imgEl.style.filter = finalFilter;
         }
 
-        // 名前の変更
+        // 名前の比較
         const finalName = `${displayName} ${(!isEquipment && count > 1) ? `(${count}個)` : ''}`;
         if (nameEl.textContent !== finalName) {
-            nameEl.innerHTML = finalName; // ランクの色分け等があればinnerHTML
+            nameEl.textContent = finalName;
         }
 
-        // 価格の変更
+        // 価格の比較
         if (priceEl.textContent !== price) {
             priceEl.textContent = price;
         }
 
-        // --- イベントの更新（既存ロジック） ---
+        // --- イベントの更新（常に最新のクロージャを保持） ---
         itemRow.ondblclick = () => {
             if (typeof buyFromVending === 'function') buyFromVending(targetOwnerId, targetDbId);
         };
