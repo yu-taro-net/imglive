@@ -2654,7 +2654,7 @@ function openOtherPlayerVending(p) {
 /**
  * 📡 サーバーから最新の露店商品リストが返ってきた時の処理
  * 購入ボタンを廃止し、エリア全体のダブルクリック(ondblclick)で購入に統合
- * 【消失・点滅防止：ガードロジック搭載版】
+ * 【最終解決版：小刻みな点滅を物理的に遮断】
  */
 socket.on('vending_data_res', (data) => {
 
@@ -2676,10 +2676,8 @@ socket.on('vending_data_res', (data) => {
     }
 
     // --- 🛡️ 消失防止ガード：看板が閉じている、またはアニメーション中なら更新をスキップ ---
-    // 親要素（ウィンドウ本体）が非表示なら、中身をいじるとバグの原因になります。
     const parentWindow = itemsContainer.closest('.vending-window') || itemsContainer.parentElement;
     if (parentWindow && window.getComputedStyle(parentWindow).display === 'none') {
-        console.log("ℹ️ 看板が非表示のため、描画更新をスキップしました。");
         return;
     }
 
@@ -2688,34 +2686,39 @@ socket.on('vending_data_res', (data) => {
 
     const items = data.items || [];
 
-    // --- 🛡️ 点滅防止ガード：データが前回と全く同じなら、DOM操作を一切行わない ---
-    const dataHash = JSON.stringify(items);
-    if (itemsContainer.dataset.lastData === dataHash) {
-        console.log("ℹ️ 前回とデータが同じため、再描画をスキップ（点滅防止）");
+    // --- 🛡️ 強化版点滅防止ガード：純粋な「商品データ」のみで比較 ---
+    // サーバーが送ってくる「タイムスタンプ」等のノイズを無視して比較します。
+    const pureDataHash = items.map(i => {
+        const id = i.item_id || i.id || (i.data && i.data.item_id);
+        const price = i.price || 0;
+        const count = i.count || i.quantity || 1;
+        return `${id}_${price}_${count}`;
+    }).join('|');
+
+    if (itemsContainer.dataset.lastPureHash === pureDataHash) {
+        console.log("ℹ️ 商品の内容に変更がないため、DOM更新を完全にスキップしました（点滅防止）");
         return;
     }
-    itemsContainer.dataset.lastData = dataHash;
+    itemsContainer.dataset.lastPureHash = pureDataHash;
 
-    // 🌟 1. リストの初期化（条件付きにして、器を壊さない）
+    // 🌟 1. リストの初期化（条件付き）
     if (items.length === 0) {
         itemsContainer.innerHTML = '<p style="text-align: center; padding: 20px; color: #999; font-size: 12px;">商品は売り切れ、またはありません。</p>';
         return;
     }
 
-    // 「商品がない」メッセージがある場合のみクリア。
     if (itemsContainer.querySelector('p')) {
         itemsContainer.innerHTML = '';
     }
 
-    // 既存の行をキャッシュ（差分更新用）
+    // 既存の行をキャッシュ
     const currentRows = itemsContainer.querySelectorAll('.shop-item-row-div');
 
     // 2. 届いたアイテムをループして更新
     items.forEach((item, index) => {
-        // --- 🔍 アイテム個別の詳細ログ開始 ---
+        // --- 🔍 デバッグログ開始 ---
         console.group(`📦 露店アイテム解析 [Index:${index}]`);
 
-        // ID取得元の調査
         const idCheck = {
             item_id: item.item_id,
             data_item_id: item.data?.item_id,
@@ -2723,34 +2726,32 @@ socket.on('vending_data_res', (data) => {
             raw_id: item.id
         };
         const targetItemId = Number(idCheck.item_id || idCheck.data_item_id || idCheck.itemData_id || idCheck.raw_id || 0);
-        console.log(`[1. ID特定] 結果: ${targetItemId}`, idCheck);
 
-        // DBカタログ情報の調査
         const dbDisplayName = (item.data && item.data.display_name) || item.display_name;
         const dbImageName = (item.data && item.data.image_name) || item.image_name;
-        console.log(`[2. DB情報] display_name: ${dbDisplayName}, image_name: ${dbImageName}`, { full_data: item.data });
 
-        // --- 🌟 DOMの再利用ロジック（ここが点滅防止の肝） ---
+        // --- 🌟 DOMの再利用ロジック ---
         let itemRow = currentRows[index];
 
         if (!itemRow) {
             itemRow = document.createElement('div');
             itemRow.className = 'shop-item-row-div';
             
-            // スタイル設定（初回生成時のみ）
-            itemRow.style.display = "flex";
-            itemRow.style.justifyContent = "space-between";
-            itemRow.style.alignItems = "center";
-            itemRow.style.borderBottom = "1px solid #eee";
-            itemRow.style.padding = "8px";
-            itemRow.style.cursor = "pointer";
-            itemRow.style.transition = "background 0.15s";
+            // スタイル設定（初回のみ）
+            Object.assign(itemRow.style, {
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                borderBottom: "1px solid #eee",
+                padding: "8px",
+                cursor: "pointer",
+                transition: "background 0.1s" // 点滅対策のため少し短縮
+            });
             itemRow.title = "ダブルクリックで購入";
-
             itemsContainer.appendChild(itemRow);
         }
 
-        // --- 🌟 名称と画像の決定ロジック (既存踏襲) ---
+        // --- 🌟 名称と画像の決定ロジック ---
         let displayName = "";
         let forcedIconPath = null;
 
@@ -2764,12 +2765,11 @@ socket.on('vending_data_res', (data) => {
         } else {
             displayName = dbDisplayName || item.displayName || item.name || (item.data && item.data.name) || "不明なアイテム";
         }
-        console.log(`[3. 名称決定] "${displayName}"`);
 
         const rawType = item.item_type || item.type || (item.data && item.data.type) || item.category || "item";
         const finalType = String(rawType).toLowerCase();
 
-        // --- 🏷️ ランク判定・グロー効果ロジック (既存踏襲) ---
+        // --- 🏷️ ランク判定・グロー効果ロジック ---
         let iconGlowStyle = ""; 
         const isEquipment = (
             item.type === 'sword' || 
@@ -2801,7 +2801,6 @@ socket.on('vending_data_res', (data) => {
             if (rankGlowColor) {
                 iconGlowStyle = `filter: drop-shadow(0 0 4px ${rankGlowColor});`;
             }
-            console.log(`[4. ランク判定] ${rankName} (Bonus: ${bonus})`);
         }
 
         const price = item.price ? item.price.toLocaleString() : "0";
@@ -2815,20 +2814,19 @@ socket.on('vending_data_res', (data) => {
                 iconPath = `item_assets/${item.type || finalType}.png`;
             }
         }
-        console.log(`[5. 画像パス] ${iconPath}`);
 
         const targetOwnerId = data.ownerId;
         const targetDbId = item.db_id || item.id;
-        console.log(`[6. 実行ロジック登録] buyFromVending('${targetOwnerId}', '${targetDbId}') ON DB-CLICK`);
 
         console.groupEnd(); // 個別ログ終了
 
-        // 🌟 innerHTML 出力（行を壊さない更新）
-        itemRow.innerHTML = `
+        // 🌟 innerHTML 出力（内容に変更がある場合のみ書き換え）
+        // 既存のHTMLと完全に一致しているかチェックすることで点滅を極限まで抑えます。
+        const newHTML = `
             <div style="display: flex; align-items: center; gap: 10px; pointer-events: none; flex: 1;">
                 <div style="width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,0.03); border-radius: 4px;">
                     <img src="${iconPath}" 
-                         onerror="console.warn('⚠️ 画像読込失敗: ${iconPath}'); this.onerror=null; this.src='assets/items/default.png';" 
+                         onerror="this.onerror=null; this.src='assets/items/default.png';" 
                          style="max-width: 28px; max-height: 28px; image-rendering: pixelated; ${iconGlowStyle}">
                 </div>
                 <div style="display: flex; flex-direction: column; gap: 2px;">
@@ -2846,6 +2844,11 @@ socket.on('vending_data_res', (data) => {
                 Double Click
             </div>
         `;
+
+        // 🌟 文字列として比較し、差分がある場合のみDOMを更新
+        if (itemRow.innerHTML.trim() !== newHTML.trim()) {
+            itemRow.innerHTML = newHTML;
+        }
         
         // --- 🖱️ イベント登録 ---
         itemRow.ondblclick = () => {
