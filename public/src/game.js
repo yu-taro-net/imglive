@@ -2654,11 +2654,11 @@ function openOtherPlayerVending(p) {
 /**
  * 📡 サーバーから最新の露店商品リストが返ってきた時の処理
  * 購入ボタンを廃止し、エリア全体のダブルクリック(ondblclick)で購入に統合
- * 【点滅防止：DOM再利用・差分更新版】
+ * 【消失・点滅防止：ガードロジック搭載版】
  */
 socket.on('vending_data_res', (data) => {
 
-    // ⚠️ これで「不明」になったアイテムの生データを確認
+    // ⚠️ サーバーデータ異常チェック（既存ロジック維持）
     const bugItem = data.items.find(i => i && !i.display_name && !i.name);
     if (bugItem) {
         console.error("🚨 犯人はサーバーです！送られてきたデータに既に名前がありません:", bugItem);
@@ -2675,23 +2675,39 @@ socket.on('vending_data_res', (data) => {
         return;
     }
 
+    // --- 🛡️ 消失防止ガード：看板が閉じている、またはアニメーション中なら更新をスキップ ---
+    // 親要素（ウィンドウ本体）が非表示なら、中身をいじるとバグの原因になります。
+    const parentWindow = itemsContainer.closest('.vending-window') || itemsContainer.parentElement;
+    if (parentWindow && window.getComputedStyle(parentWindow).display === 'none') {
+        console.log("ℹ️ 看板が非表示のため、描画更新をスキップしました。");
+        return;
+    }
+
     // 🌟 同期用の店主ID保存
     window.currentVendingOwnerId = data.ownerId;
 
     const items = data.items || [];
 
-    // 🌟 1. リストの初期化（ここが点滅の急所：innerHTML = '' を条件付きに変更）
+    // --- 🛡️ 点滅防止ガード：データが前回と全く同じなら、DOM操作を一切行わない ---
+    const dataHash = JSON.stringify(items);
+    if (itemsContainer.dataset.lastData === dataHash) {
+        console.log("ℹ️ 前回とデータが同じため、再描画をスキップ（点滅防止）");
+        return;
+    }
+    itemsContainer.dataset.lastData = dataHash;
+
+    // 🌟 1. リストの初期化（条件付きにして、器を壊さない）
     if (items.length === 0) {
         itemsContainer.innerHTML = '<p style="text-align: center; padding: 20px; color: #999; font-size: 12px;">商品は売り切れ、またはありません。</p>';
         return;
     }
 
-    // 「商品がない」メッセージがある場合のみクリア。そうでなければ中身を維持して差分更新へ。
+    // 「商品がない」メッセージがある場合のみクリア。
     if (itemsContainer.querySelector('p')) {
         itemsContainer.innerHTML = '';
     }
 
-    // 既存の行をキャッシュ
+    // 既存の行をキャッシュ（差分更新用）
     const currentRows = itemsContainer.querySelectorAll('.shop-item-row-div');
 
     // 2. 届いたアイテムをループして更新
@@ -2714,7 +2730,7 @@ socket.on('vending_data_res', (data) => {
         const dbImageName = (item.data && item.data.image_name) || item.image_name;
         console.log(`[2. DB情報] display_name: ${dbDisplayName}, image_name: ${dbImageName}`, { full_data: item.data });
 
-        // --- 🌟 DOMの再利用ロジック ---
+        // --- 🌟 DOMの再利用ロジック（ここが点滅防止の肝） ---
         let itemRow = currentRows[index];
 
         if (!itemRow) {
@@ -2750,7 +2766,6 @@ socket.on('vending_data_res', (data) => {
         }
         console.log(`[3. 名称決定] "${displayName}"`);
 
-        // アイテムタイプの特定
         const rawType = item.item_type || item.type || (item.data && item.data.type) || item.category || "item";
         const finalType = String(rawType).toLowerCase();
 
@@ -2792,9 +2807,7 @@ socket.on('vending_data_res', (data) => {
         const price = item.price ? item.price.toLocaleString() : "0";
         const count = item.count || item.quantity || 1;
         
-        // --- 🖼️ アイコンパスの特定 (DBの image_name 優先) ---
         let iconPath = forcedIconPath || item.iconUrl;
-        
         if (!iconPath) {
             if (dbImageName) {
                 iconPath = `item_assets/${dbImageName}${dbImageName.includes('.') ? '' : '.png'}`;
@@ -2810,7 +2823,7 @@ socket.on('vending_data_res', (data) => {
 
         console.groupEnd(); // 個別ログ終了
 
-        // 🌟 innerHTML 出力 (行を消さずに中身だけを書き換えるため点滅しない)
+        // 🌟 innerHTML 出力（行を壊さない更新）
         itemRow.innerHTML = `
             <div style="display: flex; align-items: center; gap: 10px; pointer-events: none; flex: 1;">
                 <div style="width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,0.03); border-radius: 4px;">
@@ -2852,7 +2865,7 @@ socket.on('vending_data_res', (data) => {
         };
     });
 
-    // 余分な行を削除（商品数が減った場合のみ）
+    // 余分な行を削除
     if (currentRows.length > items.length) {
         for (let i = items.length; i < currentRows.length; i++) {
             currentRows[i].remove();
