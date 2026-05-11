@@ -2653,7 +2653,7 @@ function openOtherPlayerVending(p) {
 
 /**
  * 📡 サーバーから最新の露店商品リストが返ってきた時の処理
- * 【点滅完全ゼロ・最終安定版：DOM構造固定・完全不変ガード】
+ * 【点滅完全ゼロ：プロパティ・アクセス・ミニマム版】
  */
 
 // 🌟 スコープ外でキャッシュを保持
@@ -2678,23 +2678,13 @@ socket.on('vending_data_res', (data) => {
     }
     lastVendingResponseHash = currentDataHash;
 
-    // ⚠️ 不明アイテムの生データ確認ログ
-    const bugItem = (data.items).find(i => i && !i.display_name && !i.name);
-    if (bugItem) {
-        console.error("🚨 サーバーデータ異常:", bugItem);
-    } else {
-        console.log("✅ サーバーデータ正常");
-    }
-    
-    console.log("%c🏪 [VENDING_RECEIVE] 更新を検知", "background: #2ecc71; color: white; padding: 2px 5px; font-weight: bold;");
-
     const itemsContainer = document.getElementById('other-vending-items');
     if (!itemsContainer) return;
 
     window.currentVendingOwnerId = data.ownerId;
     const items = data.items || [];
 
-    // 商品がゼロの場合のみ innerHTML を操作
+    // 商品がゼロの場合
     if (items.length === 0) {
         const emptyMsg = '<p style="text-align: center; padding: 20px; color: #999; font-size: 12px;">商品は売り切れ、またはありません。</p>';
         if (itemsContainer.innerHTML !== emptyMsg) {
@@ -2703,7 +2693,7 @@ socket.on('vending_data_res', (data) => {
         return;
     }
 
-    // メッセージ削除（必要な場合のみ）
+    // Pタグ（売り切れメッセージ）がある場合のみクリア
     if (itemsContainer.querySelector('p')) {
         itemsContainer.innerHTML = '';
     }
@@ -2769,10 +2759,15 @@ socket.on('vending_data_res', (data) => {
         if (!itemRow) {
             itemRow = document.createElement('div');
             itemRow.className = 'shop-item-row-div';
-            Object.assign(itemRow.style, {
-                display: "flex", justifyContent: "space-between", alignItems: "center",
-                borderBottom: "1px solid #eee", padding: "8px", cursor: "pointer", transition: "background 0.1s"
-            });
+            // 初期スタイル設定
+            itemRow.style.display = "flex";
+            itemRow.style.justifyContent = "space-between";
+            itemRow.style.alignItems = "center";
+            itemRow.style.borderBottom = "1px solid #eee";
+            itemRow.style.padding = "8px";
+            itemRow.style.cursor = "pointer";
+            itemRow.style.transition = "background 0.1s";
+            
             itemRow.innerHTML = `
                 <div style="display: flex; align-items: center; gap: 10px; pointer-events: none; flex: 1;">
                     <div style="width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,0.03); border-radius: 4px;">
@@ -2795,21 +2790,25 @@ socket.on('vending_data_res', (data) => {
         const nameEl = itemRow.querySelector('.v_name');
         const priceEl = itemRow.querySelector('.v_price');
 
-        // 🌟 画像更新ガード（絶対パスでの比較）
-        const tempImg = new Image();
-        tempImg.src = iconPath;
-        if (imgEl.src !== tempImg.src) {
+        // 🌟 画像パスの書き換えを「dataset」で比較して完全に封じる
+        if (imgEl.dataset.path !== iconPath) {
             imgEl.src = iconPath;
-            imgEl.onerror = () => { if(imgEl.src !== 'assets/items/default.png') imgEl.src = 'assets/items/default.png'; };
+            imgEl.dataset.path = iconPath; // 自前のキャッシュに保存
+            imgEl.onerror = () => { 
+                if (imgEl.dataset.path !== 'default') {
+                    imgEl.src = 'assets/items/default.png'; 
+                    imgEl.dataset.path = 'default';
+                }
+            };
         }
         
-        // 🌟 フィルタ更新ガード（同じ文字列なら触らない）
-        const finalFilter = iconGlowColor ? `drop-shadow(0px 0px 4px ${iconGlowColor})` : "none";
+        // 🌟 フィルタの書き換えを最小化
+        const finalFilter = iconGlowColor ? `drop-shadow(0px 0px 4px ${iconGlowColor})` : "";
         if (imgEl.style.filter !== finalFilter) {
             imgEl.style.filter = finalFilter;
         }
 
-        // 🌟 テキスト更新ガード
+        // 🌟 テキスト更新のガード
         const finalName = `${displayName} ${countText}`;
         if (nameEl.textContent !== finalName) {
             nameEl.textContent = finalName;
@@ -2819,16 +2818,16 @@ socket.on('vending_data_res', (data) => {
             priceEl.textContent = priceText;
         }
 
-        // 🌟 イベント再代入の抑制
+        // 🌟 イベントリスナーの重複回避（プロパティ上書き）
         itemRow.ondblclick = () => {
             if (typeof buyFromVending === 'function') buyFromVending(data.ownerId, item.db_id || item.id);
         };
         itemRow.onmouseenter = () => { 
-            itemRow.style.background = "rgba(255, 204, 0, 0.15)"; 
+            itemRow.style.backgroundColor = "rgba(255, 204, 0, 0.15)"; 
             window.currentHoverSlot = item; 
         };
         itemRow.onmouseleave = () => { 
-            itemRow.style.background = "transparent";
+            itemRow.style.backgroundColor = "transparent";
             window.currentHoverSlot = null; 
         };
     });
