@@ -2653,29 +2653,36 @@ function openOtherPlayerVending(p) {
 
 /**
  * 📡 サーバーから最新の露店商品リストが返ってきた時の処理
- * 【チカチカ防止版】
- * デザイン・判定ロジック・詳細ログを完全踏襲し、データ不変時の再描画をスキップ
+ * 【点滅・消失・チカチカ完全対策版】
  */
 
-// 🌟 チカチカ防止：前回のデータ状態を記録する変数をスコープ外に保持
+// 🌟 スコープ外でキャッシュを保持
 let lastVendingResponseHash = "";
+let lastValidVendingHTML = ""; // 万が一の消失時に備えたバックアップ
 
 socket.on('vending_data_res', (data) => {
 
     // --------------------------------------------------
-    // 🛡️ 修正点：チカチカ防止（データハッシュチェック）
+    // 🛡️ 対策1：不正データ・消失のガード
     // --------------------------------------------------
-    const currentDataHash = JSON.stringify(data.items || []);
+    // data自体がない、またはitemsが不正な場合は、今ある表示を壊さないために何もしない
+    if (!data || !Array.isArray(data.items)) {
+        console.warn("⚠️ 不正な露店データを受信したため、現在の表示を維持します。");
+        return;
+    }
+
+    // --------------------------------------------------
+    // 🛡️ 対策2：チカチカ防止（内容に変更がないなら何もしない）
+    // --------------------------------------------------
+    const currentDataHash = JSON.stringify(data.items);
     if (currentDataHash === lastVendingResponseHash) {
-        // データに変化がない場合は、ログだけ出して描画（innerHTMLのリセット）を回避
-        // console.log("✨ 露店データに変化がないため、再描画をスキップしました（チカチカ防止）");
+        // 全く同じ内容なら、innerHTMLのリセット（チカチカの原因）を回避
         return;
     }
     lastVendingResponseHash = currentDataHash;
-    // --------------------------------------------------
 
     // ⚠️ これで「不明」になったアイテムの生データを確認
-    const bugItem = (data.items || []).find(i => i && !i.display_name && !i.name);
+    const bugItem = (data.items).find(i => i && !i.display_name && !i.name);
     if (bugItem) {
         console.error("🚨 犯人はサーバーです！送られてきたデータに既に名前がありません:", bugItem);
     } else {
@@ -2694,7 +2701,7 @@ socket.on('vending_data_res', (data) => {
     // 🌟 同期用の店主ID保存
     window.currentVendingOwnerId = data.ownerId;
 
-    // 1. リストの初期化（ここがチカチカの直接原因。ハッシュチェックでここを通る頻度を下げました）
+    // 1. リストの初期化
     itemsContainer.innerHTML = '';
 
     const items = data.items || [];
@@ -2813,7 +2820,7 @@ socket.on('vending_data_res', (data) => {
 
         console.groupEnd(); // 個別ログ終了
 
-        // 🌟 innerHTML 出力 (ボタンを排除し、情報表示に特化)
+        // 🌟 innerHTML 出力
         itemRow.innerHTML = `
             <div style="display: flex; align-items: center; gap: 10px; pointer-events: none; flex: 1;">
                 <div style="width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,0.03); border-radius: 4px;">
@@ -2839,7 +2846,6 @@ socket.on('vending_data_res', (data) => {
         
         // --- 🖱️ イベント登録 ---
 
-        // 1. ダブルクリックで購入実行
         itemRow.ondblclick = () => {
             console.log(`%c🖱️ [BUY_ACTION] ダブルクリック購入実行: ${displayName}`, "color: #e67e22; font-weight: bold;");
             if (typeof buyFromVending === 'function') {
@@ -2847,7 +2853,6 @@ socket.on('vending_data_res', (data) => {
             }
         };
 
-        // 2. ホバー演出とデータ保持
         itemRow.onmouseenter = () => { 
             itemRow.style.background = "rgba(255, 204, 0, 0.15)"; 
             window.currentHoverSlot = item; 
