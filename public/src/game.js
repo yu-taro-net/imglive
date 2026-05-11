@@ -2297,36 +2297,44 @@ socket.on('register_response', (data) => {
     }
 });
 
-// --- 最終解決：露店フラグの保護プロトコル ---
+// --- 修正版：本物の閉店だけを許可するガード ---
 if (typeof hero !== 'undefined') {
     let _isVending = hero.is_vending;
+    let lastToggleTime = 0;
 
     Object.defineProperty(hero, 'is_vending', {
         get: function() {
             return _isVending;
         },
         set: function(value) {
-            // 🛡️ 強力なガード 🛡️
-            // 1. 既に true (開店中) なのに、外部から false (終了) にしようとした場合
-            if (_isVending === true && value === false) {
-                // ここで「本当に閉じたい時（自分が閉じるボタンを押した時）」以外の
-                // 勝手な false 書き換えをブロックします。
-                // (もし自力で閉じられなくなったら、ここを条件付きにします)
-                console.warn("🛡️ 外部からの強制終了をブロックしました（消失防止）");
-                return; 
-            }
+            const now = Date.now();
 
-            // 2. 同じ値（true -> true）への書き換えによる再描画ループもカット
-            if (_isVending === value) {
+            // 🛡️ 超高頻度（0.1秒以内）の書き換えは、バグによる「点滅」とみなしてブロック
+            if (now - lastToggleTime < 100) {
                 return;
             }
 
+            // 既に同じ値なら何もしない（再描画カット）
+            if (_isVending === value) return;
+
+            // --- 閉店（false）時の特別処理 ---
+            if (value === false) {
+                // ここで「看板ウィンドウ」を物理的に隠す処理を念のため呼ぶ
+                const vWin = document.getElementById('vending-main-window'); // あなたの環境のIDに合わせてください
+                if (vWin) vWin.style.display = 'none';
+                
+                // リストもクリアして、次回の「点滅防止比較」をリセット
+                const itemsContainer = document.getElementById('other-vending-items');
+                if (itemsContainer) itemsContainer.dataset.lastPureHash = "";
+            }
+
             _isVending = value;
-            console.log(value ? "🏪 露店モード開始" : "🚶 露店モード終了");
+            lastToggleTime = now;
+            
+            console.log(value ? "🏪 露店モード開始" : "🚶 露店モード終了（正常）");
         },
         configurable: true
     });
-    console.log("✅ 露店フラグの物理保護を開始しました。これで勝手には消えません。");
 }
 
 // 🏪 サーバーから「誰かが開店した」通知が届いた時
