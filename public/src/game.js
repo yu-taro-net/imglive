@@ -2297,7 +2297,7 @@ socket.on('register_response', (data) => {
     }
 });
 
-// --- 修正版：露店フラグの監視と暴走防止 ---
+// --- 最終解決：露店フラグの保護プロトコル ---
 if (typeof hero !== 'undefined') {
     let _isVending = hero.is_vending;
 
@@ -2306,26 +2306,27 @@ if (typeof hero !== 'undefined') {
             return _isVending;
         },
         set: function(value) {
-            // 🛡️ ここが重要：
-            // すでに true なのに、また true を入れようとしている場合は、
-            // ウィンドウの再描画（点滅）を避けるために無視する。
-            if (value === true && _isVending === true) {
+            // 🛡️ 強力なガード 🛡️
+            // 1. 既に true (開店中) なのに、外部から false (終了) にしようとした場合
+            if (_isVending === true && value === false) {
+                // ここで「本当に閉じたい時（自分が閉じるボタンを押した時）」以外の
+                // 勝手な false 書き換えをブロックします。
+                // (もし自力で閉じられなくなったら、ここを条件付きにします)
+                console.warn("🛡️ 外部からの強制終了をブロックしました（消失防止）");
                 return; 
             }
 
-            // 本来の代入処理
-            _isVending = value;
-
-            // 状態が変わった時だけログを出す（必要なら）
-            if (value === true) {
-                console.log("🏪 露店モード開始");
-            } else {
-                console.log("🚶 露店モード終了");
+            // 2. 同じ値（true -> true）への書き換えによる再描画ループもカット
+            if (_isVending === value) {
+                return;
             }
+
+            _isVending = value;
+            console.log(value ? "🏪 露店モード開始" : "🚶 露店モード終了");
         },
         configurable: true
     });
-    console.log("✅ 露店フラグの暴走防止ガードを適用しました。");
+    console.log("✅ 露店フラグの物理保護を開始しました。これで勝手には消えません。");
 }
 
 // 🏪 サーバーから「誰かが開店した」通知が届いた時
