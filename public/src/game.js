@@ -2653,7 +2653,7 @@ function openOtherPlayerVending(p) {
 
 /**
  * 📡 サーバーから最新の露店商品リストが返ってきた時の処理
- * 【点滅完全ゼロ：DOM差分更新・既存ロジック完全踏襲版】
+ * 【点滅完全ゼロ：ピンポイント差分更新・既存ロジック完全踏襲版】
  */
 
 // 🌟 スコープ外でキャッシュを保持
@@ -2662,7 +2662,7 @@ let lastVendingResponseHash = "";
 socket.on('vending_data_res', (data) => {
 
     // --------------------------------------------------
-    // 🛡️ 対策1：不正データ・消失のガード
+    // 🛡️ 対策1：不正データ・ガード
     // --------------------------------------------------
     if (!data || !Array.isArray(data.items)) {
         console.warn("⚠️ 不正な露店データを受信したため、現在の表示を維持します。");
@@ -2670,7 +2670,7 @@ socket.on('vending_data_res', (data) => {
     }
 
     // --------------------------------------------------
-    // 🛡️ 対策2：チカチカ防止（内容に変更がないなら即時終了）
+    // 🛡️ 対策2：ハッシュチェック（変更がなければ即終了）
     // --------------------------------------------------
     const currentDataHash = JSON.stringify(data.items);
     if (currentDataHash === lastVendingResponseHash) {
@@ -2681,9 +2681,9 @@ socket.on('vending_data_res', (data) => {
     // ⚠️ 不明アイテムの生データ確認ログ
     const bugItem = (data.items).find(i => i && !i.display_name && !i.name);
     if (bugItem) {
-        console.error("🚨 犯人はサーバーです！送られてきたデータに既に名前がありません:", bugItem);
+        console.error("🚨 犯人はサーバーです！:", bugItem);
     } else {
-        console.log("✅ サーバーのデータは正常です。フロントの描画ロジックを疑いましょう。");
+        console.log("✅ サーバーのデータは正常です。");
     }
     
     console.log("%c🏪 [VENDING_RECEIVE] サーバーから露店データを受信しました", "background: #2ecc71; color: white; padding: 2px 5px; font-weight: bold;", data);
@@ -2694,27 +2694,23 @@ socket.on('vending_data_res', (data) => {
         return;
     }
 
-    // 🌟 同期用の店主ID保存
     window.currentVendingOwnerId = data.ownerId;
-
     const items = data.items || [];
 
-    // 商品がゼロの場合のみクリアしてメッセージ表示
+    // 商品がゼロの場合
     if (items.length === 0) {
         itemsContainer.innerHTML = '<p style="text-align: center; padding: 20px; color: #999; font-size: 12px;">商品は売り切れ、またはありません。</p>';
         return;
     }
 
-    // 「商品は売り切れ〜」というメッセージが残っていたら初回だけクリア
     if (itemsContainer.querySelector('p')) {
         itemsContainer.innerHTML = '';
     }
 
-    // 現在表示されている既存の行（div）を取得
     const currentRows = itemsContainer.querySelectorAll('.shop-item-row-div');
 
     // --------------------------------------------------
-    // 🌟 差分更新ループ開始（ここが点滅防止のキモ）
+    // 🌟 差分更新ループ開始
     // --------------------------------------------------
     items.forEach((item, index) => {
         console.group(`📦 露店アイテム解析 [Index:${index}]`);
@@ -2727,12 +2723,10 @@ socket.on('vending_data_res', (data) => {
             raw_id: item.id
         };
         const targetItemId = Number(idCheck.item_id || idCheck.data_item_id || idCheck.itemData_id || idCheck.raw_id || 0);
-        console.log(`[1. ID特定] 結果: ${targetItemId}`, idCheck);
 
         // DBカタログ情報の調査
         const dbDisplayName = (item.data && item.data.display_name) || item.display_name;
         const dbImageName = (item.data && item.data.image_name) || item.image_name;
-        console.log(`[2. DB情報] display_name: ${dbDisplayName}, image_name: ${dbImageName}`, { full_data: item.data });
 
         // --- 名称と画像の決定ロジック ---
         let displayName = "";
@@ -2748,7 +2742,6 @@ socket.on('vending_data_res', (data) => {
         } else {
             displayName = dbDisplayName || item.displayName || item.name || (item.data && item.data.name) || "不明なアイテム";
         }
-        console.log(`[3. 名称決定] "${displayName}"`);
 
         const rawType = item.item_type || item.type || (item.data && item.data.type) || item.category || "item";
         const finalType = String(rawType).toLowerCase();
@@ -2785,7 +2778,6 @@ socket.on('vending_data_res', (data) => {
             if (rankGlowColor) {
                 iconGlowStyle = `filter: drop-shadow(0 0 4px ${rankGlowColor});`;
             }
-            console.log(`[4. ランク判定] ${rankName} (Bonus: ${bonus})`);
         }
 
         const price = item.price ? item.price.toLocaleString() : "0";
@@ -2799,69 +2791,72 @@ socket.on('vending_data_res', (data) => {
                 iconPath = `item_assets/${item.type || finalType}.png`;
             }
         }
-        console.log(`[5. 画像パス] ${iconPath}`);
 
         const targetOwnerId = data.ownerId;
         const targetDbId = item.db_id || item.id;
-        console.log(`[6. 実行ロジック登録] buyFromVending('${targetOwnerId}', '${targetDbId}') ON DB-CLICK`);
-
         console.groupEnd();
 
-        // --- 🌟 DOM要素の再利用ロジック ---
+        // --- 🌟 DOM要素の再利用・ピンポイント更新ロジック ---
         let itemRow = currentRows[index];
+
         if (!itemRow) {
-            // 行が足りなければ新規作成
+            // 【初回のみ】枠組みを生成
             itemRow = document.createElement('div');
             itemRow.className = 'shop-item-row-div';
-            
-            itemRow.style.display = "flex";
-            itemRow.style.justifyContent = "space-between";
-            itemRow.style.alignItems = "center";
-            itemRow.style.borderBottom = "1px solid #eee";
-            itemRow.style.padding = "8px";
-            itemRow.style.cursor = "pointer"; 
-            itemRow.style.transition = "background 0.15s"; 
-            itemRow.title = "ダブルクリックで購入"; 
+            Object.assign(itemRow.style, {
+                display: "flex", justifyContent: "space-between", alignItems: "center",
+                borderBottom: "1px solid #eee", padding: "8px", cursor: "pointer", transition: "background 0.15s"
+            });
+            itemRow.title = "ダブルクリックで購入";
+
+            itemRow.innerHTML = `
+                <div style="display: flex; align-items: center; gap: 10px; pointer-events: none; flex: 1;">
+                    <div style="width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,0.03); border-radius: 4px;">
+                        <img class="vending-item-img" style="max-width: 28px; max-height: 28px; image-rendering: pixelated;">
+                    </div>
+                    <div style="display: flex; flex-direction: column; gap: 2px;">
+                        <span class="vending-item-name" style="color: #333; font-weight: bold; font-size: 12px;"></span>
+                        <div style="display: flex; align-items: center; gap: 3px;">
+                            <span class="vending-item-price" style="color: #d34a4a; font-weight: bold; font-size: 11px; font-family: 'Verdana', sans-serif;"></span>
+                            <span style="color: #888; font-size: 9px; font-weight: bold;">メル</span>
+                        </div>
+                    </div>
+                </div>
+                <div style="color: #bbb; font-size: 9px; font-weight: normal; margin-right: 5px; pointer-events: none;">Double Click</div>
+            `;
             itemsContainer.appendChild(itemRow);
         }
 
-        // 新しいHTMLコンテンツを生成
-        const nextHTML = `
-            <div style="display: flex; align-items: center; gap: 10px; pointer-events: none; flex: 1;">
-                <div style="width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,0.03); border-radius: 4px;">
-                    <img src="${iconPath}" 
-                         onerror="console.warn('⚠️ 画像読込失敗: ${iconPath}'); this.onerror=null; this.src='assets/items/default.png';" 
-                         style="max-width: 28px; max-height: 28px; image-rendering: pixelated; ${iconGlowStyle}">
-                </div>
-                <div style="display: flex; flex-direction: column; gap: 2px;">
-                    <span style="color: #333; font-weight: bold; font-size: 12px;">
-                        ${displayName} 
-                        ${(!isEquipment && count > 1) ? `<span style="color: #777; font-weight: normal; font-size: 10px;">(${count}個)</span>` : ''}
-                    </span>
-                    <div style="display: flex; align-items: center; gap: 3px;">
-                        <span style="color: #d34a4a; font-weight: bold; font-size: 11px; font-family: 'Verdana', sans-serif;">${price}</span>
-                        <span style="color: #888; font-size: 9px; font-weight: bold;">メル</span>
-                    </div>
-                </div>
-            </div>
-            <div style="color: #bbb; font-size: 9px; font-weight: normal; margin-right: 5px; pointer-events: none;">
-                Double Click
-            </div>
-        `;
+        // 🌟 ここから「中身だけ」をピンポイントで書き換え
+        const imgEl = itemRow.querySelector('.vending-item-img');
+        const nameEl = itemRow.querySelector('.vending-item-name');
+        const priceEl = itemRow.querySelector('.vending-item-price');
 
-        // 🌟 中身が本当に変わった場合のみ更新（これが最強の点滅対策）
-        if (itemRow.innerHTML !== nextHTML) {
-            itemRow.innerHTML = nextHTML;
+        // 画像の変更（パスまたはグロースタイルが変わった時だけ）
+        const currentImgSrc = imgEl.getAttribute('src');
+        if (currentImgSrc !== iconPath) {
+            imgEl.src = iconPath;
+            imgEl.onerror = () => { imgEl.src = 'assets/items/default.png'; };
+        }
+        if (imgEl.style.cssText.indexOf(iconGlowStyle) === -1) {
+            imgEl.style.cssText = `max-width: 28px; max-height: 28px; image-rendering: pixelated; ${iconGlowStyle}`;
         }
 
-        // --- イベントの更新（既存ロジックを常に適用） ---
-        itemRow.ondblclick = () => {
-            console.log(`%c🖱️ [BUY_ACTION] ダブルクリック購入実行: ${displayName}`, "color: #e67e22; font-weight: bold;");
-            if (typeof buyFromVending === 'function') {
-                buyFromVending(targetOwnerId, targetDbId);
-            }
-        };
+        // 名前の変更
+        const finalName = `${displayName} ${(!isEquipment && count > 1) ? `(${count}個)` : ''}`;
+        if (nameEl.textContent !== finalName) {
+            nameEl.innerHTML = finalName; // ランクの色分け等があればinnerHTML
+        }
 
+        // 価格の変更
+        if (priceEl.textContent !== price) {
+            priceEl.textContent = price;
+        }
+
+        // --- イベントの更新（既存ロジック） ---
+        itemRow.ondblclick = () => {
+            if (typeof buyFromVending === 'function') buyFromVending(targetOwnerId, targetDbId);
+        };
         itemRow.onmouseenter = () => { 
             itemRow.style.background = "rgba(255, 204, 0, 0.15)"; 
             window.currentHoverSlot = item; 
