@@ -2654,40 +2654,43 @@ function openOtherPlayerVending(p) {
 /**
  * 📡 サーバーから最新の露店商品リストが返ってきた時の処理
  * 購入ボタンを廃止し、エリア全体のダブルクリック(ondblclick)で購入に統合
- * 【完全防衛：超高頻度通信・消失対策版】
+ * 【最終不退転：外部からの消失・点滅を物理的に差し止める修正版】
  */
 socket.on('vending_data_res', (data) => {
 
     const itemsContainer = document.getElementById('other-vending-items');
     if (!itemsContainer) {
-        console.error("❌ [ERROR] 'other-vending-items' が見つかりません。");
+        // コンテナがない＝ウィンドウ自体が消されている
+        console.error("❌ [ERROR] 'other-vending-items' が消失しています。外部コードによる削除の疑いがあります。");
         return;
     }
 
-    // --- 🛡️ 物理防波堤：0.2秒以内の連続更新は物理的に無視する ---
-    // これにより「小刻みな点滅」を強制的に止めます。
+    // --- 🛡️ 物理防波堤：0.3秒以内の連続更新は物理的に無視する ---
     const now = Date.now();
     const lastUpdate = parseInt(itemsContainer.dataset.lastTick || 0);
-    if (now - lastUpdate < 200) { 
+    if (now - lastUpdate < 300) { 
         return; 
     }
     itemsContainer.dataset.lastTick = now;
 
+    // --- 🛡️ 消失プロテクト：外部（game.js等）から非表示にされていても強制復帰する ---
+    const parentWindow = itemsContainer.closest('.vending-window') || itemsContainer.parentElement;
+    if (parentWindow) {
+        const currentStyle = window.getComputedStyle(parentWindow).display;
+        if (currentStyle === 'none') {
+            // もしデータが届いているのに非表示なら、外部からの干渉とみなして再表示
+            console.warn("⚠️ 外部干渉によるウィンドウ消失を検知。表示を強制的に維持します。");
+            parentWindow.style.setProperty('display', 'block', 'important');
+        }
+    }
+
     // ⚠️ サーバーデータ異常チェック（既存ロジック維持）
     const bugItem = (data.items || []).find(i => i && !i.display_name && !i.name);
     if (bugItem) {
-        console.error("🚨 犯人はサーバーです！送られてきたデータに既に名前がありません:", bugItem);
+        console.error("🚨 サーバーデータ異常:", bugItem);
     }
     
-    console.log("%c🏪 [VENDING_RECEIVE] サーバーから露店データを受信しました", "background: #2ecc71; color: white; padding: 2px 5px; font-weight: bold;", data);
-
-    // --- 🛡️ 消失防止ガード：看板の表示状態を確認 ---
-    const parentWindow = itemsContainer.closest('.vending-window') || itemsContainer.parentElement;
-    if (parentWindow && window.getComputedStyle(parentWindow).display === 'none') {
-        // 看板が閉じているなら更新しないが、データだけは保存しておく
-        itemsContainer.dataset.lastPureHash = ""; 
-        return;
-    }
+    console.log("%c🏪 [VENDING_RECEIVE] データ受信", "background: #2ecc71; color: white; padding: 2px 5px;", data);
 
     window.currentVendingOwnerId = data.ownerId;
     const items = data.items || [];
@@ -2701,22 +2704,24 @@ socket.on('vending_data_res', (data) => {
     }).join('|');
 
     if (itemsContainer.dataset.lastPureHash === pureDataHash) {
-        // データに変化がないなら、1ミリもDOMを触らない
+        // 内容が同じなら、DOM操作（点滅の元）を一切行わない
         return;
     }
     itemsContainer.dataset.lastPureHash = pureDataHash;
 
     // 🌟 1. リストの初期化（条件付き）
     if (items.length === 0) {
-        // 「空です」という表示自体が点滅しないよう、中身をチェック
         if (!itemsContainer.querySelector('.empty-vending-msg')) {
+            // innerHTMLを直接書き換えず、replaceChildrenなどを使うとより安全ですが、
+            // 既存の挙動を尊重してメッセージをセットします。
             itemsContainer.innerHTML = '<p class="empty-vending-msg" style="text-align: center; padding: 20px; color: #999; font-size: 12px;">商品は売り切れ、またはありません。</p>';
         }
         return;
     }
 
     // 商品があるのに「空メッセージ」がある場合のみクリア。
-    if (itemsContainer.querySelector('.empty-vending-msg')) {
+    const emptyMsg = itemsContainer.querySelector('.empty-vending-msg');
+    if (emptyMsg) {
         itemsContainer.innerHTML = '';
     }
 
@@ -2724,8 +2729,6 @@ socket.on('vending_data_res', (data) => {
 
     // 2. 届いたアイテムをループして更新
     items.forEach((item, index) => {
-        console.group(`📦 露店アイテム解析 [Index:${index}]`);
-
         const idCheck = {
             item_id: item.item_id,
             data_item_id: item.data?.item_id,
@@ -2757,18 +2760,12 @@ socket.on('vending_data_res', (data) => {
         }
 
         // --- 🌟 名称と画像の決定ロジック ---
-        let displayName = "";
+        let displayName = dbDisplayName || item.displayName || item.name || (item.data && item.data.name) || "不明なアイテム";
         let forcedIconPath = null;
 
         if (targetItemId === 201) {
             displayName = dbDisplayName || "おいしいケーキ";
             forcedIconPath = `item_assets/${dbImageName || "sweets"}.png`;
-        } else if (targetItemId === 101) {
-            displayName = dbDisplayName || "マニアックソード";
-        } else if (targetItemId === 102) {
-            displayName = dbDisplayName || "トリシールド";
-        } else {
-            displayName = dbDisplayName || item.displayName || item.name || (item.data && item.data.name) || "不明なアイテム";
         }
 
         const rawType = item.item_type || item.type || (item.data && item.data.type) || item.category || "item";
@@ -2807,17 +2804,9 @@ socket.on('vending_data_res', (data) => {
         
         let iconPath = forcedIconPath || item.iconUrl;
         if (!iconPath) {
-            if (dbImageName) {
-                iconPath = `item_assets/${dbImageName}${dbImageName.includes('.') ? '' : '.png'}`;
-            } else {
-                iconPath = `item_assets/${item.type || finalType}.png`;
-            }
+            const finalImgName = dbImageName || item.type || finalType;
+            iconPath = `item_assets/${finalImgName}${String(finalImgName).includes('.') ? '' : '.png'}`;
         }
-
-        const targetOwnerId = data.ownerId;
-        const targetDbId = item.db_id || item.id;
-
-        console.groupEnd();
 
         // 🌟 innerHTML 出力（内容の差分がある時だけ実行）
         const newHTML = `
@@ -2847,9 +2836,8 @@ socket.on('vending_data_res', (data) => {
         
         // --- 🖱️ イベント登録 ---
         itemRow.ondblclick = () => {
-            console.log(`%c🖱️ [BUY] ${displayName}`, "color: #e67e22;");
             if (typeof buyFromVending === 'function') {
-                buyFromVending(targetOwnerId, targetDbId);
+                buyFromVending(data.ownerId, item.db_id || item.id);
             }
         };
         itemRow.onmouseenter = () => { itemRow.style.background = "rgba(255, 204, 0, 0.15)"; };
