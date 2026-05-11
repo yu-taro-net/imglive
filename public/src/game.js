@@ -2653,18 +2653,35 @@ function openOtherPlayerVending(p) {
 
 /**
  * 📡 サーバーから最新の露店商品リストが返ってきた時の処理
- * デザイン・判定ロジックを完全踏襲 ＋ 詳細なデバッグログを追加
+ * 【チカチカ防止版】
+ * デザイン・判定ロジック・詳細ログを完全踏襲し、データ不変時の再描画をスキップ
  */
+
+// 🌟 チカチカ防止：前回のデータ状態を記録する変数をスコープ外に保持
+let lastVendingResponseHash = "";
+
 socket.on('vending_data_res', (data) => {
 
+    // --------------------------------------------------
+    // 🛡️ 修正点：チカチカ防止（データハッシュチェック）
+    // --------------------------------------------------
+    const currentDataHash = JSON.stringify(data.items || []);
+    if (currentDataHash === lastVendingResponseHash) {
+        // データに変化がない場合は、ログだけ出して描画（innerHTMLのリセット）を回避
+        // console.log("✨ 露店データに変化がないため、再描画をスキップしました（チカチカ防止）");
+        return;
+    }
+    lastVendingResponseHash = currentDataHash;
+    // --------------------------------------------------
+
     // ⚠️ これで「不明」になったアイテムの生データを確認
-    const bugItem = data.items.find(i => i && !i.display_name && !i.name);
+    const bugItem = (data.items || []).find(i => i && !i.display_name && !i.name);
     if (bugItem) {
         console.error("🚨 犯人はサーバーです！送られてきたデータに既に名前がありません:", bugItem);
     } else {
         console.log("✅ サーバーのデータは正常です。フロントの描画ロジックを疑いましょう。");
     }
-	
+    
     // 【最上位デバッグ】パケット全体の確認
     console.log("%c🏪 [VENDING_RECEIVE] サーバーから露店データを受信しました", "background: #2ecc71; color: white; padding: 2px 5px; font-weight: bold;", data);
 
@@ -2677,7 +2694,7 @@ socket.on('vending_data_res', (data) => {
     // 🌟 同期用の店主ID保存
     window.currentVendingOwnerId = data.ownerId;
 
-    // 1. リストの初期化
+    // 1. リストの初期化（ここがチカチカの直接原因。ハッシュチェックでここを通る頻度を下げました）
     itemsContainer.innerHTML = '';
 
     const items = data.items || [];
@@ -2709,9 +2726,16 @@ socket.on('vending_data_res', (data) => {
 
         const itemRow = document.createElement('div');
         itemRow.className = 'shop-item-row-div';
+        
+        // --- 🌟 エリア全体のスタイル設定 (既存デザイン踏襲 + 選択演出) ---
+        itemRow.style.display = "flex";
         itemRow.style.justifyContent = "space-between";
+        itemRow.style.alignItems = "center";
         itemRow.style.borderBottom = "1px solid #eee";
         itemRow.style.padding = "8px";
+        itemRow.style.cursor = "pointer"; 
+        itemRow.style.transition = "background 0.15s"; 
+        itemRow.title = "ダブルクリックで購入"; 
 
         // --- 🌟 名称と画像の決定ロジック (既存踏襲) ---
         let displayName = "";
@@ -2785,11 +2809,11 @@ socket.on('vending_data_res', (data) => {
 
         const targetOwnerId = data.ownerId;
         const targetDbId = item.db_id || item.id;
-        console.log(`[6. 実行ボタン] buyFromVending('${targetOwnerId}', '${targetDbId}')`);
+        console.log(`[6. 実行ロジック登録] buyFromVending('${targetOwnerId}', '${targetDbId}') ON DB-CLICK`);
 
         console.groupEnd(); // 個別ログ終了
 
-        // 🌟 innerHTML 出力
+        // 🌟 innerHTML 出力 (ボタンを排除し、情報表示に特化)
         itemRow.innerHTML = `
             <div style="display: flex; align-items: center; gap: 10px; pointer-events: none; flex: 1;">
                 <div style="width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,0.03); border-radius: 4px;">
@@ -2808,16 +2832,30 @@ socket.on('vending_data_res', (data) => {
                     </div>
                 </div>
             </div>
-
-            <button onclick="buyFromVending('${targetOwnerId}', '${targetDbId}')" 
-                    class="maple-btn-orange"
-                    style="padding: 2px 10px; font-size: 11px; cursor: pointer; min-width: 55px; position: relative; z-index: 999; pointer-events: auto;">
-                購入
-            </button>
+            <div style="color: #bbb; font-size: 9px; font-weight: normal; margin-right: 5px; pointer-events: none;">
+                Double Click
+            </div>
         `;
         
-        itemRow.onmouseenter = () => { window.currentHoverSlot = item; };
-        itemRow.onmouseleave = () => { window.currentHoverSlot = null; };
+        // --- 🖱️ イベント登録 ---
+
+        // 1. ダブルクリックで購入実行
+        itemRow.ondblclick = () => {
+            console.log(`%c🖱️ [BUY_ACTION] ダブルクリック購入実行: ${displayName}`, "color: #e67e22; font-weight: bold;");
+            if (typeof buyFromVending === 'function') {
+                buyFromVending(targetOwnerId, targetDbId);
+            }
+        };
+
+        // 2. ホバー演出とデータ保持
+        itemRow.onmouseenter = () => { 
+            itemRow.style.background = "rgba(255, 204, 0, 0.15)"; 
+            window.currentHoverSlot = item; 
+        };
+        itemRow.onmouseleave = () => { 
+            itemRow.style.background = "transparent";
+            window.currentHoverSlot = null; 
+        };
 
         itemsContainer.appendChild(itemRow);
     });
