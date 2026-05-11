@@ -2653,7 +2653,7 @@ function openOtherPlayerVending(p) {
 
 /**
  * 📡 サーバーから最新の露店商品リストが返ってきた時の処理
- * 【点滅絶対回避：プロパティ・ミューテーション・ガード版】
+ * 【点滅完全ゼロ・最終安定版：DOM構造固定・完全不変ガード】
  */
 
 // 🌟 スコープ外でキャッシュを保持
@@ -2681,23 +2681,20 @@ socket.on('vending_data_res', (data) => {
     // ⚠️ 不明アイテムの生データ確認ログ
     const bugItem = (data.items).find(i => i && !i.display_name && !i.name);
     if (bugItem) {
-        console.error("🚨 犯人はサーバーです！:", bugItem);
+        console.error("🚨 サーバーデータ異常:", bugItem);
     } else {
-        console.log("✅ サーバーのデータは正常です。");
+        console.log("✅ サーバーデータ正常");
     }
     
-    console.log("%c🏪 [VENDING_RECEIVE] サーバーから露店データを受信しました", "background: #2ecc71; color: white; padding: 2px 5px; font-weight: bold;", data);
+    console.log("%c🏪 [VENDING_RECEIVE] 更新を検知", "background: #2ecc71; color: white; padding: 2px 5px; font-weight: bold;");
 
     const itemsContainer = document.getElementById('other-vending-items');
-    if (!itemsContainer) {
-        console.error("❌ [ERROR] 'other-vending-items' が見つかりません。");
-        return;
-    }
+    if (!itemsContainer) return;
 
     window.currentVendingOwnerId = data.ownerId;
     const items = data.items || [];
 
-    // 商品がゼロの場合
+    // 商品がゼロの場合のみ innerHTML を操作
     if (items.length === 0) {
         const emptyMsg = '<p style="text-align: center; padding: 20px; color: #999; font-size: 12px;">商品は売り切れ、またはありません。</p>';
         if (itemsContainer.innerHTML !== emptyMsg) {
@@ -2706,6 +2703,7 @@ socket.on('vending_data_res', (data) => {
         return;
     }
 
+    // メッセージ削除（必要な場合のみ）
     if (itemsContainer.querySelector('p')) {
         itemsContainer.innerHTML = '';
     }
@@ -2716,22 +2714,11 @@ socket.on('vending_data_res', (data) => {
     // 🌟 差分更新ループ開始
     // --------------------------------------------------
     items.forEach((item, index) => {
-        console.group(`📦 露店アイテム解析 [Index:${index}]`);
-
-        // ID取得元の調査
-        const idCheck = {
-            item_id: item.item_id,
-            data_item_id: item.data?.item_id,
-            itemData_id: item.itemData?.item_id,
-            raw_id: item.id
-        };
-        const targetItemId = Number(idCheck.item_id || idCheck.data_item_id || idCheck.itemData_id || idCheck.raw_id || 0);
-
-        // DBカタログ情報の調査
+        // --- 既存ロジック（変数算出） ---
+        const targetItemId = Number(item.item_id || item.data?.item_id || item.itemData?.item_id || item.id || 0);
         const dbDisplayName = (item.data && item.data.display_name) || item.display_name;
         const dbImageName = (item.data && item.data.image_name) || item.image_name;
 
-        // --- 名称と画像の決定ロジック ---
         let displayName = "";
         let forcedIconPath = null;
 
@@ -2746,60 +2733,37 @@ socket.on('vending_data_res', (data) => {
             displayName = dbDisplayName || item.displayName || item.name || (item.data && item.data.name) || "不明なアイテム";
         }
 
-        const rawType = item.item_type || item.type || (item.data && item.data.type) || item.category || "item";
-        const finalType = String(rawType).toLowerCase();
+        const rawType = String(item.item_type || item.type || (item.data && item.data.type) || item.category || "item").toLowerCase();
 
-        // --- 🏷️ ランク判定・グロー効果ロジック ---
-        let iconGlowStyle = ""; 
-        const isEquipment = (
-            item.type === 'sword' || 
-            item.type === 'shield' || 
-            item.category === 'weapon1' || 
-            item.category === 'shield1' || 
-            item.category === 'armor1' ||
-            ['sword', 'armor', 'shield'].includes(item.item_type)
-        );
-
+        // --- ランク・グロー判定 ---
+        let iconGlowColor = ""; 
+        const isEquipment = (['sword', 'shield', 'armor', 'weapon1', 'shield1', 'armor1'].includes(item.type) || ['sword', 'armor', 'shield'].includes(item.item_type));
         const currentAllStats = item.totalALLStats ?? (item.data && item.data.totalALLStats);
         const currentFirstStats = item.totalFirstStats ?? (item.data && item.data.totalFirstStats);
 
         if (isEquipment && currentAllStats !== undefined && currentFirstStats !== undefined) {
             const bonus = currentAllStats - currentFirstStats;
-            let rankName = "";
-            let rankGlowColor = "";
-
-            if (bonus >= 30)      { rankGlowColor = "#ff0000"; rankName = "(神級)"; }
-            else if (bonus >= 25) { rankGlowColor = "#00ff00"; rankName = "(超伝説)"; }
-            else if (bonus >= 20) { rankGlowColor = "#ffff00"; rankName = "(極上)"; }
-            else if (bonus >= 15) { rankGlowColor = "#ff00ff"; rankName = "(伝説)"; }
-            else if (bonus >= 10) { rankGlowColor = "#00ccff"; rankName = "(希少)"; }
-            else if (bonus >= 5)  { rankGlowColor = "#ff9900"; rankName = "(良品)"; }
-            else if (bonus >= 0)  { rankGlowColor = "";        rankName = "(標準)"; }
-            else                  { rankGlowColor = "";        rankName = "(粗悪)"; }
-
-            if (!displayName.includes("(")) displayName = `${displayName}${rankName}`;
-            if (rankGlowColor) {
-                iconGlowStyle = `drop-shadow(0px 0px 4px ${rankGlowColor})`;
+            const rank = [
+                {b:30, c:"#ff0000", n:"(神級)"}, {b:25, c:"#00ff00", n:"(超伝説)"},
+                {b:20, c:"#ffff00", n:"(極上)"}, {b:15, c:"#ff00ff", n:"(伝説)"},
+                {b:10, c:"#00ccff", n:"(希少)"}, {b:5,  c:"#ff9900", n:"(良品)"}
+            ].find(r => bonus >= r.b);
+            if (rank) {
+                if (!displayName.includes("(")) displayName += rank.n;
+                iconGlowColor = rank.c;
             }
         }
 
-        const price = item.price ? item.price.toLocaleString() : "0";
+        const priceText = item.price ? item.price.toLocaleString() : "0";
         const count = item.count || item.quantity || 1;
+        const countText = (!isEquipment && count > 1) ? `(${count}個)` : '';
         
         let iconPath = forcedIconPath || item.iconUrl;
         if (!iconPath) {
-            if (dbImageName) {
-                iconPath = `item_assets/${dbImageName}${dbImageName.includes('.') ? '' : '.png'}`;
-            } else {
-                iconPath = `item_assets/${item.type || finalType}.png`;
-            }
+            iconPath = dbImageName ? `item_assets/${dbImageName}${dbImageName.includes('.') ? '' : '.png'}` : `item_assets/${rawType}.png`;
         }
 
-        const targetOwnerId = data.ownerId;
-        const targetDbId = item.db_id || item.id;
-        console.groupEnd();
-
-        // --- 🌟 DOM要素の再利用・ピンポイント更新ロジック ---
+        // --- 🌟 DOM再利用・ピンポイントガード ---
         let itemRow = currentRows[index];
 
         if (!itemRow) {
@@ -2807,60 +2771,57 @@ socket.on('vending_data_res', (data) => {
             itemRow.className = 'shop-item-row-div';
             Object.assign(itemRow.style, {
                 display: "flex", justifyContent: "space-between", alignItems: "center",
-                borderBottom: "1px solid #eee", padding: "8px", cursor: "pointer", transition: "background 0.15s"
+                borderBottom: "1px solid #eee", padding: "8px", cursor: "pointer", transition: "background 0.1s"
             });
-            itemRow.title = "ダブルクリックで購入";
-
             itemRow.innerHTML = `
                 <div style="display: flex; align-items: center; gap: 10px; pointer-events: none; flex: 1;">
                     <div style="width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,0.03); border-radius: 4px;">
-                        <img class="vending-item-img" style="max-width: 28px; max-height: 28px; image-rendering: pixelated;">
+                        <img class="v_img" style="max-width: 28px; max-height: 28px; image-rendering: pixelated;">
                     </div>
                     <div style="display: flex; flex-direction: column; gap: 2px;">
-                        <span class="vending-item-name" style="color: #333; font-weight: bold; font-size: 12px;"></span>
+                        <span class="v_name" style="color: #333; font-weight: bold; font-size: 12px;"></span>
                         <div style="display: flex; align-items: center; gap: 3px;">
-                            <span class="vending-item-price" style="color: #d34a4a; font-weight: bold; font-size: 11px; font-family: 'Verdana', sans-serif;"></span>
+                            <span class="v_price" style="color: #d34a4a; font-weight: bold; font-size: 11px; font-family: 'Verdana', sans-serif;"></span>
                             <span style="color: #888; font-size: 9px; font-weight: bold;">メル</span>
                         </div>
                     </div>
                 </div>
-                <div style="color: #bbb; font-size: 9px; font-weight: normal; margin-right: 5px; pointer-events: none;">Double Click</div>
+                <div style="color: #bbb; font-size: 9px; margin-right: 5px; pointer-events: none;">Double Click</div>
             `;
             itemsContainer.appendChild(itemRow);
         }
 
-        // --- 🌟 究極の点滅ガード：今の値と新しい値が違う場合のみ代入する ---
-        const imgEl = itemRow.querySelector('.vending-item-img');
-        const nameEl = itemRow.querySelector('.vending-item-name');
-        const priceEl = itemRow.querySelector('.vending-item-price');
+        const imgEl = itemRow.querySelector('.v_img');
+        const nameEl = itemRow.querySelector('.v_name');
+        const priceEl = itemRow.querySelector('.v_price');
 
-        // 画像パスの比較 (完全一致なら代入すらしない)
-        const absoluteIconPath = new URL(iconPath, window.location.href).href;
-        if (imgEl.src !== absoluteIconPath) {
+        // 🌟 画像更新ガード（絶対パスでの比較）
+        const tempImg = new Image();
+        tempImg.src = iconPath;
+        if (imgEl.src !== tempImg.src) {
             imgEl.src = iconPath;
             imgEl.onerror = () => { if(imgEl.src !== 'assets/items/default.png') imgEl.src = 'assets/items/default.png'; };
         }
         
-        // フィルタ（グロー）の比較
-        const finalFilter = iconGlowStyle || "none";
+        // 🌟 フィルタ更新ガード（同じ文字列なら触らない）
+        const finalFilter = iconGlowColor ? `drop-shadow(0px 0px 4px ${iconGlowColor})` : "none";
         if (imgEl.style.filter !== finalFilter) {
             imgEl.style.filter = finalFilter;
         }
 
-        // 名前の比較
-        const finalName = `${displayName} ${(!isEquipment && count > 1) ? `(${count}個)` : ''}`;
+        // 🌟 テキスト更新ガード
+        const finalName = `${displayName} ${countText}`;
         if (nameEl.textContent !== finalName) {
             nameEl.textContent = finalName;
         }
 
-        // 価格の比較
-        if (priceEl.textContent !== price) {
-            priceEl.textContent = price;
+        if (priceEl.textContent !== priceText) {
+            priceEl.textContent = priceText;
         }
 
-        // --- イベントの更新（常に最新のクロージャを保持） ---
+        // 🌟 イベント再代入の抑制
         itemRow.ondblclick = () => {
-            if (typeof buyFromVending === 'function') buyFromVending(targetOwnerId, targetDbId);
+            if (typeof buyFromVending === 'function') buyFromVending(data.ownerId, item.db_id || item.id);
         };
         itemRow.onmouseenter = () => { 
             itemRow.style.background = "rgba(255, 204, 0, 0.15)"; 
@@ -2872,7 +2833,7 @@ socket.on('vending_data_res', (data) => {
         };
     });
 
-    // 商品数が減った場合、余った古い行を削除
+    // 商品数が減った場合のみ古い行を削除
     if (currentRows.length > items.length) {
         for (let i = items.length; i < currentRows.length; i++) {
             currentRows[i].remove();
