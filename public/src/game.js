@@ -2297,7 +2297,8 @@ socket.on('register_response', (data) => {
     }
 });
 
-// --- デバッグ開始 ---
+/*
+// --- 修正版：露店フラグの監視と暴走防止 ---
 if (typeof hero !== 'undefined') {
     let _isVending = hero.is_vending;
 
@@ -2306,17 +2307,28 @@ if (typeof hero !== 'undefined') {
             return _isVending;
         },
         set: function(value) {
-            if (value === true && _isVending === false) {
-                //console.warn("⚠️ [DEBUG] is_vending が TRUE に書き換えられました！");
-                console.trace(); // これで実行元の行番号がわかります
+            // 🛡️ ここが重要：
+            // すでに true なのに、また true を入れようとしている場合は、
+            // ウィンドウの再描画（点滅）を避けるために無視する。
+            if (value === true && _isVending === true) {
+                return; 
             }
+
+            // 本来の代入処理
             _isVending = value;
+
+            // 状態が変わった時だけログを出す（必要なら）
+            if (value === true) {
+                console.log("🏪 露店モード開始");
+            } else {
+                console.log("🚶 露店モード終了");
+            }
         },
         configurable: true
     });
-    console.log("✅ 露店フラグの監視を開始しました。");
+    console.log("✅ 露店フラグの暴走防止ガードを適用しました。");
 }
-// --- デバッグ終了 ---
+*/
 
 // 🏪 サーバーから「誰かが開店した」通知が届いた時
 socket.on('vending_opened', (data) => {
