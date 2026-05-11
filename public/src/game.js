@@ -2297,7 +2297,6 @@ socket.on('register_response', (data) => {
     }
 });
 
-/*
 // --- 修正版：露店フラグの監視と暴走防止 ---
 if (typeof hero !== 'undefined') {
     let _isVending = hero.is_vending;
@@ -2328,7 +2327,6 @@ if (typeof hero !== 'undefined') {
     });
     console.log("✅ 露店フラグの暴走防止ガードを適用しました。");
 }
-*/
 
 // 🏪 サーバーから「誰かが開店した」通知が届いた時
 socket.on('vending_opened', (data) => {
