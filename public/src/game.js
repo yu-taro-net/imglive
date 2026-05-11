@@ -2673,7 +2673,7 @@ function openOtherPlayerVending(p) {
 /**
  * 📡 サーバーから最新の露店商品リストが返ってきた時の処理
  * 購入ボタンを廃止し、エリア全体のダブルクリック(ondblclick)で購入に統合
- * 【最終不退転：消失防止＋入室時の描画漏れ対策版】
+ * 【最終不退転：消失防止＋入室時の描画漏れ対策版＋メッセージ残留防止強化】
  */
 socket.on('vending_data_res', (data) => {
 
@@ -2687,8 +2687,6 @@ socket.on('vending_data_res', (data) => {
     const lastUpdate = parseInt(itemsContainer.dataset.lastTick || 0);
 
     // --- 🌟 改善：入室時の描画漏れ対策 ---
-    // 前回の更新から1秒以上経過している場合は、別人の店に入ったか再入室したと判断。
-    // キャッシュをクリアして、サーバーからのデータを強制的に描画プロセスへ通します。
     if (now - lastUpdate > 1000) {
         itemsContainer.dataset.lastPureHash = ""; 
         console.log("🔄 [VENDING] 再入室を検知。キャッシュをリセットして描画を強制します。");
@@ -2730,7 +2728,6 @@ socket.on('vending_data_res', (data) => {
     }).join('|');
 
     if (itemsContainer.dataset.lastPureHash === pureDataHash) {
-        // 内容が完全に同じなら、DOM操作（点滅の元）を一切行わない
         return;
     }
     itemsContainer.dataset.lastPureHash = pureDataHash;
@@ -2743,10 +2740,14 @@ socket.on('vending_data_res', (data) => {
         return;
     }
 
-    // 商品があるのに「空メッセージ」がある場合のみクリア
-    const emptyMsg = itemsContainer.querySelector('.empty-vending-msg');
-    if (emptyMsg) {
-        itemsContainer.innerHTML = '';
+    // --- 🌟 改善：アイテムがある場合、既存の「読み込み中...」などのテキストを完全に掃除 ---
+    // shop-item-row-div（商品行）ではない要素やテキストノードが混ざっていれば、一度クリアします。
+    const hasNonItemNodes = Array.from(itemsContainer.childNodes).some(node => {
+        return node.nodeType === Node.TEXT_NODE || (node.nodeType === Node.ELEMENT_NODE && !node.classList.contains('shop-item-row-div'));
+    });
+
+    if (hasNonItemNodes) {
+        itemsContainer.innerHTML = ''; 
     }
 
     const currentRows = itemsContainer.querySelectorAll('.shop-item-row-div');
@@ -2832,7 +2833,6 @@ socket.on('vending_data_res', (data) => {
             iconPath = `item_assets/${finalImgName}${String(finalImgName).includes('.') ? '' : '.png'}`;
         }
 
-        // 🌟 innerHTML 出力（内容の差分がある時だけ実行）
         const newHTML = `
             <div style="display: flex; align-items: center; gap: 10px; pointer-events: none; flex: 1;">
                 <div style="width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,0.03); border-radius: 4px;">
