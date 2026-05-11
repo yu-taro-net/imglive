@@ -2654,40 +2654,45 @@ function openOtherPlayerVending(p) {
 /**
  * 📡 サーバーから最新の露店商品リストが返ってきた時の処理
  * 購入ボタンを廃止し、エリア全体のダブルクリック(ondblclick)で購入に統合
- * 【最終解決版：小刻みな点滅を物理的に遮断】
+ * 【完全防衛：超高頻度通信・消失対策版】
  */
 socket.on('vending_data_res', (data) => {
 
-    // ⚠️ サーバーデータ異常チェック（既存ロジック維持）
-    const bugItem = data.items.find(i => i && !i.display_name && !i.name);
-    if (bugItem) {
-        console.error("🚨 犯人はサーバーです！送られてきたデータに既に名前がありません:", bugItem);
-    } else {
-        console.log("✅ サーバーのデータは正常です。フロントの描画ロジックを疑いましょう。");
-    }
-    
-    // 【最上位デバッグ】パケット全体の確認
-    console.log("%c🏪 [VENDING_RECEIVE] サーバーから露店データを受信しました", "background: #2ecc71; color: white; padding: 2px 5px; font-weight: bold;", data);
-
     const itemsContainer = document.getElementById('other-vending-items');
     if (!itemsContainer) {
-        console.error("❌ [ERROR] 'other-vending-items' が見つかりません。HTML側のIDを確認してください。");
+        console.error("❌ [ERROR] 'other-vending-items' が見つかりません。");
         return;
     }
 
-    // --- 🛡️ 消失防止ガード：看板が閉じている、またはアニメーション中なら更新をスキップ ---
+    // --- 🛡️ 物理防波堤：0.2秒以内の連続更新は物理的に無視する ---
+    // これにより「小刻みな点滅」を強制的に止めます。
+    const now = Date.now();
+    const lastUpdate = parseInt(itemsContainer.dataset.lastTick || 0);
+    if (now - lastUpdate < 200) { 
+        return; 
+    }
+    itemsContainer.dataset.lastTick = now;
+
+    // ⚠️ サーバーデータ異常チェック（既存ロジック維持）
+    const bugItem = (data.items || []).find(i => i && !i.display_name && !i.name);
+    if (bugItem) {
+        console.error("🚨 犯人はサーバーです！送られてきたデータに既に名前がありません:", bugItem);
+    }
+    
+    console.log("%c🏪 [VENDING_RECEIVE] サーバーから露店データを受信しました", "background: #2ecc71; color: white; padding: 2px 5px; font-weight: bold;", data);
+
+    // --- 🛡️ 消失防止ガード：看板の表示状態を確認 ---
     const parentWindow = itemsContainer.closest('.vending-window') || itemsContainer.parentElement;
     if (parentWindow && window.getComputedStyle(parentWindow).display === 'none') {
+        // 看板が閉じているなら更新しないが、データだけは保存しておく
+        itemsContainer.dataset.lastPureHash = ""; 
         return;
     }
 
-    // 🌟 同期用の店主ID保存
     window.currentVendingOwnerId = data.ownerId;
-
     const items = data.items || [];
 
     // --- 🛡️ 強化版点滅防止ガード：純粋な「商品データ」のみで比較 ---
-    // サーバーが送ってくる「タイムスタンプ」等のノイズを無視して比較します。
     const pureDataHash = items.map(i => {
         const id = i.item_id || i.id || (i.data && i.data.item_id);
         const price = i.price || 0;
@@ -2696,27 +2701,29 @@ socket.on('vending_data_res', (data) => {
     }).join('|');
 
     if (itemsContainer.dataset.lastPureHash === pureDataHash) {
-        console.log("ℹ️ 商品の内容に変更がないため、DOM更新を完全にスキップしました（点滅防止）");
+        // データに変化がないなら、1ミリもDOMを触らない
         return;
     }
     itemsContainer.dataset.lastPureHash = pureDataHash;
 
     // 🌟 1. リストの初期化（条件付き）
     if (items.length === 0) {
-        itemsContainer.innerHTML = '<p style="text-align: center; padding: 20px; color: #999; font-size: 12px;">商品は売り切れ、またはありません。</p>';
+        // 「空です」という表示自体が点滅しないよう、中身をチェック
+        if (!itemsContainer.querySelector('.empty-vending-msg')) {
+            itemsContainer.innerHTML = '<p class="empty-vending-msg" style="text-align: center; padding: 20px; color: #999; font-size: 12px;">商品は売り切れ、またはありません。</p>';
+        }
         return;
     }
 
-    if (itemsContainer.querySelector('p')) {
+    // 商品があるのに「空メッセージ」がある場合のみクリア。
+    if (itemsContainer.querySelector('.empty-vending-msg')) {
         itemsContainer.innerHTML = '';
     }
 
-    // 既存の行をキャッシュ
     const currentRows = itemsContainer.querySelectorAll('.shop-item-row-div');
 
     // 2. 届いたアイテムをループして更新
     items.forEach((item, index) => {
-        // --- 🔍 デバッグログ開始 ---
         console.group(`📦 露店アイテム解析 [Index:${index}]`);
 
         const idCheck = {
@@ -2732,12 +2739,10 @@ socket.on('vending_data_res', (data) => {
 
         // --- 🌟 DOMの再利用ロジック ---
         let itemRow = currentRows[index];
-
         if (!itemRow) {
             itemRow = document.createElement('div');
             itemRow.className = 'shop-item-row-div';
             
-            // スタイル設定（初回のみ）
             Object.assign(itemRow.style, {
                 display: "flex",
                 justifyContent: "space-between",
@@ -2745,7 +2750,7 @@ socket.on('vending_data_res', (data) => {
                 borderBottom: "1px solid #eee",
                 padding: "8px",
                 cursor: "pointer",
-                transition: "background 0.1s" // 点滅対策のため少し短縮
+                transition: "background 0.1s"
             });
             itemRow.title = "ダブルクリックで購入";
             itemsContainer.appendChild(itemRow);
@@ -2772,12 +2777,9 @@ socket.on('vending_data_res', (data) => {
         // --- 🏷️ ランク判定・グロー効果ロジック ---
         let iconGlowStyle = ""; 
         const isEquipment = (
-            item.type === 'sword' || 
-            item.type === 'shield' || 
-            item.category === 'weapon1' || 
-            item.category === 'shield1' || 
-            item.category === 'armor1' ||
-            ['sword', 'armor', 'shield'].includes(item.item_type)
+            item.type === 'sword' || item.type === 'shield' || 
+            item.category === 'weapon1' || item.category === 'shield1' || 
+            item.category === 'armor1' || ['sword', 'armor', 'shield'].includes(item.item_type)
         );
 
         const currentAllStats = item.totalALLStats ?? (item.data && item.data.totalALLStats);
@@ -2785,22 +2787,19 @@ socket.on('vending_data_res', (data) => {
 
         if (isEquipment && currentAllStats !== undefined && currentFirstStats !== undefined) {
             const bonus = currentAllStats - currentFirstStats;
-            let rankName = "";
             let rankGlowColor = "";
-
-            if (bonus >= 30)       { rankGlowColor = "#ff0000"; rankName = "(神級)"; }
+            let rankName = "";
+            if (bonus >= 30) { rankGlowColor = "#ff0000"; rankName = "(神級)"; }
             else if (bonus >= 25) { rankGlowColor = "#00ff00"; rankName = "(超伝説)"; }
             else if (bonus >= 20) { rankGlowColor = "#ffff00"; rankName = "(極上)"; }
             else if (bonus >= 15) { rankGlowColor = "#ff00ff"; rankName = "(伝説)"; }
             else if (bonus >= 10) { rankGlowColor = "#00ccff"; rankName = "(希少)"; }
             else if (bonus >= 5)  { rankGlowColor = "#ff9900"; rankName = "(良品)"; }
-            else if (bonus >= 0)  { rankGlowColor = "";        rankName = "(標準)"; }
-            else                  { rankGlowColor = "";        rankName = "(粗悪)"; }
+            else if (bonus >= 0)  { rankGlowColor = ""; rankName = "(標準)"; }
+            else { rankGlowColor = ""; rankName = "(粗悪)"; }
 
             if (!displayName.includes("(")) displayName = `${displayName}${rankName}`;
-            if (rankGlowColor) {
-                iconGlowStyle = `filter: drop-shadow(0 0 4px ${rankGlowColor});`;
-            }
+            if (rankGlowColor) { iconGlowStyle = `filter: drop-shadow(0 0 4px ${rankGlowColor});`; }
         }
 
         const price = item.price ? item.price.toLocaleString() : "0";
@@ -2818,10 +2817,9 @@ socket.on('vending_data_res', (data) => {
         const targetOwnerId = data.ownerId;
         const targetDbId = item.db_id || item.id;
 
-        console.groupEnd(); // 個別ログ終了
+        console.groupEnd();
 
-        // 🌟 innerHTML 出力（内容に変更がある場合のみ書き換え）
-        // 既存のHTMLと完全に一致しているかチェックすることで点滅を極限まで抑えます。
+        // 🌟 innerHTML 出力（内容の差分がある時だけ実行）
         const newHTML = `
             <div style="display: flex; align-items: center; gap: 10px; pointer-events: none; flex: 1;">
                 <div style="width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,0.03); border-radius: 4px;">
@@ -2835,37 +2833,27 @@ socket.on('vending_data_res', (data) => {
                         ${(!isEquipment && count > 1) ? `<span style="color: #777; font-weight: normal; font-size: 10px;">(${count}個)</span>` : ''}
                     </span>
                     <div style="display: flex; align-items: center; gap: 3px;">
-                        <span style="color: #d34a4a; font-weight: bold; font-size: 11px; font-family: 'Verdana', sans-serif;">${price}</span>
+                        <span style="color: #d34a4a; font-weight: bold; font-size: 11px;">${price}</span>
                         <span style="color: #888; font-size: 9px; font-weight: bold;">メル</span>
                     </div>
                 </div>
             </div>
-            <div style="color: #bbb; font-size: 9px; font-weight: normal; margin-right: 5px; pointer-events: none;">
-                Double Click
-            </div>
+            <div style="color: #bbb; font-size: 9px; pointer-events: none;">Double Click</div>
         `;
 
-        // 🌟 文字列として比較し、差分がある場合のみDOMを更新
         if (itemRow.innerHTML.trim() !== newHTML.trim()) {
             itemRow.innerHTML = newHTML;
         }
         
         // --- 🖱️ イベント登録 ---
         itemRow.ondblclick = () => {
-            console.log(`%c🖱️ [BUY_ACTION] ダブルクリック購入実行: ${displayName}`, "color: #e67e22; font-weight: bold;");
+            console.log(`%c🖱️ [BUY] ${displayName}`, "color: #e67e22;");
             if (typeof buyFromVending === 'function') {
                 buyFromVending(targetOwnerId, targetDbId);
             }
         };
-
-        itemRow.onmouseenter = () => { 
-            itemRow.style.background = "rgba(255, 204, 0, 0.15)";
-            window.currentHoverSlot = item; 
-        };
-        itemRow.onmouseleave = () => { 
-            itemRow.style.background = "transparent";
-            window.currentHoverSlot = null; 
-        };
+        itemRow.onmouseenter = () => { itemRow.style.background = "rgba(255, 204, 0, 0.15)"; };
+        itemRow.onmouseleave = () => { itemRow.style.background = "transparent"; };
     });
 
     // 余分な行を削除
