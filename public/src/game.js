@@ -868,25 +868,20 @@ startBtn.onclick = () => {
 // ==========================================
 
 // ==========================================
-// 🔐 ログインリクエスト処理 (UI統一版・チャンネル対応)
+// 🔐 ログインリクエスト処理
 // ==========================================
 startBtn.onclick = () => {
     const userName = nameInput.value.trim();
-    const passwordInput = document.getElementById('user-pass-input'); // HTML要素を取得
+    const passwordInput = document.getElementById('user-pass-input'); 
     const password = passwordInput.value;
-    
-    // 🌟 openDropFormと同じようにエラー表示用の要素を取得
-    // (HTML側に <div id="login-error"></div> がある前提です)
     const loginError = document.getElementById('login-error');
 
-    // --- 1. 入力チェック (openDropFormのバリデーション風) ---
+    // --- 1. 入力チェック ---
     if (!userName || !password) {
         if (loginError) {
             loginError.innerText = "名前とパスワードを入力してください";
             loginError.style.color = "#ff4444";
         }
-        
-        // 未入力の項目の枠線を赤くする
         if (!userName) nameInput.style.border = "2px solid #ff4444";
         if (!password) passwordInput.style.border = "2px solid #ff4444";
         return;
@@ -897,20 +892,22 @@ startBtn.onclick = () => {
     passwordInput.style.border = "1px solid #ccc";
     if (loginError) loginError.innerText = "";
 
-    // --- 3. フォーカスを外してサーバーへ送信 (既存ロジック踏襲) ---
+    // --- 3. フォーカスを外して画面遷移開始 ---
     nameInput.blur();
     passwordInput.blur();
-	
-	window.isGameStarted = true;
-
-    // 🌟 修正ポイント：すでに定義済みの selectedChannel をデータに含める
-    console.log("ログインリクエスト送信:", userName, "選択チャンネル:", selectedChannel);
     
-    socket.emit('login', { 
-        username: userName, 
-        password: password,
-        channel: selectedChannel // 選択されているチャンネル番号を送信
-    });
+    // 🌟 修正：ログインパネルを隠してキャラ選択へ（ここではまだ emit しない）
+    const loginOverlay = document.getElementById('login-overlay');
+    if (loginOverlay) {
+        loginOverlay.style.display = 'none';
+    }
+    
+    // 🌟 修正：キャラクター選択画面を呼び出す
+    // この後、createCharSelector 内のボタンクリックで login が送信されます
+    createCharSelector();
+
+    // ※ ここにあった socket.emit('login') は createCharSelector 内へ移動しました
+    console.log("キャラ選択待機中... 名前:", userName, "チャンネル:", selectedChannel);
 };
 
 // --- 🌟 既存：Enterキーでの送信対応 (openDropFormのonkeydown風) ---
@@ -2068,19 +2065,34 @@ function buyItem(itemId, itemType, displayName) {
 function update() {
     frame++; // フレームカウント（アニメーション同期用）
 
+    // --- 🌟 修正：モーダル表示中かどうかの判定を追加 ---
+    const quantityModal = document.getElementById('vending-quantity-modal');
+    const isModalOpen = quantityModal && quantityModal.style.display !== 'none';
+    // ----------------------------------------------
+
     // 1. 各要素の状態更新（切り出した関数を順番に実行）
     updateItemsPhysics();      // アイテムの物理挙動
     updateEffectsAndTimers();  // エフェクト・タイマーの更新
 
     // 2. プレイヤーの入力処理
-    handlePlayerInput(hero, items, ladders, document.getElementById('chat-in'));
+    // --- 🌟 修正：モーダルが開いている時は入力をスキップし、足を止める ---
+    if (!isModalOpen) {
+        handlePlayerInput(hero, items, ladders, document.getElementById('chat-in'));
+    } else {
+        // モーダル操作中にキャラが滑っていかないように速度をゼロに固定
+        hero.vx = 0;
+    }
+    // ----------------------------------------------
 
     // 3. 物理移動と接地判定
     // heroに「今ある足場」を教えて、計算を全部任せる
     let isTouchingAnything = hero.applyPhysics(platforms);
 
     // 4. 戦闘・当たり判定
-    updatePlayerCombat();
+    // --- 🌟 修正：モーダル中は戦闘処理も行わない ---
+    if (!isModalOpen) {
+        updatePlayerCombat();
+    }
 
     // 5. サーバー同期と描画
     // 🌟 修正：heroオブジェクトの必要な情報を整理して送る
@@ -2093,17 +2105,18 @@ function update() {
         isAttacking: hero.isAttacking,
         climbing: hero.climbing, // 🌟 これを追加！
         invincible: hero.invincible, // 🌟 被弾・無敵状態を同期
-		
-		// --- 🌟 ここを追加！ ---
+        
+        // --- 🌟 ここを追加！ ---
         is_vending: hero.is_vending,       // 露店を開いているか
         vending_title: hero.vending_title, // 店の名前
         // -----------------------
-		
+        
         currentFrame: frame
     });
 
     // 🌟 修正：攻撃の「のっそり」対策
-    if (hero.isAttacking === 20) {
+    // --- 🌟 修正：モーダル中でない場合のみパケットを飛ばす ---
+    if (!isModalOpen && hero.isAttacking === 20) {
         socket.emit('player_attack', { id: socket.id });
     }
 
@@ -2433,6 +2446,17 @@ socket.on('vending_closed', (data) => {
             myVendingWin.style.display = 'none';
         }
 
+        // --- 🌟 追加：ボタンのUI状態を元に戻す ---
+        const btn = document.getElementById('vending-confirm-btn');
+        if (btn) {
+            btn.innerText = "この内容で露店を開く";
+            btn.disabled = false;
+            btn.style.removeProperty('background');
+            btn.style.removeProperty('border-color');
+            btn.style.cursor = "pointer";
+        }
+        // ------------------------------------
+
     } else {
         // 他人の状態をリセット
         const targetList = (typeof otherPlayers !== 'undefined') ? otherPlayers : (typeof others !== 'undefined' ? others : {});
@@ -2673,7 +2697,7 @@ function openOtherPlayerVending(p) {
 /**
  * 📡 サーバーから最新の露店商品リストが返ってきた時の処理
  * 購入ボタンを廃止し、エリア全体のダブルクリック(ondblclick)で購入に統合
- * 【最終不退転：消失防止＋入室時の描画漏れ対策版＋メッセージ残留防止強化】
+ * 【最終不退転：消失防止＋入室時の描画漏れ対策版＋メッセージ残留防止強化＋メイプル価格カラー版】
  */
 socket.on('vending_data_res', (data) => {
 
@@ -2741,7 +2765,6 @@ socket.on('vending_data_res', (data) => {
     }
 
     // --- 🌟 改善：アイテムがある場合、既存の「読み込み中...」などのテキストを完全に掃除 ---
-    // shop-item-row-div（商品行）ではない要素やテキストノードが混ざっていれば、一度クリアします。
     const hasNonItemNodes = Array.from(itemsContainer.childNodes).some(node => {
         return node.nodeType === Node.TEXT_NODE || (node.nodeType === Node.ELEMENT_NODE && !node.classList.contains('shop-item-row-div'));
     });
@@ -2824,6 +2847,22 @@ socket.on('vending_data_res', (data) => {
             if (rankGlowColor) { iconGlowStyle = `filter: drop-shadow(0 0 4px ${rankGlowColor});`; }
         }
 
+        // --- 🌟 メイプルストーリー再現：桁数別価格カラーロジック ---
+        const rawPrice = Number(item.price || 0);
+        let priceColor = "#0000FF"; // 10k未満：青
+
+        if (rawPrice >= 1000000000) {
+            priceColor = "#4B0082"; // 1000m以上：濃い紫色
+        } else if (rawPrice >= 100000000) {
+            priceColor = "#A020F0"; // 100m以上：紫色
+        } else if (rawPrice >= 10000000) {
+            priceColor = "#FF0000"; // 10m以上：赤色
+        } else if (rawPrice >= 1000000) {
+            priceColor = "#32CD32"; // 1m以上：黄緑色
+        } else if (rawPrice >= 10000) {
+            priceColor = "#00CED1"; // 10k以上：水色
+        }
+
         const price = item.price ? item.price.toLocaleString() : "0";
         const count = item.count || item.quantity || 1;
         
@@ -2846,7 +2885,7 @@ socket.on('vending_data_res', (data) => {
                         ${(!isEquipment && count > 1) ? `<span style="color: #777; font-weight: normal; font-size: 10px;">(${count}個)</span>` : ''}
                     </span>
                     <div style="display: flex; align-items: center; gap: 3px;">
-                        <span style="color: #d34a4a; font-weight: bold; font-size: 11px;">${price}</span>
+                        <span style="color: ${priceColor}; font-weight: bold; font-size: 11px;">${price}</span>
                         <span style="color: #888; font-size: 9px; font-weight: bold;">メル</span>
                     </div>
                 </div>
@@ -2877,11 +2916,11 @@ socket.on('vending_data_res', (data) => {
 });
 
 /**
- * 🛒 露店専用の購入関数（ガチガチデバッグ版）
+ * 🛒 露店専用の購入関数（ガチガチデバッグ版 ＋ オリジナルUI版）
  * 既存のロジックを完全に維持しつつ、動作を実況中継します。
  */
 function buyFromVending(ownerId, dbId) {
-    // 1. 関数が呼ばれた瞬間に青いログを出す（これが出なければボタンの設定ミス）
+    // 1. 関数が呼ばれた瞬間に青いログを出す
     console.log("%c🚀 [VENDING_DEBUG] buyFromVendingが呼び出されました", "background: blue; color: white; padding: 2px 5px;");
     console.log("├─ 受信OwnerID:", ownerId);
     console.log("├─ 受信dbId:", dbId);
@@ -2894,22 +2933,45 @@ function buyFromVending(ownerId, dbId) {
         return;
     }
 
-    // 2. 確認ダイアログの状態をログ
-    const isConfirmed = confirm("このアイテムを購入しますか？");
-    console.log("├─ 購入確認ダイアログの結果:", isConfirmed);
+    // 🌟 オリジナルUIモーダルの制御
+    const modal = document.getElementById('vending-buy-confirm-modal');
+    const confirmBtn = document.getElementById('buy-confirm-btn');
+    const cancelBtn = document.getElementById('buy-cancel-btn');
 
-    if (!isConfirmed) {
-        console.log("└─ 購入がキャンセルされました。");
-        return;
+    if (modal) {
+        // モーダルを表示
+        modal.style.display = 'block';
+        console.log("├─ 購入確認モーダルを表示しました。");
+
+        // ✅ 「購入する」ボタンが押された時
+        confirmBtn.onclick = () => {
+            console.log("├─ 購入確認ダイアログの結果: 承認 (OK)");
+            
+            // 3. サーバー送信直前のデータをログ
+            console.log("%c✉️ [VENDING_DEBUG] サーバーへ 'vending_buy_req' を送信します...", "color: cyan; font-weight: bold;");
+            
+            socket.emit('vending_buy_req', {
+                ownerId: ownerId,
+                dbId: dbId
+            });
+
+            modal.style.display = 'none'; // モーダルを閉じる
+        };
+
+        // ❌ 「キャンセル」ボタンが押された時
+        cancelBtn.onclick = () => {
+            console.log("├─ 購入確認ダイアログの結果: キャンセル");
+            console.log("└─ 購入がキャンセルされました。");
+            
+            modal.style.display = 'none'; // モーダルを閉じる
+        };
+    } else {
+        // 万が一HTML要素が見つからない場合のフォールバック（従来のconfirm）
+        console.error("⚠️ [VENDING_DEBUG] 確認モーダルが見つかりません。標準ダイアログを使用します。");
+        if (confirm("このアイテムを購入しますか？")) {
+            socket.emit('vending_buy_req', { ownerId, dbId });
+        }
     }
-
-    // 3. サーバー送信直前のデータをログ
-    console.log("%c✉️ [VENDING_DEBUG] サーバーへ 'vending_buy_req' を送信します...", "color: cyan; font-weight: bold;");
-    
-    socket.emit('vending_buy_req', {
-        ownerId: ownerId,
-        dbId: dbId
-    });
 }
 
 // 🛒 露店購入成功時の処理
@@ -3022,6 +3084,7 @@ function markItemAsSold(itemId) {
 
 /**
  * 🏪 露店追加関数 (既存のロジック・デバッグ・スタイルを完全踏襲)
+ * 価格表示にメイプルストーリー伝統の桁数別色分けを導入
  */
 function addItemToVendingList(item) {
     const listContainer = document.getElementById('vending-item-list');
@@ -3120,6 +3183,24 @@ function addItemToVendingList(item) {
         displayName = displayName.replace(/\(標準\)$/, "");
     }
 
+    // --- 🌟 メイプルストーリー伝統：価格による色分けロジック ---
+    const rawPrice = Number(item.price || 0);
+    let priceColor = "#0000FF"; // デフォルト：10k未満は青
+
+    if (rawPrice >= 1000000000) {
+        priceColor = "#4B0082"; // 1000m以上：濃い紫色 (Indigo/Deep Purple)
+    } else if (rawPrice >= 100000000) {
+        priceColor = "#A020F0"; // 100m以上：紫色 (Purple)
+    } else if (rawPrice >= 10000000) {
+        priceColor = "#FF0000"; // 10m以上：赤色 (Red)
+    } else if (rawPrice >= 1000000) {
+        priceColor = "#32CD32"; // 1m以上：黄緑色 (LimeGreen)
+    } else if (rawPrice >= 10000) {
+        priceColor = "#00CED1"; // 10k以上：水色 (DarkTurquoise/Cyan)
+    }
+
+    const displayPrice = item.price ? item.price.toLocaleString() : "0";
+
     // 🖼️ 要素の作成
     const itemEl = document.createElement('div');
     itemEl.id = `vending-item-${itemId}`;
@@ -3128,9 +3209,7 @@ function addItemToVendingList(item) {
     itemEl.onmouseenter = () => { window.currentHoverSlot = item; };
     itemEl.onmouseleave = () => { window.currentHoverSlot = null; };
 
-    const displayPrice = item.price ? item.price.toLocaleString() : "0";
-
-    // HTML構造 (修正点: onclickで専用の削除関数を呼ぶように変更)
+    // HTML構造 (修正点: 価格部分に priceColor を適用)
     itemEl.innerHTML = `
         <div style="display: flex; align-items: center; pointer-events: none; flex: 1;">
             <div style="width: 24px; height: 24px; margin-right: 8px; display: flex; align-items: center; justify-content: center; overflow: visible;">
@@ -3144,7 +3223,7 @@ function addItemToVendingList(item) {
             </div>
             <div style="display: flex; flex-direction: column;">
                 <span style="color: #333; font-weight: bold;">${displayName}</span>
-                <span style="color: #444; font-size: 10px;">価格: <span style="color: #d32f2f;">${displayPrice}</span> メル</span>
+                <span style="color: #444; font-size: 10px;">価格: <span style="color: ${priceColor}; font-weight: bold;">${displayPrice}</span> メル</span>
             </div>
             ${(!isEquipment && (item.count || item.quantity)) ? `<span style="color: #888; margin-left: 8px; font-size: 11px;">[${item.count || item.quantity}個]</span>` : ''}
         </div>

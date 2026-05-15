@@ -915,7 +915,7 @@ window.addEventListener('keydown', (e) => {
     if (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA') return;
 
     // 🌟 追加：ログイン済み（myIdがある）なら、あとからの切り替えを防止する
-    if (typeof myId !== 'undefined' && myId) return;
+    //if (typeof myId !== 'undefined' && myId) return;
 
     let groupChanged = false;
 
@@ -1037,6 +1037,179 @@ window.addEventListener('mouseup', () => {
 
     // 🌟 3. アイテムスロットの選択状態などは維持（ドラッグ終了のみに専念）
     // canvas.style.cursor の制御が必要な場合はここで行います
+});
+
+// 🌟 1. 誰を選択しているかを一時的に保存する変数
+window.selectedPlayer = null;
+
+window.addEventListener('contextmenu', function(e) {
+    e.preventDefault();
+
+    const menu = document.getElementById('player-context-menu');
+    const stageCanvas = document.getElementById('stage');
+    if (!stageCanvas) return;
+
+    // 🌟 2. 座標計算（今のロジックを完全踏襲）
+    const rect = stageCanvas.getBoundingClientRect();
+    const baseWidth = 800;
+    const baseHeight = 600;
+
+    const rx = (e.clientX - rect.left) / rect.width;
+    const ry = (e.clientY - rect.top) / rect.height;
+
+    const canvasX = rx * baseWidth;
+    const canvasY = ry * baseHeight;
+
+    let foundPlayer = null;
+    
+    // 🌟 3. 判定処理（デバッグ枠の数値に合わせて修正）
+    for (let id in others) {
+        const p = others[id];
+        
+        // 赤いデバッグ枠と全く同じ座標・サイズを定義
+        const rectX = p.x - 30; // 右に寄せるための調整
+        const rectY = p.y - 50; // 上下に合わせるための調整
+        const rectW = 100;
+        const rectH = 100;
+
+        // マウスの座標(canvasX, canvasY)が、この四角形の中に入っているか判定
+        if (canvasX >= rectX && canvasX <= rectX + rectW &&
+            canvasY >= rectY && canvasY <= rectY + rectH) {
+            
+            foundPlayer = p; 
+            break; 
+        }
+    }
+
+    // 🌟 4. 表示とデータ保存
+    if (foundPlayer) {
+        // 見つかったプレイヤーの情報を変数に保存しておく
+        window.selectedPlayer = foundPlayer;
+
+        console.log("ターゲット発見:", foundPlayer.name || foundPlayer.id);
+        menu.style.display = 'block';
+        menu.style.left = e.clientX + 'px';
+        menu.style.top = e.clientY + 'px';
+        document.getElementById('menu-player-name').innerText = foundPlayer.name || "プレイヤー";
+    } else {
+        menu.style.display = 'none';
+        window.selectedPlayer = null; // 誰もいないならリセット
+        console.log(`クリック座標: X=${Math.round(canvasX)}, Y=${Math.round(canvasY)}`);
+    }
+});
+
+/**
+ * 🌟 プロフィールを表示する
+ */
+function handleProfileClick() {
+    if (!window.selectedPlayer) return;
+
+    const p = window.selectedPlayer;
+    
+    // HTMLの各要素にプレイヤーの情報をセットする
+    document.getElementById('profile-name').innerText = p.name || "不明なプレイヤー";
+    document.getElementById('profile-level').innerText = p.level || "??";
+    // もし職業データなどがあればここに追加
+    // document.getElementById('profile-job').innerText = p.job || "冒険者";
+
+    // ウィンドウを表示する
+    document.getElementById('player-profile-window').style.display = 'block';
+
+    // 右クリックメニューは閉じる
+    document.getElementById('player-context-menu').style.display = 'none';
+}
+
+/**
+ * 🌟 プロフィールを閉じる
+ */
+function closeProfile() {
+    document.getElementById('player-profile-window').style.display = 'none';
+}
+
+// 画面のどこかを左クリックしたらメニューを隠す
+window.addEventListener('click', function(e) {
+    const menu = document.getElementById('player-context-menu');
+    
+    // メニューが表示されているなら隠す
+    if (menu.style.display === 'block') {
+        menu.style.display = 'none';
+        console.log("メニューを閉じました");
+    }
+});
+
+function makeDraggable(windowId, headerId) {
+    const win = document.getElementById(windowId);
+    const header = document.getElementById(headerId);
+    
+    if (!win || !header) {
+        console.error("ドラッグ設定エラー: 要素が見つかりません", { windowId, headerId });
+        return;
+    }
+
+    let isDragging = false;
+    let startX, startY, startRect;
+
+    // 1. マウスを押した時（取っ手を掴む）
+    header.onmousedown = function(e) {
+        isDragging = true;
+        
+        // ドラッグ開始時のウィンドウの絶対位置を保存
+        startRect = win.getBoundingClientRect();
+        
+        // ドラッグ開始時のマウス座標を保存
+        startX = e.clientX;
+        startY = e.clientY;
+
+        // 中央寄せ(transform)を解除し、現在の位置を px で固定
+        win.style.transform = "none";
+        win.style.margin = "0";
+        win.style.left = startRect.left + "px";
+        win.style.top = startRect.top + "px";
+        win.style.zIndex = "10001";
+
+        // マウスカーソルを「掴んでいる状態」にする
+        document.body.style.cursor = "move";
+        
+        console.log("ドラッグ開始");
+        e.stopPropagation();
+        e.preventDefault(); // テキスト選択などを防ぐ
+    };
+
+    // 2. マウスを動かしている時
+    document.addEventListener('mousemove', function(e) {
+        if (!isDragging) return;
+
+        // ドラッグ開始地点からのマウスの移動量を計算
+        const dx = e.clientX - startX;
+        const dy = e.clientY - startY;
+
+        // ウィンドウの新しい位置を反映
+        win.style.left = (startRect.left + dx) + "px";
+        win.style.top = (startRect.top + dy) + "px";
+    }, { passive: true }); // パフォーマンス向上のため
+
+    // 3. マウスを離した時
+    document.addEventListener('mouseup', function() {
+        if (isDragging) {
+            console.log("ドラッグ終了");
+            isDragging = false;
+            document.body.style.cursor = "default";
+        }
+    });
+}
+
+window.addEventListener('DOMContentLoaded', () => {
+    // 1. プロフィール
+    makeDraggable('player-profile-window', 'profile-header');
+
+    // 2. 自分の露店ウィンドウ
+    makeDraggable('vending-window', 'vending-header');
+
+    // 3. 他人の露店ウィンドウ
+    makeDraggable('other-vending-window', 'other-vending-header');
+
+    // 4. ショップ画面（本体のID, 取っ手のID）
+    makeDraggable('shop-overlay', 'shop-header');
 });
 
 // ==========================================
@@ -1991,6 +2164,25 @@ function drawGame(hero, others, enemies, items, platforms, ladders, damageTexts,
     // ==========================================
     if (DEBUG_MODE) {
         drawDebugLayer(hero, enemies, items, platforms);
+    }
+	
+	// 🌟 追記：他プレイヤーの判定枠をメインCanvasに描く
+    if (typeof others !== 'undefined') {
+        // ctx は drawGame 内で使っているメインの Context を使用してください
+        for (let id in others) {
+            const p = others[id];
+            
+            ctx.strokeStyle = "red";
+            ctx.lineWidth = 2;
+            // キャラクターの座標(p.x, p.y)を中心に100pxの枠
+            ctx.strokeRect(p.x - 30, p.y - 50, 100, 100);
+            
+            // 座標点（黄色いドット）
+            ctx.fillStyle = "yellow";
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, 5, 0, Math.PI * 2);
+            ctx.fill();
+        }
     }
 }
 
@@ -4775,33 +4967,22 @@ const createCharSelector = () => {
         grid-template-rows: repeat(4, 110px); gap: 20px;
     `;
 
-    // 🌟 全てのタイマーを管理するリスト
     const animTimers = [];
 
     for (let i = 1; i <= 16; i++) {
         const btn = document.createElement('button');
-        
-        // 🌟 実際のフォルダ名用 (00, 01, ... 15)
         const folderIdStr = String(i - 1).padStart(2, '0'); 
-        
-        // 🌟 画面表示用 (01, 02, ... 16)
         const displayNumStr = String(i).padStart(2, '0'); 
-        
-        // 🌟 画像ファイル名は "01" で固定
         const charFileNameId = "01"; 
 
-        // 🌟 アニメーション用の内部変数
         let currentFrame = 0;
         const totalFrames = 20;
 
-        // パスを生成する関数
         const getIdlePath = (frame) => {
             const frameStr = String(frame).padStart(2, '0');
             return `char_assets/${folderIdStr}/01/Idle/Characters-Character${charFileNameId}-Idle_${frameStr}.png`;
         };
 
-        // 🌟 【修正：点滅防止】全フレームを事前にプリロードする
-        // new Image() にパスを代入することでブラウザのキャッシュに保存させます
         const preloadLinks = [];
         for (let f = 0; f < totalFrames; f++) {
             const img = new Image();
@@ -4834,14 +5015,11 @@ const createCharSelector = () => {
             box-shadow: inset 0 0 15px rgba(0,0,0,0.6);
         `;
 
-        // 🌟 アニメーションタイマー設定 (100msごとにコマ送り)
         const timer = setInterval(() => {
             currentFrame = (currentFrame + 1) % totalFrames;
-            // 🌟 プリロード済みのImageオブジェクトからパスを取得することで、
-            // サーバー通信を発生させず即座に表示を切り替えます
             btn.style.backgroundImage = `url('${preloadLinks[currentFrame].src}')`;
         }, 100);
-        animTimers.push(timer); // 後で一括解除できるように保存
+        animTimers.push(timer);
 
         btn.onmouseover = () => { 
             btn.style.backgroundColor = "#444"; 
@@ -4864,13 +5042,38 @@ const createCharSelector = () => {
         };
 
         btn.onclick = () => {
-            // 🌟 全てのタイマーをクリアしてメモリ解放
+            // パネルのアニメーションタイマーを停止
             animTimers.forEach(t => clearInterval(t));
 
+            // 1. 変数を更新（選択したキャラのIDをセット）
             selectedGroup = i - 1; 
             selectedCharVar = 1; 
+
+            // 2. 🖼️ 画像データをロード（自身の画面用）
             loadCharFrames(selectedGroup, selectedCharVar);
+
+            // 🌟 修正：ログイン情報を取得し、最初から「選択したキャラ」でログインリクエストを送る
+            // これにより、他ユーザーから見た時に「7」を介さず直接このキャラで出現します
+            const nameInput = document.getElementById('user-name-input');
+            const passInput = document.getElementById('user-pass-input');
+            const userName = nameInput ? nameInput.value.trim() : "";
+            const password = passInput ? passInput.value : "";
+
+            if (typeof socket !== 'undefined' && socket.connected) {
+                socket.emit('login', { 
+                    username: userName, 
+                    password: password,
+                    channel: selectedChannel,
+                    group: selectedGroup,    // 👈 最初から選んだグループを送信
+                    charVar: selectedCharVar
+                });
+                console.log(`🚀 ログイン送信: ${userName} (Chara ${selectedGroup})`);
+            }
+            
+            // 4. ゲーム開始フラグを立てて、パネルを消去
+            window.isGameStarted = true;
             console.log(`Loaded Folder: ${folderIdStr}, Displayed as: Chara ${displayNumStr}`);
+            
             overlay.remove();
         };
 
@@ -4883,7 +5086,7 @@ const createCharSelector = () => {
 };
 
 // 実行
-createCharSelector();
+//createCharSelector();
 
 // インスタンス化（既存の初期値をセット）
 /*

@@ -36,24 +36,24 @@ async function loadAudioFile(url) {
 async function setupAudio() {
     // 並列でロードを開始（awaitを一括で待つことで高速化）
     const tasks = {
-        invite:         loadAudioFile('../Invite.mp3'),
-        die:            loadAudioFile('../Tombstone.mp3'),
-        mouseover1:     loadAudioFile('../BtMouseOver.mp3'),
-        mouseclick:     loadAudioFile('../BtMouseClick.mp3'),
-        tab:            loadAudioFile('../Tab.mp3'),
-        menuup:         loadAudioFile('../MenuUp.mp3'),
-        menudown:       loadAudioFile('../MenuDown.mp3'),
-		levelup:        loadAudioFile('../LevelUp.mp3'),
-        hover:          loadAudioFile('../DragStart.mp3'),
-        drop:           loadAudioFile('../DragEnd.mp3'),
-        item:           loadAudioFile('../PickUpItem.mp3'),
-        jump:           loadAudioFile('../Jump.mp3'),
-		enemyHit:       loadAudioFile('../Damage.mp3'),
+        invite:         loadAudioFile('../sound_assets/Invite.mp3'),
+        die:            loadAudioFile('../sound_assets/Tombstone.mp3'),
+        mouseover1:     loadAudioFile('../sound_assets/BtMouseOver.mp3'),
+        mouseclick:     loadAudioFile('../sound_assets/BtMouseClick.mp3'),
+        tab:            loadAudioFile('../sound_assets/Tab.mp3'),
+        menuup:         loadAudioFile('../sound_assets/MenuUp.mp3'),
+        menudown:       loadAudioFile('../sound_assets/MenuDown.mp3'),
+		levelup:        loadAudioFile('../sound_assets/LevelUp.mp3'),
+        hover:          loadAudioFile('../sound_assets/DragStart.mp3'),
+        drop:           loadAudioFile('../sound_assets/DragEnd.mp3'),
+        item:           loadAudioFile('../sound_assets/PickUpItem.mp3'),
+        jump:           loadAudioFile('../sound_assets/Jump.mp3'),
+		enemyHit:       loadAudioFile('../sound_assets/Damage.mp3'),
         // 🌟 ここでそれぞれのモンスターに合わせた音を指定してください
-        monster1Die:    loadAudioFile('../monster1_die.mp3'),      // 普通の音
-        monster2Die:    loadAudioFile('../monster1_die.mp3'),      // monster2も同じで良ければ同じファイル
-        monster3Die:    loadAudioFile('../monster1_die.mp3'),  // ボス用の豪華な音
-        bgm:            loadAudioFile('../Floral_Life.mp3')
+        monster1Die:    loadAudioFile('../sound_assets/monster1_die.mp3'),      // 普通の音
+        monster2Die:    loadAudioFile('../sound_assets/monster1_die.mp3'),      // monster2も同じで良ければ同じファイル
+        monster3Die:    loadAudioFile('../sound_assets/monster1_die.mp3'),  // ボス用の豪華な音
+        bgm:            loadAudioFile('../sound_assets/Floral_Life.mp3')
     };
 
     // すべての結果を soundBuffers に格納
