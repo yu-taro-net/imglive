@@ -20,3 +20,4 @@ jobs:
           password: ${{ secrets.FTP_PASSWORD }}
           local-dir: ./public/  # デスクトップのpublicフォルダの中身を送る
           server-dir: imglive/        # ロリポップ側の指定フォルダ直下に展開
+          dangerous-clean-slate: true
