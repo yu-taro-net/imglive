@@ -212,29 +212,29 @@ const keyMap = {
 };
 
 const DAMAGE_ASSETS = {
-    '0': 'damage_assets/00.png',
-    '1': 'damage_assets/01.png',
-    '2': 'damage_assets/02.png',
-    '3': 'damage_assets/03.png',
-    '4': 'damage_assets/04.png',
-    '5': 'damage_assets/05.png',
-    '6': 'damage_assets/06.png',
-    '7': 'damage_assets/07.png',
-    '8': 'damage_assets/08.png',
-    '9': 'damage_assets/09.png'
+    '0': IMAGE_DOMAIN + 'damage_assets/00.png',
+    '1': IMAGE_DOMAIN + 'damage_assets/01.png',
+    '2': IMAGE_DOMAIN + 'damage_assets/02.png',
+    '3': IMAGE_DOMAIN + 'damage_assets/03.png',
+    '4': IMAGE_DOMAIN + 'damage_assets/04.png',
+    '5': IMAGE_DOMAIN + 'damage_assets/05.png',
+    '6': IMAGE_DOMAIN + 'damage_assets/06.png',
+    '7': IMAGE_DOMAIN + 'damage_assets/07.png',
+    '8': IMAGE_DOMAIN + 'damage_assets/08.png',
+    '9': IMAGE_DOMAIN + 'damage_assets/09.png'
 };
 
 const DAMAGE_ASSETS1 = {
-    '0': 'damage_assets/10.png',
-    '1': 'damage_assets/11.png',
-    '2': 'damage_assets/12.png',
-    '3': 'damage_assets/13.png',
-    '4': 'damage_assets/14.png',
-    '5': 'damage_assets/15.png',
-    '6': 'damage_assets/16.png',
-    '7': 'damage_assets/17.png',
-    '8': 'damage_assets/18.png',
-    '9': 'damage_assets/19.png'
+    '0': IMAGE_DOMAIN + 'damage_assets/10.png',
+    '1': IMAGE_DOMAIN + 'damage_assets/11.png',
+    '2': IMAGE_DOMAIN + 'damage_assets/12.png',
+    '3': IMAGE_DOMAIN + 'damage_assets/13.png',
+    '4': IMAGE_DOMAIN + 'damage_assets/14.png',
+    '5': IMAGE_DOMAIN + 'damage_assets/15.png',
+    '6': IMAGE_DOMAIN + 'damage_assets/16.png',
+    '7': IMAGE_DOMAIN + 'damage_assets/17.png',
+    '8': IMAGE_DOMAIN + 'damage_assets/18.png',
+    '9': IMAGE_DOMAIN + 'damage_assets/19.png'
 };
 
 let imageSources = {};
@@ -617,7 +617,7 @@ function loadStaticImages() {
         let isMonsterType = m.id.startsWith("Monster");
         if (!isMonsterType && !allowedCharIds.includes(m.id)) return;
 
-        const basePath = `/char_assets_enemy/${m.id}`;
+        const basePath = `${IMAGE_DOMAIN}char_assets_enemy/${m.id}`;
         
         // 🌟 ファイル名の接頭辞切り替え
         let fName = isMonsterType ? "tile" : "skeleton";
@@ -685,7 +685,7 @@ function loadStaticImages() {
     sprites["commonDeath"] = [];
     for (let i = 0; i < 18; i++) {
         const img = new Image();
-        img.src = `/char_assets_enemy/DeathFx/skeleton-animation_${i}.png`;
+        img.src = `${IMAGE_DOMAIN}char_assets_enemy/DeathFx/skeleton-animation_${i}.png`;
         sprites["commonDeath"].push(img);
     }
 }
@@ -767,7 +767,7 @@ function loadCharFrames(groupIndex, variantIndex) {
             
             // 🖼️ 修正：数値だけの階層パス（group_ / Character プレフィックスを削除）
             // 結果：char_assets/00/01/Idle/Characters-Character01-Idle_00.png
-            img.src = `char_assets/${groupNum}/${varNum}/${action}/Characters-Character${varNum}-${action}_${frameNum}.png`;
+            img.src = `${IMAGE_DOMAIN}char_assets/${groupNum}/${varNum}/${action}/Characters-Character${varNum}-${action}_${frameNum}.png`;
 
             // 成功時
             img.onload = () => {
@@ -1437,7 +1437,7 @@ canvas.addEventListener('mousedown', (event) => {
                         return;
                     }
 
-                    const iconPath = item.imageName ? `item_assets/${item.imageName}.png` : `item_assets/${item.type}.png`;
+                    const iconPath = item.imageName ? `${IMAGE_DOMAIN}item_assets/${item.imageName}.png` : `${IMAGE_DOMAIN}item_assets/${item.type}.png`;
                     
                     const itemToSend = { 
                         ...item, 
@@ -4982,7 +4982,7 @@ const createCharSelector = () => {
 
         const getIdlePath = (frame) => {
             const frameStr = String(frame).padStart(2, '0');
-            return `char_assets/${folderIdStr}/01/Idle/Characters-Character${charFileNameId}-Idle_${frameStr}.png`;
+            return `${IMAGE_DOMAIN}char_assets/${folderIdStr}/01/Idle/Characters-Character${charFileNameId}-Idle_${frameStr}.png`;
         };
 
         const preloadLinks = [];

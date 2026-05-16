@@ -1,3 +1,12 @@
+// 🌟 スイッチ側の表記を「ドメインのトップ（スラッシュまで）」にしておく
+const IMAGE_DOMAIN = (
+    window.location.hostname === "localhost" || 
+    window.location.protocol === "file:" ||
+    window.location.hostname === "127.0.0.1"
+) 
+? ""                         // 💻 ローカル時は何も付け足さない（空文字）
+: "https://imglive.net/";    // 🌐 本番時はドメインを先頭に付け足す
+
 // ============================================================
 // ⚙️ [SECTION 1: CONFIG] ゲーム設定・定数
 // 役割: 歩行速度、重力、ジャンプ力、接続先URLなどの固定値
@@ -1066,7 +1075,7 @@ function renderTooltip() {
             //}
 
             const imgName = item.image_name || item.type || item.id;
-            const imgPath = `item_assets/${imgName}.png`;
+            const imgPath = `${IMAGE_DOMAIN}item_assets/${imgName}.png`;
 
             if (!tooltipImageCache[imgPath]) {
                 const img = new Image();
@@ -1716,7 +1725,7 @@ function renderShopUI(data) {
         
         const actualItemId = item.item_id || item.id;
         const imgName = item.image_name || item.type || actualItemId;
-        const imgPath = `item_assets/${imgName}.png`;
+        const imgPath = `${IMAGE_DOMAIN}item_assets/${imgName}.png`;
 
         // 🌟 アイテム名の安全な処理（シングルクォート対策）
 const safeBuyName = (item.display_name || item.name || "アイテム").replace(/'/g, "\\'");
@@ -1757,7 +1766,7 @@ row.innerHTML = `
         row.style = "display: flex; align-items: center; padding: 3px; border-bottom: 1px solid #333; background: rgba(0,0,0,0.2); margin-bottom: 2px; cursor: default;";
         
         const imgName = item.image_name || item.type || item.id;
-        const imgPath = `item_assets/${imgName}.png`;
+        const imgPath = `${IMAGE_DOMAIN}item_assets/${imgName}.png`;
         
         let itemName = item.display_name || item.name || "";
         let displayPrice = 0;
@@ -2813,7 +2822,7 @@ socket.on('vending_data_res', (data) => {
 
         if (targetItemId === 201) {
             displayName = dbDisplayName || "おいしいケーキ";
-            forcedIconPath = `item_assets/${dbImageName || "sweets"}.png`;
+            forcedIconPath = `${IMAGE_DOMAIN}item_assets/${dbImageName || "sweets"}.png`;
         }
 
         const rawType = item.item_type || item.type || (item.data && item.data.type) || item.category || "item";
@@ -2869,7 +2878,7 @@ socket.on('vending_data_res', (data) => {
         let iconPath = forcedIconPath || item.iconUrl;
         if (!iconPath) {
             const finalImgName = dbImageName || item.type || finalType;
-            iconPath = `item_assets/${finalImgName}${String(finalImgName).includes('.') ? '' : '.png'}`;
+            iconPath = `${IMAGE_DOMAIN}item_assets/${finalImgName}${String(finalImgName).includes('.') ? '' : '.png'}`;
         }
 
         const newHTML = `
@@ -3103,10 +3112,10 @@ function addItemToVendingList(item) {
         finalIconPath = item.iconUrl;
         solveMethod = "iconUrlから取得";
     } else if (item?.image_name) {
-        finalIconPath = `item_assets/${item.image_name}`;
+        finalIconPath = `${IMAGE_DOMAIN}item_assets/${item.image_name}`;
         solveMethod = "image_nameから生成";
     } else if (item?.type) {
-        finalIconPath = `item_assets/${item.type}.png`;
+        finalIconPath = `${IMAGE_DOMAIN}item_assets/${item.type}.png`;
         solveMethod = `⚠️ image_name不在のため type('${item.type}') から生成`;
     }
 
