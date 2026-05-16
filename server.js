@@ -24,7 +24,8 @@ const io = require('socket.io')(http, {
     // セキュリティ設定：許可されたサイト（URL）からのみ接続を受け付ける
     // ※ ロリポップ環境と自分のPC（localhost）の両方を許可しています
     origin: [
-        "https://imglive.net", 
+        "https://imglive.net",
+		"https://imgtop.net",
         "http://localhost:3000",
         "http://127.0.0.1:3000"
     ],
@@ -2103,14 +2104,14 @@ async function loadItemCatalogFromDB() {
 
         // --- 🌟 🎬 アニメーション項目の定義 ---
         const ANIMATED_ITEMS = {
-            "medal1":     { "type": "ETC", "name": "medal1", "display_name": "メダル1", "src": "/item_assets/GoldOne_", "isAnimated": true },
-            "money5":     { "type": "ETC", "name": "money5", "display_name": "金メダル1", "src": "/item_assets/Gold_", "isAnimated": true },
-            "money6":     { "type": "ETC", "name": "money6", "display_name": "銀メダル1", "src": "/item_assets/Silver_", "isAnimated": true },
-            "money7":     { "type": "ETC", "name": "money7", "display_name": "銅メダル1", "src": "/item_assets/Bronze_", "isAnimated": true },
-            "gold_one":   { "type": "ETC", "name": "gold_one", "display_name": "ワンメダル(金)1", "src": "/item_assets/GoldOne_", "isAnimated": true },
-            "gold_heart": { "type": "ETC", "name": "gold_heart", "display_name": "ハートメダル(金)1", "src": "/item_assets/GoldHeart_", "isAnimated": true },
-            "money1":     { "type": "ETC", "name": "money1", "display_name": "10ゴールド1", "src": "/item_assets/money1_", "isAnimated": true },
-            "money3":     { "type": "ETC", "name": "money3", "display_name": "100ゴールド1", "src": "/item_assets/money3_", "isAnimated": true },
+            "medal1":     { "type": "ETC", "name": "medal1", "display_name": "メダル1", "src": "item_assets/GoldOne_", "isAnimated": true },
+            "money5":     { "type": "ETC", "name": "money5", "display_name": "金メダル1", "src": "item_assets/Gold_", "isAnimated": true },
+            "money6":     { "type": "ETC", "name": "money6", "display_name": "銀メダル1", "src": "item_assets/Silver_", "isAnimated": true },
+            "money7":     { "type": "ETC", "name": "money7", "display_name": "銅メダル1", "src": "item_assets/Bronze_", "isAnimated": true },
+            "gold_one":   { "type": "ETC", "name": "gold_one", "display_name": "ワンメダル(金)1", "src": "item_assets/GoldOne_", "isAnimated": true },
+            "gold_heart": { "type": "ETC", "name": "gold_heart", "display_name": "ハートメダル(金)1", "src": "item_assets/GoldHeart_", "isAnimated": true },
+            "money1":     { "type": "ETC", "name": "money1", "display_name": "10ゴールド1", "src": "item_assets/money1_", "isAnimated": true },
+            "money3":     { "type": "ETC", "name": "money3", "display_name": "100ゴールド1", "src": "item_assets/money3_", "isAnimated": true },
         };
 
         // --- 🌟 📦 送信用に合体させる ---

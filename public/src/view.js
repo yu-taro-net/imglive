@@ -168,7 +168,7 @@ const VIEW_CONFIG = {
     "Hit":      50, 
     "Idle":     20, 
     "Jump":     20, 
-    "Roll":     0, // 8
+    //"Roll":     0, // 8
     "Stuned":   24, 
     "Throwing": 0, // 40
     "Walk":     20
@@ -3406,9 +3406,11 @@ function getPlayerCurrentImg(p, g, v, frame, sprites, playerSprites, isMe) {
     }
 
     // --- 2. 🌀 ダウン（ロール）中 ---
+	/*
     if (p.isDown) {
         return AnimUtils.getFrame(characterData?.["Roll"], 0, sprites.playerDown);
     }
+	*/
 
     // --- 3. 🪜 ハシゴ登り ---
     if (p.climbing) {
