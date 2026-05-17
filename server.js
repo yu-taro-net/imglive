@@ -18,21 +18,49 @@ const app = express();
 // HTTPサーバーを立てる（Socket.ioを動かすために必要）
 const http = require('http').createServer(app);
 
-// 【重要】リアルタイム通信（Socket.io）の設定
+// ============================================================
+// 🌐 【動的CORS対応】50以上のドメインをDBから自動判定する関数
+// ============================================================
+const checkDynamicOrigin = async (origin, callback) => {
+    // 🛡️ 1. ローカル環境、またはoriginが未定義（同一サーバー内通信など）の場合は無条件で許可
+    if (!origin || 
+        origin.includes("localhost") || 
+        origin.includes("127.0.0.1") || 
+        origin.startsWith("file://")) {
+        return callback(null, true);
+    }
+
+    try {
+        // 🗄️ 2. アクセスしてきたドメインが、MySQLの許可リストテーブルに登録されているか検索
+        // ※「pool」または「db」など、お使いのmysql接続オブジェクト名に合わせてください
+        const [rows] = await db.query("SELECT id FROM allowed_domains WHERE domain = ? LIMIT 1", [origin]);
+        
+        if (rows.length > 0) {
+            // リストに存在すれば通信を許可！
+            callback(null, true);
+        } else {
+            // リストにない怪しいドメインは遮断（セキュリティガード）
+            console.log(`[CORS BLOCK] 拒否されたドメインからのアクセス: ${origin}`);
+            callback(new Error("Not allowed by CORS"), false);
+        }
+    } catch (err) {
+        // 万が一、DBエラーが起きた場合は安全のために一旦ログを吐いて接続を拒否する、
+        // もしくは開発中なら「callback(null, true)」にして救済する仕様にもできます
+        console.error("CORS判定中のDBエラー:", err);
+        callback(err, false);
+    }
+};
+
+// ============================================================
+// 【重要】リアルタイム通信（Socket.io）の設定（完全踏襲・動的CORS版）
+// ============================================================
 const io = require('socket.io')(http, {
   cors: {
-    // セキュリティ設定：許可されたサイト（URL）からのみ接続を受け付ける
-    // ※ ロリポップ環境と自分のPC（localhost）の両方を許可しています
-    origin: [
-        "https://imglive.net",
-		"https://imgtop.net",
-		"https://imgnew.net",
-        "http://localhost:3000",
-        "http://127.0.0.1:3000"
-    ],
-    // データのやり取り方法（GETとPOST）を許可
+    // 🌟 修正ポイント：固定の配列ではなく、上記の動的チェック関数を割り当てる
+    origin: checkDynamicOrigin,
+    // データのやり取り方法（GETとPOST）を許可（オリジナルを完全踏襲）
     methods: ["GET", "POST"],
-    // クッキーなどの認証情報を送受信できるようにする
+    // クッキーなどの認証情報を送受信できるようにする（オリジナルを完全踏襲）
     credentials: true
   }
 });
