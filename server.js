@@ -19,7 +19,7 @@ const app = express();
 const http = require('http').createServer(app);
 
 // ============================================================
-// 🌐 【動的CORS対応】50以上のドメインをDBから自動判定する関数
+// 🌐 【動的CORS対応】50以上のドメインをDBから自動判定する関数（デバッグログ強化版）
 // ============================================================
 const checkDynamicOrigin = async (origin, callback) => {
     // 🛡️ 1. ローカル環境、またはoriginが未定義（同一サーバー内通信など）の場合は無条件で許可
@@ -27,6 +27,9 @@ const checkDynamicOrigin = async (origin, callback) => {
         origin.includes("localhost") || 
         origin.includes("127.0.0.1") || 
         origin.startsWith("file://")) {
+        
+        // 📢 デバッグログ：ローカル環境のため自動通過したことを記録
+        console.log(`[CORS LOCAL] 本物のローカル環境または内部通信のため無条件で許可しました: ${origin || '未定義(Internal)'}`);
         return callback(null, true);
     }
 
@@ -35,12 +38,18 @@ const checkDynamicOrigin = async (origin, callback) => {
         // ※「pool」または「db」など、お使いのmysql接続オブジェクト名に合わせてください
         const [rows] = await db.query("SELECT id FROM allowed_domains WHERE domain = ? LIMIT 1", [origin]);
         
+        // 📢 デバッグログ：実際にDBへ検証しに行ったドメインと、返ってきた行数を記録
+        console.log(`[CORS CHECK] DB照合中... 判定ドメイン: ${origin} / 登録一致数: ${rows.length}`);
+        
         if (rows.length > 0) {
             // リストに存在すれば通信を許可！
+            // 📢 デバッグログ：正常にDBに登録されていた場合
+            console.log(`[CORS SUCCESS] ✅ 通信許可: リストに登録されている正規のドメインです: ${origin}`);
             callback(null, true);
         } else {
             // リストにない怪しいドメインは遮断（セキュリティガード）
-            console.log(`[CORS BLOCK] 拒否されたドメインからのアクセス: ${origin}`);
+            // 📢 デバッグログ：リストになく遮断された場合（オリジナルを引き継ぎつつ強化）
+            console.log(`[CORS BLOCK] ❌ 通信拒否: 許可リストにない未登録ドメインからのアクセスを遮断しました: ${origin}`);
             callback(new Error("Not allowed by CORS"), false);
         }
     } catch (err) {
