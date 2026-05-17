@@ -26,6 +26,7 @@ const io = require('socket.io')(http, {
     origin: [
         "https://imglive.net",
 		"https://imgtop.net",
+		"https://imgnew.net",
         "http://localhost:3000",
         "http://127.0.0.1:3000"
     ],

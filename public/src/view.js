@@ -727,17 +727,29 @@ function loadItemImages() {
             return; // このアイテムの読み込みを飛ばす
         }
 
+        // 🌐 【追加】本番環境（imglive.net）のURLを正しくガッチャンコする処理
+        let baseSrc = conf.src;
+        if (typeof IMAGE_DOMAIN !== 'undefined' && IMAGE_DOMAIN !== "") {
+            // IMAGE_DOMAIN の末尾と conf.src の先頭でスラッシュ「/」が重複するのを防ぐ
+            if (baseSrc.startsWith('/') && IMAGE_DOMAIN.endsWith('/')) {
+                baseSrc = baseSrc.substring(1);
+            }
+            baseSrc = IMAGE_DOMAIN + baseSrc;
+        }
+
         if (conf.isAnimated) {
             // アニメーション用
             sprites.items[key] = Array.from({ length: 10 }, (_, i) => {
                 const img = new Image();
-                img.src = `${conf.src}${i + 1}.png`;
+                img.crossOrigin = "anonymous"; // 🌟 imgtop.net から imglive.net の画像を描画するためのCORS対策
+                img.src = `${baseSrc}${i + 1}.png`;
                 return img;
             });
         } else {
             // 単体画像
             sprites.items[key] = new Image();
-            sprites.items[key].src = conf.src;
+            sprites.items[key].crossOrigin = "anonymous"; // 🌟 imgtop.net から imglive.net の画像を描画するためのCORS対策
+            sprites.items[key].src = baseSrc;
         }
     });
 }
@@ -4536,18 +4548,35 @@ function drawInventoryGrid(ctx, inventory) {
 
             const config = ITEM_CONFIG[type];
             if (config) {
-                let displayImg = config.isAnimated ? (config.images ? config.images[0] : null) : config.image;
+                // 🌟 【修正】最優先で imglive.net 固定でロード済みの itemImages から直接画像を取得
+                let displayImg = null;
+                if (typeof itemImages !== 'undefined' && itemImages[type]) {
+                    displayImg = itemImages[type];
+                } else {
+                    displayImg = config.isAnimated ? (config.images ? config.images[0] : null) : config.image;
+                }
 
+                // フォールバック（予備ルート）：もしロード済みになく、srcから動的生成する場合
                 if (!displayImg && config.src) {
                     if (!config._tempImg) {
                         config._tempImg = new Image();
-                        config._tempImg.src = config.src;
+                        config._tempImg.crossOrigin = "anonymous"; // 🌟 CORS・グロー効果エラー対策
+                        
+                        let baseSrc = config.src;
+                        if (typeof IMAGE_DOMAIN !== 'undefined' && IMAGE_DOMAIN !== "") {
+                            // スラッシュの重複を防ぐクリーニング
+                            if (baseSrc.startsWith('/') && IMAGE_DOMAIN.endsWith('/')) {
+                                baseSrc = baseSrc.substring(1);
+                            }
+                            baseSrc = IMAGE_DOMAIN + baseSrc;
+                        }
+                        config._tempImg.src = baseSrc;
                     }
                     displayImg = config._tempImg;
                 }
 
-                // 描画実行
-                if (displayImg && displayImg.complete && displayImg.width > 0) {
+                // 描画実行（安全ガードを含める）
+                if (displayImg && displayImg.complete && typeof displayImg.naturalWidth === 'number' && displayImg.naturalWidth > 0) {
                     const m = 5;
                     const imgX = x + m;
                     const imgY = y + m;
@@ -4555,7 +4584,7 @@ function drawInventoryGrid(ctx, inventory) {
                     const imgH = slotSize - m * 2;
                     
                     // ==========================================
-                    // 🌟 修正ポイント：グローカラーの判定（装備品のみ）
+                    // 🌟 グローカラーの判定（装備品のみ）
                     // ==========================================
                     let glowColor = null;
                     if ((type === 'sword' || type === 'shield') && 
