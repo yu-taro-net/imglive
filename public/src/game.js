@@ -5,7 +5,7 @@ const IMAGE_DOMAIN = (
     window.location.hostname === "127.0.0.1"
 ) 
 ? ""                         // 💻 ローカル時は何も付け足さない（空文字）
-: "https://imglive.net/";    // 🌐 本番時はドメインを先頭に付け足す
+: "https://imglive.net/";    // 🌐 本番時は、どのドメインから開いても常に imglive.net を参照する！
 
 // ============================================================
 // ⚙️ [SECTION 1: CONFIG] ゲーム設定・定数

@@ -241,19 +241,44 @@ let imageSources = {};
 let itemImages = {};
 
 /**
- * 🎁 サーバーからアイテム画像のパス名簿を受け取る
+ * 🎁 サーバーからアイテム画像のパス名簿を受け取る（imglive.net のアセットに一本化）
  */
 socket.on('init_item_images', (data) => {
-    console.log("📩 サーバーから届いた生データ:", data); // これが出るか確認
+    console.log("📩 サーバーから届いた生データ:", data);
     imageSources = data; 
+
+    // 💻 ローカル環境（PC内開発）かどうかの判定フラグ
+    const IS_LOCAL = (
+        window.location.hostname === "localhost" || 
+        window.location.hostname === "127.0.0.1" ||
+        window.location.protocol === "file:"
+    );
+
+    // 🌐 どちらのサイトから開いても、アセットの取得先は「imglive.net」に固定する！
+    const ASSET_BASE = IS_LOCAL 
+        ? "" 
+        : "https://imglive.net"; // 💡 ここを imglive.net に固定
 
     for (let key in data) {
         const img = new Image();
-        img.src = data[key];
+        img.crossOrigin = "anonymous"; // 🌟 imglive.net から画像を引っ張ってくるために必須（CORS対策）
+        
+        let path = data[key]; // 例: "/item_assets/sword.png"
+        
+        if (ASSET_BASE !== "") {
+            // 先頭のスラッシュ重複や欠落を綺麗に整形して結合
+            if (!path.startsWith('/')) {
+                path = '/' + path;
+            }
+            img.src = ASSET_BASE + path; // 結果: https://imglive.net/item_assets/sword.png
+        } else {
+            img.src = path;
+        }
+        
         itemImages[key] = img;
         
-        img.onload = () => console.log(`🖼️ 読み込み完了: ${key}`);
-        img.onerror = () => console.error(`⚠️ 読み込み失敗: ${data[key]}`);
+        img.onload = () => console.log(`🖼️ アイテム画像読み込み成功: ${key} -> ${img.src}`);
+        img.onerror = () => console.error(`❌ アイテム画像読み込み失敗: ${img.src}`);
     }
 });
 
@@ -3699,11 +3724,10 @@ function getEnemyVisualData(en, sprites, frame, hero) {
         const w = targetImg.naturalWidth * s;
         const h = targetImg.naturalHeight * s;
         
-        // 🌟 自動接地スキャンを実行
-        const rawFoot = getVisualFootY(targetImg);
+        // 🌟 【修正】自動接地スキャン(getVisualFootY)を完全に休止し、画像の本来の縦幅を基準にする
+        const rawFoot = targetImg.naturalHeight;
         
-        // 🌟 【修正】浮遊系の場合、さらに浮かせるためのオフセットを適用
-        // ここでも toLowerCase() で判定を確実にします
+        // 🌟 浮遊系の場合、さらに浮かせるためのオフセットを適用（既存のロジックを踏襲）
         const typeLower = String(en.type).toLowerCase();
         let floatOffset = (typeLower === 'monster16') ? -40 : 0; 
 
@@ -4401,7 +4425,14 @@ function drawItems(items, frame) {
                   : sprites.items[config.name];
         }
 
-        if (img && (img.complete || img.naturalWidth > 0)) {
+        // 🌟 【修正】一時的なロード中や404確定前の壊れた状態(broken)を完全に遮断する安全ガード
+        const isImageSafe = img && 
+                            img.complete && 
+                            typeof img.naturalWidth === 'number' && 
+                            img.naturalWidth > 0 && 
+                            img.naturalHeight > 0;
+
+        if (isImageSafe) {
             const targetHeight = drawSize;
             const targetWidth = targetHeight * (img.naturalWidth / img.naturalHeight);
             
@@ -4446,10 +4477,16 @@ function drawItems(items, frame) {
                 ctx.restore();
             } else {
                 // 通常アイテム（グローなし）
+                // 🛑 3重の防壁(isImageSafe)を通過した画像のみがここを走るため、エラーは100%発生しなくなります
                 ctx.drawImage(img, -targetWidth / 2, -targetHeight / 2, targetWidth, targetHeight);
             }
 
             ctx.imageSmoothingEnabled = false;
+        } else {
+            // 💡 読み込みが未完了、または404エラー等で画像が壊れている場合のセーフティ(ゲーム停止防止)
+            // メイプルストーリーのメルやアイテムドロップの雰囲気を損なわないよう、小さな可愛い金色の矩形を代用描画します
+            ctx.fillStyle = "#ffd700";
+            ctx.fillRect(-8, -8, 16, 16);
         }
 
         ctx.restore();

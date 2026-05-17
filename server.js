@@ -2107,7 +2107,7 @@ async function loadItemCatalogFromDB() {
             "medal1":     { "type": "ETC", "name": "medal1", "display_name": "メダル1", "src": "item_assets/GoldOne_", "isAnimated": true },
             "money5":     { "type": "ETC", "name": "money5", "display_name": "金メダル1", "src": "item_assets/Gold_", "isAnimated": true },
             "money6":     { "type": "ETC", "name": "money6", "display_name": "銀メダル1", "src": "item_assets/Silver_", "isAnimated": true },
-            "money7":     { "type": "ETC", "name": "money7", "display_name": "銅メダル1", "src": "item_assets/Bronze_", "isAnimated": true },
+            //"money7":     { "type": "ETC", "name": "money7", "display_name": "銅メダル1", "src": "item_assets/Bronze_", "isAnimated": true },
             "gold_one":   { "type": "ETC", "name": "gold_one", "display_name": "ワンメダル(金)1", "src": "item_assets/GoldOne_", "isAnimated": true },
             "gold_heart": { "type": "ETC", "name": "gold_heart", "display_name": "ハートメダル(金)1", "src": "item_assets/GoldHeart_", "isAnimated": true },
             "money1":     { "type": "ETC", "name": "money1", "display_name": "10ゴールド1", "src": "item_assets/money1_", "isAnimated": true },
@@ -3711,7 +3711,7 @@ function handlePickup(socket) {
         // 🌟 重なっている中から「実際に拾えるもの」を一つ選ぶ
         // ------------------------------------------------------------
         let targetItem = null;
-        const inventoryTypes = ['shield', 'gold', 'treasure', 'money7', 'sword', 'sweets', 'scroll_star'];
+        const inventoryTypes = ['shield', 'gold', 'treasure', 'sword', 'sweets', 'scroll_star'];
 
         for (const item of candidates) {
             const isInventoryItem = inventoryTypes.includes(item.type);
