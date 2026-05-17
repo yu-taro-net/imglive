@@ -36,7 +36,7 @@ const checkDynamicOrigin = async (origin, callback) => {
     try {
         // 🗄️ 2. アクセスしてきたドメインが、MySQLの許可リストテーブルに登録されているか検索
         // ※「pool」または「db」など、お使いのmysql接続オブジェクト名に合わせてください
-        const [rows] = await db.query("SELECT id FROM allowed_domains WHERE domain = ? LIMIT 1", [origin]);
+        const [rows] = await pool.query("SELECT id FROM allowed_domains WHERE domain = ? LIMIT 1", [origin]);
         
         // 📢 デバッグログ：実際にDBへ検証しに行ったドメインと、返ってきた行数を記録
         console.log(`[CORS CHECK] DB照合中... 判定ドメイン: ${origin} / 登録一致数: ${rows.length}`);
