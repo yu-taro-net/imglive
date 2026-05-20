@@ -1,30 +1,3 @@
-<?php
-
-/*
-◆----------------------------------------------------------------------◆
-
-
-	★imglive
-
-	SourceFileName - imglive/main.php
-	
-	LastUpdate 2026.5.18
-
-	Update 
-	- 2025.10.28
-	
-	Outlook
-	- imglive
-
-	Created by yu-taro
-
-	©imgv All Rights Reserved.
-
-
-◆----------------------------------------------------------------------◆
-*/
-
-?>
 <!DOCTYPE html>
 <html lang="ja">
 <head>
@@ -408,40 +381,10 @@
   <button id="drop-cancel">やめる</button>
 </div>
 
-<script>
-    (function() {
-        // 🛡️ 1. 現在の環境がローカル（localhost / 127.0.0.1）かどうかを判定
-        const isLocalHost = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
-
-        // 📂 2. 環境に応じて、ベースとなるURL・パスを決定
-        let BASE_PATH = '';
-
-        if (isLocalHost) {
-            // 💻 ローカル環境の場合：
-            // 開いているURLが「http://localhost:3000/imglive/」なら '/imglive/src/' に、
-            // 「http://localhost:3000/」直下なら '/src/' に自動で切り替えます。
-            const hasImgLiveFolder = window.location.pathname.includes('/imglive');
-            BASE_PATH = hasImgLiveFolder ? '/imglive/src/' : '/src/';
-        } else {
-            // 🌐 本番環境の場合：他のドメインに引っ張られないよう、imglive.net を直接指定
-            BASE_PATH = 'https://imglive.net/src/';
-        }
-
-        // 🖼️ 3. 読み込みたいスクリプトのリスト（順番を完全維持）
-        const scripts = ['game.js', 'view.js', 'sound.js'];
-
-        // 🚀 4. 順番通りにスクリプトタグを生成して注入
-        scripts.forEach(srcFile => {
-            const script = document.createElement('script');
-            script.src = BASE_PATH + srcFile;
-            script.async = false; // 👈 読み込み順序を絶対崩さない
-            document.head.appendChild(script);
-        });
-
-        // 📢 デバッグログ：現在どちらのURLで読み込まれたかをコンソールで確認できます
-        console.log(`[SCRIPT LOADER] 確定したベースパス: ${BASE_PATH}`);
-    })();
-</script>
+<!-- スクリプトの読み込み（元の順番を維持） -->
+<script src="//imgv.jp/imglive/src/game.js"></script>
+<script src="//imgv.jp/imglive/src/view.js"></script>
+<script src="//imgv.jp/imglive/src/sound.js"></script>
 
 <script>
   // 既存のイベント設定をそのまま維持

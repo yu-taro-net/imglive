@@ -22,11 +22,20 @@ const http = require('http').createServer(app);
 // 🌐 【動的CORS対応】50以上のドメインをDBから自動判定する関数（デバッグログ強化版）
 // ============================================================
 const checkDynamicOrigin = async (origin, callback) => {
+
+    // ⚙️ 【開発用テストスイッチ】
+    // true : ローカル環境（localhost等）であっても、無条件通過させずに本番同様のDB照合テストを行います。
+    // false: 本番環境用。ローカル環境からのアクセスは以下のセーフティネットで無条件許可されます。
+    const IS_TEST_CORS_LIVE = true; 
+
     // 🛡️ 1. ローカル環境、またはoriginが未定義（同一サーバー内通信など）の場合は無条件で許可
-    if (!origin || 
+    // 🌟 修正：テストスイッチが false のときだけ、このローカル自動通過ロジックが働きます。
+    if (!IS_TEST_CORS_LIVE && (
+        !origin || 
         origin.includes("localhost") || 
         origin.includes("127.0.0.1") || 
-        origin.startsWith("file://")) {
+        origin.startsWith("file://")
+    )) {
         
         // 📢 デバッグログ：ローカル環境のため自動通過したことを記録
         console.log(`[CORS LOCAL] 本物のローカル環境または内部通信のため無条件で許可しました: ${origin || '未定義(Internal)'}`);
@@ -34,22 +43,25 @@ const checkDynamicOrigin = async (origin, callback) => {
     }
 
     try {
+        // 🌟 テストモードかつoriginが空（同一サーバー内通信等）だった場合の安全なフォールバック
+        const searchOrigin = origin || "http://localhost:3000";
+
         // 🗄️ 2. アクセスしてきたドメインが、MySQLの許可リストテーブルに登録されているか検索
         // ※「pool」または「db」など、お使いのmysql接続オブジェクト名に合わせてください
-        const [rows] = await pool.query("SELECT id FROM allowed_domains WHERE domain = ? LIMIT 1", [origin]);
+        const [rows] = await pool.query("SELECT id FROM allowed_domains WHERE domain = ? LIMIT 1", [searchOrigin]);
         
         // 📢 デバッグログ：実際にDBへ検証しに行ったドメインと、返ってきた行数を記録
-        console.log(`[CORS CHECK] DB照合中... 判定ドメイン: ${origin} / 登録一致数: ${rows.length}`);
+        console.log(`[CORS CHECK] DB照合中... 判定ドメイン: ${searchOrigin} / 登録一致数: ${rows.length}`);
         
         if (rows.length > 0) {
             // リストに存在すれば通信を許可！
             // 📢 デバッグログ：正常にDBに登録されていた場合
-            console.log(`[CORS SUCCESS] ✅ 通信許可: リストに登録されている正規のドメインです: ${origin}`);
+            console.log(`[CORS SUCCESS] ✅ 通信許可: リストに登録されている正規のドメインです: ${searchOrigin}`);
             callback(null, true);
         } else {
             // リストにない怪しいドメインは遮断（セキュリティガード）
             // 📢 デバッグログ：リストになく遮断された場合（オリジナルを引き継ぎつつ強化）
-            console.log(`[CORS BLOCK] ❌ 通信拒否: 許可リストにない未登録ドメインからのアクセスを遮断しました: ${origin}`);
+            console.log(`[CORS BLOCK] ❌ 通信拒否: 許可リストにない未登録ドメインからのアクセスを遮断しました: ${searchOrigin}`);
             callback(new Error("Not allowed by CORS"), false);
         }
     } catch (err) {
@@ -336,7 +348,8 @@ socket.on('login', async (data) => {
 // 📝 ユーザー新規登録 (Register) + 徹底デバッグ版（環境最適化済み）
 // ------------------------------------------
 socket.on('register', async (data) => {
-    const { username, password } = data;
+    // 💡 フロントから送られてくる email も受け取れるように拡張（なければ未定義になります）
+    const { username, password, email } = data;
     console.log(`\n=== [DEBUG START] 登録プロセス開始: "${username}" ===`);
 
     // 簡単な入力チェック
@@ -374,6 +387,32 @@ socket.on('register', async (data) => {
         // 🌟 3. 新しく作成されたユーザーの ID を取得
         const newUserId = result.insertId;
         console.log(`[DEBUG 3 ✅] users保存成功。発行されたID: ${newUserId}`);
+
+
+        // ========================================================
+        // 🌟 【新規追加】 新しいデータベース(accounts)にも同時に保存
+        // ========================================================
+        console.log(`[DEBUG 3-2] accountsテーブルへのINSERTを開始します...`);
+        
+        // 💡 画面からemailが送られてこない現在は、自動的に「ユーザー名@test.com」を作って登録します。
+        // 後ほど画面側から本物のメアドが送られてくるようになれば、自動的にそちらが優先されます。
+        const dummyEmail = email || `${username}@test.com`;
+        
+        const accountsSql = `
+            INSERT INTO accounts (email, username, password_hash, created_at) 
+            VALUES (?, ?, ?, NOW())
+        `;
+
+        try {
+            const [accResult] = await pool.query(accountsSql, [dummyEmail, username, hash]);
+            console.log(`[DEBUG 3-2 ✅] accounts保存成功。発行されたID: ${accResult.insertId}`);
+        } catch (accErr) {
+            // accounts側で何らかのエラー（重複など）が起きても、既存のゲーム登録の流れ（player_stats作成など）を巻き添えにしないよう安全にログだけを吐きます
+            console.error(`[DEBUG 3-2 ❌] accounts保存失敗の詳細原因:`, accErr.message);
+            if (typeof LOG !== 'undefined') LOG.DB(`accounts追加エラー: ${accErr.message}`);
+        }
+        // ========================================================
+
 
         // 🌟 4. 初期ステータスの保存
         console.log(`[DEBUG 4] player_stats初期データ作成を開始します (ID: ${newUserId})...`);

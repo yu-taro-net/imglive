@@ -901,22 +901,23 @@ startBtn.onclick = () => {
     passwordInput.style.border = "1px solid #ccc";
     if (loginError) loginError.innerText = "";
 
-    // --- 3. フォーカスを外して画面遷移開始 ---
+    // --- 3. フォーカスを外す ---
     nameInput.blur();
     passwordInput.blur();
     
-    // 🌟 修正：ログインパネルを隠してキャラ選択へ（ここではまだ emit しない）
-    const loginOverlay = document.getElementById('login-overlay');
-    if (loginOverlay) {
-        loginOverlay.style.display = 'none';
+    // 🌟 【修正】ここではまだ画面を隠さず、キャラ選択も呼ばない！
+    // 🌟 まずサーバーにログイン情報を送信して、ID・パスワードが合っているか確認を求めます
+    if (typeof socket !== 'undefined' && socket.connected) {
+        socket.emit('login', { 
+            username: userName, 
+            password: password,
+            channel: selectedChannel,
+            // 💡 まだキャラ選択前なので初期値を送ります（サーバー側の仕様に合わせて調整してください）
+            group: typeof selectedGroup !== 'undefined' ? selectedGroup : 0, 
+            charVar: typeof selectedCharVar !== 'undefined' ? selectedCharVar : 1
+        });
+        console.log("🚀 認証リクエスト送信... 名前/メアド:", userName, "チャンネル:", selectedChannel);
     }
-    
-    // 🌟 修正：キャラクター選択画面を呼び出す
-    // この後、createCharSelector 内のボタンクリックで login が送信されます
-    createCharSelector();
-
-    // ※ ここにあった socket.emit('login') は createCharSelector 内へ移動しました
-    console.log("キャラ選択待機中... 名前:", userName, "チャンネル:", selectedChannel);
 };
 
 // --- 🌟 既存：Enterキーでの送信対応 (openDropFormのonkeydown風) ---
@@ -1132,9 +1133,21 @@ socket.on('login_response', (data) => {
             console.log("🌟 Tooltip Layer synced with Stage!");
         }
 
-        const loginOverlay = document.getElementById('login-overlay');
-        if (loginOverlay) loginOverlay.style.display = 'none';
+        // ========================================================
+        // 🌟 【修正の核心】ID・パスワードが合っているので、ここで画面遷移！
+        // ========================================================
+        // 1. まだキャラクターを選んでいない場合（ゲーム開始前）のみパネルを開く
+        if (!window.isGameStarted) {
+            // ログインパネルをここで隠す
+            const loginOverlay = document.getElementById('login-overlay');
+            if (loginOverlay) loginOverlay.style.display = 'none';
 
+            // キャラクター選択画面を安全に呼び出す
+            createCharSelector();
+        }
+        // ========================================================
+
+        // 💡 サーバーから返ってきたアカウント基本データを hero やグローバルに退避
         const userName = data.username;
         if (typeof hero !== 'undefined') {
             hero.name = userName;
@@ -1148,34 +1161,51 @@ socket.on('login_response', (data) => {
                 hero.jobId = data.stats.job_id || 0;
             }
             hero.channel = data.channel || selectedChannel; 
-            hero.group = selectedGroup;
-            hero.charVar = selectedCharVar; 
+            
+            // 選択画面での初期表示用（まだ確定ではない）
+            hero.group = typeof selectedGroup !== 'undefined' ? selectedGroup : 0;
+            hero.charVar = typeof selectedCharVar !== 'undefined' ? selectedCharVar : 1; 
 
             if (typeof updateChannelUI === 'function') {
                 updateChannelUI(hero.channel);
             }
         }
 
-        socket.emit('join', { 
-            name: userName, 
-            channel: hero.channel,
-            group: selectedGroup,
-            x: hero.x,
-            y: hero.y
-        });
+        // ========================================================
+        // 🌟 【ここが重要】ここではゲームをまだ開始（emit / update）しない！
+        // ========================================================
+        // ※ もし以前の『キャラ選択完了後のボタン処理』側（createCharSelector内）に 
+        // socket.emit('join') や playBGM()、update() がすでに記述されている場合は、
+        // この login_response 側からは削除（あるいは実行をスキップ）するのが正解です。
+        //
+        // もし「選択画面のボタン側」にまだ引っ越しさせていない場合は、
+        // 以下の条件文によって「すでにキャラ選択が終わって開始フラグが立った状態の2回目」だけ
+        // 実行されるようにガードをかけて暴発を防ぎます。
+        // ========================================================
+        if (window.isGameStarted) {
+            socket.emit('join', { 
+                name: userName, 
+                channel: hero.channel,
+                group: typeof selectedGroup !== 'undefined' ? selectedGroup : hero.group,
+                x: hero.x,
+                y: hero.y
+            });
 
-        if (typeof audioCtx !== 'undefined' && audioCtx.state === 'suspended') {
-            audioCtx.resume();
-        }
-        
-        if (typeof playBGM === 'function') {
-            playBGM();
+            if (typeof audioCtx !== 'undefined' && audioCtx.state === 'suspended') {
+                audioCtx.resume();
+            }
+            
+            if (typeof playBGM === 'function') {
+                playBGM();
+            }
+
+            if (typeof update === 'function') {
+                update();
+            }
         }
 
-        if (typeof update === 'function') {
-            update();
-        }
     } else {
+        // ❌ 認証に失敗した場合は、画面を隠さずにそのまま残してエラー枠線を表示
         if (loginError) {
             loginError.innerText = data.message;
             loginError.style.color = "#ff4444";

@@ -372,7 +372,7 @@ socket.on('init_item_config', (data) => {
 // ==========================================
 // ⚙️ 設定・フラグ（ここを false にするとデバッグ表示が消えます）
 // ==========================================
-let DEBUG_MODE = true; 
+let DEBUG_MODE = false; 
 
 // ============================================================
 // 📊 [SECTION 2: STATE] データ・変数
@@ -631,6 +631,43 @@ function loadStaticImages() {
 }
 */
 
+// 🖼️ 起動時に1回だけ画像の足元の透明余白を測る関数
+function getBottomTransparentPadding(img) {
+    try {
+        const canvas = document.createElement('canvas');
+        canvas.width = img.width;
+        canvas.height = img.height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0);
+
+        // 画像のピクセルデータを取得
+        const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+        let paddingY = 0;
+
+        // 一番下の行から、上に向かって透明な行（余白）が何ピクセルあるかカウント
+        for (let y = img.height - 1; y >= 0; y--) {
+            let isRowEmpty = true;
+            for (let x = 0; x < img.width; x++) {
+                // アルファ値（不透明度）が0より大きい＝ドットが存在する
+                const alpha = imgData[((y * img.width) + x) * 4 + 3];
+                if (alpha > 0) { 
+                    isRowEmpty = false; 
+                    break; 
+                }
+            }
+            if (isRowEmpty) { 
+                paddingY++; 
+            } else { 
+                break; // キャラクターの足元にぶつかったら終了
+            }
+        }
+        return paddingY;
+    } catch (e) {
+        // 万が一エラーが起きてもゲームが止まらないように安全弁を用意
+        return 0;
+    }
+}
+
 function loadStaticImages() {
     // 🌟 許可するID（Charシリーズは明示、Monsterシリーズは一括判定へ）
     const allowedCharIds = ["Char01", "Char02", "Char03", "Char10", "Char13", "Char16", "Char19"];
@@ -672,6 +709,9 @@ function loadStaticImages() {
 
             for (let i = 0; i < count; i++) {
                 const img = new Image();
+                // 🌟 画像のドットデータを安全に読み取るためにCORS制限を解除
+                img.crossOrigin = "anonymous"; 
+
                 let fullPath;
                 
                 if (isMonsterType) {
@@ -684,6 +724,12 @@ function loadStaticImages() {
                 }
                 
                 img.src = fullPath;
+
+                // 💡 画像がロードされた瞬間に、1回だけ足元の余白を測って記憶させる
+                img.onload = () => {
+                    img.autoPaddingY = getBottomTransparentPadding(img);
+                };
+
                 sprites[key].push(img);
             }
         };
@@ -3736,8 +3782,11 @@ function getEnemyVisualData(en, sprites, frame, hero) {
         const w = targetImg.naturalWidth * s;
         const h = targetImg.naturalHeight * s;
         
-        // 🌟 【修正】自動接地スキャン(getVisualFootY)を完全に休止し、画像の本来の縦幅を基準にする
-        const rawFoot = targetImg.naturalHeight;
+        // 💡 画像が記憶している「透明な余白」の数値を取得（なければ0）
+        const autoPaddingY = targetImg.autoPaddingY || 0;
+        
+        // 🌟 画像の本来の縦幅から、透明な余白の分を引き算して足元を決定！
+        const rawFoot = targetImg.naturalHeight - autoPaddingY;
         
         // 🌟 浮遊系の場合、さらに浮かせるためのオフセットを適用（既存のロジックを踏襲）
         const typeLower = String(en.type).toLowerCase();
