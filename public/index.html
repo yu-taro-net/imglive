@@ -31,7 +31,6 @@
   <meta charset="UTF-8">
   <title>imglive - Adventure RPG</title>
   <script src="https://satisfied-nourishment-production.up.railway.app/socket.io/socket.io.js"></script>
-  <link rel="stylesheet" href="//imgv.jp/imglive/css/layout.css">
 </head>
 <body>
 <div id="whisper-overlay" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.7); z-index:3000;">
@@ -55,7 +54,10 @@
   <div class="login-card">
     <h2>冒険の準備</h2>
     
-    <p style="color:#888; font-size:12px; margin-bottom:5px;">NAME / PASSWORD</p>
+    <p style="color:#888; font-size:12px; margin-bottom:5px;">EMAIL / NAME / PASSWORD</p>
+<input type="text" id="user-email-input" class="login-input" placeholder="EMAIL" maxlength="10">
+
+
 <input type="text" id="user-name-input" class="login-input" placeholder="NAME" maxlength="10">
 
 <input type="password" id="user-pass-input" class="login-input" placeholder="****" autocomplete="new-password">
@@ -415,17 +417,31 @@
 
         // 📂 2. 環境に応じて、ベースとなるURL・パスを決定
         let BASE_PATH = '';
+        let CSS_BASE_PATH = ''; // 🌟 CSS用のベースパスを新設
 
         if (isLocalHost) {
             // 💻 ローカル環境の場合：
-            // 開いているURLが「http://localhost:3000/imglive/」なら '/imglive/src/' に、
-            // 「http://localhost:3000/」直下なら '/src/' に自動で切り替えます。
+            // 開いているURLが「http://localhost:3000/imglive/」なら '/imglive/' 基準に、
+            // 「http://localhost:3000/」直下なら '/' 基準に自動で切り替えます。
             const hasImgLiveFolder = window.location.pathname.includes('/imglive');
+            
             BASE_PATH = hasImgLiveFolder ? '/imglive/src/' : '/src/';
+            CSS_BASE_PATH = hasImgLiveFolder ? '/imglive/css/' : '/css/'; // 🌟 ローカルのCSSパス
         } else {
             // 🌐 本番環境の場合：他のドメインに引っ張られないよう、imglive.net を直接指定
             BASE_PATH = 'https://imglive.net/src/';
+            CSS_BASE_PATH = 'https://imglive.net/css/'; // 🌟 本番のCSSパス
         }
+
+        // ========================================================
+        // 🎨 [新設] CSSスタイルシートを環境に合わせて自動注入
+        // ========================================================
+        const link = document.createElement('link');
+        link.rel = 'stylesheet';
+        link.href = CSS_BASE_PATH + 'layout.css';
+        document.head.appendChild(link);
+        console.log(`[CSS LOADER] 読み込んだスタイル: ${link.href}`);
+
 
         // 🖼️ 3. 読み込みたいスクリプトのリスト（順番を完全維持）
         const scripts = ['game.js', 'view.js', 'sound.js'];

@@ -1,4 +1,6 @@
-// 🌟 スイッチ側の表記を「ドメインのトップ（スラッシュまで）」にしておく
+// ============================================================
+// :::SET_DOMAIN::: 🌐 画像・アセット参照用ドメイン基点設定
+// ============================================================
 const IMAGE_DOMAIN = (
     window.location.hostname === "localhost" || 
     window.location.protocol === "file:" ||
@@ -34,11 +36,16 @@ const GLOBAL_SETTINGS = {
 // 今開いているドメインが 'localhost' かどうかを判定
 const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
 
-// ローカルなら自分のPC、そうでなければRailwayのURLを使う
+// ============================================================
+// :::SET_SOCKET_URL::: 📞 通信先サーバーURLの環境分岐設定
+// ============================================================
 const SOCKET_URL = isLocal 
     ? "http://localhost:3000" 
     : "https://satisfied-nourishment-production.up.railway.app";
 
+// ============================================================
+// :::INIT_SOCKET::: 📞 通信インスタンス初期化・接続設定
+// ============================================================
 const socket = io(SOCKET_URL, {
     reconnection: true,
     reconnectionAttempts: 5,
@@ -71,7 +78,9 @@ let currentMapId = 1; // マップIDの管理用（もし無ければ追加）
 // 🔊 [SECTION 3: RESOURCES] アセット・クラス定義
 // 役割: Playerクラスの定義や、画像・音声の初期化
 // ============================================================
-// 例: class Player { ... }, class Monster { ... }
+// ============================================================
+// :::CLASS_PLAYER::: 👤 プレイヤーの定義・ステータス・物理・行動管理
+// ============================================================
 class Player {
   constructor(name = "", channel = 1) { // 🌟 チャンネル引数を追加
     // 位置と移動
@@ -312,7 +321,9 @@ let hero = new Player("name1", 1); // 初期値としてCh1をセット
 // 🧠 [SECTION 4: LOGIC] 物理演算・更新ロジック
 // 役割: 移動計算、衝突判定、座標の更新処理（描画前の計算）
 // ============================================================
-// 例: update() 関数内の座標計算、checkCollision() など
+// ============================================================
+// :::SET_WHISPER_TARGET::: 💬 内緒話の宛先選択・UI更新処理
+// ============================================================
 function setWhisperTarget(name) {
     // 自分自身の名前なら何もしない
     if (name === hero.name) return;
@@ -339,6 +350,9 @@ function setWhisperTarget(name) {
     document.getElementById('chat-in').focus();
 }
 
+// ============================================================
+// :::UPDATE_ITEMS_PHYSICS::: 💎 ドロップアイテムの物理計算・着地判定
+// ============================================================
 function updateItemsPhysics() {
     items.forEach(item => {
         // すでに着地しているアイテムは計算をスキップ（フリーズ防止の最重要ポイント）
@@ -386,9 +400,9 @@ function updateItemsPhysics() {
     });
 }
 
-/**
- * 🌟 着地を確定させ、DBや全クライアントに位置を同期する
- */
+// ============================================================
+// :::FINALIZE_LANDING::: 💎 アイテム着地確定・状態永続化・同期放送
+// ============================================================
 function finalizeLanding(item) {
     item.landed = true;
     item.vy = 0;
@@ -406,9 +420,9 @@ function finalizeLanding(item) {
     });
 }
 
-/**
- * 3. エフェクト・演出・タイマーの更新
- */
+// ============================================================
+// :::UPDATE_EFFECTS::: ✨ エフェクト・演出・タイマーの更新管理
+// ============================================================
 function updateEffectsAndTimers() {
     // ダメージ数字の浮上と消滅
     damageTexts = damageTexts.filter(t => { 
@@ -427,9 +441,9 @@ function updateEffectsAndTimers() {
     if (ladderJumpTimer > 0) ladderJumpTimer--;
 }
 
-/**
- * 6. 戦闘・当たり判定（攻撃と被ダメージ）
- */
+// ============================================================
+// :::UPDATE_PLAYER_COMBAT::: ⚔️ 攻撃判定・ダメージ同期・接触管理
+// ============================================================
 function updatePlayerCombat() {
     // 自分の攻撃処理
     if (hero.isAttacking > 0) {
@@ -479,6 +493,16 @@ const startBtn = document.getElementById('start-game-btn');
 let chatHistory = [];
 let historyIndex = -1;
 
+// ============================================================
+// :::HANDLE_CHAT_INPUT::: 💬 チャット入力制御・履歴・送信ロジック
+// ============================================================
+/**
+ * 役割：
+ * - 日本語入力（IME）の誤作動防止ガード
+ * - 上下キーによるチャット送信履歴の呼び出し
+ * - エンターキーによるメッセージ送信（全体/グループ/友人/内緒話）
+ * - 送信モードの動的判定と自己宛先防止ガード
+ */
 chatIn.onkeydown = e => {
     // 🌟 1. 日本語入力の「変換確定エンター」を無視するガード
     if (e.isComposing || e.keyCode === 229) {
@@ -571,6 +595,14 @@ chatIn.onkeydown = e => {
 // 💬 チャットモード変更処理 (オリジナルUI・深緑版)
 // ==========================================
 
+// ============================================================
+// :::ON_CHAT_MODE_CHANGE::: 💬 チャット送信先モード切替・UI更新処理
+// ============================================================
+/**
+ * 役割：
+ * - 選択したチャットモード（全体/グループ/内緒話など）の色をUIに適用
+ * - 「内緒話 (新規入力)」選択時のオーバーレイ表示と入力制御
+ */
 function onChatModeChange() {
     const chatMode = document.getElementById('chat-mode');
     if (!chatMode) return;
@@ -595,8 +627,14 @@ function onChatModeChange() {
     }
 }
 
+// ============================================================
+// :::SUBMIT_WHISPER_NAME::: 💬 内緒話の相手確定・宛先設定処理
+// ============================================================
 /**
- * 内緒話ウィンドウの「決定」ボタン
+ * 役割：
+ * - 宛先名が正当か検証（空入力ガード、自己宛先禁止ガード）
+ * - バリデーションエラー時のUI表示
+ * - 宛先設定関数 `setWhisperTarget` の呼び出しとウィンドウのクローズ
  */
 function submitWhisperName() {
     const chatMode = document.getElementById('chat-mode');
@@ -627,8 +665,14 @@ function submitWhisperName() {
     closeWhisperWindow();
 }
 
+// ============================================================
+// :::CLOSE_WHISPER_WINDOW::: 💬 内緒話UIの閉幕・モード復元処理
+// ============================================================
 /**
- * 内緒話ウィンドウを閉じる
+ * 役割：
+ * - 内緒話入力ウィンドウ（オーバーレイ）の非表示化
+ * - 選択モードの「全体チャット(all)」への安全な復元
+ * - UIカラーのデフォルト値（#60a5fa）へのリセット
  */
 function closeWhisperWindow() {
     const overlay = document.getElementById('whisper-overlay');
@@ -643,8 +687,14 @@ function closeWhisperWindow() {
     }
 }
 
+// ============================================================
+// :::HANDLE_PLAYER_INPUT::: ⌨️ キー入力の集中管理・操作制御
+// ============================================================
 /**
- * ⌨️ キーボード操作を受け付けるメイン関数
+ * 役割：
+ * - チャット入力中かどうかの状態判定による操作ロック
+ * - プレイヤー状態（伏せ等）の更新
+ * - 移動・ハシゴ・アクション（ジャンプ・攻撃・アイテム取得）の処理振り分け
  */
 function handlePlayerInput(hero, items, ladders, chatIn) {
     // A. チャット入力中は操作を無効化
@@ -660,8 +710,14 @@ function handlePlayerInput(hero, items, ladders, chatIn) {
     handleActions(hero, items);
 }
 
+// ============================================================
+// :::HANDLE_MOVEMENT_AND_LADDER::: 🏃 プレイヤーの移動・ハシゴ制御
+// ============================================================
 /**
- * 移動とハシゴに関するロジック
+ * 役割：
+ * - 露店中・硬直中（Stun）の操作ガード
+ * - 左右移動の処理と伏せ状態の判定
+ * - ハシゴの接触判定・中心への吸着・昇降ロジックの管理
  */
 function handleMovementAndLadder(hero, ladders) {
 
@@ -733,9 +789,15 @@ function handleMovementAndLadder(hero, ladders) {
     }
 }
 
+// ============================================================
+// :::HANDLE_ACTIONS::: ⚔️ アクション制御（ジャンプ・攻撃・回収）
+// ============================================================
 /**
- * ジャンプ・攻撃・アイテム取得のロジック
- * 押しっぱなしでの「連続攻撃」と「連続取得（爆速設定）」を完全にサポート
+ * 役割：
+ * - ジャンプ：ハシゴからの飛び降りジャンプ、地面からのジャンプ処理
+ * - 攻撃：キー押しっぱなしによる連続攻撃の開始処理
+ * - 回収：Zキー押しっぱなしによるアイテムの高速回収処理（タイマー管理）
+ * - 状態ガード：露店中はアクション不可
  */
 function handleActions(hero, items) {
 
@@ -807,6 +869,14 @@ function handleActions(hero, items) {
     }
 }
 
+// ============================================================
+// :::SETUP_START_BUTTON_HOTKEY::: 🚀 名前入力欄のエンター送信設定
+// ============================================================
+/**
+ * 役割：
+ * - プレイヤーが名前を入力した際、エンターキーを押すだけで
+ *   スタートボタンのクリック動作を誘発させる
+ */
 if (nameInput && startBtn) {
     nameInput.addEventListener('keypress', (e) => {
         if (e.key === 'Enter') {
@@ -876,9 +946,15 @@ startBtn.onclick = () => {
 // 🔐 ログイン・開始処理（既存ロジック踏襲版）
 // ==========================================
 
-// ==========================================
-// 🔐 ログインリクエスト処理
-// ==========================================
+// ============================================================
+// :::HANDLE_LOGIN_REQUEST::: 🔐 ログイン認証処理・サーバーリクエスト
+// ============================================================
+/**
+ * 役割：
+ * - ログイン情報の入力バリデーション（空チェックとUIフィードバック）
+ * - 認証情報のサーバーへの送信（ユーザー名、パスワード、チャネル、キャラ情報）
+ * - 送信前の入力欄フォーカス解除とエラー表示のリセット
+ */
 startBtn.onclick = () => {
     const userName = nameInput.value.trim();
     const passwordInput = document.getElementById('user-pass-input'); 
@@ -920,7 +996,14 @@ startBtn.onclick = () => {
     }
 };
 
-// --- 🌟 既存：Enterキーでの送信対応 (openDropFormのonkeydown風) ---
+// ============================================================
+// :::SETUP_LOGIN_HOTKEY::: 🔑 パスワード入力欄のログイン・ショートカット
+// ============================================================
+/**
+ * 役割：
+ * - パスワード入力中にエンターキーが押された際、
+ *   ログインボタン（startBtn）の処理を強制実行させる
+ */
 const passInputEl = document.getElementById('user-pass-input');
 if (passInputEl) {
     passInputEl.onkeydown = (e) => {
@@ -931,7 +1014,14 @@ if (passInputEl) {
     };
 }
 
-// 名前入力欄でもEnterで次に進めるようにする場合
+// ============================================================
+// :::SETUP_NAME_INPUT_NAVIGATION::: 🚀 名前入力からパスワード欄への道案内
+// ============================================================
+/**
+ * 役割：
+ * - 名前入力後にエンターキーが押された際、
+ *   パスワード入力欄へ自動的にフォーカスを移動させる
+ */
 if (nameInput) {
     nameInput.onkeydown = (e) => {
         if (e.key === 'Enter') {
@@ -942,9 +1032,13 @@ if (nameInput) {
     };
 }
 
+// ============================================================
+// :::UPDATE_CHANNEL_UI::: 📺 チャンネルボタンの現在地UI更新
+// ============================================================
 /**
- * 🌟 チャンネルボタンの「現在地」表示を更新する補助関数
- * login_response の外側に定義しておくと、チャンネル移動時にも使い回せます
+ * 役割：
+ * - チャンネル選択ボタン群の状態（activeクラス）をリセット
+ * - 現在のチャンネル番号と一致するボタンを検出し、強調表示させる
  */
 function updateChannelUI(currentChannel) {
     const channelBox = document.querySelector('.channel-box');
@@ -978,7 +1072,14 @@ const bottomMargin = 200;   // 🌟 下方向の拡張分
 const SHOW_DEBUG = false;    // 🌟 trueでデバッグ表示ON / falseで非表示
 // ----------------------------------------------
 
-// 🌟 マウス位置を更新する専用の窓口
+// ============================================================
+// :::SET_MOUSE_TRACKING::: 🖱️ マウス座標のリアルタイム監視
+// ============================================================
+/**
+ * 役割：
+ * - 画面上のマウス位置（clientX/Y）を監視
+ * - windowオブジェクトのグローバル変数として常に最新の座標を保持
+ */
 document.addEventListener('mousemove', (e) => {
     window.rawMouseX = e.clientX;
     window.rawMouseY = e.clientY;
@@ -987,6 +1088,16 @@ document.addEventListener('mousemove', (e) => {
 // 画像オブジェクトのキャッシュ
 const tooltipImageCache = {};
 
+// ============================================================
+// :::RENDER_TOOLTIP::: 💡 ツールチップの投影・レンダリング制御
+// ============================================================
+/**
+ * 役割：
+ * - ツールチップ用レイヤーの物理サイズ・解像度（DPR）の同期管理
+ * - マウス座標の精密なスケーリングと原点補正
+ * - ホバー中アイテムの画像キャッシュ解決と描画関数の呼び出し
+ * - デバッグ用のUI範囲可視化機能
+ */
 function renderTooltip() {
     const tCanvas = document.getElementById('tooltip-layer');
     const stageCanvas = document.getElementById('stage');
@@ -1109,15 +1220,45 @@ function renderTooltip() {
 // 描画開始
 renderTooltip();
 
-// ------------------------------------------
-// 🔑 サーバーから「OK」が来たら、ステータスを反映して開始
-// ------------------------------------------
+// ============================================================
+// :::AUTO_LOGIN_INIT::: 🔄 トークンによる自動ログイン試行
+// ============================================================
+/**
+ * 役割：
+ * - localStorageから `game_token` を読み取り
+ * - トークンが存在する場合、サーバーへ `auto_login` を要求し、
+ *   プレイヤーをログイン画面の手間なしにゲームへ復帰させる
+ */
+const savedToken = localStorage.getItem('game_token');
+if (savedToken) {
+    console.log("🔍 保存されたトークンを発見！自動ログインを試行します...");
+    // サーバーへ自動ログインを依頼
+    socket.emit('auto_login', { token: savedToken });
+}
+
+// ============================================================
+// :::ON_LOGIN_RESPONSE::: 🔑 ログイン認証応答・ゲーム開始・状態遷移
+// ============================================================
+/**
+ * 役割：
+ * - ログイン成功時のトークン保存と認証情報の同期
+ * - 画面遷移（ログインUI非表示 → キャラ選択UI呼び出し）
+ * - ステータス情報の更新（hp, mp, gold, level等）
+ * - ゲーム開始時の `join` 通知とサウンド/ループ処理の起動（isGameStarted状態依存）
+ * - ログイン失敗時のエラーUI表示とリトライ制御
+ */
 socket.on('login_response', (data) => {
     const loginError = document.getElementById('login-error');
     const passwordInput = document.getElementById('user-pass-input');
     const nameInput = document.getElementById('user-name-input'); 
 
     if (data.success) {
+	    // 🌟 【ここに追加】ログイン保持用トークンの保存
+        if (data.token) {
+            localStorage.setItem('game_token', data.token);
+            console.log("✅ トークンを保存しました");
+        }
+		
         myId = socket.id; 
         console.log(`[LOGIN SUCCESS] Player: ${data.username} (Internal ID: ${socket.id})`);
 
@@ -1219,8 +1360,14 @@ socket.on('login_response', (data) => {
     }
 });
 
+// ============================================================
+// :::UPDATE_CHANNEL_BUTTONS::: 📺 チャンネルボタンのアクティブ表示管理
+// ============================================================
 /**
- * チャンネルボタンの表示を更新する
+ * 役割：
+ * - チャンネル選択ボタン群の `active` クラスをリセット
+ * - `onclick` 属性に指定されたチャンネル番号と一致するボタンを検出し、
+ *   現在選択中であることを示すために `active` クラスを付与する
  */
 function updateChannelButtons(currentChannel) {
     const buttons = document.querySelectorAll('.channel-box button');
@@ -1261,7 +1408,15 @@ socket.on('register_response', (data) => {
 // 現在選ばれているチャンネル番号（初期値は1）
 let selectedChannel = 1;
 
-// チャンネルボタンを押した時の処理
+// ============================================================
+// :::SELECT_CHANNEL::: 🌐 チャンネル選択のロジックとUI同期
+// ============================================================
+/**
+ * 役割：
+ * - 選択されたチャンネル番号を `selectedChannel` に保存
+ * - UIのボタン群（.ch-btn）から既存の `active` クラスをリセット
+ * - 選択されたチャンネルのボタンに `active` クラスを付与して強調表示
+ */
 function selectChannel(ch) {
     selectedChannel = ch;
     
@@ -1277,6 +1432,15 @@ function selectChannel(ch) {
     console.log(`チャンネル ${selectedChannel} が選択されました`);
 }
 
+// ============================================================
+// :::ON_CHANGE_CHANNEL_RESPONSE::: 📡 チャンネル移動後の世界同期処理
+// ============================================================
+/**
+ * 役割：
+ * - サーバーからの移動完了通知を受け取り、自身のチャンネル属性を更新
+ * - 移動先の部屋にいる全プレイヤーリストを同期
+ * - リスト更新の際、自分自身(socket.id)を除外（othersオブジェクトの再構築）
+ */
 socket.on('change_channel_response', (data) => {
     if (data.success) {
         // -------------------------------------------------------
@@ -1314,7 +1478,16 @@ function changeChannel(newChannelId) {
 }
 */
 
-// game.js
+// ============================================================
+// :::ON_PLAYER_MOVED_CHANNEL::: 📡 プレイヤーのチャンネル移動イベント処理
+// ============================================================
+/**
+ * 役割：
+ * - サーバーからのチャンネル移動通知を解析
+ * - 自分自身（myId）の移動であれば、hero.channelの更新とothersのクリアを行う
+ * - 他プレイヤーであれば、チャンネル情報を更新し、
+ *   もし自分と同じチャンネルでなくなった場合はothers名簿から削除（お掃除）する
+ */
 socket.on('player_moved_channel', (data) => {
     console.log("【1.受信チェック】データが届きました:", data);
     const { userId, newChannel } = data;
@@ -1352,9 +1525,15 @@ socket.on('player_moved_channel', (data) => {
     }
 });
 
-// game.js に追加
+// ============================================================
+// :::CHANGE_CHANNEL::: 🔄 チャンネル切り替え処理の司令塔
+// ============================================================
 /**
- * 🔄 チャンネルを切り替える
+ * 役割：
+ * - 既に現在のチャンネルと同じ場合は処理を中断（ガード節）
+ * - サーバーへ移動リクエストを送信
+ * - チャンネルボタンのUIを即座に更新
+ * - heroのチャンネル情報を最新化
  */
 function changeChannel(number) {
     // 🌟 1. すでにそのチャンネルにいる場合は何もしない（無駄な通信を防ぐ）
@@ -1402,6 +1581,15 @@ socket.on('player_joined', (newPlayerData) => {
 });
 */
 
+// ============================================================
+// :::REGISTER_AND_LOAD_PLAYER::: 👤 プレイヤーの新規登録と画像プリロード
+// ============================================================
+/**
+ * 役割：
+ * - プレイヤーデータを others オブジェクトへ登録
+ * - 描画に必要な外見グループ(g)とバリエーション(v)を判定
+ * - キャラクターの描画フレームを先行してロードし、描画準備を整える
+ */
 function registerAndLoadPlayer(playerData) {
     // 1. others に登録
     others[playerData.id] = playerData;
@@ -1413,12 +1601,29 @@ function registerAndLoadPlayer(playerData) {
     }
 }
 
-// 実際の受信部分
+// ============================================================
+// :::ON_PLAYER_JOINED::: 🔔 新規プレイヤー参加の受信処理
+// ============================================================
+/**
+ * 役割：
+ * - サーバーから送られてきた「プレイヤーが参加した」という通知を受信
+ * - 登録と画像ロードの専用窓口（:::REGISTER_AND_LOAD_PLAYER:::）を呼び出し、
+ *   新しい旅人をスムーズに迎え入れる
+ */
 socket.on('player_joined', (data) => {
     console.log(data.name + "が来たので画像をロードします");
     registerAndLoadPlayer(data);
 });
 
+// ============================================================
+// :::ON_CHANGE_CHANNEL_RESPONSE::: 📡 チャンネル移動後の世界再構築
+// ============================================================
+/**
+ * 役割：
+ * - チャンネル移動成功時、旧世界の住人名簿（others）を全クリア
+ * - 新しい世界の住人リスト（data.roomPlayers）を走査
+ * - 各プレイヤーに対し、個別の登録・画像ロード準備処理を適用
+ */
 socket.on('change_channel_response', (data) => {
     if (data.success) {
         others = {}; // 一旦クリア
@@ -1432,8 +1637,18 @@ socket.on('change_channel_response', (data) => {
 // 📡 [SECTION 6: NETWORK] 通信ハンドラ (Socket.io)
 // 役割: サーバーへのデータ送信(emit)と、サーバーからの受信(on)
 // ============================================================
-// 例: socket.emit('move', ...), socket.on('updatePlayers', ...)
-// 📡 サーバーから「現在の世界の状態（state）」が届いた時の処理
+// ============================================================
+// :::ON_SERVER_STATE::: 🌐 サーバーからの世界状態同期・詳細救出
+// ============================================================
+/**
+ * 役割：
+ * - サーバーからの最新状態（state）を受信・反映
+ * - チャンネル移動・アイテムドロップ音の判定処理
+ * - プレイヤー入室通知の判定と管理
+ * - 周辺環境（others, enemies, platforms等）のチャンネル別フィルタリング
+ * - 🛡️ 重要：アイテム詳細消失対策（旧データとのマージによる復元）
+ * - heroへの最終的なプロパティ同期と描画バッファの更新
+ */
 socket.on('state', (data) => {
     // -------------------------------------------------------
     // 1. 基本チェックと共通処理
@@ -1602,6 +1817,15 @@ socket.on('state', (data) => {
     }
 });
 
+// ============================================================
+// :::ON_PLAYER_UPDATE::: 💰 プレイヤー個別のステータス・所持金更新
+// ============================================================
+/**
+ * 役割：
+ * - サーバーからのプレイヤー個別更新通知を受信
+ * - 自分のID(socket.id)と一致する場合、hero オブジェクトの値を最新化
+ * - ショップ画面などのUIにある所持金表示を `toLocaleString()` を使って綺麗に更新
+ */
 socket.on('player_update', (updatedPlayer) => {
     // 1. 自分の情報の時だけ hero 変数を更新
     if (updatedPlayer.id === socket.id) {
@@ -1617,10 +1841,28 @@ socket.on('player_update', (updatedPlayer) => {
     }
 });
 
+// ============================================================
+// :::ON_DAMAGE_EFFECT::: 💥 ダメージ数値・演出の生成処理
+// ============================================================
+/**
+ * 役割：
+ * - サーバーからのダメージ通知（位置、値、クリティカル判定など）を受信
+ * - 演出用配列 `damageTexts` に新しいエフェクトオブジェクトを生成
+ * - クリティカル判定やダメージの種類に応じた挙動の初期化
+ */
 socket.on('damage_effect', data => {
   damageTexts.push({ x: data.x + (Math.random()*20-10), y: data.y, val: data.val, timer: 40, vy: data.type === 'player_hit' ? -3 : -2, isCritical: data.isCritical, type: data.type });
 });
 
+// ============================================================
+// :::ON_LEVEL_UP_EFFECT::: 🎊 レベルアップ祝賀演出の管理
+// ============================================================
+/**
+ * 役割：
+ * - サーバーからのレベルアップ通知を受信
+ * - 祝賀サウンドの再生（playLevelUpSound）
+ * - 画面上の演出用リスト `levelUpEffects` へのデータ登録
+ */
 socket.on('level_up_effect', (data) => {
     // 1. 音を鳴らす
     if (typeof playLevelUpSound === 'function') {
@@ -1639,6 +1881,16 @@ socket.on('level_up_effect', (data) => {
     console.log("🎊 レベルアップ演出（音と文字の準備）を実行しました");
 });
 
+// ============================================================
+// :::ON_CHAT::: 💬 チャットログ・吹き出しの受信管理
+// ============================================================
+/**
+ * 役割：
+ * - サーバーからのチャットデータ受信
+ * - タイプ別（全体・グループ・友達・内緒話・システム）のUI表示とカラーリング
+ * - 名前クリックによる内緒話先設定（`setWhisperTarget`）のUI構築
+ * - 頭上の吹き出し生成と、古い吹き出しの即時リセット（nullクリア）
+ */
 socket.on('chat', data => {
   // --- 1. 左下のログ表示 ---
   const div = document.createElement('div');
@@ -1698,6 +1950,15 @@ socket.on('chat', data => {
   }
 });
 
+// ============================================================
+// :::ON_USER_COUNTS::: 📊 チャンネル人口のリアルタイム同期
+// ============================================================
+/**
+ * 役割：
+ * - サーバーからチャンネルごとの接続人数（counts）を受信
+ * - チャンネルボタン（ch-btn-1〜5）のテキストを「Ch X (Y人)」という形式で更新
+ * - UIを通じて各世界の混雑状況をプレイヤーに伝える
+ */
 socket.on('user_counts', (counts) => {
     for (let i = 1; i <= 5; i++) {
         const btn = document.getElementById(`ch-btn-${i}`);
@@ -1708,10 +1969,15 @@ socket.on('user_counts', (counts) => {
     }
 });
 
+// ============================================================
+// :::RENDER_SHOP_UI::: 🛒 ショップUIの再描画と経済管理
+// ============================================================
 /**
- * 🛒 ショップUI描画関数
- * 提示されたロジック・スタイル・ランク判定を完全に踏襲し、
- * IDの精度問題（小数点バグ）とスロット同期バグを修正した完結版
+ * 役割：
+ * - ショップオーバーレイの更新（商品リスト、売却リスト）
+ * - サーバーデータ（hero.inventory/gold）との整合性同期
+ * - アイテムランク（bonus stats）に基づいたUIフィルタと輝き（glow）の生成
+ * - 安全なID文字列処理による売買関数の実行基盤の構築
  */
 function renderShopUI(data) {
 
@@ -1758,7 +2024,7 @@ function renderShopUI(data) {
         const imgPath = `${IMAGE_DOMAIN}item_assets/${imgName}.png`;
 
         // 🌟 アイテム名の安全な処理（シングルクォート対策）
-const safeBuyName = (item.display_name || item.name || "アイテム").replace(/'/g, "\\'");
+const safeBuyName = (item.display_name || item.name || "アイテム");
 
 // 🌟 重要: buyItem の引数に 'アイテム種別' と '表示名' を追加
 row.innerHTML = `
@@ -1846,7 +2112,7 @@ row.innerHTML = `
         // 🌟 修正ポイント: 装備固有IDがあれば優先し、カタログIDをフォールバックに
         const sendId = item.equipment_id || item.instanceId || item.id || item.item_id;
         const targetSlot = (item.slot_index !== undefined) ? item.slot_index : index;
-        const safeItemName = itemName.replace(/'/g, "\\'");
+        const safeItemName = itemName;
 
         // 🌟 修正箇所: item.instanceId (または equipment_id) があれば装備品とみなす
 const isEquip = !!(item.instanceId || item.equipment_id);
@@ -1883,7 +2149,15 @@ row.innerHTML = `
     console.log("🏁 ショップUIの更新が完了しました。");
 }
 
-// 🛒 サーバーからのショップ入室命令を受け取る
+// ============================================================
+// :::ON_OPEN_SHOP_UI::: 🛒 ショップウィンドウの起動トリガー
+// ============================================================
+/**
+ * 役割：
+ * - サーバーからショップ画面を開く命令を受信
+ * - 届いた商品データを `lastShopData` としてキャッシュ（再描画用に保持）
+ * - ショップオーバーレイを可視化し、描画処理（:::RENDER_SHOP_UI:::）を呼び出す
+ */
 socket.on('open_shop_ui', (data) => {
     console.log("--- 🛒 [DEBUG: ShopUI開始] ---");
     window.lastShopData = data; // データをグローバルに保持
@@ -1891,7 +2165,16 @@ socket.on('open_shop_ui', (data) => {
     renderShopUI(data);
 });
 
-// 🌟 購入・売却後の更新イベントを受け取った時
+// ============================================================
+// :::ON_UPDATE_SHOP::: 🛒 取引完了後のショップUI自動同期
+// ============================================================
+/**
+ * 役割：
+ * - サーバーからの在庫・所持金更新通知を受信
+ * - ショップ画面が表示されているか判定（ガード節）
+ * - ショップデータをキャッシュ（lastShopData）に上書き
+ * - ショップUI描画関数（:::RENDER_SHOP_UI:::）を呼び出し、最新の状態を表示
+ */
 socket.on('update_shop', (newData) => {
     // ショップが開いている時だけ描画を更新
     if (document.getElementById('shop-overlay').style.display === 'block') {
@@ -1900,6 +2183,14 @@ socket.on('update_shop', (newData) => {
     }
 });
 
+// ============================================================
+// :::SELECT_SHOP_ITEM::: 🛒 ショップ商品選択時のハイライト処理
+// ============================================================
+/**
+ * 役割：
+ * - 既に選択されている他アイテムのハイライトをすべて解除（排他制御）
+ * - クリックされたアイテムの要素（element）に 'selected' クラスを付与
+ */
 function selectShopItem(element) {
     // 1. 一旦、全部の「選択中」を解除する
     document.querySelectorAll('.shop-item-row-div').forEach(el => {
@@ -1909,14 +2200,30 @@ function selectShopItem(element) {
     element.classList.add('selected');
 }
 
-// 全ての選択を解除する関数
+// ============================================================
+// :::DESELECT_ALL_ITEMS::: 🛒 ショップ選択状態の全解除処理
+// ============================================================
+/**
+ * 役割：
+ * - ショップ内の全商品要素から 'selected' クラスを除去
+ * - 選択状態を強制的にリセットし、UIをクリーンな状態へ戻す
+ */
 function deselectAllItems() {
     document.querySelectorAll('.shop-item-row-div').forEach(el => {
         el.classList.remove('selected');
     });
 }
 
-// 💰 売却アイテムを選択した時の処理
+// ============================================================
+// :::SELECT_SELL_ITEM::: 💰 売却アイテム選択時のハイライト処理
+// ============================================================
+/**
+ * 役割：
+ * - 既に選択されている他の売却アイテムのハイライトを全解除
+ * - クリックされた売却要素（element）に 'selected' クラスを付与
+ * - 必要に応じて購入リスト側の選択状態も同時にリセットし、
+ *   「ショップ内で常に1つの選択状態」を保証する制御を行う
+ */
 function selectSellItem(event, element) {
     // 1. 他の売却アイテムの選択（selectedクラス）をすべて解除
     document.querySelectorAll('.sell-item-row-div').forEach(el => {
@@ -1932,13 +2239,15 @@ function selectSellItem(event, element) {
     console.log("💰 売却アイテムを選択しました");
 }
 
+// ============================================================
+// :::SELL_ITEM::: 💰 アイテム売却確認とリクエスト送信
+// ============================================================
 /**
- * アイテム売却確認ダイアログを表示
- * @param {string} itemId - アイテムのID
- * @param {number} slotIndex - インベントリ内のスロット番号
- * @param {string} displayName - 表示用アイテム名
- * @param {number} currentCount - 現在持っている個数
- * @param {boolean} isEquipment - 装備品かどうか（追加）
+ * 役割：
+ * - 売却確認ダイアログの表示とメッセージ設定
+ * - 装備品/一般アイテムに応じた個数入力UI（qtyArea）の制御
+ * - 入力された売却個数のバリデーション（範囲チェック）
+ * - サーバーへの売却リクエスト（socket.emit）の発行
  */
 function sellItem(itemId, slotIndex, displayName, currentCount = 1, isEquipment = false) {
     console.log("1. sellItem関数が呼ばれました。ID:", itemId, "Slot:", slotIndex, "装備:", isEquipment);
@@ -2012,12 +2321,15 @@ function sellItem(itemId, slotIndex, displayName, currentCount = 1, isEquipment 
     };
 }
 
-// game.js
+// ============================================================
+// :::BUY_ITEM::: 🛒 アイテム購入確認とリクエスト送信
+// ============================================================
 /**
- * アイテム購入確認ダイアログを表示
- * @param {string} itemId - アイテムのID
- * @param {string} itemType - アイテムの種別 ('equipment', 'consume', 'etc' など)
- * @param {string} displayName - 表示用のアイテム名
+ * 役割：
+ * - 購入確認ダイアログの表示と商品名の表示
+ * - 装備品/一般品に応じた個数入力UIの制御（装備は個数固定、一般品は可変）
+ * - バリデーションチェック（不正な数量の除外）
+ * - サーバーへの購入リクエスト（socket.emit）の発行
  */
 function buyItem(itemId, itemType, displayName) {
     console.log("1. buyItem関数が呼ばれました。ID:", itemId, "Type:", itemType);
@@ -2097,9 +2409,17 @@ function buyItem(itemId, itemType, displayName) {
 // 🎨 [SECTION 7: INITIALIZER] 起動・エントリーポイント
 // 役割: ゲーム開始ボタンの処理、初期化、メインループの開始
 // ============================================================
-// 例: window.startGame = function() { ... }, requestAnimationFrame
+// ============================================================
+// :::GAME_UPDATE_LOOP::: 💓 ゲームメインループ・心臓部
+// ============================================================
 /**
- * ゲームのメインループ（1秒間に約60回実行される心臓部）
+ * 役割：
+ * - 物理演算（アイテム・プレイヤー）の実行
+ * - プレイヤー入力処理（モーダル表示中の入力を遮断するガード付き）
+ * - 戦闘処理の実行
+ * - サーバーへの状態同期（socket.emit('move', ...)）
+ * - 描画パイプラインの制御（drawGame -> notifications -> tooltips）
+ * - 次フレームへの再帰呼び出し（requestAnimationFrame）
  */
 function update() {
     frame++; // フレームカウント（アニメーション同期用）
@@ -2164,6 +2484,13 @@ function update() {
     // A. メインのゲーム画面描画（背面のCanvas）
     if (typeof drawGame === 'function') {
         drawGame(hero, others, enemies, items, platforms, ladders, damageTexts, frame);
+    }
+
+    // 🍁【追加修正】メイプル風ミニウィンドウ通知の描画
+    // ゲーム画面（drawGame）のすぐ上に重ね、最前面レイヤー（tCtx）の手前に描画するためにここに配置します。
+    // お使いのメイン描画コンテキスト（ctxなど）が定義されている場合のみ安全に実行します。
+    if (typeof drawNotifications === 'function' && typeof ctx !== 'undefined') {
+        drawNotifications(ctx);
     }
 
     // B. 🌟 ツールチップ専用レイヤー（最前面Canvas）の更新
@@ -2262,6 +2589,16 @@ function attack() {
 // ------------------------------------------
 const regBtn = document.getElementById('register-btn');
 
+// ============================================================
+// :::REG_BTN_CLICK::: 📝 新規ユーザー登録・バリデーション処理
+// ============================================================
+/**
+ * 役割：
+ * - 登録ボタンクリック時の入力値検証（文字数チェック）
+ * - エラーメッセージの表示・入力欄のスタイル制御（赤枠など）
+ * - 入力不備時の即時フィードバック（ユーザー体験の向上）
+ * - バリデーション通過後のサーバー通信（socket.emit('register')）
+ */
 if (regBtn) {
     regBtn.onclick = () => {
         // 各要素の取得
@@ -2306,9 +2643,16 @@ if (regBtn) {
     };
 }
 
-// ------------------------------------------
-// 📝 2. サーバーからの登録結果（register_response）を受け取る
-// ------------------------------------------
+// ============================================================
+// :::ON_REGISTER_RESPONSE::: 📝 サーバーからの登録結果処理
+// ============================================================
+/**
+ * 役割：
+ * - サーバーからの登録結果データ（success, message）を受信
+ * - 成功時：成功メッセージ表示（水色）、入力欄リセット、名前欄へフォーカス
+ * - 失敗時：エラーメッセージ表示（赤色）、入力欄の赤枠強調
+ * - UI要素（login-errorなど）の有無に応じたフォールバック対応
+ */
 socket.on('register_response', (data) => {
     // 🌟 openDropForm と同じようにエラー表示用の要素を取得
     const loginError = document.getElementById('login-error');
@@ -2349,7 +2693,16 @@ socket.on('register_response', (data) => {
     }
 });
 
-// --- 修正版：本物の閉店だけを許可するガード ---
+// ============================================================
+// :::VENDING_STATE_GUARD::: 🏪 露店モードの安全な状態管理
+// ============================================================
+/**
+ * 役割：
+ * - is_vending の getter/setter を定義し、状態変更を監視
+ * - 0.1秒以内の連続切り替えをブロック（デバウンス制御による点滅防止）
+ * - 閉店（false）時のUIクリーンアップ（メインウィンドウ非表示、データリセット）
+ * - 露店モード終了時の正常性確認とログ出力
+ */
 if (typeof hero !== 'undefined') {
     let _isVending = hero.is_vending;
     let lastToggleTime = 0;
@@ -2389,7 +2742,16 @@ if (typeof hero !== 'undefined') {
     });
 }
 
-// 🏪 サーバーから「誰かが開店した」通知が届いた時
+// ============================================================
+// :::ON_VENDING_OPENED::: 🏪 露店開店通知の受信と同期
+// ============================================================
+/**
+ * 役割：
+ * - 露店開店データ（店名、アイテムリスト、座標）を受信
+ * - 自キャラ（hero）または他者（others/otherPlayers）の露店状態を更新
+ * - 商品リスト（vending_items）を保持し、看板クリック時の表示準備を整える
+ * - 最新の座標情報を反映し、プレイヤーの同期精度を担保する
+ */
 socket.on('vending_opened', (data) => {
     const shopTitle = data.vending_title || data.title || "いらっしゃいませ！";
     console.log(`露店開店の通知を受信: ${shopTitle} (ID: ${data.id})`);
@@ -2425,9 +2787,16 @@ socket.on('vending_opened', (data) => {
     }
 });
 
+// ============================================================
+// :::ON_VENDING_CLOSED::: 🏪 露店閉店通知の受信とUIの終了処理
+// ============================================================
 /**
- * 📡 サーバーから「誰かが閉店（または切断・完売）」通知が届いた時
- * 購入者の閲覧ウィンドウを強制終了し、状況に応じたメッセージを表示します
+ * 役割：
+ * - 閉店通知を受信し、購入者の閲覧ウィンドウを強制クローズ
+ * - 完売（sold_out）や中止（manual）に応じた通知モーダルの表示
+ * - 閲覧状態のクリーンアップ（currentVendingOwnerIdのリセット）
+ * - 店主側（自分）のステータスリセットとUI（開店ボタン）の復旧
+ * - 他店主のステータス消去（targetPlayer.is_vending = false）
  */
 socket.on('vending_closed', (data) => {
     console.log(`露店閉店の通知を受信 (ID: ${data.id}, 理由: ${data.reason || 'manual/disconnect'})`);
@@ -2509,7 +2878,15 @@ socket.on('vending_closed', (data) => {
     }
 });
 
-// 📡 サーバーから「露店準備UIを開け」と言われた時の処理
+// ============================================================
+// :::ON_REQUEST_OPEN_VENDING_UI::: 🏪 露店管理UIの起動処理
+// ============================================================
+/**
+ * 役割：
+ * - サーバーの要求（露店開設）を受け取り、管理ウィンドウを表示
+ * - 店名入力欄（vending-title-input）への自動フォーカス
+ * - 開設UIの初期化とプレイヤーへのUX提供
+ */
 socket.on('request_open_vending_ui', () => {
     // 1. 露店管理ウィンドウを表示する
     const win = document.getElementById('vending-window');
@@ -2527,7 +2904,15 @@ socket.on('request_open_vending_ui', () => {
     console.log("[Vending] 露店開設UIを表示しました。");
 });
 
-// 🏪 露店メニューを開く
+// ============================================================
+// :::OPEN_VENDING_MENU::: 🏪 露店管理メニューの表示
+// ============================================================
+/**
+ * 役割：
+ * - 露店管理ウィンドウ（vending-window）を可視化
+ * - インベントリから陳列可能なアイテムリストへの同期処理を統合
+ * - 開店のためのUI準備を統括
+ */
 function openVendingMenu() {
     const win = document.getElementById('vending-window');
     if (win) {
@@ -2537,18 +2922,29 @@ function openVendingMenu() {
     }
 }
 
+// ============================================================
+// :::GET_VENDING_ITEMS_DATA::: 🛒 露店アイテムデータの抽出（荷造り）
+// ============================================================
 /**
- * 🛒 現在の露店バッファにあるアイテムデータを取得する
- * (startVending から呼び出されます)
+ * 役割：
+ * - 露店ウィンドウで一時保管（バッファ）されているアイテム群を取得
+ * - サーバー側へ送信するためにデータを整形・抽出
  */
 function getVendingItemsData() {
     console.log("📤 サーバー送信用のアイテムデータを抽出します:", vendingItemsBuffer);
     return vendingItemsBuffer; 
 }
 
+// ============================================================
+// :::START_VENDING::: 🚀 露店販売開始処理・経済活動の起動
+// ============================================================
 /**
- * 🚀 実際に販売を開始する処理
- * チェックロジックやボタン装飾を維持しつつ、看板表示の確実性を高める同期処理を追加しました。
+ * 役割：
+ * - 開店前のアイテムリスト存在チェック（バリデーション）
+ * - プレイヤー状態（hero.is_vending）の更新と店名同期
+ * - 陳列アイテムデータの取得（荷造り）
+ * - サーバーへの開店通知（open_vending）および状態同期（move）
+ * - 開店中UIへの切り替え（ボタン無効化・グレーアウト）
  */
 function startVending() {
     const listContainer = document.getElementById('vending-item-list');
@@ -2611,9 +3007,15 @@ function startVending() {
     console.log("露店を開始しました。陳列数:", listContainer.children.length, "店名:", inputTitle);
 }
 
+// ============================================================
+// :::CLOSE_VENDING_MENU::: ❌ 露店管理メニューの閉鎖と経済活動の清算
+// ============================================================
 /**
- * ❌ 露店メニューを閉じる関数
- * 看板を消去し、ボタンのデザインを元に戻します。
+ * 役割：
+ * - 露店管理ウィンドウ（vending-window）の非表示化
+ * - プレイヤー状態（is_vending, vending_title）のリセット
+ * - サーバーへの閉店通知（close_vending）および周辺同期（move）の発行
+ * - UI要素（開店ボタン）の初期状態への復旧
  */
 function closeVendingMenu() {
     const win = document.getElementById('vending-window');
@@ -2651,9 +3053,15 @@ function closeVendingMenu() {
     }
 }
 
+// ============================================================
+// :::CLOSE_VENDING_MENU::: ❌ 露店管理メニューの閉鎖と経済活動の清算
+// ============================================================
 /**
- * ❌ 露店メニューを閉じる関数
- * 看板を消去し、サーバーへ閉店を通知し、ボタンの色を含めたUI状態を完全にリセットします。
+ * 役割：
+ * - 露店管理ウィンドウ（vending-window）の非表示化
+ * - プレイヤー状態（is_vending, vending_title）のリセット
+ * - サーバーへの閉店通知（close_vending）および周辺同期（move）の発行
+ * - UI要素（開店ボタン）のスタイル（background/border）をCSS定義に戻して復旧
  */
 function closeVendingMenu() {
     const win = document.getElementById('vending-window');
@@ -2698,9 +3106,15 @@ function closeVendingMenu() {
     }
 }
 
+// ============================================================
+// :::OPEN_OTHER_PLAYER_VENDING::: 🏪 他者の露店閲覧・データ要求
+// ============================================================
 /**
- * 🏪 他プレイヤーの露店を開く処理 (既存ロジックを完全踏襲)
- * @param {Object} p - クリックされたプレイヤーオブジェクト
+ * 役割：
+ * - サーバーへ特定のプレイヤーの露店商品リストを要求（socket.emit）
+ * - 閲覧ウィンドウの表示と店名の反映
+ * - 商品読み込み中（Loading）のUI表示によるUX改善
+ * - 開店SEの再生
  */
 function openOtherPlayerVending(p) {
     console.log(`[Vending] ${p.vending_title} (Owner: ${p.id}) のデータを読み込みます...`);
@@ -2733,10 +3147,17 @@ function openOtherPlayerVending(p) {
     }
 }
 
+// ============================================================
+// :::SOCKET_ON_VENDING_DATA_RES::: 📡 露店商品データの受信とUI描画
+// ============================================================
 /**
- * 📡 サーバーから最新の露店商品リストが返ってきた時の処理
- * 購入ボタンを廃止し、エリア全体のダブルクリック(ondblclick)で購入に統合
- * 【最終不退転：消失防止＋入室時の描画漏れ対策版＋メッセージ残留防止強化＋メイプル価格カラー版】
+ * 役割：
+ * - サーバーからの商品リスト受信とデータの整合性チェック
+ * - 入室時や外部要因による描画漏れ・消失の自動修復
+ * - 高速更新を防ぐ防波堤（タイムスタンプ・ハッシュ比較）
+ * - アイテムランク（神級〜粗悪）の判定と装飾
+ * - 価格帯に応じた色分け（メイプルカラー再現）
+ * - 購入用ダブルクリックイベントの各行への登録
  */
 socket.on('vending_data_res', (data) => {
 
@@ -2954,9 +3375,16 @@ socket.on('vending_data_res', (data) => {
     }
 });
 
+// ============================================================
+// :::BUY_FROM_VENDING::: 🛒 露店購入プロセスの実行と決済確認
+// ============================================================
 /**
- * 🛒 露店専用の購入関数（ガチガチデバッグ版 ＋ オリジナルUI版）
- * 既存のロジックを完全に維持しつつ、動作を実況中継します。
+ * 役割：
+ * - 取引開始のデバッグログ出力（OwnerID/dbIdの追跡）
+ * - 自店舗購入（セルフ購入）の不正防止・安全装置
+ * - 購入確認モーダルの表示と、ユーザーの意思確認（承認/キャンセル）の制御
+ * - サーバーへの購入リクエスト（vending_buy_req）の発行
+ * - UIが存在しない場合の標準ダイアログへのフォールバック
  */
 function buyFromVending(ownerId, dbId) {
     // 1. 関数が呼ばれた瞬間に青いログを出す
@@ -3013,7 +3441,15 @@ function buyFromVending(ownerId, dbId) {
     }
 }
 
-// 🛒 露店購入成功時の処理
+// ============================================================
+// :::SOCKET_ON_VENDING_BUY_SUCCESS::: 💰 露店購入の成功と所持金清算
+// ============================================================
+/**
+ * 役割：
+ * - サーバーからの購入成功通知（vending_buy_success）の受信
+ * - プレイヤー所持金（myPlayer.gold）の最新化と同期
+ * - インベントリやUIの整合性を維持するための再同期指示
+ */
 socket.on('vending_buy_success', (data) => {
     console.log("💰 購入成功。最新の所持金を受け取りました:", data.newMoney);
 
@@ -3031,7 +3467,16 @@ socket.on('vending_buy_success', (data) => {
     // 例: requestInventoryUpdate();
 });
 
-// 💰 自分の店の商品が売れた時（販売者側）
+// ============================================================
+// :::SOCKET_ON_VENDING_ITEM_SOLD::: 📢 売却成功通知と在庫・報酬の同期
+// ============================================================
+/**
+ * 役割：
+ * - 売却成功のログ出力と買い手名の表示
+ * - プレイヤー所持金（myPlayer.gold）の最新化とUI更新
+ * - 売れたアイテムを露店リスト（バッファとDOM）から即時削除（removeItemFromVending）
+ * - 成功メッセージのプレイヤー通知（showSystemMessage）
+ */
 socket.on('vending_item_sold', (data) => {
     // 1. ログ出力 (data.dbId はサーバーから送られてくる売れたアイテムのID)
     console.log(`%c📢 商品売却成功: ${data.buyerName} が購入しました (ID: ${data.dbId})`, "color: #27ae60; font-weight: bold;");
@@ -3055,7 +3500,15 @@ socket.on('vending_item_sold', (data) => {
     }
 });
 
-// サーバーからのシステムメッセージを受信
+// ============================================================
+// :::SOCKET_ON_SYSTEM_MESSAGE::: 📡 システムメッセージの受信と通知
+// ============================================================
+/**
+ * 役割：
+ * - サーバーからのメッセージ（テキストと色）を受信
+ * - 既存の通知システム（addNotification）へ情報を引き渡し
+ * - 「いっぱいです」等の重要警告に対し、プレイヤーへ強力なアラート（alert）を表示
+ */
 socket.on('system_message', (data) => {
     // 1. 既存の通知システムがあれば表示（addNotificationなど）
     if (typeof addNotification === 'function') {
@@ -3073,8 +3526,15 @@ socket.on('system_message', (data) => {
 // ==========================================
 let vendingItemsBuffer = []; // サーバー送信用のデータを保持する箱
 
+// ============================================================
+// :::REMOVE_ITEM_FROM_VENDING::: 🗑️ 露店リストからのアイテム削除と同期
+// ============================================================
 /**
- * 🗑️ 露店リストからアイテムを削除する関数 (データと見た目を同期)
+ * 役割：
+ * - 販売リスト配列から指定IDのアイテムをフィルタリング除去
+ * - 対応するHTML要素（DOM）を画面から削除
+ * - ツールチップ（currentHoverSlot）のクリアによるゴミデータの防止
+ * - リストが空になった際の初期メッセージの復帰
  */
 function removeItemFromVending(itemId) {
     // 1. 配列から削除
@@ -3096,7 +3556,15 @@ function removeItemFromVending(itemId) {
     console.log(`[Vending] ID:${itemId} をリストから削除しました。残りの数: ${vendingItemsBuffer.length}`);
 }
 
-// 売れたものを見せる用
+// ============================================================
+// :::MARK_ITEM_AS_SOLD::: ✅ 売却済みアイテムの演出と在庫更新
+// ============================================================
+/**
+ * 役割：
+ * - 売却されたアイテムのDOMを視覚的にグレーアウト・透過処理
+ * - 削除ボタンを「[売却済]」ラベルに差し替え、インタラクションを遮断
+ * - メモリ上のバッファ（vendingItemsBuffer）からは削除し、データ整合性を維持
+ */
 function markItemAsSold(itemId) {
     const targetId = String(itemId);
     const itemEl = document.getElementById(`vending-item-${targetId}`);
@@ -3121,9 +3589,16 @@ function markItemAsSold(itemId) {
     vendingItemsBuffer = vendingItemsBuffer.filter(i => String(i.db_id || i.id) !== targetId);
 }
 
+// ============================================================
+// :::ADD_ITEM_TO_VENDING_LIST::: 🏪 露店への商品陳列・データ供給
+// ============================================================
 /**
- * 🏪 露店追加関数 (既存のロジック・デバッグ・スタイルを完全踏襲)
- * 価格表示にメイプルストーリー伝統の桁数別色分けを導入
+ * 役割：
+ * - アイテムデータの検証と、販売バッファ（vendingItemsBuffer）への安全な登録
+ * - 画像アセットのパス解決と、読み込みエラー時のフォールバック処理
+ * - 装備品ランクに応じたグローエフェクト（神級〜粗悪）の適用
+ * - メイプルストーリー伝統の価格帯別カラーリング（10k〜1000m以上）
+ * - 陳列棚（UI）へのDOM生成とイベント登録（ホバー・削除）
  */
 function addItemToVendingList(item) {
     const listContainer = document.getElementById('vending-item-list');
@@ -3274,9 +3749,16 @@ function addItemToVendingList(item) {
     console.log(`${displayName} を価格 ${displayPrice} メルで販売リストに追加しました。現在のバッファ:`, vendingItemsBuffer);
 }
 
-// ------------------------------------------
-// 💾 サーバーに今のステータスを送る関数
-// ------------------------------------------
+// ============================================================
+// :::SAVE_GAME_DATA::: 💾 プレイヤーデータのサーバー同期（セーブ）
+// ============================================================
+/**
+ * 役割：
+ * - ログイン状態（myId, hero）の確認
+ * - キャラクターの成長情報（Level, Exp, Stats）を抽出
+ * - 現在の生存状況（HP, MP, Position）のパッケージ化
+ * - サーバーへの保存リクエスト（save_player_data）の発行
+ */
 function saveGameData() {
     // ログイン前（myIdがない時）は送らない
     if (!myId || typeof hero === 'undefined') return;
@@ -3304,7 +3786,14 @@ function saveGameData() {
     console.log("オートセーブ実行:", saveData); // デバッグ用
 }
 
-// 🌟 10秒ごとに自動実行
+// ============================================================
+// :::AUTO_SAVE_INTERVAL::: ⏳ 冒険の自動記録（オートセーブ）
+// ============================================================
+/**
+ * 役割：
+ * - 10秒（10000ms）間隔で定期的にセーブ処理を駆動
+ * - ログイン済み（myIdかつhero.nameが存在する）状態のみをセーブ対象とする
+ */
 setInterval(() => {
     if (myId && hero.name) {
         saveGameData();

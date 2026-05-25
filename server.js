@@ -1,3 +1,41 @@
+/**
+ * ==============================================================================
+ * 🏰 GAME SERVER CORE - Tsuchida's Fortress
+ * ==============================================================================
+ * 🗺️ [灯台地図：主要ロジックへのアクセス拠点]
+ * 
+ * --- ⚙️ システム・メインループ ---
+ * :::MAIN_LOOP        :: サーバー心臓部（更新・同期・デバッグ監視）
+ * :::SOCKET_CONNECTION :: サーバー正門（接続・初期データ配信）
+ * :::GET_JST           :: 時の基点（日本時間生成）
+ * 
+ * --- 👾 敵・キャラクター管理 ---
+ * :::CLASS_ENEMY      :: 敵のAI・物理演算・生態定義
+ * :::UPDATE_ENEMIES   :: 全チャンネルの敵更新・当たり判定
+ * :::UPDATE_PLAYERS   :: プレイヤー行動タイマー・フレーム同期
+ * 
+ * --- ⚔️ 戦闘・物理演算 ---
+ * :::CHECK_HIT        :: モンスターの当たり判定・被弾計算
+ * :::CHECK_LANDING    :: アイテムの着地判定
+ * :::IS_OVERLAP       :: 衝突判定の礎（四角形交差）
+ * :::UPDATE_ITEMS     :: アイテム物理・着地同期
+ * 
+ * --- 📡 通信・状態同期 ---
+ * :::SEND_STATE       :: チャンネル別状態同期
+ * :::BROADCAST_COUNTS :: チャンネル別人数集計・放送
+ * :::EMIT_PLAYER_LIST :: 冒険者リスト共有
+ * 
+ * --- 🛠️ ユーティリティ・基盤 ---
+ * :::HANDLE_CHAT      :: 対話・ログ
+ * :::HANDLE_DAMAGED   :: 被ダメージ・蘇生
+ * :::SAVE_INV         :: インベントリ永続化
+ * :::HANDLE_PICKUP    :: アイテム収集
+ * :::HANDLE_ATTACK    :: 攻撃処理
+ * :::HANDLE_JOIN      :: ログイン・初期化
+ * :::EXEC_ADMIN_CMD   :: 管理コマンド
+ * ==============================================================================
+ */
+
 // ============================================================
 // ⚙️ [SECTION 1: CONFIG] サーバー設定・定数
 // 役割: 接続ポート、セキュリティ(CORS)、ゲームの物理ルール等の固定値
@@ -19,7 +57,7 @@ const app = express();
 const http = require('http').createServer(app);
 
 // ============================================================
-// 🌐 【動的CORS対応】50以上のドメインをDBから自動判定する関数（デバッグログ強化版）
+// :::CORS::: 🌐 【動的CORS対応】50以上のドメインをDBから自動判定する関数
 // ============================================================
 const checkDynamicOrigin = async (origin, callback) => {
 
@@ -73,7 +111,7 @@ const checkDynamicOrigin = async (origin, callback) => {
 };
 
 // ============================================================
-// 【重要】リアルタイム通信（Socket.io）の設定（完全踏襲・動的CORS版）
+// :::IO_CORS::: 🌐 【重要】リアルタイム通信（Socket.io）の設定（完全踏襲・動的CORS版）
 // ============================================================
 const io = require('socket.io')(http, {
   cors: {
@@ -170,9 +208,9 @@ const COMBAT_FORMULA = {
     }
 };
 
-// ==========================================
-// 📞 ソケット通信の入り口（debugChat 搭載版）
-// ==========================================
+// ============================================================
+// :::SOCKET_CONNECTION::: 📞 サーバー正門・新規接続処理・初期データ配信
+// ============================================================
 io.on('connection', socket => {
     // 🛡️ 通信の根本を try-catch で保護
     try {
@@ -189,9 +227,11 @@ io.on('connection', socket => {
         socket.emit('init_item_categories', itemCategories);
         socket.emit('init_item_descriptions', ITEM_DESCRIPTIONS);
 
-        // ------------------------------------------
-// 🔑 ログイン (Login) 処理
-// ------------------------------------------
+        // ============================================================
+// :::LOGIN::: 🔑 ログイン (Login) 処理 [修正版]
+// ============================================================
+const crypto = require('crypto'); // 💡 上部でcryptoをインポートしてください
+
 socket.on('login', async (data) => {
     // 🌟 修正：クライアントから送られてくる channel を受け取る
     const { username, password, channel } = data;
@@ -199,7 +239,6 @@ socket.on('login', async (data) => {
     try {
         // 1. ユーザーの存在確認
         const sql = 'SELECT * FROM users WHERE username = ?';
-        // 🌟 修正：Promise版は [結果] を受け取る形になります
         const [userResults] = await pool.query(sql, [username]);
 
         if (userResults.length === 0) {
@@ -213,22 +252,52 @@ socket.on('login', async (data) => {
         const match = await bcrypt.compare(password, user.password_hash);
 
         if (match) {
-            // 2. 認証成功後、player_stats テーブルからステータスを取得
+            // ------------------------------------------------------------
+            // 🛡️ ログイン回数のカウントガードを追加
+            // ------------------------------------------------------------
+            if (!socket.loginCount) {
+                socket.loginCount = 0;
+            }
+            socket.loginCount++;
+
+            // ------------------------------------------------------------
+            // 🌟 ログイン維持用トークンの発行 (共通)
+            // ------------------------------------------------------------
+            const token = crypto.randomBytes(32).toString('hex');
+            const expiry = new Date();
+            expiry.setDate(expiry.getDate() + 30); // 30日間保持
+
+            await pool.query(
+                'UPDATE users SET remember_token = ?, token_expires = ? WHERE id = ?',
+                [token, expiry, user.id]
+            );
+
+            // 🌟 1回目のログイン（初期選択値でのダミー通信）の場合
+            if (socket.loginCount === 1) {
+                socket.emit('login_response', {
+                    success: true,
+                    id: user.id,
+                    username: user.username,
+                    channel: parseInt(channel) || 1,
+                    token: token, // 💡 フロントに渡す
+                    message: '1回目認証成功（キャラ選択へ進みます）'
+                });
+                return;
+            }
+
+            // 🚀 ここから下は「2回目の本番ログイン」の時だけ実行されます
             const statsSql = 'SELECT * FROM player_stats WHERE user_id = ?';
             const [statsResults] = await pool.query(statsSql, [user.id]);
 
             if (statsResults.length === 0) {
-                LOG.DB(`ステータス取得失敗 (ID: ${user.id}): データが見つかりません`);
+                LOG.DB(`ステータス取得失敗 (ID: ${user.id}):データが見つかりません`);
                 socket.emit('login_response', { success: false, message: 'キャラクターデータの読み込みに失敗しました' });
                 return;
             }
 
             const stats = statsResults[0];
-
-            // 🌟 インベントリと装備詳細をDBから読み込む
             const savedInventory = await loadUserInventory(user.id);
 
-            // 🛠【修正】インベントリを常に10枠の固定長配列に整形する
             const fixedInventory = Array(10).fill(null);
             savedInventory.forEach((item) => {
                 const sIdx = item.slot_index; 
@@ -237,65 +306,51 @@ socket.on('login', async (data) => {
                 }
             });
 
-            // 🌟 追記：選択されたチャンネルを確定
             const selectedChannel = parseInt(channel) || 1;
             const roomName = `channel_${selectedChannel}`;
-
-            // ------------------------------------------------------------
-            // 🌟 修正：最新の最大HPテーブルから正しい値を算出
-            // ------------------------------------------------------------
             const correctMaxHP = MAX_HP_TABLE[stats.level] || stats.max_hp;
-            // 現在のHPが新しい最大HPを超えないように調整
             const adjustedCurrentHP = stats.hp > correctMaxHP ? correctMaxHP : stats.hp;
 
-            // ------------------------------------------------------------
-            // 🌟 踏襲：サーバー側のメモリ(players)にDBのデータを同期する
-            // ------------------------------------------------------------
             players[socket.id] = {
                 dbId: user.id,
                 id: user.id,
                 name: user.username,
-                // 🌟 追記：メモリ上にも現在のチャンネルを保存
                 channel: selectedChannel,
                 gold: Number(stats.gold || 0),
                 level: stats.level,
                 exp: stats.exp,
-                hp: adjustedCurrentHP,       // 🌟 修正後のHP
-                maxHp: correctMaxHP,        // 🌟 テーブルから取得した正しい最大HP
+                hp: adjustedCurrentHP,
+                maxHp: correctMaxHP,
                 mp: stats.mp,
                 maxMp: stats.max_mp,
                 map_id: stats.map_id,
                 x: stats.pos_x,
                 y: stats.pos_y,
                 job_id: stats.job_id,
-                // --- ⚔️ 追加ステータス ---
                 str: stats.str || 4,
                 dex: stats.dex || 4,
                 luk: stats.luk || 4,
                 ap: stats.ap || 0,
-                // -----------------------
-                // 🌟 修正：整形済みのインベントリを反映
                 inventory: fixedInventory, 
                 lastPickupTime: 0,
-				// 🌟 追加：露店システム用の初期状態
-                is_vending: false,      // 自分が店を開いているか
-                vending_title: ""      // 看板に表示する店名
+                is_vending: false,
+                vending_title: ""
             };
 
-            // 🌟 肝：このソケットをチャンネル専用の「部屋」に参加させる
             socket.join(roomName);
 
-            // 3. 認証成功のレスポンス（DBから読み込んだステータスを同封）
+            // 3. 認証成功のレスポンス
             socket.emit('login_response', {
                 success: true,
                 id: user.id,
                 username: user.username,
                 channel: selectedChannel,
+                token: token, // 💡 本番ログイン時にもトークンを渡す
                 stats: {
                     level: stats.level,
                     exp: stats.exp,
-                    hp: players[socket.id].hp,      // 🌟 同期済みメモリから取得
-                    max_hp: players[socket.id].maxHp, // 🌟 同期済みメモリから取得
+                    hp: players[socket.id].hp,
+                    max_hp: players[socket.id].maxHp,
                     mp: stats.mp,
                     max_mp: stats.max_mp,
                     gold: stats.gold,
@@ -303,28 +358,20 @@ socket.on('login', async (data) => {
                     x: stats.pos_x,
                     y: stats.pos_y,
                     job_id: stats.job_id,
-                    // --- ⚔️ クライアント側へ送る追加ステータス ---
                     str: stats.str || 4,
                     dex: stats.dex || 4,
                     luk: stats.luk || 4,
                     ap: stats.ap || 0,
-                    // 🌟 修正：整形済みのインベントリ状態を送る
                     inventory: fixedInventory
                 },
                 message: 'ログイン成功！'
             });
 
-            // 🛠【追加修正】明示的にインベントリ更新イベントを個別に送信
             socket.emit('inventory_update', fixedInventory);
-
-            // 🌟 追記：同じチャンネルにいる「他のプレイヤー」にだけ新入生を通知
             socket.to(roomName).emit('player_joined', players[socket.id]);
 
-            LOG.DB(`ログイン成功: ${user.username} (Lv.${stats.level}) -> ${roomName} (MaxHP補正: ${correctMaxHP})`);
+            LOG.DB(`ログイン成功: ${user.username} (Lv.${stats.level}) -> ${roomName}`);
 
-            // ------------------------------------------------------------
-            // 🌟 踏襲：タイムゾーン設定とログイン時間の更新
-            // ------------------------------------------------------------
             try {
                 await pool.query("SET time_zone = '+09:00';");
                 await pool.query('UPDATE users SET last_login = NOW() WHERE id = ?', [user.id]);
@@ -333,20 +380,78 @@ socket.on('login', async (data) => {
             }
 
         } else {
-            // パスワード不一致
             socket.emit('login_response', { success: false, message: 'ユーザー名またはパスワードが違います' });
         }
-
     } catch (err) {
-        // 🌟 システムエラー
         console.error("❌ ログイン処理中にエラーが発生しました:", err);
         socket.emit('login_response', { success: false, message: 'サーバーエラーが発生しました' });
     }
 });
 
-        // ------------------------------------------
-// 📝 ユーザー新規登録 (Register) + 徹底デバッグ版（環境最適化済み）
-// ------------------------------------------
+// ==========================================
+// 👤 プレイヤーの参加・変更セクション
+// ==========================================
+
+// ============================================================
+// :::JOIN::: --- 1. 参加処理の修正（既存ロジック踏襲・サウンド通知追加版） ---
+// ============================================================
+socket.on('join', data => {
+    try {
+        // 🌟 データの取り出し
+        const userName = (typeof data === 'object') ? data.name : data;
+
+        // 🎨 クライアントがボタンで選んだグループ番号を取得
+        let selectedGroup = (typeof data === 'object' && data.group !== undefined) ? parseInt(data.group) : 0;
+
+        // チャンネル番号を数値として取得（1〜5 の範囲）
+        let channel = (typeof data === 'object') ? parseInt(data.channel) : 1;
+        if (isNaN(channel) || channel < 1 || channel > 5) channel = 1;
+
+        // 🌟 【最重要】合言葉（部屋名）を統一
+        const roomName = `channel_${channel}`;
+        socket.join(roomName);
+
+        // 元々の処理を呼び出す
+        handleJoin(socket, userName);
+
+        // 🌟 プレイヤーデータへの書き込み
+        const p = players[socket.id];
+        if (p) {
+            p.channel = channel;
+            p.group = selectedGroup;
+            p.charVar = 1;
+
+            // 🚨【整合性担保のための安全処理】
+            // 2回目の本番loginで読み込まれた後に届く決定値(group: 14等)を、メモリのjob_idへ確実に同期させます
+            if (selectedGroup !== 0) {
+                p.job_id = selectedGroup;
+            }
+
+            // 🔊 入室サウンド通知：同じチャンネル（部屋）にいる「自分以外」の全員に通知
+            socket.to(roomName).emit('player_joined_sound');
+
+            // 🌟 追加：【全チャンネル対応】ログイン通知を全員（io.emit）に飛ばす
+            // これにより、別チャンネルにいるユーザーの画面にも通知が表示されます
+            io.emit('globalNotification', {
+                message: `${p.name} がログインしました。`,
+                color: "#FFFFFF",
+                senderId: socket.id, // 🌟 これを自分自身で判定するために追加
+                type: 'LOGIN'
+            });
+            
+            emitPlayerList();
+
+            debugChat(`👋 ${userName} さんが チャンネル ${channel} に参加しました（キャラID: ${p.group}）`);
+            LOG.SYS(`[入室データ確認] ${JSON.stringify(p)}`);
+        }
+    } catch (e) {
+        debugChat(`❌ joinエラー: ${e.message}`, 'error');
+    }
+});
+		
+        // ============================================================
+// :::REGISTER::: 📝 ユーザー新規登録 (Register) + 徹底デバッグ版
+// ============================================================
 socket.on('register', async (data) => {
     // 💡 フロントから送られてくる email も受け取れるように拡張（なければ未定義になります）
     const { username, password, email } = data;
@@ -453,9 +558,9 @@ socket.on('register', async (data) => {
     }
 });
 
-        // ------------------------------------------
-// 💾 ステータス保存 (Save Data) 処理
-// ------------------------------------------
+        // ============================================================
+// :::SAVE::: 💾 ステータス保存 (Save Data) 処理
+// ============================================================
 socket.on('save_player_data', (data) => {
     // 🌟 【デバッグ：受信データ全出力】 クライアントから届いた中身をすべて表示
     console.log("--- 📥 [DEBUG: 受信データ詳細] ---");
@@ -528,9 +633,9 @@ socket.on('save_player_data', (data) => {
     });
 });
 
-        // ------------------------------------------
-// 👋 接続解除 (Disconnect)
-// ------------------------------------------
+        // ============================================================
+// :::DISCONNECT::: 👋 接続解除 (Disconnect) 処理
+// ============================================================
 socket.on('disconnect', () => {
     LOG.SYS(`ユーザーが切断しました: ${socket.id}`);
     try {
@@ -558,60 +663,9 @@ socket.on('disconnect', () => {
     }
 });
 
-        // ==========================================
-        // 👤 プレイヤーの参加・変更セクション
-        // ==========================================
-
-        // --- 1. 参加処理の修正（既存ロジック踏襲・サウンド通知追加版） ---
-        socket.on('join', data => {
-            try {
-                // 🌟 データの取り出し
-                const userName = (typeof data === 'object') ? data.name : data;
-
-                // 🎨 クライアントがボタンで選んだグループ番号を取得
-                let selectedGroup = (typeof data === 'object' && data.group !== undefined) ? parseInt(data.group) : 0;
-
-                // チャンネル番号を数値として取得（1〜5 の範囲）
-                let channel = (typeof data === 'object') ? parseInt(data.channel) : 1;
-                if (isNaN(channel) || channel < 1 || channel > 5) channel = 1;
-
-                // 🌟 【最重要】合言葉（部屋名）を統一
-                const roomName = `channel_${channel}`;
-                socket.join(roomName);
-
-                // 元々の処理を呼び出す
-                handleJoin(socket, userName);
-
-                // 🌟 プレイヤーデータへの書き込み
-                const p = players[socket.id];
-                if (p) {
-                    p.channel = channel;
-                    p.group = selectedGroup;
-                    p.charVar = 1;
-
-                    // 🔊 入室サウンド通知：同じチャンネル（部屋）にいる「自分以外」の全員に通知
-                    socket.to(roomName).emit('player_joined_sound');
-
-                    // 🌟 追加：【全チャンネル対応】ログイン通知を全員（io.emit）に飛ばす
-                    // これにより、別チャンネルにいるユーザーの画面にも通知が表示されます
-                    io.emit('globalNotification', {
-                        message: `${p.name} がログインしました。`,
-                        color: "#FFFFFF",
-						senderId: socket.id, // 🌟 これを自分自身で判定するために追加
-                        type: 'LOGIN'
-                    });
-					
-					emitPlayerList();
-
-                    debugChat(`👋 ${userName} さんが チャンネル ${channel} に参加しました（キャラID: ${p.group}）`);
-                    LOG.SYS(`[入室データ確認] ${JSON.stringify(p)}`);
-                }
-            } catch (e) {
-                debugChat(`❌ joinエラー: ${e.message}`, 'error');
-            }
-        });
-
-        // --- 2. 見た目の変更を全ユーザーに同期する ---
+        // ============================================================
+// :::VISUAL::: --- 2. 見た目の変更を全ユーザーに同期する ---
+// ============================================================
         socket.on('change_char', (data) => {
             const p = players[socket.id];
             if (p) {
@@ -629,6 +683,9 @@ socket.on('disconnect', () => {
             }
         });
 
+// ============================================================
+// :::MOVE::: 🏃 プレイヤー移動・状態更新処理
+// ============================================================
         socket.on('move', (data) => {
     const p = players[socket.id];
     if (p) {
@@ -650,12 +707,16 @@ socket.on('disconnect', () => {
     }
 });
 
-        // 攻撃イベントの中継（攻撃のキレを良くするため）
+        // ============================================================
+// :::ATTACK::: ⚔️ 攻撃イベントの中継（攻撃のキレを良くするため）
+// ============================================================
         socket.on('player_attack', (data) => {
             socket.broadcast.emit('player_attack', data);
         });
 
-        // 3. 攻撃
+        // ============================================================
+// :::ATTACK_EXEC::: ⚔️ 3. 攻撃ロジックの呼び出し
+// ============================================================
         socket.on('attack', data => {
             try {
                 handleAttack(socket, data);
@@ -664,7 +725,9 @@ socket.on('disconnect', () => {
             }
         });
 
-        // 4. アイテム拾得
+        // ============================================================
+// :::PICKUP::: 💎 4. アイテム拾得処理
+// ============================================================
         socket.on('pickup', itemId => {
             try {
                 handlePickup(socket, itemId);
@@ -673,7 +736,9 @@ socket.on('disconnect', () => {
             }
         });
 
-        // 5. 被ダメージ
+        // ============================================================
+// :::DAMAGED::: ❤️ 5. 被ダメージ処理
+// ============================================================
         socket.on('player_damaged', data => {
             try {
                 handlePlayerDamaged(socket, data);
@@ -682,9 +747,9 @@ socket.on('disconnect', () => {
             }
         });
 
-        // ==========================================
-// 💬 6. チャット受信（メイン処理）
-// ==========================================
+        // ============================================================
+// :::CHAT::: 💬 チャット受信（メイン処理）
+// ============================================================
 socket.on('chat', (data) => {
     const p = players[socket.id];
     if (!p) return;
@@ -780,7 +845,9 @@ socket.on('chat', (data) => {
     }
 });
 
-        // 9. グループ変更
+        // ============================================================
+// :::GROUP::: 👥 9. グループ変更処理
+// ============================================================
         socket.on('change_group', data => {
             try {
                 if (players[socket.id]) {
@@ -793,7 +860,9 @@ socket.on('chat', (data) => {
             }
         });
 		
-		// --- チャンネル変更処理（既存ロジックを完全踏襲） ---
+		// ============================================================
+// :::CHANNEL::: --- チャンネル変更処理（既存ロジックを完全踏襲） ---
+// ============================================================
 socket.on('change_channel', (data) => {
     const { newChannel } = data;
     const player = players[socket.id];
@@ -844,7 +913,9 @@ socket.on('change_channel', (data) => {
 });
 
 
-		// server.js
+		// ============================================================
+// :::REQ_CHANNEL::: 🚪 チャンネル変更リクエスト（フロントからの要求受付）
+// ============================================================
 socket.on('request_change_channel', (data) => {
     const { targetChannel } = data;
     
@@ -863,7 +934,9 @@ socket.on('request_change_channel', (data) => {
     }
 });
 
-// server.js 内の socket 通信部分
+// ============================================================
+// :::DROP_GOLD::: 💰 通貨ドロップ処理（所持金減算・地面生成）
+// ============================================================
 socket.on('drop_gold', (data) => {
     const player = players[socket.id];
     if (!player) return;
@@ -913,7 +986,9 @@ socket.on('drop_gold', (data) => {
     });
 });
 
-        // 📥 10. アイテムを捨てた時 (dropItem) - 複数個対応＆DB保存版
+        // ============================================================
+// :::DROP_ITEM::: 🗑️ 10. アイテム廃棄処理（複数個対応・DB同期）
+// ============================================================
 socket.on('dropItem', async (data) => {
     try {
         const player = players[socket.id];
@@ -1067,7 +1142,9 @@ socket.on('dropItem', async (data) => {
     }
 });
 
-        // 🔄 11. アイテム入れ替え (swapItems)
+        // ============================================================
+// :::SWAP::: 🔄 11. アイテム入れ替え処理 (Slot Swap & DB Transaction)
+// ============================================================
 socket.on('swapItems', async (data) => {
     try {
         const player = players[socket.id];
@@ -1165,7 +1242,7 @@ socket.on('swapItems', async (data) => {
 });
 
 // ============================================================
-// 🛒 アイテム購入リクエスト処理（個数指定対応・SHOP_CONFIG 踏襲版）
+// :::BUY_ITEM::: 🛒 アイテム購入リクエスト処理（個数指定・スタック・装備生成）
 // ============================================================
 socket.on('buy_request', async (data) => {
     console.log("--- サーバーで購入リクエストを受信 ---");
@@ -1364,7 +1441,7 @@ socket.on('buy_request', async (data) => {
 });
 
 // ============================================================
-// 💰 アイテム売却リクエスト処理（個数指定・安定版踏襲）
+// :::SELL_ITEM::: 💰 アイテム売却リクエスト処理（個数指定・DB同期）
 // ============================================================
 socket.on('sell_request', async (data) => {
     console.log("--- サーバーで売却リクエストを受信 ---");
@@ -1500,9 +1577,9 @@ socket.on('sell_request', async (data) => {
 // 役割: クライアントからの開店要請を受け、状態を全ユーザーに同期する
 // ============================================================
 
-// ==========================================
-// 12. 露店開設イベント (在庫連動版：開店時は減らさない)
-// ==========================================
+// ============================================================
+// :::OPEN_VENDING::: 🛒 露店開設イベント (在庫連動・予約管理)
+// ============================================================
 socket.on('open_vending', (data) => {
     const p = players[socket.id];
     
@@ -1584,7 +1661,9 @@ socket.on('open_vending', (data) => {
     console.log(`[Vending] ${p.name} が在庫連動モードで開店しました: ${p.vending_title}`);
 });
 
-// 🛒 📡 クライアントからの商品リスト要求を受け取る
+// ============================================================
+// :::GET_VENDING::: 🛒 📡 露店の商品リスト要求とカタログデータ結合
+// ============================================================
 socket.on('request_vending_data', async (data) => {
     const ownerId = data.ownerId;
     
@@ -1689,7 +1768,9 @@ socket.on('request_vending_data', async (data) => {
     }
 });
 
-// 🛒 露店でのアイテム購入リクエスト (構造維持・完売時自動閉店・数量同期修正版)
+// ============================================================
+// :::VENDING_BUY::: 🛒 露店でのアイテム購入・在庫連動・自動閉店
+// ============================================================
 socket.on('vending_buy_req', async (data) => {
     // 1. 受信直後のログ
     console.log("\n%c========== 🔍 [VENDING_DEBUG] 🚀 購入リクエスト開始 ==========", "color: #3498db; font-weight: bold;");
@@ -1927,6 +2008,9 @@ socket.on('vending_buy_req', async (data) => {
 // ------------------------------------------------------------
 // 🏃 [SECTION 6: MOVEMENT] 移動同期
 // ------------------------------------------------------------
+// ============================================================
+// :::MOVE_SYNC::: 🏃‍♂️ プレイヤー移動・状態同期（露店タイトル保護）
+// ============================================================
 socket.on('move', (data) => {
     const p = players[socket.id];
     if (p) {
@@ -1961,9 +2045,9 @@ socket.on('move', (data) => {
     }
 });
 
-// ------------------------------------------------------------
-// ❌ 露店閉鎖リクエスト（手動で閉じる場合）
-// ------------------------------------------------------------
+// ============================================================
+// :::CLOSE_VENDING::: 🛑 露店閉鎖・管理リスト削除・閉店通知
+// ============================================================
 socket.on('close_vending', () => {
     const p = players[socket.id];
     if (p) {
@@ -1985,7 +2069,9 @@ socket.on('close_vending', () => {
     }
 });
 
-        // 🌟 ステータス強化のリクエストを受け取る
+        // ============================================================
+// :::UPGRADE_STAT::: 📈 ステータス強化リクエスト（AP消費・能力値加算）
+// ============================================================
         socket.on('upgrade_stat', (data) => {
             const player = players[socket.id];
             if (!player || player.ap <= 0) return;
@@ -2054,10 +2140,9 @@ let STATIC_ITEMS = {};
 // 🌟 合体後の最終的なアイテム設定
 let ITEM_CONFIG = {};
 
-/**
- * 🗄️ データベースから全アイテム情報を読み込み、
- * カタログ成形、ステータス計算、および各種設定(ITEM_CONFIG等)の構築を行う
- */
+// ============================================================
+// :::LOAD_CATALOG::: 🗄️ DB読み込み・カタログ成形・ステータス計算
+// ============================================================
 async function loadItemCatalogFromDB() {
     try {
         const formattedCatalog = {};
@@ -2295,9 +2380,9 @@ const STATIC_ITEMS = Object.fromEntries(
 //let LEVEL_TABLE = [0, 12, 20, 35, 60, 100, 150, 250, 280, 360, 450];
 let LEVEL_TABLE = [0]; // 最初は空に近い状態で用意
 
-/**
- * 📈 データベースから経験値テーブルを読み込む
- */
+// ============================================================
+// :::LOAD_EXP::: 📈 データベースからの経験値テーブル読み込み
+// ============================================================
 async function loadExperienceTable() {
     try {
         // level順に全てのデータを取得
@@ -2326,9 +2411,9 @@ async function loadExperienceTable() {
 
 let MAX_HP_TABLE = [0]; // Lvごとの最大HPを格納する配列
 
-/**
- * 🏥 データベースから最大HPテーブルを読み込む
- */
+// ============================================================
+// :::LOAD_HP::: 🏥 データベースからの最大HPテーブル読み込み
+// ============================================================
 async function loadMaxHPTable() {
     try {
         // level順に全てのデータを取得
@@ -2370,9 +2455,9 @@ let ENEMY_CATALOG = {};
 // 🌟 外部から参照するための配列形式
 let MONSTER_CONFIGS = [];
 
-/**
- * データベースからモンスター図鑑を読み込む関数
- */
+// ============================================================
+// :::LOAD_ENEMY::: 👹 データベースからモンスター図鑑・設定読み込み
+// ============================================================
 async function loadEnemyCatalog() {
     try {
         // SQL発行（enemy_catalogテーブルから全カラム取得）
@@ -2492,11 +2577,9 @@ const DROP_CHANCE_TABLES = {
 // 🧠 [SECTION 4: LOGIC] 計算エンジン・判定ロジック
 // 役割: 当たり判定、経験値計算、ドロップ抽選など「正誤」を決める計算
 // ============================================================
-/**
- * サーバーの状況を、コンソールとチャット画面の両方に通知する関数
- * @param {string} message - 表示したいメッセージ
- * @param {string|boolean} type - ログの種類（info, error, success, db など）
- */
+// ============================================================
+// :::DEBUG_CHAT::: 🤖 サーバー状況の通知・コンソール出力・チャット同期
+// ============================================================
 function debugChat(message, type = 'info') {
     try {
         // 現在の時刻を取得（例: 14:30:05）
@@ -2571,9 +2654,9 @@ function handleDisconnect() {
 handleDisconnect();
 */
 
-// ==========================================
-// 👾 敵キャラクターのクラス（仕組みの部分）
-// ==========================================
+// ============================================================
+// :::CLASS_ENEMY::: 👾 敵キャラクターの定義・AI・物理演算
+// ============================================================
 class Enemy {
   constructor(id, platIndex) {
     this.id = id;
@@ -2895,10 +2978,9 @@ const CHANNELS = Array.from({ length: MAX_CHANNELS }, (_, i) => i + 1);
 let enemies = {};
 let droppedItems = {};
 
-/**
- * 🌟 モンスターとドロップアイテムの初期化関数
- * (DBからカタログを読み込んだ後に実行する必要があります)
- */
+// ============================================================
+// :::INIT_MONSTER::: 👹 チャンネルごとの敵配置とドロップ枠初期化
+// ============================================================
 function initMonsters() {
     CHANNELS.forEach(chId => {
         // チャンネルごとに、ENEMY_PLANに基づいて「新しいモンスターの群れ」を生成
@@ -2912,10 +2994,9 @@ function initMonsters() {
     LOG.SYS(`✅ ${MAX_CHANNELS}チャンネル分の敵・ドロップ情報を初期化しました`);
 }
 
-/**
- * 🚀 サーバー起動の司令塔
- * 全てのDB読み込みが終わってからモンスターを配置し、サーバーを開始します
- */
+// ============================================================
+// :::START_SERVER::: 🚀 起動シーケンス・全データ読み込み・サーバー待機
+// ============================================================
 async function startServer() {
     try {
         // --- 1. DBから全てのカタログを読み込む ---
@@ -2953,10 +3034,9 @@ async function startServer() {
 // ==========================================
 startServer();
 
-/**
- * 🌟 経験値を加算してレベルアップをチェックする専用の関数
- * 構造はそのままに、最大HPの取得先をテーブルに変更しました。
- */
+// ============================================================
+// :::ADD_EXP::: 🌟 経験値加算・レベルアップ判定・HP/AP更新
+// ============================================================
 function addExperience(player, amount, socket) {
     // 🛡️ ガード：プレイヤーがいない、または加算量が数値でない場合は即終了
     if (!player || isNaN(amount)) return;
@@ -3008,10 +3088,9 @@ function addExperience(player, amount, socket) {
     }
 }
 
-/**
- * 🎁 アイテムドロップ生成 (spawnDropItems)
- * 既存のロジック・確率・変数名を完全に維持した5ch対応版
- */
+// ============================================================
+// :::SPAWN_DROP::: 🎁 アイテムの抽選・性能鑑定・チャンネル配置
+// ============================================================
 function spawnDropItems(enemy, chId) {
     try {
         // --- 1. 基本チェック ---
@@ -3130,11 +3209,9 @@ function spawnDropItems(enemy, chId) {
     }
 }
 
-/**
- * 🔍 アイテム鑑定サブ関数（完全±5変動・0固定版）
- * ランクに関わらず、すべてのステータスを基準値から ±5 の範囲でランダムに決定します。
- * 元々の基準値が 0 の項目は、変動させずに 0 のまま維持します。
- */
+// ============================================================
+// :::IDENTIFY_ITEM::: 🔍 アイテム品質ランク決定・ステータス変動計算
+// ============================================================
 function identifyItem(type) {
     const catalogId = (type === 'sword') ? 101 : (type === 'shield' ? 102 : null);
     const base = (typeof ITEM_CATALOG !== 'undefined' && catalogId && ITEM_CATALOG[catalogId]) 
@@ -3215,9 +3292,9 @@ const SHOP_CONFIG = {
     }
 };
 
-/**
- * DBからショップの陳列データを取得し、フロントエンドが求める形式に変換する関数
- */
+// ============================================================
+// :::GET_SHOP_INVENTORY::: 🛒 ショップの全カテゴリーデータ取得・整形
+// ============================================================
 async function getShopInventory(pool) {
     const { consume, etc, equip } = SHOP_CONFIG.targetIds;
 
@@ -3286,9 +3363,9 @@ async function getShopInventory(pool) {
     });
 }
 
-// ==========================================
-// 🛠️ コマンド実行エンジン（チャットから分離）
-// ==========================================
+// ============================================================
+// :::EXEC_ADMIN_CMD::: 🛠️ 管理者コマンド・テスト・露店開設の司令塔
+// ============================================================
 function executeAdminCommand(socket, p, text) {
     // 🔍 【コマンド1】ステータス詳細
     if (text === '/check') {
@@ -3479,9 +3556,9 @@ function executeAdminCommand(socket, p, text) {
     return false; // どのコマンドにも該当しなかった
 }
 
-/**
- * 🔊 アイテム着地時の共通処理
- */
+// ============================================================
+// :::HANDLE_LANDING::: 🔊 アイテム着地処理・位置固定・サウンド同期
+// ============================================================
 function handleItemLanding(it, groundY) {
     it.y = groundY - SETTINGS.ITEM.SIZE + SETTINGS.ITEM.SINK_Y;
     it.landed = true;
@@ -3490,6 +3567,9 @@ function handleItemLanding(it, groundY) {
     io.emit('item_landed_sound');
 }
 
+// ============================================================
+// :::CHECK_ATTACK::: ⚔️ 攻撃判定ボックス生成・モンスター接触判定
+// ============================================================
 function checkAttack(p, en) {
     const atkWidth = 80;  
     const atkHeight = 60;
@@ -3516,12 +3596,9 @@ function checkAttack(p, en) {
 // 🕹️ [SECTION 5: ACTION] プレイヤー行動・命令処理
 // 役割: クライアントから届いた「攻撃」「取得」等の命令を実際に実行する場所
 // ============================================================
-/**
- * 👤 1. プレイヤーが参加したときの処理（チャンネル対応版）
- * --------------------------------------------------
- * 元々のDB保存機能や詳細なステータス設定を維持したまま、
- * 選択されたチャンネル情報をプレイヤーデータに追加します。
- */
+// ============================================================
+// :::HANDLE_JOIN::: 👤 プレイヤーログイン・データ初期化・チャンネル配置
+// ============================================================
 function handleJoin(socket, name, channel) { // 🌟 引数に channel を追加
     /*
     try {
@@ -3609,9 +3686,9 @@ function handleJoin(socket, name, channel) { // 🌟 引数に channel を追加
     console.log(`[Join同期完了] ${name} (DB_ID: ${players[socket.id].dbId}, LV: ${players[socket.id].level}, Exp: ${players[socket.id].exp}/${players[socket.id].maxExp})`);
 }
 
-/**
- * 2. プレイヤーが攻撃したときの処理（5ch対応・デバッグ枠同期＆連撃改善版）
- */
+// ============================================================
+// :::HANDLE_ATTACK::: ⚔️ 攻撃処理・ダメージ計算・報酬配布の心臓部
+// ============================================================
 function handleAttack(socket, data) {
     const p = players[socket.id];
     if (!p) return; // プレイヤーがいなければ中止
@@ -3741,11 +3818,9 @@ function handleAttack(socket, data) {
     }
 }
 
-/**
- * 3. アイテムを拾ったときの処理（重なり対策・5ch対応・DB永続化・カバン満杯対策済み）
- * --------------------------------------------------
- * 役割：足元のアイテムを順番にチェックし、拾えるものから優先的に取得します。
- */
+// ============================================================
+// :::HANDLE_PICKUP::: 📦 アイテム収集・スタック処理・DB永続化
+// ============================================================
 function handlePickup(socket) {
     try {
         const player = players[socket.id];
@@ -3937,11 +4012,9 @@ function handlePickup(socket) {
     }
 }
 
-/**
- * 補助関数: user_inventory と equipment_instances をセットで保存する
- * 既存のロジックとデバッグログを完全に踏襲し、UserIDの不一致を徹底追跡
- * 修正内容：equipment_instances 保存時の item_id を sword=101, shield=102 に固定
- */
+// ============================================================
+// :::SAVE_INV::: 💾 インベントリDB永続化・ID紐付け・装備品管理
+// ============================================================
 function saveInventoryToDB(player, itemData, slotIdx) {
     // 🔍 [TRACE:START] 関数の入り口でプレイヤーオブジェクトの全容を把握
     console.log(`[SAVE_TRACE:1] saveInventoryToDB開始 -------------------------`);
@@ -4065,13 +4138,9 @@ function saveInventoryToDB(player, itemData, slotIdx) {
     }
 }
 
-/**
- * ログイン時にユーザーのインベントリと装備詳細を読み込む (超詳細デバッグログ版)
- * 🌟 修正点: 
- * 1. 更新・削除用に user_inventory の主キー(i.id)を db_id として取得
- * 2. 空白スロット再現のため、slot_index を返却オブジェクトに含めるようにしました。
- * 3. 装備レベル(lv)を equipment_instances から取得するように追加しました。
- */
+// ============================================================
+// :::LOAD_INV::: 📜 インベントリ・装備データ読み込み・ステータス復元
+// ============================================================
 async function loadUserInventory(userId) {
     console.log(`\n==== [LOAD_DEBUG: START] UserID: ${userId} のデータ復元プロセス開始 ====`);
 
@@ -4158,10 +4227,9 @@ async function loadUserInventory(userId) {
     }
 }
 
-/**
- * user_inventory テーブルへの書き込み
- * 既存ロジックを完全踏襲しつつ、goldを301として保存
- */
+// ============================================================
+// :::UPSERT_INV::: 💾 インベントリDB同期・ID変換ルール・永続化
+// ============================================================
 function upsertUserInventory(userId, slotIdx, itemData, equipmentId = null) {
     console.log(`>>> [UPSERT_TRACE:1] 開始 - User:${userId} Slot:${slotIdx} Type:${itemData.type} EquipID:${equipmentId}`);
 
@@ -4218,11 +4286,9 @@ function upsertUserInventory(userId, slotIdx, itemData, equipmentId = null) {
         });
 }
 
-/**
- * 4. プレイヤーのダメージ同期と復活処理（5ch対応・安全装置付き）
- * --------------------------------------------------
- * 役割：モンスターからのダメージを計算し、HPが0になったら初期位置にリスポーンさせます。
- */
+// ============================================================
+// :::HANDLE_DAMAGED::: 🛡️ 被ダメージ判定・HP計算・蘇生処理
+// ============================================================
 function handlePlayerDamaged(socket, data) {
     // 🛡️ 安全装置：関数全体をtry-catchで保護
     try {
@@ -4284,9 +4350,9 @@ function handlePlayerDamaged(socket, data) {
     }
 }
 
-/**
- * 5. チャット送信（同一チャンネル内限定版）
- */
+// ============================================================
+// :::HANDLE_CHAT::: 💬 チャンネル限定メッセージ・対話処理
+// ============================================================
 function handleChat(socket, text) {
     const p = players[socket.id];
     
@@ -4313,9 +4379,9 @@ function handleChat(socket, text) {
     }
 }
 
-/**
- * 📐 アイテムと足場の衝突判定ロジック
- */
+// ============================================================
+// :::CHECK_LANDING::: 📐 アイテムと足場の着地判定ロジック
+// ============================================================
 function checkPlatformLanding(it, p) {
     const itemRightEdge = it.x + SETTINGS.ITEM.SIZE;
     const itemLeftEdge = it.x;
@@ -4329,9 +4395,9 @@ function checkPlatformLanding(it, p) {
     );
 }
 
-/**
- * 📊 チャンネルごとの人数を集計して全ユーザーに送る
- */
+// ============================================================
+// :::BROADCAST_COUNTS::: 📊 チャンネル別人数集計・全ユーザー放送
+// ============================================================
 function broadcastUserCounts() {
     const counts = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
     
@@ -4359,9 +4425,9 @@ function broadcastUserCounts() {
 // ============================================================
 
 
-/**
- * 📡 状態送信用の共通関数（チャンネルごとに個別の世界状況を伝える）
- */
+// ============================================================
+// :::SEND_STATE::: 📡 チャンネル別状態同期・世界状況の配信
+// ============================================================
 function sendState() {
     try {
         if (!players) return;
@@ -4420,9 +4486,9 @@ setInterval(() => {
     broadcastUserCounts(); // 🌟 人数情報を放送
 }, 1000); // 1秒に1回くらいで十分です
 
-/**
- * 👾 敵(Enemies)の状態更新（5ch対応版）
- */
+// ============================================================
+// :::UPDATE_ENEMIES::: 👾 全チャンネルの敵AI更新・当たり判定・同期
+// ============================================================
 function updateEnemies() {
     // 1. まず全チャンネル(1〜5)を順番にループする
     CHANNELS.forEach(chId => {
@@ -4475,9 +4541,9 @@ function updateEnemies() {
     });
 }
 
-/**
- * ⚔️ モンスターの攻撃がプレイヤーに当たっているか計算する関数
- */
+// ============================================================
+// :::CHECK_HIT::: ⚔️ モンスターの当たり判定・プレイヤー被弾計算
+// ============================================================
 function checkMonsterHitsPlayers(enemy, chId) {
     // そのチャンネルにいるソケットIDのリストを取得
     const room = io.sockets.adapter.rooms.get(`channel_${chId}`);
@@ -4515,16 +4581,16 @@ function checkMonsterHitsPlayers(enemy, chId) {
     });
 }
 
-/**
- * 📐 汎用：2つの四角形が重なっているか判定する
- */
+// ============================================================
+// :::IS_OVERLAP::: 📐 汎用：四角形の衝突判定（当たり判定の礎）
+// ============================================================
 function isRectOverlapping(x1, y1, w1, h1, x2, y2, w2, h2) {
     return x1 < x2 + w2 && x1 + w1 > x2 && y1 < y2 + h2 && y1 + h1 > y2;
 }
 
-/**
- * 👤 プレイヤー(Players)の更新管理
- */
+// ============================================================
+// :::UPDATE_PLAYERS::: 👤 プレイヤー行動タイマー・同期フレーム更新
+// ============================================================
 function updatePlayers() {
     for (let id in players) {
         const p = players[id];
@@ -4549,9 +4615,9 @@ function updatePlayers() {
     }
 }
 
-/**
- * 💎 アイテムの物理計算（5ch対応・サーバーとクライアントで数値を完全一致させた版）
- */
+// ============================================================
+// :::UPDATE_ITEMS::: 💎 全チャンネルのアイテム物理・着地同期
+// ============================================================
 function updateItems() {
     // 1. 全チャンネル(1〜5)を順番にループする
     CHANNELS.forEach(chId => {
@@ -4607,14 +4673,18 @@ function updateItems() {
     });
 }
 
-// 🌟 修正：日本時間を生成する関数（使い回せるように外に出してもOK）
+// ============================================================
+// :::GET_JST::: 🕒 日本時間生成・時の基点管理
+// ============================================================
 function getJSTDate() {
     const now = new Date();
     // 日本時間に変換したDateオブジェクトを返す
     return new Date(now.getTime() + (9 * 60 * 60 * 1000));
 }
 
-// 🌟 追加：ログイン中の全プレイヤーリストを全員に送る関数
+// ============================================================
+// :::EMIT_PLAYER_LIST::: 👤 全プレイヤーリストの集計・共有放送
+// ============================================================
 function emitPlayerList() {
     const playerList = Object.values(players).map(p => ({
         name: p.name || 'Player',
@@ -4623,10 +4693,9 @@ function emitPlayerList() {
     io.emit('updatePlayerList', playerList);
 }
 
-/**
- * 🔄 メイン更新ループ（デバッグ送信機能を含む）
- * 各エンティティの更新と、デバッグ情報の送信を一つのループで行います。
- */
+// ============================================================
+// :::MAIN_LOOP::: 🔄 ゲームサーバー心臓部・状態更新・デバッグ同期
+// ============================================================
 setInterval(() => {
     
     // --- 1. ゲーム状態の更新処理 ---
