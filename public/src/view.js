@@ -1340,66 +1340,68 @@ window.selectedPlayer = null;
 // ============================================================
 /**
  * 役割：
- * - デフォルトのブラウザ右クリックメニューを抑制（preventDefault）
+ * - ゲームCanvas内でのみ、デフォルトのブラウザ右クリックメニューを抑制
  * - スクリーン座標からゲームCanvas内の相対座標へ変換
  * - `others` 全員に対して、当たり判定用の四角形枠（AABB）を作成しヒットテストを実行
- * - ターゲットが見つかった場合、ターゲットメニュー（context-menu）の表示と選択情報の保持
+ * - ターゲットが見つかった場合、ターゲットメニューの表示と選択情報の保持
  */
-window.addEventListener('contextmenu', function(e) {
-    e.preventDefault();
+const stageCanvas = document.getElementById('stage');
 
-    const menu = document.getElementById('player-context-menu');
-    const stageCanvas = document.getElementById('stage');
-    if (!stageCanvas) return;
+if (stageCanvas) {
+    stageCanvas.addEventListener('contextmenu', function(e) {
+        e.preventDefault(); // ゲームCanvas内でのみメニューを抑制
 
-    // 🌟 2. 座標計算（今のロジックを完全踏襲）
-    const rect = stageCanvas.getBoundingClientRect();
-    const baseWidth = 800;
-    const baseHeight = 600;
-
-    const rx = (e.clientX - rect.left) / rect.width;
-    const ry = (e.clientY - rect.top) / rect.height;
-
-    const canvasX = rx * baseWidth;
-    const canvasY = ry * baseHeight;
-
-    let foundPlayer = null;
-    
-    // 🌟 3. 判定処理（デバッグ枠の数値に合わせて修正）
-    for (let id in others) {
-        const p = others[id];
+        const menu = document.getElementById('player-context-menu');
         
-        // 赤いデバッグ枠と全く同じ座標・サイズを定義
-        const rectX = p.x - 30; // 右に寄せるための調整
-        const rectY = p.y - 50; // 上下に合わせるための調整
-        const rectW = 100;
-        const rectH = 100;
+        // 🌟 2. 座標計算（ご提示のロジックを完全踏襲）
+        const rect = stageCanvas.getBoundingClientRect();
+        const baseWidth = 800;
+        const baseHeight = 600;
 
-        // マウスの座標(canvasX, canvasY)が、この四角形の中に入っているか判定
-        if (canvasX >= rectX && canvasX <= rectX + rectW &&
-            canvasY >= rectY && canvasY <= rectY + rectH) {
+        const rx = (e.clientX - rect.left) / rect.width;
+        const ry = (e.clientY - rect.top) / rect.height;
+
+        const canvasX = rx * baseWidth;
+        const canvasY = ry * baseHeight;
+
+        let foundPlayer = null;
+        
+        // 🌟 3. 判定処理（デバッグ枠の数値に合わせて修正）
+        for (let id in others) {
+            const p = others[id];
             
-            foundPlayer = p; 
-            break; 
+            // 赤いデバッグ枠と全く同じ座標・サイズを定義
+            const rectX = p.x - 30; // 右に寄せるための調整
+            const rectY = p.y - 50; // 上下に合わせるための調整
+            const rectW = 100;
+            const rectH = 100;
+
+            // マウスの座標(canvasX, canvasY)が、この四角形の中に入っているか判定
+            if (canvasX >= rectX && canvasX <= rectX + rectW &&
+                canvasY >= rectY && canvasY <= rectY + rectH) {
+                
+                foundPlayer = p; 
+                break; 
+            }
         }
-    }
 
-    // 🌟 4. 表示とデータ保存
-    if (foundPlayer) {
-        // 見つかったプレイヤーの情報を変数に保存しておく
-        window.selectedPlayer = foundPlayer;
+        // 🌟 4. 表示とデータ保存
+        if (foundPlayer) {
+            // 見つかったプレイヤーの情報を変数に保存しておく
+            window.selectedPlayer = foundPlayer;
 
-        console.log("ターゲット発見:", foundPlayer.name || foundPlayer.id);
-        menu.style.display = 'block';
-        menu.style.left = e.clientX + 'px';
-        menu.style.top = e.clientY + 'px';
-        document.getElementById('menu-player-name').innerText = foundPlayer.name || "プレイヤー";
-    } else {
-        menu.style.display = 'none';
-        window.selectedPlayer = null; // 誰もいないならリセット
-        console.log(`クリック座標: X=${Math.round(canvasX)}, Y=${Math.round(canvasY)}`);
-    }
-});
+            console.log("ターゲット発見:", foundPlayer.name || foundPlayer.id);
+            menu.style.display = 'block';
+            menu.style.left = e.clientX + 'px';
+            menu.style.top = e.clientY + 'px';
+            document.getElementById('menu-player-name').innerText = foundPlayer.name || "プレイヤー";
+        } else {
+            menu.style.display = 'none';
+            window.selectedPlayer = null; // 誰もいないならリセット
+            console.log(`クリック座標: X=${Math.round(canvasX)}, Y=${Math.round(canvasY)}`);
+        }
+    });
+}
 
 // ============================================================
 // :::HANDLE_PROFILE_CLICK::: 👤 プロフィールウィンドウ表示処理
