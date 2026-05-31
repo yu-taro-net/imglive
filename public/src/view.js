@@ -1253,6 +1253,12 @@ window.addEventListener('keydown', (e) => {
         // gameWindows内のisOpenを反転
         win.isOpen = !win.isOpen;
         
+        // 🌟 追加：Optionsウィンドウが開いた瞬間だけリクエストを送る
+        if (targetId === 'options' && win.isOpen) {
+            console.log("Optionsを開いたのでIDを要求します");
+            socket.emit('get_account_info'); 
+        }
+        
         // 🌟 開閉に関わらず、最後に触った(押した)方を最前面へ
         if (typeof windowStack !== 'undefined') {
             windowStack = windowStack.filter(v => v !== targetId);
@@ -1307,6 +1313,39 @@ window.addEventListener('keydown', (e) => {
         }
     }
 });
+
+// キャンバスのクリックイベント内（view.jsなどのクリック処理場所）
+canvas.addEventListener('mousedown', (e) => {
+    // オプションウィンドウが開いているかチェック
+    if (gameWindows.options && gameWindows.options.isOpen) {
+        const win = gameWindows.options;
+        const mouseX = e.offsetX;
+        const mouseY = e.offsetY;
+
+        // [コピー]ボタンの範囲（文字の描画位置に合わせて調整してください）
+        const btnX = win.x + 20 + 180;
+        const btnY = win.y + 50;
+        const btnW = 60; // ボタンの幅
+        const btnH = 20; // ボタンの高さ
+
+        if (mouseX >= btnX && mouseX <= btnX + btnW && mouseY >= btnY - 20 && mouseY <= btnY + btnH) {
+            copyWikiIdToClipboard(win.wikiId);
+        }
+    }
+});
+
+function copyWikiIdToClipboard(text) {
+    if (!text) {
+        console.log("コピーするIDがありません");
+        return;
+    }
+
+    navigator.clipboard.writeText(text).then(() => {
+        alert("Wiki連携キーをコピーしました！");
+    }).catch(err => {
+        console.error("コピー失敗:", err);
+    });
+}
 
 // ============================================================
 // :::MOUSE_UP_HANDLER::: 🖱️ マウスリリースによるドラッグ状態の解除
@@ -2758,6 +2797,17 @@ socket.on('item_pickup_log', (data) => {
         }
         
         console.log("アイテムログを箱に入れました。現在の数:", itemLogs.length);
+    }
+});
+
+// クライアント側：サーバーからの返事を受け取って表示を更新する
+socket.on('account_info_response', (data) => {
+	
+	console.log("【確認】サーバーからデータが届いたよ！:", data);
+	
+    if (gameWindows.options) {
+        gameWindows.options.wikiId = data.wikiId;
+        console.log("Wiki IDを受信成功:", data.wikiId);
     }
 });
 
@@ -5928,7 +5978,34 @@ function drawEventWindow() {
 function drawOptionsWindow() {
     const win = gameWindows.options;
     if (!win.isOpen) return;
+
+    // 🌟 1. 描画設定を保存
+    ctx.save();
+
+    // 2. ウィンドウの枠を描画
     drawSimpleWindow("⚙️ Options", win.x, win.y, win.w, win.h);
+
+    // 3. この関数内だけのフォントや色を設定
+    ctx.textAlign = "left";
+    ctx.textBaseline = "top";
+    ctx.font = "14px 'MS PGothic', sans-serif";
+    ctx.fillStyle = "#ffffff";
+
+    const textX = win.x + 20;
+    const textY = win.y + 50;
+    const wikiIdText = `Wiki連携キー: ${win.wikiId || "読み込み中..."}`;
+
+    // 文字の描画
+    ctx.fillStyle = "rgba(0, 0, 0, 0.5)";
+    ctx.fillText(wikiIdText, textX + 1, textY + 1);
+    ctx.fillStyle = "#ffffff";
+    ctx.fillText(wikiIdText, textX, textY);
+    
+    ctx.fillStyle = "#f9d448";
+    ctx.fillText("[コピー]", textX + 180, textY);
+
+    // 🌟 4. 描画設定を元に戻す（これで他のUIへの影響が消えます）
+    ctx.restore();
 }
 
 function drawHelpWindow() {

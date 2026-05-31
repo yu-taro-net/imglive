@@ -514,10 +514,14 @@ setupTooltipCanvas();
 </script>
 
 <div id="player-context-menu" style="display:none; position:fixed; background:#222; color:#fff; border:1px solid #ffcc00; z-index:20000; padding:10px; font-family:sans-serif; border-radius:4px;">
-    <div id="menu-player-name" style="font-weight:bold; color:#ffcc00; margin-bottom:5px;">プレイヤー</div>
-    <div class="menu-item" onclick="handleProfileClick()" style="padding: 10px 12px; cursor: pointer; font-size: 14px; border-top: 1px solid #444;">
-    👤 プロフィールを見る
-</div>
+    <div id="menu-player-name" style="font-weight:bold; color:#ffcc00; margin-bottom:5px; border-bottom:1px solid #444; padding-bottom:5px;">プレイヤー名</div>
+    
+    <!-- ここから5つの黄金メニュー -->
+    <div class="menu-item" onclick="handleProfileClick" style="padding: 8px; cursor: pointer;">👤 プロフィール</div>
+    <div class="menu-item" onclick="" style="padding: 8px; cursor: pointer;">📈 活動履歴</div>
+    <div class="menu-item" onclick="" style="padding: 8px; cursor: pointer;">🎁 コレクション</div>
+    <div class="menu-item" onclick="" style="padding: 8px; cursor: pointer;">🤝 コミュニティ</div>
+    <div class="menu-item" onclick="" style="padding: 8px; cursor: pointer; border-top: 1px solid #444; margin-top:5px;">⚙️ 詳細ツール</div>
 </div>
 
 <div id="player-profile-window" style="

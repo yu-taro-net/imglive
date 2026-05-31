@@ -279,13 +279,16 @@ socket.on('login', async (data) => {
                     id: user.id,
                     username: user.username,
                     channel: parseInt(channel) || 1,
-                    token: token, // 💡 フロントに渡す
+                    token: token,
                     message: '1回目認証成功（キャラ選択へ進みます）'
                 });
                 return;
             }
 
             // 🚀 ここから下は「2回目の本番ログイン」の時だけ実行されます
+            // 🌟 【修正ポイント】ここでソケットにユーザー名を紐付ける
+            socket.username = user.username;
+
             const statsSql = 'SELECT * FROM player_stats WHERE user_id = ?';
             const [statsResults] = await pool.query(statsSql, [user.id]);
 
@@ -345,7 +348,7 @@ socket.on('login', async (data) => {
                 id: user.id,
                 username: user.username,
                 channel: selectedChannel,
-                token: token, // 💡 本番ログイン時にもトークンを渡す
+                token: token,
                 stats: {
                     level: stats.level,
                     exp: stats.exp,
@@ -453,7 +456,7 @@ socket.on('join', data => {
 // :::REGISTER::: 📝 ユーザー新規登録 (Register) + 徹底デバッグ版
 // ============================================================
 socket.on('register', async (data) => {
-    // 💡 フロントから送られてくる email も受け取れるように拡張（なければ未定義になります）
+    // 💡 フロントから送られてくる email も受け取れるように拡張
     const { username, password, email } = data;
     console.log(`\n=== [DEBUG START] 登録プロセス開始: "${username}" ===`);
 
@@ -474,7 +477,6 @@ socket.on('register', async (data) => {
         // 🌟 タイムゾーン設定
         try {
             console.log(`[DEBUG 2] タイムゾーン設定(SET time_zone)を実行します...`);
-            // あなたの環境では pool.query が直接 Promise を返すため、await するだけでOKです
             await pool.query("SET time_zone = '+09:00';");
             console.log(`[DEBUG 2 ✅] タイムゾーン設定クエリ成功`);
         } catch (tzErr) {
@@ -484,23 +486,25 @@ socket.on('register', async (data) => {
 
         // 2. データベース(users)に保存
         console.log(`[DEBUG 3] usersテーブルへのINSERTを開始します...`);
-        const sql = 'INSERT INTO users (username, password_hash, created_at) VALUES (?, ?, NOW())';
+        const crypto = require('crypto');
         
-        // 🌟 Promiseクライアント環境では [result] 形式で分割代入するのが一般的です
-        const [result] = await pool.query(sql, [username, hash]);
+        // 10文字程度のランダムなIDを生成
+        const wiki_id = crypto.randomBytes(6).toString('base64url');
+
+        const sql = 'INSERT INTO users (username, password_hash, created_at, wiki_id) VALUES (?, ?, NOW(), ?)';
+        
+        // 🌟 修正ポイント: [username, hash, wiki_id] に変更
+        const [result] = await pool.query(sql, [username, hash, wiki_id]);
         
         // 🌟 3. 新しく作成されたユーザーの ID を取得
         const newUserId = result.insertId;
-        console.log(`[DEBUG 3 ✅] users保存成功。発行されたID: ${newUserId}`);
+        console.log(`[DEBUG 3 ✅] users保存成功。発行されたID: ${newUserId} (wiki_id: ${wiki_id})`);
 
 
         // ========================================================
-        // 🌟 【新規追加】 新しいデータベース(accounts)にも同時に保存
+        // 🌟 新しいデータベース(accounts)にも同時に保存
         // ========================================================
         console.log(`[DEBUG 3-2] accountsテーブルへのINSERTを開始します...`);
-        
-        // 💡 画面からemailが送られてこない現在は、自動的に「ユーザー名@test.com」を作って登録します。
-        // 後ほど画面側から本物のメアドが送られてくるようになれば、自動的にそちらが優先されます。
         const dummyEmail = email || `${username}@test.com`;
         
         const accountsSql = `
@@ -512,7 +516,6 @@ socket.on('register', async (data) => {
             const [accResult] = await pool.query(accountsSql, [dummyEmail, username, hash]);
             console.log(`[DEBUG 3-2 ✅] accounts保存成功。発行されたID: ${accResult.insertId}`);
         } catch (accErr) {
-            // accounts側で何らかのエラー（重複など）が起きても、既存のゲーム登録の流れ（player_stats作成など）を巻き添えにしないよう安全にログだけを吐きます
             console.error(`[DEBUG 3-2 ❌] accounts保存失敗の詳細原因:`, accErr.message);
             if (typeof LOG !== 'undefined') LOG.DB(`accounts追加エラー: ${accErr.message}`);
         }
@@ -2066,6 +2069,29 @@ socket.on('close_vending', () => {
         });
 
         console.log(`[Vending] ${p.name} が露店を閉じました。`);
+    }
+});
+
+// サーバー側：クライアントからの「IDちょうだい」というリクエストに応える
+socket.on('get_account_info', async () => {
+
+	console.log("【確認】リクエスト受信！現在の名前:", socket.username);
+	
+    // ログイン時に紐付けた名前を取り出す
+    const username = socket.username; 
+    
+    if (!username) return; // ログインしていない場合は無視
+
+    try {
+        // DBから wiki_id を検索
+        const [rows] = await pool.query('SELECT wiki_id FROM users WHERE username = ?', [username]);
+        
+        if (rows.length > 0) {
+            // 見つかったらクライアントに送り返す
+            socket.emit('account_info_response', { wikiId: rows[0].wiki_id });
+        }
+    } catch (err) {
+        console.error("Wiki ID取得エラー:", err);
     }
 });
 
