@@ -435,10 +435,6 @@ let itemLogs   = [];       // 獲得アイテムの履歴
 let chatMessages = [];
 let pickingUpEffects = []; // 🌟 吸い込まれるアニメーションを管理するリスト
 
-// view.js の一番上のほうに記述
-window.lastReceivedTime = Date.now();
-window.isDisconnected = false;
-
 // ============================================================
 // :::CLASS_GAME_WINDOW::: 🖥️ GUIウィンドウの構造と操作判定
 // ============================================================
@@ -729,9 +725,8 @@ function loadStaticImages() {
  * - Canvasを用いて画像の実体（非透明部分）をピクセル走査
  * - キャラクターの画像下端から、不透明ドットに当たるまでの余白量を算出
  * - 描画時にこの値を加味することで、足元が地面にしっかり接地するように補正
- * * 🌟 修正：manualOffset 引数を追加（正の値でより深く埋まり、負の値で浮きます）
  */
-function getBottomTransparentPadding(img, manualOffset = 0) {
+function getBottomTransparentPadding(img) {
     try {
         const canvas = document.createElement('canvas');
         canvas.width = img.width;
@@ -760,10 +755,7 @@ function getBottomTransparentPadding(img, manualOffset = 0) {
                 break; // キャラクターの足元にぶつかったら終了
             }
         }
-        
-        // 🌟 自動計測値に手動のオフセットを加算して返す
-        return paddingY + manualOffset;
-        
+        return paddingY;
     } catch (e) {
         // 万が一エラーが起きてもゲームが止まらないように安全弁を用意
         return 0;
@@ -840,7 +832,7 @@ function loadStaticImages() {
 
                 // 💡 画像がロードされた瞬間に、1回だけ足元の余白を測って記憶させる
                 img.onload = () => {
-                    img.autoPaddingY = getBottomTransparentPadding(img, 10);
+                    img.autoPaddingY = getBottomTransparentPadding(img);
                 };
 
                 sprites[key].push(img);
@@ -1194,12 +1186,6 @@ window.addEventListener('keydown', (e) => {
  * - サーバー同期（socket.emit）による他ユーザーへの状態通知
  */
 window.addEventListener('keydown', (e) => {
-
-	// 🌟 追記：接続が切れていたら、キー入力を一切受け付けない
-    if (window.isDisconnected) {
-        return; 
-    }
-	
     // ✅ 入力欄を触っていたら無視
     if (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA') return;
 
@@ -1248,11 +1234,6 @@ window.addEventListener('keydown', (e) => {
  * - エスケープキーによる一括クローズ処理
  */
 window.addEventListener('keydown', (e) => {
-
-	// 🌟 追記：接続が切れていたら、キー入力を一切受け付けない
-    if (window.isDisconnected) {
-        return; 
-    }
     
 	// 🌟 ログイン前（window.isGameStartedが設定されていない、またはfalse）なら何もしない
     if (!window.isGameStarted) {
@@ -1271,12 +1252,6 @@ window.addEventListener('keydown', (e) => {
 
         // gameWindows内のisOpenを反転
         win.isOpen = !win.isOpen;
-        
-        // 🌟 追加：Optionsウィンドウが開いた瞬間だけリクエストを送る
-        if (targetId === 'options' && win.isOpen) {
-            console.log("Optionsを開いたのでIDを要求します");
-            socket.emit('get_account_info'); 
-        }
         
         // 🌟 開閉に関わらず、最後に触った(押した)方を最前面へ
         if (typeof windowStack !== 'undefined') {
@@ -1332,39 +1307,6 @@ window.addEventListener('keydown', (e) => {
         }
     }
 });
-
-// キャンバスのクリックイベント内（view.jsなどのクリック処理場所）
-canvas.addEventListener('mousedown', (e) => {
-    // オプションウィンドウが開いているかチェック
-    if (gameWindows.options && gameWindows.options.isOpen) {
-        const win = gameWindows.options;
-        const mouseX = e.offsetX;
-        const mouseY = e.offsetY;
-
-        // [コピー]ボタンの範囲（文字の描画位置に合わせて調整してください）
-        const btnX = win.x + 20 + 180;
-        const btnY = win.y + 50;
-        const btnW = 60; // ボタンの幅
-        const btnH = 20; // ボタンの高さ
-
-        if (mouseX >= btnX && mouseX <= btnX + btnW && mouseY >= btnY - 20 && mouseY <= btnY + btnH) {
-            copyWikiIdToClipboard(win.wikiId);
-        }
-    }
-});
-
-function copyWikiIdToClipboard(text) {
-    if (!text) {
-        console.log("コピーするIDがありません");
-        return;
-    }
-
-    navigator.clipboard.writeText(text).then(() => {
-        alert("Wiki連携キーをコピーしました！");
-    }).catch(err => {
-        console.error("コピー失敗:", err);
-    });
-}
 
 // ============================================================
 // :::MOUSE_UP_HANDLER::: 🖱️ マウスリリースによるドラッグ状態の解除
@@ -1699,12 +1641,6 @@ function openDropForm(slotIndex, item) {
  * - 他プレイヤーの露店クリック判定（インタラクション開始）
  */
 canvas.addEventListener('mousedown', (event) => {
-
-	// 🌟 追記：接続が切れていたら、クリック操作を一切受け付けない
-    if (window.isDisconnected) {
-        return; 
-    }
-	
     const rect = canvas.getBoundingClientRect();
     const clickX = event.clientX - rect.left;
     const clickY = event.clientY - rect.top;
@@ -2825,20 +2761,6 @@ socket.on('item_pickup_log', (data) => {
     }
 });
 
-// クライアント側：サーバーからの返事を受け取って表示を更新する
-socket.on('account_info_response', (data) => {
-	
-    console.log("【確認】サーバーからデータが届いたよ！:", data);
-	
-    if (gameWindows.options) {
-        gameWindows.options.wikiId = data.wikiId;
-        // 【追加】ここで isLinked も保存します！
-        gameWindows.options.isLinked = data.isLinked; 
-        
-        console.log("Wiki IDを受信成功:", data.wikiId, " / 連携状態:", data.isLinked);
-    }
-});
-
 // ============================================================
 // 🎨 [SECTION 7: RENDER] 描画エンジン
 // 役割: Canvasへの描画処理とメインループ(60FPS)
@@ -2913,34 +2835,6 @@ function drawGame(hero, others, enemies, items, platforms, ladders, damageTexts,
             ctx.fill();
         }
     }
-	
-	if (window.isDisconnected) {
-    ctx.save();
-    
-    // 【重要】座標変換をすべてリセットする（これが無いとズレます）
-    ctx.setTransform(1, 0, 0, 1, 0, 0); 
-    
-    // 画面全体を覆う黒い背景
-    ctx.fillStyle = "rgba(0, 0, 0, 0.7)";
-    // 実際のキャンバスの横幅と高さをそのまま使う
-    ctx.fillRect(0, 0, canvas.width, canvas.height); 
-    
-    ctx.fillStyle = "#ffffff";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    
-    // 文字サイズを調整
-    ctx.font = "bold 40px sans-serif";
-    
-    // 現在のキャンバスの真ん中を取得
-    const centerX = canvas.width / 2;
-    const centerY = canvas.height / 2;
-    
-    // 描画
-    ctx.fillText("接続が切れました", centerX, centerY);
-    
-    ctx.restore();
-}
 }
 
 // ============================================================
@@ -3657,8 +3551,8 @@ function drawGameWindows(hero) {
  * - 安全性確保：heroデータの存在チェックによるレンダリングエラーの防止
  */
 function drawUIOverlay(hero) {
-    if (!hero) return; // 🌟 heroが空っぽの時は何もしない
-
+    if (!hero) return; // 🌟 heroが空っぽの時は何もしない（これでエラーを防ぐ）
+	
     // 1. 基本UIパーツの描画（背面Canvas: ctx）
     drawItemLogsUI();
     drawTopStatusUI(hero);
@@ -3669,48 +3563,45 @@ function drawUIOverlay(hero) {
     // ==========================================
     // 🎒 インベントリグリッド（メインループ部分）
     // ==========================================
-    // 🌟 接続が切れている場合は、ホバー判定をスキップするため null に固定
-    if (window.isDisconnected) {
-        window.hoveredItemForTooltip = null;
-    } else {
-        // 🌟 接続中の時だけホバー判定を計算
-        window.hoveredItemForTooltip = null;
-    }
+    // 🌟 修正：まずホバー状態を一度クリアします（マウスが外れた時に消すため）
+    window.hoveredItemForTooltip = null;
 
-    // インベントリの描画自体は接続状態に関わらず常に実行する
     if (hero && hero.inventory) {
         // グリッド背景などは背面に描画
         drawInventoryGrid(ctx, hero.inventory);
 
-        // 🌟 接続中のみ詳細なホバー判定計算を行う
-        if (!window.isDisconnected) {
-            const startX = 20;
-            const startY = 130;
-            const slotSize = 40;
-            const spacing = 8;
+        const startX = 20;
+        const startY = 130;
+        const slotSize = 40;
+        const spacing = 8;
 
-            hero.inventory.forEach((slot, index) => {
-                if (!slot || !slot.type || slot.count <= 0) return;
-                const x = startX + (index * (slotSize + spacing));
-                const y = startY;
+        hero.inventory.forEach((slot, index) => {
+            if (!slot || !slot.type || slot.count <= 0) return;
+            const x = startX + (index * (slotSize + spacing));
+            const y = startY;
 
-                // マウスがアイテムの上にあるか判定
-                if (mouseX >= x && mouseX <= (x + slotSize) &&
-                    mouseY >= y && mouseY <= (y + slotSize)) {
-                    window.hoveredItemForTooltip = slot;
-                }
-            });
-        }
+            // マウスがアイテムの上にあるか判定
+            if (mouseX >= x && mouseX <= (x + slotSize) &&
+                mouseY >= y && mouseY <= (y + slotSize)) {
+
+                // 🌟 修正：ここでは ctx に描画せず、情報を記憶するだけにする
+                // これにより、インベントリがショップの裏にあってもデータだけは取れます
+                window.hoveredItemForTooltip = slot;
+            }
+        });
     }
 
     // 🌟 整理：重なり順を管理する配列に基づいてウィンドウ群を描画（背面Canvas）
     drawGameWindows(hero);
-    
+	
     // ==========================================
     // ✨ ツールチップ描画の実行（最前面Canvas: tCtx）
     // ==========================================
-    // 🌟 修正：切断時はツールチップを描画しないガードを追加
-    if (!window.isDisconnected && typeof tCtx !== 'undefined') {
+    // 🌟 修正：ここで tCtx を使って、ショップUIよりも手前に一気に描画します
+    if (typeof tCtx !== 'undefined') {
+        // 1. 前のフレームの残像を消す
+        //tCtx.clearRect(0, 0, window.innerWidth, window.innerHeight);
+
         // 2. もしインベントリ（または今後実装するショップ）でアイテムを触っていたら描画
         if (window.hoveredItemForTooltip) {
             drawItemTooltip(tCtx, window.hoveredItemForTooltip, mouseX, mouseY, hero);
@@ -4367,39 +4258,46 @@ function drawPlayerUI(ctx, p, isMe, pW, frame) {
     
     // --- 1. HPバーの描画 (自分以外のプレイヤーのみ表示) ---
     if (!isMe) {
+        // 設定値の読み込み
         const barW = VIEW_CONFIG.hpBar.width; 
         const barH = VIEW_CONFIG.hpBar.height;
         
+        // バーの水平位置を計算（プレイヤーの中央に配置）
         const barX = p.x + (VIEW_CONFIG.player.hitboxW / 2) - (barW / 2);
         
+        // 地面にいるか空中にいるかでHPバーの基準高さを切り替え
         const currentBaseY = (p.y > VIEW_CONFIG.groundThreshold) 
             ? VIEW_CONFIG.groundY 
             : (p.y + VIEW_CONFIG.player.drawH * 0.4);
         
+        // 描画の高さ調整（ジャンプ中なども考慮）
         const currentDrawH = 60; 
         const barY = currentBaseY - currentDrawH - (p.jumpY || 0) - 25;
         
+        // HPの割合計算 (0.0 〜 1.0)
         const hpRate = Math.max(0, Math.min(1, p.hp / 100));
         
+        // 残りHPに応じて色を変更（20%以下で赤、50%以下で黄色、それ以外は緑）
         let hpColor = (hpRate <= 0.2) ? "#ff0000" : (hpRate <= 0.5 ? "#ffff00" : "#00ff00");
         
+        // HPバーの外枠（黒い縁取り）を描画
         ctx.fillStyle = "black";
         ctx.fillRect(barX - 1, barY - 1, barW + 2, barH + 2);
         
+        // HPバーの本体（現在の残りHP分）を描画
         ctx.fillStyle = hpColor;
         ctx.fillRect(barX, barY, barW * hpRate, barH);
     }
 
     // --- 2. プレイヤー名の描画 (自分も他人も表示) ---
-    // 【修正】p.isLinked が true の場合のみ "[W]" を表示する
-    const badge = (p.isLinked) ? " [W]" : "";
-    const nameText = (p.name || "Player") + badge;
+    const nameText = p.name || "Player";
     
-    // 名前の表示高さを計算
+    // 名前の表示高さを計算（地面/空中でオフセットを変更）
     let nameY = p.y + ((p.y > VIEW_CONFIG.groundThreshold) 
         ? VIEW_CONFIG.playerName.offsetY_ground 
         : VIEW_CONFIG.playerName.offsetY_air);
     
+    // 画面外（上側）に名前が突き抜けないようにマージンを確保
     if (nameY < VIEW_CONFIG.playerName.safeMargin) {
         nameY = VIEW_CONFIG.playerName.safeMargin;
     }
@@ -4407,16 +4305,16 @@ function drawPlayerUI(ctx, p, isMe, pW, frame) {
     // フォントの設定
     ctx.font = `bold ${VIEW_CONFIG.playerName.fontSize} Arial`;
     
-    // 背景の黒帯サイズ計算（nameText が変われば自動で幅も変わる）
+    // テキストの幅を計測して、背景の黒帯（半透明）のサイズを決定
     const nameW = ctx.measureText(nameText).width + VIEW_CONFIG.playerName.paddingW;
     
-    // 名前の背景（半透明）
+    // 名前の背景（読みやすくするための半透明の黒い四角）
     ctx.fillStyle = "rgba(0, 0, 0, 0.5)";
     ctx.fillRect(p.x + pW / 2 - nameW / 2, nameY - 15, nameW, 20);
     
     // 名前のテキストを描画
     ctx.fillStyle = "white";
-    ctx.textAlign = "center";
+    ctx.textAlign = "center"; // 中央揃え
     ctx.fillText(nameText, p.x + pW / 2, nameY);
 }
 
@@ -6030,34 +5928,7 @@ function drawEventWindow() {
 function drawOptionsWindow() {
     const win = gameWindows.options;
     if (!win.isOpen) return;
-
-    // 🌟 1. 描画設定を保存
-    ctx.save();
-
-    // 2. ウィンドウの枠を描画
     drawSimpleWindow("⚙️ Options", win.x, win.y, win.w, win.h);
-
-    // 3. この関数内だけのフォントや色を設定
-    ctx.textAlign = "left";
-    ctx.textBaseline = "top";
-    ctx.font = "14px 'MS PGothic', sans-serif";
-    ctx.fillStyle = "#ffffff";
-
-    const textX = win.x + 20;
-    const textY = win.y + 50;
-    const wikiIdText = `Wiki連携キー: ${win.wikiId || "読み込み中..."}`;
-
-    // 文字の描画
-    ctx.fillStyle = "rgba(0, 0, 0, 0.5)";
-    ctx.fillText(wikiIdText, textX + 1, textY + 1);
-    ctx.fillStyle = "#ffffff";
-    ctx.fillText(wikiIdText, textX, textY);
-    
-    ctx.fillStyle = "#f9d448";
-    ctx.fillText("[コピー]", textX + 180, textY);
-
-    // 🌟 4. 描画設定を元に戻す（これで他のUIへの影響が消えます）
-    ctx.restore();
 }
 
 function drawHelpWindow() {
@@ -6235,12 +6106,6 @@ const createCharSelector = () => {
     document.body.appendChild(overlay);
 };
 
-// view.js の一番下に記述
-socket.onAny((event, ...args) => {
-    window.lastReceivedTime = Date.now();
-    window.isDisconnected = false;
-});
-
 // 実行
 //createCharSelector();
 
@@ -6267,13 +6132,6 @@ const gameWindows = {
  * - 優先順位（レイヤー）：ウィンドウ > 露店 > アイテム の順で判定し、無駄な処理をスキップ
  */
 canvas.addEventListener('mousemove', (e) => {
-
-	// 🌟 追記：接続が切れていたら、一切の判定を行わずに標準カーソルにする
-    if (window.isDisconnected) {
-        canvas.style.cursor = "default";
-        return;
-    }
-	
     const rect = canvas.getBoundingClientRect();
     mouseX = e.clientX - rect.left;
     mouseY = e.clientY - rect.top;
