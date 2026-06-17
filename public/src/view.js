@@ -1396,67 +1396,56 @@ window.selectedPlayer = null;
 // ============================================================
 // :::CONTEXT_MENU_TARGETING::: 🖱️ 右クリックによるプレイヤーターゲット判定
 // ============================================================
-/**
- * 役割：
- * - ゲームCanvas内でのみ、デフォルトのブラウザ右クリックメニューを抑制
- * - スクリーン座標からゲームCanvas内の相対座標へ変換
- * - `others` 全員に対して、当たり判定用の四角形枠（AABB）を作成しヒットテストを実行
- * - ターゲットが見つかった場合、ターゲットメニューの表示と選択情報の保持
- */
 const stageCanvas = document.getElementById('stage');
 
 if (stageCanvas) {
     stageCanvas.addEventListener('contextmenu', function(e) {
-        e.preventDefault(); // ゲームCanvas内でのみメニューを抑制
+        e.preventDefault();
 
-        const menu = document.getElementById('player-context-menu');
-        
-        // 🌟 2. 座標計算（ご提示のロジックを完全踏襲）
         const rect = stageCanvas.getBoundingClientRect();
-        const baseWidth = 800;
-        const baseHeight = 600;
-
-        const rx = (e.clientX - rect.left) / rect.width;
-        const ry = (e.clientY - rect.top) / rect.height;
-
-        const canvasX = rx * baseWidth;
-        const canvasY = ry * baseHeight;
+        const canvasX = ((e.clientX - rect.left) / rect.width) * 800;
+        const canvasY = ((e.clientY - rect.top) / rect.height) * 600;
 
         let foundPlayer = null;
-        
-        // 🌟 3. 判定処理（デバッグ枠の数値に合わせて修正）
         for (let id in others) {
             const p = others[id];
-            
-            // 赤いデバッグ枠と全く同じ座標・サイズを定義
-            const rectX = p.x - 30; // 右に寄せるための調整
-            const rectY = p.y - 50; // 上下に合わせるための調整
-            const rectW = 100;
-            const rectH = 100;
-
-            // マウスの座標(canvasX, canvasY)が、この四角形の中に入っているか判定
-            if (canvasX >= rectX && canvasX <= rectX + rectW &&
-                canvasY >= rectY && canvasY <= rectY + rectH) {
-                
-                foundPlayer = p; 
-                break; 
+            if (canvasX >= p.x - 30 && canvasX <= p.x + 70 &&
+                canvasY >= p.y - 50 && canvasY <= p.y + 50) {
+                foundPlayer = p;
+                break;
             }
         }
 
-        // 🌟 4. 表示とデータ保存
         if (foundPlayer) {
-            // 見つかったプレイヤーの情報を変数に保存しておく
             window.selectedPlayer = foundPlayer;
+            console.log("【1. ターゲット特定】:", foundPlayer.name);
 
-            console.log("ターゲット発見:", foundPlayer.name || foundPlayer.id);
-            menu.style.display = 'block';
-            menu.style.left = e.clientX + 'px';
-            menu.style.top = e.clientY + 'px';
-            document.getElementById('menu-player-name').innerText = foundPlayer.name || "プレイヤー";
+            // サーバーへ問い合わせ
+            socket.emit('get_target_account_info', foundPlayer.name);
+
+            // サーバーからの返信を待ち受け
+            socket.once('target_account_info_response', (data) => {
+                console.log("【2. サーバーからの回答】:", data);
+                
+                // データが空ならプレイヤー名で代用、存在すれば WikiID を使用
+                const targetId = data.wikiId || foundPlayer.name;
+                
+                console.log("【3. 最終ID決定】:", targetId);
+                alert("ターゲットIDを確認: " + targetId);
+                
+                const dummyEvent = {
+                    preventDefault: () => {},
+                    pageX: e.pageX,
+                    pageY: e.pageY,
+                    target: { textContent: data.wikiName || foundPlayer.name }
+                };
+                
+                handleRightClick(dummyEvent, targetId);
+            });
         } else {
-            menu.style.display = 'none';
-            window.selectedPlayer = null; // 誰もいないならリセット
-            console.log(`クリック座標: X=${Math.round(canvasX)}, Y=${Math.round(canvasY)}`);
+            const menu = document.getElementById('player-context-menu');
+            if (menu) menu.style.display = 'none';
+            window.selectedPlayer = null;
         }
     });
 }
@@ -6238,7 +6227,7 @@ const createCharSelector = () => {
 // view.js の一番下に記述
 socket.onAny((event, ...args) => {
     window.lastReceivedTime = Date.now();
-    window.isDisconnected = false;
+    //window.isDisconnected = false;
 });
 
 // 実行

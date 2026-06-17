@@ -2105,24 +2105,15 @@ socket.on('close_vending', () => {
     }
 });
 
-// サーバー側：クライアントからの「IDちょうだい」というリクエストに応える
+// 1. 既存の自分用情報取得（変更なし）
 socket.on('get_account_info', async () => {
-
     console.log("【確認】リクエスト受信！現在の名前:", socket.username);
-    
-    // ログイン時に紐付けた名前を取り出す
     const username = socket.username; 
-    
-    if (!username) return; // ログインしていない場合は無視
+    if (!username) return;
 
     try {
-        // DBから wiki_id と is_linked を検索
-        // 既存のSELECT文に is_linked を追加します
         const [rows] = await pool.query('SELECT wiki_id, is_linked FROM users WHERE username = ?', [username]);
-        
         if (rows.length > 0) {
-            // 見つかったらクライアントに送り返す
-            // is_linked は 0 or 1 なので、!! で boolean (true/false) に変換して送ると扱いやすいです
             socket.emit('account_info_response', { 
                 wikiId: rows[0].wiki_id,
                 isLinked: !!rows[0].is_linked 
@@ -2130,6 +2121,35 @@ socket.on('get_account_info', async () => {
         }
     } catch (err) {
         console.error("Wiki ID取得エラー:", err);
+    }
+});
+
+// 2. 追加：右クリック用・ターゲットのWiki情報取得
+// クライアントの foundPlayer.id を受け取って、そのユーザーのWiki情報を返す
+// サーバー側：game_linked_wiki_id で直接検索するように変更
+socket.on('get_target_account_info', async (targetName) => {
+    console.log("【サーバー受診】リクエストが来ました！名前:", targetName);
+    
+    try {
+        const [rows] = await pool.query(
+            'SELECT game_linked_wiki_id, game_linked_wiki_name FROM users WHERE username = ?', 
+            [targetName]
+        );
+        
+        console.log("【DB検索結果】行数:", rows.length);
+        
+        if (rows.length > 0) {
+            console.log("【DBデータ発見】:", rows[0]);
+            socket.emit('target_account_info_response', { 
+                wikiId: rows[0].game_linked_wiki_id,
+                wikiName: rows[0].game_linked_wiki_name
+            });
+        } else {
+            console.log("【DBエラー】その名前のユーザーがいません:", targetName);
+            socket.emit('target_account_info_response', { wikiId: null, wikiName: null });
+        }
+    } catch (err) {
+        console.error("【サーバー致命的エラー】:", err);
     }
 });
 
