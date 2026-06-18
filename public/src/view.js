@@ -1407,6 +1407,8 @@ if (stageCanvas) {
         const canvasY = ((e.clientY - rect.top) / rect.height) * 600;
 
         let foundPlayer = null;
+
+        // 1. まず他プレイヤー(others)を探索
         for (let id in others) {
             const p = others[id];
             if (canvasX >= p.x - 30 && canvasX <= p.x + 70 &&
@@ -1416,33 +1418,55 @@ if (stageCanvas) {
             }
         }
 
+        // 2. 他プレイヤーが見つからなければ、自分(hero)かどうかを判定
+        if (!foundPlayer && typeof hero !== 'undefined') {
+            if (canvasX >= hero.x - 30 && canvasX <= hero.x + 70 &&
+                canvasY >= hero.y - 50 && canvasY <= hero.y + 50) {
+                foundPlayer = hero; // 自分をターゲットとしてセット
+            }
+        }
+
         if (foundPlayer) {
             window.selectedPlayer = foundPlayer;
-            console.log("【1. ターゲット特定】:", foundPlayer.name);
+            console.log("【1. ターゲット特定】:", foundPlayer.name || "自分");
 
-            // サーバーへ問い合わせ
-            socket.emit('get_target_account_info', foundPlayer.name);
-
-            // サーバーからの返信を待ち受け
-            socket.once('target_account_info_response', (data) => {
-                console.log("【2. サーバーからの回答】:", data);
-                
-                // データが空ならプレイヤー名で代用、存在すれば WikiID を使用
-                const targetId = data.wikiId || foundPlayer.name;
-                
-                console.log("【3. 最終ID決定】:", targetId);
-                alert("ターゲットIDを確認: " + targetId);
+            // --- 自キャラかどうかで分岐処理 ---
+            if (foundPlayer === hero) {
+                // 自分ならサーバーを介さず即時処理（自キャラ専用メニュー用）
+                // 必要に応じて ID を "SELF" とするか、自身の名前を使用
+                const targetId = "SELF_" + (typeof myId !== 'undefined' ? myId : "player");
                 
                 const dummyEvent = {
                     preventDefault: () => {},
                     pageX: e.pageX,
                     pageY: e.pageY,
-                    target: { textContent: data.wikiName || foundPlayer.name }
+                    target: { textContent: foundPlayer.name || "自分" }
                 };
                 
                 handleRightClick(dummyEvent, targetId);
-            });
+
+            } else {
+                // 他プレイヤーなら従来通りサーバーに問い合わせ
+                socket.emit('get_target_account_info', foundPlayer.name);
+
+                socket.once('target_account_info_response', (data) => {
+                    console.log("【2. サーバーからの回答】:", data);
+                    
+                    const targetId = data.wikiId || foundPlayer.name;
+                    console.log("【3. 最終ID決定】:", targetId);
+                    
+                    const dummyEvent = {
+                        preventDefault: () => {},
+                        pageX: e.pageX,
+                        pageY: e.pageY,
+                        target: { textContent: data.wikiName || foundPlayer.name }
+                    };
+                    
+                    handleRightClick(dummyEvent, targetId);
+                });
+            }
         } else {
+            // 何もクリックしていなければメニューを閉じる
             const menu = document.getElementById('player-context-menu');
             if (menu) menu.style.display = 'none';
             window.selectedPlayer = null;

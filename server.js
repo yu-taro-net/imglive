@@ -2946,45 +2946,54 @@ applyJumpPhysics() {
     }
   }
 
-  // 🏃 プレイヤーを追いかける
-  moveTowardsTarget(target) {
-    // 1. ターゲットの方向（左:-1, 右:1）を決定
-    this.dir = (target.x < this.x) ? -1 : 1;
+  // 🏃 プレイヤーを追いかける（ピクピク修正・最適化版）
+moveTowardsTarget(target) {
+    // 💡 1. 到着時のピクピク防止（デッドゾーン設定）
+    // プレイヤーとの距離が5px以内なら、それ以上移動計算を行わないことで
+    // ターゲットと重なった時に向きが高速で反転する現象を防ぎます。
+    const dx = target.x - this.x;
+    if (Math.abs(dx) < 5) {
+        return; // 移動処理を中断してその場で静止
+    }
+
+    // 2. ターゲットの方向（左:-1, 右:1）を決定
+    this.dir = (dx < 0) ? -1 : 1;
     
-    // 追跡時は通常スピードの1.5倍で移動
+    // 追跡時のスピード調整
+    // 「のっそり」感が気になる場合は、この 1.5 の数値を 2.0 〜 2.5 に上げてください
     const moveStep = this.speed * 1.5 * this.dir;
     
     // 現在の足場情報を取得
     const p = (this.platIndex !== null) ? MAP_DATA.platforms[this.platIndex] : null;
 
     if (!p) {
-      // 2. 空中（または地面なし）の場合の移動
-      let nextX = this.x + moveStep;
+        // 3. 空中（または地面なし）の場合の移動
+        let nextX = this.x + moveStep;
 
-      // ターゲットを通り過ぎないように位置を調整（追い越し防止）
-      if (Math.abs(target.x - this.x) < Math.abs(moveStep)) {
-        nextX = target.x;
-      }
+        // ターゲットを通り過ぎないように位置を調整（追い越し防止）
+        if (Math.abs(target.x - this.x) < Math.abs(moveStep)) {
+            nextX = target.x;
+        }
 
-      // 指定された画面範囲内（400〜800-w）であれば座標を更新
-      if (nextX > 400 && nextX < 800 - this.w) {
-        this.x = nextX;
-      }
+        // 指定された画面範囲内（400〜800-w）であれば座標を更新
+        if (nextX > 400 && nextX < 800 - this.w) {
+            this.x = nextX;
+        }
     } else {
-      // 3. プラットフォーム上の場合の移動
-      this.offset += moveStep;
+        // 4. プラットフォーム上の場合の移動
+        this.offset += moveStep;
 
-      // 足場の端に到達した場合の処理
-      if (this.offset < 0 || this.offset > p.w - this.w) {
-        // 座標を端に固定し、1秒間（60フレーム）立ち止まる
-        this.offset = Math.max(0, Math.min(p.w - this.w, this.offset));
-        this.waitTimer = 60;
-      }
-      
-      // オフセットをワールド座標(x)に反映
-      this.x = p.x + this.offset;
+        // 足場の端に到達した場合の処理
+        if (this.offset < 0 || this.offset > p.w - this.w) {
+            // 座標を端に固定し、1秒間（60フレーム）立ち止まる
+            this.offset = Math.max(0, Math.min(p.w - this.w, this.offset));
+            this.waitTimer = 60;
+        }
+        
+        // オフセットをワールド座標(x)に反映
+        this.x = p.x + this.offset;
     }
-  }
+}
 
   // 🚶 巡回移動（パトロール）
   movePatrol() {
