@@ -1431,7 +1431,8 @@ if (stageCanvas) {
             console.log("【1. ターゲット特定】:", foundPlayer.name || "自分");
 
             // --- 自キャラかどうかで分岐処理 ---
-            if (foundPlayer === hero) {
+            //if (foundPlayer === hero) {
+            if (false) {
                 // 自分ならサーバーを介さず即時処理（自キャラ専用メニュー用）
                 // 必要に応じて ID を "SELF" とするか、自身の名前を使用
                 const targetId = "SELF_" + (typeof myId !== 'undefined' ? myId : "player");
@@ -1443,6 +1444,8 @@ if (stageCanvas) {
                     target: { textContent: foundPlayer.name || "自分" }
                 };
                 
+				//alert(targetId);
+				
                 handleRightClick(dummyEvent, targetId);
 
             } else {
@@ -1462,6 +1465,8 @@ if (stageCanvas) {
                         target: { textContent: data.wikiName || foundPlayer.name }
                     };
                     
+					//alert(targetId);
+					
                     handleRightClick(dummyEvent, targetId);
                 });
             }
@@ -4366,6 +4371,10 @@ function getPlayerCurrentImg(p, g, v, frame, sprites, playerSprites, isMe) {
     return sprites.playerA;
 }
 
+// ★【追加箇所】バッジ用の画像オブジェクトを生成して読み込みます
+const badgeImg = new Image();
+badgeImg.src = 'badge.png';
+
 // ============================================================
 // :::DRAW_PLAYER_UI::: 🏷️ キャラクター頭上UI（HPバー・名前）の表示
 // ============================================================
@@ -4403,10 +4412,22 @@ function drawPlayerUI(ctx, p, isMe, pW, frame) {
         ctx.fillRect(barX, barY, barW * hpRate, barH);
     }
 
-    // --- 2. プレイヤー名の描画 (自分も他人も表示) ---
-    // 【修正】p.isLinked が true の場合のみ "[W]" を表示する
-    const badge = (p.isLinked) ? " [W]" : "";
-    const nameText = (p.name || "Player") + badge;
+    // --- 2. プレイヤー名とバッジ画像の描画 (自分も他人も表示) ---
+    const rawName = p.name || "Player";
+    
+    // フォントの設定（幅計算のため先に適用）
+    ctx.font = `bold ${VIEW_CONFIG.playerName.fontSize} Arial`;
+    
+    // 画像のサイズ（お使いの画像に合わせて調整してください。例: 20x20）
+    const imgW = 16;
+    const imgH = 16;
+    
+    // 「p.isLinked が true なら画像の幅＋隙間(4px)、false なら 0」を基準幅にする
+    const badgeW = p.isLinked ? (imgW + 4) : 0;
+    const nameWidth = ctx.measureText(rawName).width;
+    
+    // 背景帯の合計幅（名前の幅 ＋ バッジの幅 ＋ パディング）
+    const totalW = nameWidth + badgeW + VIEW_CONFIG.playerName.paddingW;
     
     // 名前の表示高さを計算
     let nameY = p.y + ((p.y > VIEW_CONFIG.groundThreshold) 
@@ -4417,20 +4438,23 @@ function drawPlayerUI(ctx, p, isMe, pW, frame) {
         nameY = VIEW_CONFIG.playerName.safeMargin;
     }
     
-    // フォントの設定
-    ctx.font = `bold ${VIEW_CONFIG.playerName.fontSize} Arial`;
-    
-    // 背景の黒帯サイズ計算（nameText が変われば自動で幅も変わる）
-    const nameW = ctx.measureText(nameText).width + VIEW_CONFIG.playerName.paddingW;
-    
     // 名前の背景（半透明）
     ctx.fillStyle = "rgba(0, 0, 0, 0.5)";
-    ctx.fillRect(p.x + pW / 2 - nameW / 2, nameY - 15, nameW, 20);
+    ctx.fillRect(p.x + pW / 2 - totalW / 2, nameY - 15, totalW, 20);
     
-    // 名前のテキストを描画
+    // ★【修正箇所】リンク状態(p.isLinked)の場合のみ画像を描画する
+    let currentX = p.x + pW / 2 - totalW / 2 + (VIEW_CONFIG.playerName.paddingW / 2);
+    
+    if (p.isLinked && badgeImg.complete) {
+        // 画像を中心のY座標に合わせて描画
+        ctx.drawImage(badgeImg, currentX, nameY - 14, imgW, imgH);
+        currentX += imgW + 4; // 描画した分だけX座標を進める
+    }
+    
+    // 名前のテキストを右側に描画
     ctx.fillStyle = "white";
-    ctx.textAlign = "center";
-    ctx.fillText(nameText, p.x + pW / 2, nameY);
+    ctx.textAlign = "left"; // 左寄せでテキストを配置
+    ctx.fillText(rawName, currentX, nameY);
 }
 
 // ============================================================
