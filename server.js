@@ -36,6 +36,9 @@
  * ==============================================================================
  */
 
+// 🛠️ メンテナンス中フラグ（true にするとメンテナンス, false で通常営業）
+const IS_MAINTENANCE = false;
+
 // ============================================================
 // ⚙️ [SECTION 1: CONFIG] サーバー設定・定数
 // 役割: 接続ポート、セキュリティ(CORS)、ゲームの物理ルール等の固定値
@@ -216,6 +219,15 @@ const loggedInUsers = new Set();
 io.on('connection', socket => {
     // 🛡️ 通信の根本を try-catch で保護
     try {
+		// 🚧 【追加】全体メンテナンスの強制シャットアウト・ゲートキーパー
+        if (typeof IS_MAINTENANCE !== 'undefined' && IS_MAINTENANCE) {
+            socket.emit('login_response', { 
+                success: false, 
+                message: '現在、サーバーはメンテナンス中です。終了までお待ちください。' 
+            });
+            return; // 正門の段階で処理をストップし、これ以降のログイン認証へ進ませない
+        }
+		
         // 新しいプレイヤーが接続したことを、接続した本人「以外」の全員に通知
         // socket.broadcast.emit('player_joined_sound');
 
@@ -727,6 +739,11 @@ socket.on('disconnect', () => {
 		// 【ここを追加！】他のプレイヤーの連携状態を同期します
         if (data.isLinked !== undefined) {
             p.isLinked = data.isLinked;
+        }
+		
+		// 【ここを追加！】他のプレイヤーの連携状態を同期します
+        if (data.isOnline !== undefined) {
+            p.isOnline = data.isOnline;
         }
 
         // 🌟 修正：店名の上書きを防止
@@ -2059,6 +2076,10 @@ socket.on('move', (data) => {
         if (data.isLinked !== undefined) {
             p.isLinked = data.isLinked;
         }
+		
+		if (data.isOnline !== undefined) {
+            p.isOnline = data.isOnline;
+        }
 
         // 🌟 修正：店名が勝手に上書きされないようガードをかける
         // 1. data.vending_title が存在し、かつ空文字でない場合のみ上書きを許可
@@ -2105,22 +2126,26 @@ socket.on('close_vending', () => {
     }
 });
 
-// 1. 既存の自分用情報取得（変更なし）
+// 1. 既存の自分用情報取得（is_onlineを追加）
 socket.on('get_account_info', async () => {
     console.log("【確認】リクエスト受信！現在の名前:", socket.username);
     const username = socket.username; 
     if (!username) return;
 
     try {
-        const [rows] = await pool.query('SELECT wiki_id, is_linked FROM users WHERE username = ?', [username]);
+        // 💡 SELECT文に is_online を追加
+        const [rows] = await pool.query('SELECT wiki_id, is_linked, is_online FROM users WHERE username = ?', [username]);
+        
         if (rows.length > 0) {
             socket.emit('account_info_response', { 
                 wikiId: rows[0].wiki_id,
-                isLinked: !!rows[0].is_linked 
+                isLinked: !!rows[0].is_linked,
+                // 💡 クライアントへ送信するデータに isOnline を追加（真偽値に変換）
+                isOnline: !!rows[0].is_online 
             });
         }
     } catch (err) {
-        console.error("Wiki ID取得エラー:", err);
+        console.error("アカウント情報取得エラー:", err);
     }
 });
 

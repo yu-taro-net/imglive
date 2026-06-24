@@ -2852,6 +2852,7 @@ socket.on('account_info_response', (data) => {
         gameWindows.options.wikiId = data.wikiId;
         // 【追加】ここで isLinked も保存します！
         gameWindows.options.isLinked = data.isLinked; 
+        gameWindows.options.isOnline = data.isOnline; 
         
         console.log("Wiki IDを受信成功:", data.wikiId, " / 連携状態:", data.isLinked);
     }
@@ -3270,9 +3271,10 @@ function drawEntities(hero, others, enemies, items, frame) {
 /**
  * 役割：
  * - プレイヤーの開店状態(is_vending)の監視とレンダリングのトリガー
- * - タイトルテキストの長さに基づいた看板ボックス（ゴールド〜オレンジ）の自動調整
+ * - タイトルテキストの長さに基づいた看板ボックス（シンプルでおしゃれな尻尾付き吹き出し）の自動調整
  * - 他プレイヤー表示時の座標ズレ補正（manualOffsetX）の適用
  * - 看板エリアのクリック判定用データ（p.vending_rect）のCanvasへの登録
+ * - 2行対応：長すぎるテキストは指定幅で折り返し、はみ出る分は「...」に省略
  */
 function drawVendingSign(p) {
     // 🌟 露店フラグを絶対条件にします
@@ -3283,79 +3285,120 @@ function drawVendingSign(p) {
 
     ctx.save();
     
-    // 文字の長さに合わせて看板のサイズを自動調整
-    ctx.font = "bold 13px sans-serif";
+    // 文字の長さに合わせて看板のサイズを自動調整（すっきりしたフォント指定）
+    ctx.font = "13px sans-serif";
     
     // 🌟 描画用の変数：中身が空の場合のみ、見た目上のフォールバックを表示
     let displayTitle = title;
     if (!title || title === "") {
         displayTitle = "Loading title..."; 
     }
-    const textWidth = ctx.measureText(displayTitle).width;
-    const padding = 10;
+
+    // 💡 はみ出る文字を「...」に省略する関数（最大幅を超えたら切り詰める）
+    function getEllipsisText(text, maxWidth) {
+        if (ctx.measureText(text).width <= maxWidth) return text;
+        let truncated = text;
+        while (truncated.length > 0 && ctx.measureText(truncated + "...").width > maxWidth) {
+            truncated = truncated.slice(0, -1);
+        }
+        return truncated + "...";
+    }
+
+    // 看板の基準幅とpadding
+    const maxSignW = 180; 
+    const padding = 14;
+    const textWidth = Math.min(ctx.measureText(displayTitle).width, maxSignW - (padding * 2));
     const signW = textWidth + (padding * 2);
-    const signH = 24;
+    
+    // 🌟 看板の高さ（2行表示に対応するため 40px）
+    const signH = 40;
 
     // 🛠 手動調整用パラメータ
-    // hero.id と一致しない（他人である）場合のみ、手動で位置を戻します。
-    // 右にずれている分を左に戻すため、マイナスの値を設定します。
     let manualOffsetX = 0;
     if (typeof hero !== 'undefined' && p.id !== hero.id) {
-        // 🌟 レベルアップエフェクトと同様の調整値（右に寄る分を左に-130戻す）
-        // まだずれる場合は、この数値を -140 や -120 などに微調整してください。
         manualOffsetX = -130; 
     }
 
-    // 表示位置：キャラクターの頭上中央（手動オフセットを適用）
+    // 表示位置：キャラクターの頭上中央
     const charCenter = p.x + (p.w || 40) / 2 + manualOffsetX;
     const signX = charCenter - (signW / 2);
-    const signY = p.y - 55; // 頭上55pxの位置
+    const signY = p.y - 80; // 頭上の位置
     const rectY = signY - 17; // 四角形の描画開始位置
 
-    // 看板の影（少し浮いている感じを出す）
-    ctx.shadowColor = "rgba(0, 0, 0, 0.4)";
-    ctx.shadowBlur = 4;
-    ctx.shadowOffsetY = 2;
+    // 看板の影（ふんわりと浮いている上品な影）
+    ctx.shadowColor = "rgba(0, 0, 0, 0.15)";
+    ctx.shadowBlur = 8;
+    ctx.shadowOffsetY = 3;
 
-    // 看板の背景（ゴールド〜オレンジのグラデーション）
+    // 🌟 【シンプルでおしゃれなデザイン】白に近いごく薄いブルーグレーのグラデーション
     const grad = ctx.createLinearGradient(signX, rectY, signX, rectY + signH);
-    grad.addColorStop(0, "#FFD700"); // 上部：ゴールド
-    grad.addColorStop(1, "#FFA500"); // 下部：オレンジ
+    grad.addColorStop(0, "#F8FAFC"); 
+    grad.addColorStop(1, "#E2E8F0"); 
     
     ctx.fillStyle = grad;
-    ctx.strokeStyle = "#8B4513"; // フチ：濃い茶色
-    ctx.lineWidth = 2;
+    ctx.strokeStyle = "#CBD5E1"; // フチ：主張しすぎない細い枠線
+    ctx.lineWidth = 1;
 
-    // 角丸ボックスの描画
-    if (typeof ctx.roundRect === "function") {
-        ctx.beginPath();
-        ctx.roundRect(signX, rectY, signW, signH, 8);
-        ctx.fill();
-        ctx.stroke();
-    } else {
-        ctx.fillRect(signX, rectY, signW, signH);
-        ctx.strokeRect(signX, rectY, signW, signH);
-    }
+    // 💡 尻尾（三角のツメ）つきの吹き出しパスを描く
+    const radius = 6; // 角の丸み
+    const tailW = 12; // 尻尾の幅
+    const tailH = 8;  // 尻尾の高さ
+    
+    ctx.beginPath();
+    // 左上から時計回りにパスを作成
+    ctx.moveTo(signX + radius, rectY);
+    ctx.lineTo(signX + signW - radius, rectY);
+    ctx.quadraticCurveTo(signX + signW, rectY, signX + signW, rectY + radius);
+    ctx.lineTo(signX + signW, rectY + signH - radius);
+    ctx.quadraticCurveTo(signX + signW, rectY + signH, signX + signW - radius, rectY + signH);
+    
+    // ▼ 尻尾の頂点（下部中央からピョコっと飛び出る）
+    ctx.lineTo(signX + (signW / 2) + (tailW / 2), rectY + signH);
+    ctx.lineTo(signX + (signW / 2), rectY + signH + tailH); // 尻尾の尖っている先
+    ctx.lineTo(signX + (signW / 2) - (tailW / 2), rectY + signH);
+    
+    ctx.lineTo(signX + radius, rectY + signH);
+    ctx.quadraticCurveTo(signX, rectY + signH, signX, rectY + signH - radius);
+    ctx.lineTo(signX, rectY + radius);
+    ctx.quadraticCurveTo(signX, rectY, signX + radius, rectY);
+    
+    ctx.closePath();
+    ctx.fill();
+    ctx.stroke();
 
     // 看板の文字
     ctx.shadowBlur = 0; // 文字には影をつけない
-    ctx.fillStyle = "#3E2723"; // 文字色：深い焦げ茶
-    
-    // 💡 ズレ防止のため textAlign は left に固定し、計算済みの座標を使用
+    ctx.fillStyle = "#000000"; // 文字色：くっきり見やすい黒文字
     ctx.textAlign = "left"; 
     
-    // 🌟 内部データではなく表示用変数を使用
-    ctx.fillText(displayTitle, signX + padding, signY); 
+    // 💡 2行表示のロジック（文字数が多く、看板に収まりきらない場合は2行に分割）
+    const availableW = signW - (padding * 2);
+    if (ctx.measureText(displayTitle).width > availableW) {
+        // ざっくり真ん中で文字を分割
+        const midIndex = Math.floor(displayTitle.length / 2);
+        const line1 = displayTitle.slice(0, midIndex).trim();
+        const line2 = displayTitle.slice(midIndex).trim();
 
-    // --- 💡 [追記] クリック判定用の座標データを保存 ---
-    // 他のユーザーがこの看板をクリックしたかどうかを判定するために使用します。
+        // それぞれ省略処理をかける
+        const safeLine1 = getEllipsisText(line1, availableW);
+        const safeLine2 = getEllipsisText(line2, availableW);
+
+        // 1行目と2行目をY座標をずらして描画
+        ctx.fillText(safeLine1, signX + padding, signY - 6);
+        ctx.fillText(safeLine2, signX + padding, signY + 12);
+    } else {
+        // 収まる場合は中央（Y座標標準）に1行で描画
+        ctx.fillText(displayTitle, signX + padding, signY + 3);
+    }
+
+    // --- 💡 クリック判定用の座標データ（尻尾の高さを含めず元の矩形で判定させる方が自然なため、signHを使用） ---
     p.vending_rect = {
         x: signX,
         y: rectY,
         w: signW,
         h: signH
     };
-	
+    
     ctx.restore();
 }
 
@@ -4371,9 +4414,9 @@ function getPlayerCurrentImg(p, g, v, frame, sprites, playerSprites, isMe) {
     return sprites.playerA;
 }
 
-// ★【追加箇所】バッジ用の画像オブジェクトを生成して読み込みます
+// ★ バッジ用の画像オブジェクトを生成して読み込みます
 const badgeImg = new Image();
-badgeImg.src = 'badge.png';
+badgeImg.src = '//imglive.net/badge.png';
 
 // ============================================================
 // :::DRAW_PLAYER_UI::: 🏷️ キャラクター頭上UI（HPバー・名前）の表示
@@ -4418,12 +4461,13 @@ function drawPlayerUI(ctx, p, isMe, pW, frame) {
     // フォントの設定（幅計算のため先に適用）
     ctx.font = `bold ${VIEW_CONFIG.playerName.fontSize} Arial`;
     
-    // 画像のサイズ（お使いの画像に合わせて調整してください。例: 20x20）
+    // 画像のサイズ（16x16）
     const imgW = 16;
     const imgH = 16;
     
     // 「p.isLinked が true なら画像の幅＋隙間(4px)、false なら 0」を基準幅にする
-    const badgeW = p.isLinked ? (imgW + 4) : 0;
+    //const badgeW = p.isLinked ? (imgW + 4) : 0;
+    const badgeW = p.isOnline ? (imgW + 4) : 0;
     const nameWidth = ctx.measureText(rawName).width;
     
     // 背景帯の合計幅（名前の幅 ＋ バッジの幅 ＋ パディング）
@@ -4438,22 +4482,40 @@ function drawPlayerUI(ctx, p, isMe, pW, frame) {
         nameY = VIEW_CONFIG.playerName.safeMargin;
     }
     
-    // 名前の背景（半透明）
+    // --- 3. 角丸の背景を描画 ---
+    const bgX = p.x + pW / 2 - totalW / 2;
+    const bgY = nameY - 15;
+    const bgW = totalW;
+    const bgH = 20;
+    const radius = 4; // 角の丸み（4〜6程度）
+
     ctx.fillStyle = "rgba(0, 0, 0, 0.5)";
-    ctx.fillRect(p.x + pW / 2 - totalW / 2, nameY - 15, totalW, 20);
+    ctx.beginPath();
+    ctx.moveTo(bgX + radius, bgY);
+    ctx.lineTo(bgX + bgW - radius, bgY);
+    ctx.quadraticCurveTo(bgX + bgW, bgY, bgX + bgW, bgY + radius);
+    ctx.lineTo(bgX + bgW, bgY + bgH - radius);
+    ctx.quadraticCurveTo(bgX + bgW, bgY + bgH, bgX + bgW - radius, bgY + bgH);
+    ctx.lineTo(bgX + radius, bgY + bgH);
+    ctx.quadraticCurveTo(bgX, bgY + bgH, bgX, bgY + bgH - radius);
+    ctx.lineTo(bgX, bgY + radius);
+    ctx.quadraticCurveTo(bgX, bgY, bgX + radius, bgY);
+    ctx.closePath();
+    ctx.fill();
     
-    // ★【修正箇所】リンク状態(p.isLinked)の場合のみ画像を描画する
+    // --- 4. バッジ画像と名前テキストの描画 ---
     let currentX = p.x + pW / 2 - totalW / 2 + (VIEW_CONFIG.playerName.paddingW / 2);
     
-    if (p.isLinked && badgeImg.complete) {
+    //if (p.isLinked && badgeImg.complete) {
+    if (p.isOnline && badgeImg.complete) {
         // 画像を中心のY座標に合わせて描画
         ctx.drawImage(badgeImg, currentX, nameY - 14, imgW, imgH);
         currentX += imgW + 4; // 描画した分だけX座標を進める
     }
     
-    // 名前のテキストを右側に描画
+    // 名前のテキストを配置されたX座標に描画
     ctx.fillStyle = "white";
-    ctx.textAlign = "left"; // 左寄せでテキストを配置
+    ctx.textAlign = "left"; 
     ctx.fillText(rawName, currentX, nameY);
 }
 
