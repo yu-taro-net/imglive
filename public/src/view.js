@@ -4465,9 +4465,8 @@ function drawPlayerUI(ctx, p, isMe, pW, frame) {
     const imgW = 16;
     const imgH = 16;
     
-    // 「p.isLinked が true なら画像の幅＋隙間(4px)、false なら 0」を基準幅にする
-    //const badgeW = p.isLinked ? (imgW + 4) : 0;
-    const badgeW = p.isOnline ? (imgW + 4) : 0;
+    // 💡 連携している（isLink）場合のみ、アイコン画像の幅（16px）＋隙間（4px）を確保する
+    const badgeW = p.isLinked ? (imgW + 4) : 0;
     const nameWidth = ctx.measureText(rawName).width;
     
     // 背景帯の合計幅（名前の幅 ＋ バッジの幅 ＋ パディング）
@@ -4506,15 +4505,15 @@ function drawPlayerUI(ctx, p, isMe, pW, frame) {
     // --- 4. バッジ画像と名前テキストの描画 ---
     let currentX = p.x + pW / 2 - totalW / 2 + (VIEW_CONFIG.playerName.paddingW / 2);
     
-    //if (p.isLinked && badgeImg.complete) {
-    if (p.isOnline && badgeImg.complete) {
-        // 画像を中心のY座標に合わせて描画
+    // 💡 連携している（isLink）かつ画像読み込み完了時のみバッジを描画
+    if (p.isLinked && badgeImg.complete) {
         ctx.drawImage(badgeImg, currentX, nameY - 14, imgW, imgH);
         currentX += imgW + 4; // 描画した分だけX座標を進める
     }
     
-    // 名前のテキストを配置されたX座標に描画
-    ctx.fillStyle = "white";
+    // --- 5. 名前のテキスト描画 ---
+    // 💡 オンライン中（isOnline）なら金色（#ffd700）、そうでなければ白色（#ffffff）に装飾
+    ctx.fillStyle = p.isOnline ? "#ffd700" : "#ffffff";
     ctx.textAlign = "left"; 
     ctx.fillText(rawName, currentX, nameY);
 }

@@ -2447,6 +2447,9 @@ function update() {
     if (typeof hero !== 'undefined' && gameWindows.options) {
         hero.isLinked = gameWindows.options.isLinked;
     }
+	if (typeof hero !== 'undefined' && gameWindows.options) {
+        hero.isOnline = gameWindows.options.isOnline;
+    }
     // ----------------------------------------------------
 
     // --- 🌟 修正：モーダル表示中かどうかの判定を追加 ---
@@ -2488,6 +2491,7 @@ function update() {
         
         // --- 🌟 追加：連携情報をサーバー経由で他プレイヤーへ共有 ---
         isLinked: hero.isLinked,
+        isOnline: hero.isOnline,
         
         // 露店関連の同期
         is_vending: hero.is_vending,
