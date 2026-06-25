@@ -1276,6 +1276,10 @@ window.addEventListener('keydown', (e) => {
         if (targetId === 'options' && win.isOpen) {
             console.log("Optionsを開いたのでIDを要求します");
             socket.emit('get_account_info'); 
+			// 💡 【追加】Options画面を開いたときに、自分自身（hero）のオンライン状態も更新をかけるようサーバーにお願いする通信
+            if (typeof myId !== 'undefined') {
+                socket.emit('request_online_refresh', { userId: myId });
+            }
         }
         
         // 🌟 開閉に関わらず、最後に触った(押した)方を最前面へ
@@ -4435,7 +4439,7 @@ badgeImg.src = '//imglive.net/badge.png';
  * - 描画最適化：テキスト幅に基づく背景帯の動的サイズ決定
  */
 function drawPlayerUI(ctx, p, isMe, pW, frame) {
-        
+    
     // --- 1. HPバーの描画 (自分以外のプレイヤーのみ表示) ---
     if (!isMe) {
         const barW = VIEW_CONFIG.hpBar.width; 
@@ -4471,7 +4475,7 @@ function drawPlayerUI(ctx, p, isMe, pW, frame) {
     const imgW = 16;
     const imgH = 16;
     
-    // 💡 連携している（isLinked）場合のみ、アイコン画像の幅（16px）＋隙間（4px）を確保する
+    // 連携している（isLinked）場合のみ、アイコン画像の幅＋隙間を確保する
     const badgeW = p.isLinked ? (imgW + 4) : 0;
     const nameWidth = ctx.measureText(rawName).width;
     
@@ -4492,7 +4496,7 @@ function drawPlayerUI(ctx, p, isMe, pW, frame) {
     const bgY = nameY - 15;
     const bgW = totalW;
     const bgH = 20;
-    const radius = 4; // 角の丸み（4〜6程度）
+    const radius = 4; // 角の丸み
 
     ctx.fillStyle = "rgba(0, 0, 0, 0.5)";
     ctx.beginPath();
@@ -4511,14 +4515,14 @@ function drawPlayerUI(ctx, p, isMe, pW, frame) {
     // --- 4. バッジ画像と名前テキストの描画 ---
     let currentX = p.x + pW / 2 - totalW / 2 + (VIEW_CONFIG.playerName.paddingW / 2);
     
-    // 💡 アカウント連携している（isLinked）かつ画像読み込み完了時のみバッジを描画するよう踏襲
+    // 連携している（isLinked）かつ画像読み込み完了時のみバッジを描画する
     if (p.isLinked && badgeImg.complete) {
         ctx.drawImage(badgeImg, currentX, nameY - 14, imgW, imgH);
         currentX += imgW + 4; // 描画した分だけX座標を進める
     }
     
     // --- 5. 名前のテキスト描画 ---
-    // 💡 オンライン中（isOnline）なら金色（#ffd700）、そうでなければ白色（#ffffff）に装飾
+    // オンライン中（isOnline）なら金色（#ffd700）、そうでなければ白色（#ffffff）に装飾
     ctx.fillStyle = p.isOnline ? "#ffd700" : "#ffffff";
     ctx.textAlign = "left"; 
     ctx.fillText(rawName, currentX, nameY);

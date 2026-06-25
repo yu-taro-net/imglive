@@ -2200,6 +2200,30 @@ socket.on('get_target_account_info', async (targetName) => {
             }
         });
 
+// サーバー側：クライアントからの「状態を再読み込みして」というお願いを受け取る
+socket.on('request_online_refresh', (data) => {
+    console.log("オンライン状態の更新リクエストを受信しました:", data.userId);
+
+    // データベースから該当ユーザーの最新情報を取得するクエリ
+    const query = "SELECT wiki_id, is_linked, is_online FROM users WHERE id = ?";
+    db.query(query, [data.userId], (err, rows) => {
+        if (err) {
+            console.error("DBエラー:", err);
+            return;
+        }
+
+        if (rows.length > 0) {
+            // クライアントへ最新のステータス情報を送り返す
+            socket.emit('account_info_response', { 
+                wikiId: rows[0].wiki_id,
+                isLinked: !!rows[0].is_linked,
+                isOnline: !!rows[0].is_online  // DBの最新の is_online (0か1) を送信！
+            });
+            console.log("最新のオンライン状態をクライアントに返信しました:", rows[0].is_online);
+        }
+    });
+});
+
     } catch (globalError) {
         // 🚨 接続時の根本的なエラーをキャッチ
         debugChat(`🚨 Socket接続処理で重大な不具合: ${globalError.message}`, 'error');
