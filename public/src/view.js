@@ -2856,6 +2856,12 @@ socket.on('account_info_response', (data) => {
         
         console.log("Wiki IDを受信成功:", data.wikiId, " / 連携状態:", data.isLinked);
     }
+
+    // 💡 【追加のステップ】ゲーム内の自キャラ（hero）にも状態を直接セットする
+    if (typeof hero !== 'undefined') {
+        hero.isLinked = data.isLinked;
+        hero.isOnline = data.isOnline;
+    }
 });
 
 // ============================================================
@@ -4429,7 +4435,7 @@ badgeImg.src = '//imglive.net/badge.png';
  * - 描画最適化：テキスト幅に基づく背景帯の動的サイズ決定
  */
 function drawPlayerUI(ctx, p, isMe, pW, frame) {
-    
+        
     // --- 1. HPバーの描画 (自分以外のプレイヤーのみ表示) ---
     if (!isMe) {
         const barW = VIEW_CONFIG.hpBar.width; 
@@ -4465,7 +4471,7 @@ function drawPlayerUI(ctx, p, isMe, pW, frame) {
     const imgW = 16;
     const imgH = 16;
     
-    // 💡 連携している（isLink）場合のみ、アイコン画像の幅（16px）＋隙間（4px）を確保する
+    // 💡 連携している（isLinked）場合のみ、アイコン画像の幅（16px）＋隙間（4px）を確保する
     const badgeW = p.isLinked ? (imgW + 4) : 0;
     const nameWidth = ctx.measureText(rawName).width;
     
@@ -4505,7 +4511,7 @@ function drawPlayerUI(ctx, p, isMe, pW, frame) {
     // --- 4. バッジ画像と名前テキストの描画 ---
     let currentX = p.x + pW / 2 - totalW / 2 + (VIEW_CONFIG.playerName.paddingW / 2);
     
-    // 💡 連携している（isLink）かつ画像読み込み完了時のみバッジを描画
+    // 💡 アカウント連携している（isLinked）かつ画像読み込み完了時のみバッジを描画するよう踏襲
     if (p.isLinked && badgeImg.complete) {
         ctx.drawImage(badgeImg, currentX, nameY - 14, imgW, imgH);
         currentX += imgW + 4; // 描画した分だけX座標を進める
