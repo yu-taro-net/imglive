@@ -1334,10 +1334,6 @@ socket.on('login_response', (data) => {
                 x: hero.x,
                 y: hero.y
             });
-			
-			// 💡 【ここに追加します】
-            // ゲーム世界に降り立った瞬間に、サーバーへ自分の最新ステータス（is_onlineなど）を問い合わせる通信を送信！
-            socket.emit('get_account_info');
 
             if (typeof audioCtx !== 'undefined' && audioCtx.state === 'suspended') {
                 audioCtx.resume();
@@ -2442,10 +2438,10 @@ function update() {
     }
 
     // まだリクエストしていなければ、1回だけ送信
-    //if (!hasRequestedAccountInfo && typeof socket !== 'undefined') {
+    if (!hasRequestedAccountInfo && typeof socket !== 'undefined') {
         socket.emit('get_account_info');
-    //    hasRequestedAccountInfo = true;
-    //}
+        hasRequestedAccountInfo = true;
+    }
     
     // 🌟 【追加】ここで常にオプション設定とheroを同期させる
     if (typeof hero !== 'undefined' && gameWindows.options) {
