@@ -2128,7 +2128,7 @@ socket.on('close_vending', () => {
 
 // 1. 既存の自分用情報取得（is_onlineを追加）
 socket.on('get_account_info', async () => {
-    console.log("【確認】リクエスト受信！現在の名前:", socket.username);
+    //console.log("【確認】リクエスト受信！現在の名前:", socket.username);
     const username = socket.username; 
     if (!username) return;
 

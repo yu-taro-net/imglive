@@ -71,36 +71,53 @@
       border-left: 4px solid #60a5fa;
     }
 
-    /* --- チャンネルボタン --- */
-    .channel-box {
-      margin-top: 10px;
-      border-top: 1px solid #334155;
-      padding-top: 10px;
-    }
-    
-    .channel-box button {
-      background: #1e293b;
-      border: 1px solid #444;
-      color: #ccc;
-      padding: 5px 15px;
-      border-radius: 4px;
-      cursor: pointer;
-      margin-right: 5px;
-      transition: 0.2s;
-    }
+    /* --- チャンネル移動エリアのコンテナ --- */
+.channel-box {
+  margin-top: 15px;
+  border-top: 2px solid #555555; /* レトロフューチャーな枠線へ変更 */
+  padding-top: 12px;
+  background-color: rgba(0, 0, 0, 0.4); /* うっすら背景を敷いて文字を読みやすく */
+  padding: 12px;
+  border-radius: 4px;
+}
 
-    .channel-box button:hover {
-      background: #334155;
-      color: white;
-    }
-	
-	/* 現在のチャンネルボタンのスタイル */
+/* --- ラベル表示 --- */
+.channel-label {
+  font-size: 12px;
+  font-weight: bold;
+  color: #ffffff; /* 白文字にしてクッキリと */
+  margin-right: 10px;
+  text-shadow: 1px 1px 2px rgba(0, 0, 0, 0.9); /* 昔のゲーム風の黒フチ影 */
+}
+
+/* --- チャンネルボタンのベース設定（レトロなカクカクフレーム） --- */
+.channel-box button {
+  background: #1a1a1a; /* 初期ゲームのような深い黒 */
+  border: 2px solid #808080; /* クラシックなグレーのフレーム */
+  color: #ffffff; /* 文字は白 */
+  padding: 6px 16px;
+  font-family: 'Courier New', monospace, sans-serif; /* ドット感あるフォント指定 */
+  font-weight: bold;
+  font-size: 13px;
+  cursor: pointer;
+  margin-right: 6px;
+  transition: none; /* レトロ感を出すためにあえてアニメーションを排除 */
+}
+
+/* --- ホバー時の演出 --- */
+.channel-box button:hover {
+  background: #333333;
+  border-color: #a0a0a0;
+  color: white;
+}
+
+/* --- 現在のチャンネルボタン（アクティブ状態） --- */
 .channel-box button.active {
-    background-color: #fbbf24; /* メイプル風の黄色 */
-    color: #000;
-    font-weight: bold;
-    border: 2px solid #d97706;
-    box-shadow: 0 0 5px rgba(251, 191, 36, 0.8);
+  background-color: #ffe066; /* メイプル風の明るい黄色 */
+  color: #000000; /* 黒文字 */
+  font-weight: bold;
+  border: 2px solid #e6c229; /* 枠線を黄金色に */
+  box-shadow: 2px 2px 0px rgba(0, 0, 0, 0.7); /* ドット絵風のハードな陰影 */
 }
 
     /* --- ログインオーバーレイ (モーダル) --- */

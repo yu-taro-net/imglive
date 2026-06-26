@@ -2411,12 +2411,12 @@ socket.on('updatePlayerList', (playerList) => {
 });
 
 // ============================================================
-// :::DRAW_ONLINE_LIST::: 👥 オンラインプレイヤー名簿の描画（昔のメイプル風）
+// :::DRAW_ONLINE_LIST::: 👥 オンラインプレイヤー名簿の描画
 // ============================================================
 /**
  * 役割：
  * - プレイヤーリストが存在しない場合は描画をスキップ
- * - 動的な背景ボックスのサイズ計算と半透明背景・枠線の描画（昔のメイプル風）
+ * - 動的な背景ボックスのサイズ計算と半透明背景の描画
  * - タイトル（オンライン人数）と各プレイヤーの名前・チャンネル情報の配置
  * - 右寄せ・左寄せを使い分けた見やすいフォーマットでの描画
  */
@@ -2427,50 +2427,34 @@ function drawOnlineList(ctx) {
     const startX = VIEW_CONFIG.SCREEN_WIDTH - 140; // 右端から140px
     const startY = 80;                             // CH表示(通常30-50px)の下
     const lineHeight = 18;                         // 1行の高さ
-    const bgWidth = 130;
-    const bgHeight = (currentOnlinePlayers.length + 1) * lineHeight + 10;
 
     ctx.save();
 
-    // 1. カクカクした半透明背景ボックス（角丸なし、レトロな枠線つき）
-    ctx.fillStyle = "rgba(0, 0, 0, 0.7)"; // 昔の雰囲気に合わせて少し濃いめの半透明
-    ctx.strokeStyle = "#808080";          // クラシックなグレーの枠線
-    ctx.lineWidth = 1;
-    
-    // 角丸のパス描画を廃止し、四角形を直接描画して枠線を適用
-    ctx.fillRect(startX - 10, startY - 20, bgWidth, bgHeight);
-    ctx.strokeRect(startX - 10, startY - 20, bgWidth, bgHeight);
+    // 1. 半透明の背景ボックス
+    ctx.fillStyle = "rgba(0, 0, 0, 0.4)";
+    const bgHeight = (currentOnlinePlayers.length + 1) * lineHeight + 10;
+    ctx.fillRect(startX - 10, startY - 20, 130, bgHeight);
 
-    // 2. タイトル "ONLINE (人数)" (初期メイプルのシステムカラー)
+    // 2. タイトル "ONLINE (人数)"
     ctx.font = "bold 12px sans-serif";
     ctx.textAlign = "right";
-    ctx.fillStyle = "#FFFF00"; // 昔のシステムログ風の黄色
-    
-    ctx.shadowColor = "rgba(0, 0, 0, 0.7)";
-    ctx.shadowBlur = 3;
+    ctx.fillStyle = "#FFD700"; // 金色
     ctx.fillText(`ONLINE (${currentOnlinePlayers.length})`, startX + 110, startY);
-    ctx.shadowBlur = 0;
 
     // 3. 各プレイヤーの名前とチャンネル
     ctx.font = "11px sans-serif";
     currentOnlinePlayers.forEach((p, index) => {
         const y = startY + (index + 1) * lineHeight;
         
-        // 名前（白、すっきりとした初期風表示）
+        // 名前（白）
         ctx.fillStyle = "white";
         ctx.textAlign = "right";
-        ctx.shadowColor = "rgba(0, 0, 0, 0.7)";
-        ctx.shadowBlur = 2;
         ctx.fillText(`${p.name}`, startX + 110, y);
-        ctx.shadowBlur = 0;
 
-        // チャンネル番号（黄色を名前の左側に配置し、統一感を出す）
-        ctx.fillStyle = "#FFFF66";
+        // チャンネル番号（緑）を名前の左側に
+        ctx.fillStyle = "#66FF66";
         ctx.textAlign = "left";
-        ctx.shadowColor = "rgba(0, 0, 0, 0.7)";
-        ctx.shadowBlur = 2;
         ctx.fillText(`ch${p.channel}`, startX, y);
-        ctx.shadowBlur = 0;
     });
 
     ctx.restore();
@@ -3558,8 +3542,8 @@ function drawSimpleWindow(title, x, y, w, h) {
 // ============================================================
 /**
  * 役割：
- * - プレイヤーの所持ゴールド(hero.gold)の取得と表示（リッチ装飾対応）
- * - 視覚的な階層化：グラデーションの角丸背景枠、立体コインアイコン、金色のテキストによる情報構成
+ * - プレイヤーの所持ゴールド(hero.gold)の取得と表示
+ * - 視覚的な階層化：暗い背景枠、コインアイコン、金色のテキストによる情報構成
  * - 数値のフォーマット管理（カンマ区切りによる可読性向上）
  * - UI要素（グラデーション、アイコン、テキスト）の描画順序の制御
  */
@@ -3573,41 +3557,29 @@ function drawGoldUI(hero) {
     const drawY = 90; 
     const barW = 150; 
     const barH = 32;
-    const radius = 6; // 角の丸み
 
-    // --- 2. 背景枠（リッチなグラデーション ＆ 角丸パス描画） ---
+    // --- 2. 背景枠（グラデーション） ---
     const bgGrad = ctx.createLinearGradient(drawX, drawY, drawX, drawY + barH);
-    bgGrad.addColorStop(0, "rgba(40, 40, 40, 0.95)"); 
-    bgGrad.addColorStop(1, "rgba(10, 10, 10, 0.95)");    
+    bgGrad.addColorStop(0, "rgba(30, 30, 30, 0.9)"); 
+    bgGrad.addColorStop(1, "rgba(0, 0, 0, 0.9)");   
     
     ctx.fillStyle = bgGrad;
     ctx.strokeStyle = "rgba(255, 215, 0, 0.7)"; 
     ctx.lineWidth = 2;
 
-    // 角丸背景の生成
-    ctx.beginPath();
-    ctx.moveTo(drawX + radius, drawY);
-    ctx.lineTo(drawX + barW - radius, drawY);
-    ctx.quadraticCurveTo(drawX + barW, drawY, drawX + barW, drawY + radius);
-    ctx.lineTo(drawX + barW, drawY + barH - radius);
-    ctx.quadraticCurveTo(drawX + barW, drawY + barH, drawX + barW - radius, drawY + barH);
-    ctx.lineTo(drawX + radius, drawY + barH);
-    ctx.quadraticCurveTo(drawX, drawY + barH, drawX, drawY + barH - radius);
-    ctx.lineTo(drawX, drawY + radius);
-    ctx.quadraticCurveTo(drawX, drawY, drawX + radius, drawY);
-    ctx.closePath();
-    ctx.fill();
-    ctx.stroke();
+    if (typeof drawRoundedRect === 'function') {
+        drawRoundedRect(ctx, drawX, drawY, barW, barH, 6);
+        ctx.fill();
+        ctx.stroke();
+    } else {
+        ctx.fillRect(drawX, drawY, barW, barH);
+        ctx.strokeRect(drawX, drawY, barW, barH);
+    }
 
-    // --- 3. 立体感のあるコインアイコン ---
-    const iconX = drawX + 20; // アイコンのセンター位置を少し右へオフセット
+    // --- 3. コインアイコン ---
+    const iconX = drawX + 16;
     const iconY = drawY + barH / 2;
     
-    // コインのベース影（立体感を強調）
-    ctx.shadowColor = "rgba(0, 0, 0, 0.6)";
-    ctx.shadowBlur = 4;
-    ctx.shadowOffsetY = 2;
-
     ctx.beginPath();
     ctx.arc(iconX, iconY, 10, 0, Math.PI * 2);
     const coinGrad = ctx.createRadialGradient(iconX - 3, iconY - 3, 2, iconX, iconY, 10);
@@ -3615,28 +3587,17 @@ function drawGoldUI(hero) {
     coinGrad.addColorStop(1, "#ffd700"); 
     ctx.fillStyle = coinGrad;
     ctx.fill();
-    
-    ctx.shadowBlur = 0; // 影のステータスをリセット
-    ctx.shadowOffsetY = 0;
-
     ctx.strokeStyle = "#b8860b";
     ctx.lineWidth = 1;
     ctx.stroke();
 
-    // コイン内側の光沢リング
-    ctx.beginPath();
-    ctx.arc(iconX, iconY, 7, 0, Math.PI * 2);
-    ctx.strokeStyle = "rgba(255, 255, 255, 0.5)";
-    ctx.stroke();
-
-    // "G" テキスト
     ctx.fillStyle = "#8b4513";
     ctx.font = "bold 12px sans-serif";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.fillText("G", iconX, iconY);
 
-    // --- 4. リッチな数値表示（シャドウによる縁取り強化 ＆ グラデーション化） ---
+    // --- 4. 元のスタイルを踏襲した数値表示 ---
     ctx.font = "bold 20px sans-serif"; 
     ctx.textAlign = "right";
     ctx.textBaseline = "middle";
@@ -3644,18 +3605,12 @@ function drawGoldUI(hero) {
     const goldVal = hero.gold || 0;
     const goldText = goldVal.toLocaleString(); 
     
-    // 視認性を上げるための黒フチ取り
     ctx.strokeStyle = "black";
-    ctx.lineWidth = 4;
-    ctx.strokeText(goldText, drawX + barW - 14, drawY + barH / 2 + 0.5);
+    ctx.lineWidth = 3;
+    ctx.strokeText(goldText, drawX + barW - 12, drawY + barH / 2 + 1);
     
-    // 金色のグラデーションテキストで装飾
-    const textGrad = ctx.createLinearGradient(0, drawY, 0, drawY + barH);
-    textGrad.addColorStop(0, "#ffeaa0");
-    textGrad.addColorStop(1, "#ffd700");
-    ctx.fillStyle = textGrad;
-    
-    ctx.fillText(goldText, drawX + barW - 14, drawY + barH / 2 + 0.5);
+    ctx.fillStyle = "gold"; 
+    ctx.fillText(goldText, drawX + barW - 12, drawY + barH / 2 + 1);
 
     ctx.restore();
 }
@@ -5182,7 +5137,7 @@ function drawItemLogsUI() {
 /**
  * 役割：
  * - 状態管理（補間）：現在のHP/EXP値を目標値へ向けて滑らかに移動させるアニメーション計算
- * - レイアウト描画：背景パネル、レベル表記、HPバー、EXPバーの配置（角丸カプセル・リッチ装飾対応）
+ * - レイアウト描画：背景パネル、レベル表記、HPバー、EXPバーの配置
  * - データ同期：サーバーから受け取った hero.maxExp や hero.maxHp を分母として正確に描画
  * - フィードバック演出：HP低下時の色変化（グリーン→レッド）と数値のテキストレンダリング
  */
@@ -5220,11 +5175,6 @@ function drawTopStatusUI(hero) {
     const panelW = barWidth + 80;
     const panelH = 70;
 
-    // カプセル型生成のための半径計算
-    const hpRadius = barHeight / 2;
-    const expBarH = barHeight - 4;
-    const expRadius = expBarH / 2;
-
     ctx.save();
 
     // 1. 背景パネル
@@ -5246,180 +5196,47 @@ function drawTopStatusUI(hero) {
     ctx.textAlign = "left";
     ctx.fillText(`Lv.${hero.level || 1}`, x + 15, y + 30);
 
-    // ==========================================
-    // 3. HPバー (displayHpを使用してなめらかに、リッチ装飾角丸カプセル対応)
-    // ==========================================
+    // 3. HPバー (displayHpを使用してなめらかに)
     const hpRate = Math.max(0, displayHp / (hero.maxHp || 100));
     const hpBarX = x + 70;
     const hpBarY = y + 15;
     
-    // HPバー背景（角丸）
-    ctx.fillStyle = "#222222";
-    ctx.beginPath();
-    ctx.moveTo(hpBarX + hpRadius, hpBarY);
-    ctx.lineTo(hpBarX + barWidth - hpRadius, hpBarY);
-    ctx.quadraticCurveTo(hpBarX + barWidth, hpBarY, hpBarX + barWidth, hpBarY + hpRadius);
-    ctx.quadraticCurveTo(hpBarX + barWidth, hpBarY + barHeight, hpBarX + barWidth - hpRadius, hpBarY + barHeight);
-    ctx.lineTo(hpBarX + hpRadius, hpBarY + barHeight);
-    ctx.quadraticCurveTo(hpBarX, hpBarY + barHeight, hpBarX, hpBarY + barHeight - hpRadius);
-    ctx.quadraticCurveTo(hpBarX, hpBarY, hpBarX + hpRadius, hpBarY);
-    ctx.closePath();
-    ctx.fill();
+    ctx.fillStyle = "#333";
+    ctx.fillRect(hpBarX, hpBarY, barWidth, barHeight);
     
-    // バーの色判定 ＆ HPバー中身（角丸）
-    const currentHpW = Math.max(0, barWidth * hpRate);
-    if (currentHpW > 0) {
-        ctx.fillStyle = hpRate > 0.3 ? "#2ecc71" : "#e74c3c";
-        ctx.beginPath();
-        ctx.moveTo(hpBarX + hpRadius, hpBarY);
-        
-        if (currentHpW < hpRadius * 2) {
-            ctx.lineTo(hpBarX + currentHpW, hpBarY);
-            ctx.lineTo(hpBarX + currentHpW, hpBarY + barHeight);
-            ctx.lineTo(hpBarX + hpRadius, hpBarY + barHeight);
-            ctx.quadraticCurveTo(hpBarX, hpBarY + barHeight, hpBarX, hpBarY + barHeight - hpRadius);
-            ctx.lineTo(hpBarX, hpBarY + hpRadius);
-            ctx.quadraticCurveTo(hpBarX, hpBarY, hpBarX + hpRadius, hpBarY);
-        } else {
-            ctx.lineTo(hpBarX + currentHpW - hpRadius, hpBarY);
-            ctx.quadraticCurveTo(hpBarX + currentHpW, hpBarY, hpBarX + currentHpW, hpBarY + hpRadius);
-            ctx.lineTo(hpBarX + currentHpW, hpBarY + barHeight - hpRadius);
-            ctx.quadraticCurveTo(hpBarX + currentHpW, hpBarY + barHeight, hpBarX + currentHpW - hpRadius, hpBarY + barHeight);
-            ctx.lineTo(hpBarX + hpRadius, hpBarY + barHeight);
-            ctx.quadraticCurveTo(hpBarX, hpBarY + barHeight, hpBarX, hpBarY + barHeight - hpRadius);
-            ctx.lineTo(hpBarX, hpBarY + hpRadius);
-            ctx.quadraticCurveTo(hpBarX, hpBarY, hpBarX + hpRadius, hpBarY);
-        }
-        ctx.closePath();
-        ctx.fill();
-
-        // 🌟 リッチ装飾：光沢ハイライト（上半分に半透明の帯を重ねて立体感を演出）
-        ctx.save();
-        ctx.clip(); // 中身の形状に切り抜きをかける
-        ctx.fillStyle = "rgba(255, 255, 255, 0.25)";
-        ctx.beginPath();
-        ctx.moveTo(hpBarX, hpBarY);
-        ctx.lineTo(hpBarX + currentHpW, hpBarY);
-        ctx.lineTo(hpBarX + currentHpW, hpBarY + (barHeight / 2.5));
-        ctx.lineTo(hpBarX, hpBarY + (barHeight / 2.5));
-        ctx.closePath();
-        ctx.fill();
-        ctx.restore();
-    }
+    // バーの色判定
+    ctx.fillStyle = hpRate > 0.3 ? "#2ecc71" : "#e74c3c";
+    ctx.fillRect(hpBarX, hpBarY, barWidth * hpRate, barHeight);
     
-    // 🌟 リッチ装飾：バーのフチに枠線（ストローク）をかける
-    ctx.strokeStyle = "rgba(255, 255, 255, 0.4)";
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.moveTo(hpBarX + hpRadius, hpBarY);
-    ctx.lineTo(hpBarX + barWidth - hpRadius, hpBarY);
-    ctx.quadraticCurveTo(hpBarX + barWidth, hpBarY, hpBarX + barWidth, hpBarY + hpRadius);
-    ctx.quadraticCurveTo(hpBarX + barWidth, hpBarY + barHeight, hpBarX + barWidth - hpRadius, hpBarY + barHeight);
-    ctx.lineTo(hpBarX + hpRadius, hpBarY + barHeight);
-    ctx.quadraticCurveTo(hpBarX, hpBarY + barHeight, hpBarX, hpBarY + barHeight - hpRadius);
-    ctx.lineTo(hpBarX, hpBarY + hpRadius);
-    ctx.quadraticCurveTo(hpBarX, hpBarY, hpBarX + hpRadius, hpBarY);
-    ctx.closePath();
-    ctx.stroke();
-    
-    // HPテキスト (視認性向上のためのシャドウ追加)
+    // HPテキスト
     ctx.fillStyle = "#fff";
-    ctx.font = "bold 12px Arial";
+    ctx.font = "12px Arial";
     ctx.textAlign = "center";
-    ctx.shadowColor = "rgba(0, 0, 0, 0.7)";
-    ctx.shadowBlur = 3;
     ctx.fillText(`${Math.floor(hero.hp)} / ${hero.maxHp}`, hpBarX + barWidth/2, hpBarY + 14);
-    ctx.shadowBlur = 0; // シャドウリセット
 
-    // ==========================================
-    // 4. EXPバー (hero.maxExp を分母に使用、角丸カプセル・リッチ装飾対応)
-    // ==========================================
+    // 4. EXPバー (hero.maxExp を分母に使用)
     const expRate = Math.min(1, displayExp / nextMaxExp); 
     const expBarY = y + 40;
     
-    // EXP背景（角丸）
+    // EXP背景
     ctx.textAlign = "left";
-    ctx.fillStyle = "#222222";
-    ctx.beginPath();
-    ctx.moveTo(hpBarX + expRadius, expBarY);
-    ctx.lineTo(hpBarX + barWidth - expRadius, expBarY);
-    ctx.quadraticCurveTo(hpBarX + barWidth, expBarY, hpBarX + barWidth, expBarY + expRadius);
-    ctx.quadraticCurveTo(hpBarX + barWidth, expBarY + expBarH, hpBarX + barWidth - expRadius, expBarY + expBarH);
-    ctx.lineTo(hpBarX + expRadius, expBarY + expBarH);
-    ctx.quadraticCurveTo(hpBarX, expBarY + expBarH, hpBarX, expBarY + expBarH - hpRadius);
-    ctx.lineTo(hpBarX, expBarY + expRadius);
-    ctx.quadraticCurveTo(hpBarX, expBarY, hpBarX + expRadius, expBarY);
-    ctx.closePath();
-    ctx.fill();
+    ctx.fillStyle = "#333";
+    ctx.fillRect(hpBarX, expBarY, barWidth, barHeight - 4);
     
-    // EXP中身（角丸）
-    const currentExpW = Math.max(0, barWidth * expRate);
-    if (currentExpW > 0) {
-        ctx.fillStyle = "#f1c40f"; 
-        ctx.beginPath();
-        ctx.moveTo(hpBarX + expRadius, expBarY);
-        
-        if (currentExpW < expRadius * 2) {
-            ctx.lineTo(hpBarX + currentExpW, expBarY);
-            ctx.lineTo(hpBarX + currentExpW, expBarY + expBarH);
-            ctx.lineTo(hpBarX + expRadius, expBarY + expBarH);
-            ctx.quadraticCurveTo(hpBarX, expBarY + expBarH, hpBarX, expBarY + expBarH - hpRadius);
-            ctx.lineTo(hpBarX, expBarY + expRadius);
-            ctx.quadraticCurveTo(hpBarX, expBarY, hpBarX + expRadius, expBarY);
-        } else {
-            ctx.lineTo(hpBarX + currentExpW - expRadius, expBarY);
-            ctx.quadraticCurveTo(hpBarX + currentExpW, expBarY, hpBarX + currentExpW, expBarY + expRadius);
-            ctx.lineTo(hpBarX + currentExpW, expBarY + expBarH - hpRadius);
-            ctx.quadraticCurveTo(hpBarX + currentExpW, expBarY + expBarH, hpBarX + currentExpW - expRadius, expBarY + expBarH);
-            ctx.lineTo(hpBarX + expRadius, expBarY + expBarH);
-            ctx.quadraticCurveTo(hpBarX, expBarY + expBarH, hpBarX, expBarY + expBarH - hpRadius);
-            ctx.lineTo(hpBarX, expBarY + expRadius);
-            ctx.quadraticCurveTo(hpBarX, expBarY, hpBarX + expRadius, expBarY);
-        }
-        ctx.closePath();
-        ctx.fill();
-
-        // 🌟 光沢ハイライト（EXPバー）
-        ctx.save();
-        ctx.clip();
-        ctx.fillStyle = "rgba(255, 255, 255, 0.3)";
-        ctx.beginPath();
-        ctx.moveTo(hpBarX, expBarY);
-        ctx.lineTo(hpBarX + currentExpW, expBarY);
-        ctx.lineTo(hpBarX + currentExpW, expBarY + (expBarH / 2.5));
-        ctx.lineTo(hpBarX, expBarY + (expBarH / 2.5));
-        ctx.closePath();
-        ctx.fill();
-        ctx.restore();
-    }
+    // EXP中身
+    ctx.fillStyle = "#f1c40f"; 
+    ctx.fillRect(hpBarX, expBarY, barWidth * expRate, barHeight - 4);
     
-    // EXP枠線
-    ctx.strokeStyle = "rgba(255, 255, 255, 0.4)";
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.moveTo(hpBarX + expRadius, expBarY);
-    ctx.lineTo(hpBarX + barWidth - expRadius, expBarY);
-    ctx.quadraticCurveTo(hpBarX + barWidth, expBarY, hpBarX + barWidth, expBarY + expRadius);
-    ctx.quadraticCurveTo(hpBarX + barWidth, expBarY + expBarH, hpBarX + barWidth - expRadius, expBarY + expBarH);
-    ctx.lineTo(hpBarX + expRadius, expBarY + expBarH);
-    ctx.quadraticCurveTo(hpBarX, expBarY + expBarH, hpBarX, expBarY + expBarH - hpRadius);
-    ctx.lineTo(hpBarX, expBarY + expRadius);
-    ctx.quadraticCurveTo(hpBarX, expBarY, hpBarX + expRadius, expBarY);
-    ctx.closePath();
-    ctx.stroke();
-    
-    // EXPラベル (シャドウ追加で視認性アップ)
+    // EXPラベル
     ctx.fillStyle = "#fff";
     ctx.font = "bold 10px Arial";
-    ctx.shadowColor = "rgba(0, 0, 0, 0.7)";
-    ctx.shadowBlur = 3;
     ctx.fillText("EXP", hpBarX - 30, expBarY + 10);
 
-    // 🌟 修正済み：EXPテキスト表示（バーの中央・太字・シャドウ対応）
-    ctx.font = "bold 11px Arial";
-    ctx.textAlign = "center";
-    ctx.fillText(`${Math.floor(displayExp)} / ${nextMaxExp}`, hpBarX + barWidth / 2, expBarY + 13);
-    ctx.shadowBlur = 0; // シャドウリセット
+    // 🌟 EXPテキスト表示 (hero.exp / hero.maxExp)
+    ctx.font = "10px Arial";
+    ctx.textAlign = "right";
+    // 描画上の値(Math.floor(displayExp))を使用して、なめらかに数字が増えるようにしています
+    ctx.fillText(`${Math.floor(displayExp)} / ${nextMaxExp}`, hpBarX + barWidth - 5, expBarY + 10);
 
     ctx.restore();
 }
