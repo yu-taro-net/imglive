@@ -817,7 +817,7 @@ socket.on('chat', (data) => {
         name: p.name,
         text: chatObj.text,
         type: chatObj.type || 'all', 
-        time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        time: new Date().toLocaleTimeString('ja-JP', { timeZone: 'Asia/Tokyo', hour: '2-digit', minute: '2-digit' })
     };
 
     if (chatObj.type === 'whisper' && chatObj.targetName) {
@@ -865,7 +865,7 @@ socket.on('chat', (data) => {
                 name: 'System',
                 text: `${chatObj.targetName} さんは見つかりませんでした`,
                 type: 'system',
-                time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+                time: new Date().toLocaleTimeString('ja-JP', { timeZone: 'Asia/Tokyo', hour: '2-digit', minute: '2-digit' })
             });
         }
     } else if (chatObj.type === 'friend') {
@@ -997,7 +997,7 @@ socket.on('drop_gold', (data) => {
         socket.emit('chat', { 
             id: 'SYSTEM_LOG', 
             name: '⚠️ 警告', 
-            text: `[${new Date().toLocaleTimeString()}] 所持金が足りません！` 
+            text: `[${new Date().toLocaleTimeString('ja-JP', { timeZone: 'Asia/Tokyo', hour: '2-digit', minute: '2-digit' })}] 所持金が足りません！`
         });
         return;
     }
@@ -1030,7 +1030,7 @@ socket.on('drop_gold', (data) => {
     socket.emit('chat', { 
         id: 'SYSTEM_LOG', 
         name: '情報', 
-        text: `[${new Date().toLocaleTimeString()}] ${amount}メルを捨てました。` 
+        text: `[${new Date().toLocaleTimeString('ja-JP', { timeZone: 'Asia/Tokyo', hour: '2-digit', minute: '2-digit' })}] ${amount}メルを捨てました。`
     });
 });
 
@@ -1148,7 +1148,7 @@ socket.on('dropItem', async (data) => {
                 socket.emit('chat', {
                     id: 'SYSTEM_LOG',
                     name: '🗑️ 廃棄',
-                    text: `[${new Date().toLocaleTimeString()}] ${dropLogMsg}`
+                    text: `[${new Date().toLocaleTimeString('ja-JP', { timeZone: 'Asia/Tokyo', hour: '2-digit', minute: '2-digit' })}] ${dropLogMsg}`
                 });
                 io.to(`channel_${chId}`).emit('item_spawned', newItem);
             }
@@ -2716,7 +2716,7 @@ const DROP_CHANCE_TABLES = {
 function debugChat(message, type = 'info') {
     try {
         // 現在の時刻を取得（例: 14:30:05）
-        const time = new Date().toLocaleTimeString();
+        const time = new Date().toLocaleTimeString('ja-JP', { timeZone: 'Asia/Tokyo', hour: '2-digit', minute: '2-digit' });
         
         // 🛡️ 【安全装置】もし type に true/false が入ってきても壊れないようにする
         let safeType = type;
@@ -3646,7 +3646,7 @@ function executeAdminCommand(socket, p, text) {
             socket.emit('chat', {
                 id: 'SYSTEM_LOG',
                 name: '💰 廃棄',
-                text: `[${new Date().toLocaleTimeString()}] ${amount}Gを捨てました`
+                text: `[${new Date().toLocaleTimeString('ja-JP', { timeZone: 'Asia/Tokyo', hour: '2-digit', minute: '2-digit' })}] ${amount}Gを捨てました`
             });
 
             io.to(`channel_${chId}`).emit('item_spawned', newItem);
@@ -4047,7 +4047,7 @@ function handlePickup(socket) {
             socket.emit('chat', {
                 id: 'SYSTEM_LOG',
                 name: '⚠️ 警告',
-                text: `[${new Date().toLocaleTimeString()}] バッグがいっぱいで拾えません！`
+                text: `[${new Date().toLocaleTimeString('ja-JP', { timeZone: 'Asia/Tokyo', hour: '2-digit', minute: '2-digit' })}] バッグがいっぱいで拾えません！`
             });
             return;
         }
@@ -4109,7 +4109,7 @@ function handlePickup(socket) {
                         player.inventory[stackIndex].count = (player.inventory[stackIndex].count || 0) + actualCount;
                         stacked = true;
                         saveInventoryToDB(player, player.inventory[stackIndex], stackIndex);
-                        socket.emit('chat', { id: 'SYSTEM_LOG', name: '🎊 入手', text: `[${new Date().toLocaleTimeString()}] ${pickupMsg}` });
+                        socket.emit('chat', { id: 'SYSTEM_LOG', name: '🎊 入手', text: `[${new Date().toLocaleTimeString('ja-JP', { timeZone: 'Asia/Tokyo', hour: '2-digit', minute: '2-digit' })}] ${pickupMsg}` });
                         
                         // 🌟 【修正】スタック時にも入手ログイベントを送信する
                         socket.emit('item_pickup_log', { amount: actualCount, itemName: itemName });
@@ -4137,7 +4137,7 @@ function handlePickup(socket) {
                         };
 
                         saveInventoryToDB(player, player.inventory[emptySlotIndex], emptySlotIndex);
-                        socket.emit('chat', { id: 'SYSTEM_LOG', name: '🎊 入手', text: `[${new Date().toLocaleTimeString()}] ${pickupMsg}` });
+                        socket.emit('chat', { id: 'SYSTEM_LOG', name: '🎊 入手', text: `[${new Date().toLocaleTimeString('ja-JP', { timeZone: 'Asia/Tokyo', hour: '2-digit', minute: '2-digit' })}] ${pickupMsg}` });
                         socket.emit('item_pickup_log', { amount: actualCount, itemName: itemName });
                     }
                 }

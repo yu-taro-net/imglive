@@ -2866,7 +2866,7 @@ socket.on('item_pickup_log', (data) => {
 // クライアント側：サーバーからの返事を受け取って表示を更新する
 socket.on('account_info_response', (data) => {
 	
-    console.log("【確認】サーバーからデータが届いたよ！:", data);
+    //console.log("【確認】サーバーからデータが届いたよ！:", data);
 	
     if (gameWindows.options) {
         gameWindows.options.wikiId = data.wikiId;
@@ -2989,14 +2989,14 @@ function drawGame(hero, others, enemies, items, platforms, ladders, damageTexts,
 }
 
 // ============================================================
-// :::DRAW_CHANNEL_HUD::: 📡 チャンネル表示（HUD）の描画
+// :::DRAW_CHANNEL_HUD::: 📡 チャンネル表示（HUD）の描画（グロー装飾版）
 // ============================================================
 /**
  * 役割：
  * - 現在のプレイヤー所属チャンネル(hero.channel)の取得と表示
  * - フォントスタイル（bold 16px）および右寄せ配置の管理
- * - 黒い縁取りによる背景色に依存しない高い視認性の確保
- * - 金色のグラデーション風カラーによるUIとしてのアクセント付け
+ * - 黒い縁取りによる高い視認性の確保
+ * - 💛 ぼかし（シャドウ）を使ったグロー（発光）演出の追加
  */
 function drawChannelHUD(hero) {
     // heroが存在しない場合や、channelが設定されていない場合は「1」として表示する
@@ -3004,21 +3004,27 @@ function drawChannelHUD(hero) {
         const channelNum = hero.channel || 1;
 
         ctx.save();
-        // フォント設定（少し小さめの14px〜16pxにするとUIとして馴染みます）
-        ctx.font = "bold 16px 'Arial', sans-serif";
-        ctx.textAlign = "right"; 
         
         const x = VIEW_CONFIG.SCREEN_WIDTH - 20;
         const y = 35;
         const text = `CH.${channelNum}`;
 
-        // 🖤 黒い縁取り（これでどんな背景でも見えます）
+        // フォント設定
+        ctx.font = "bold 16px 'Arial', sans-serif";
+        ctx.textAlign = "right"; 
+
+        // 🌟 【グロー（発光）設定】
+        // 発光させたい色（黄色やオレンジなど）をシャドウカラーに指定します
+        ctx.shadowColor = "#fbbf24"; 
+        ctx.shadowBlur = 8;          // 光の広がり具合（数字が大きいほどぼやけます）
+
+        // 🖤 黒い縁取り（視認性の確保）
         ctx.strokeStyle = "black";
         ctx.lineWidth = 3;
         ctx.lineJoin = "round";
         ctx.strokeText(text, x, y);
 
-        // 💛 メインの文字色（金色のグラデーション風）
+        // 💛 メインの文字色（金色のグラデーション風 ＋ 発光）
         ctx.fillStyle = "#fbbf24"; 
         ctx.fillText(text, x, y);
 
