@@ -1,12 +1,3 @@
-<!DOCTYPE html>
-<html lang="ja">
-<head>
-  <meta charset="UTF-8">
-  <title>imglive - Adventure RPG</title>
-  <script src="https://satisfied-nourishment-production.up.railway.app/socket.io/socket.io.js"></script>
-  <link rel="stylesheet" href="//imgv.jp/imglive/css/layout.css">
-</head>
-<body>
 <div id="whisper-overlay" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.7); z-index:3000;">
     <div style="position:absolute; top:50%; left:50%; transform:translate(-50%, -50%); background:#1a1a1a; padding:20px; border:2px solid #2e7d32; border-radius:10px; text-align:center; color:white; min-width:300px; box-shadow: 0 0 20px rgba(46, 125, 50, 0.4);">
         <h3 style="margin-top:0; color:#4caf50;">内緒話の相手</h3>
@@ -23,12 +14,18 @@
         </div>
     </div>
 </div>
+
 <!-- ログイン画面 -->
 <div id="login-overlay">
   <div class="login-card">
-    <h2>冒険の準備</h2>
+    <h2>Login</h2>
     
-    <p style="color:#888; font-size:12px; margin-bottom:5px;">NAME / PASSWORD</p>
+    <p style="color:#888; font-size:12px; margin-bottom:5px;">EMAIL / NAME / PASSWORD</p>
+	<!--
+<input type="text" id="user-email-input" class="login-input" placeholder="EMAIL" maxlength="10">
+-->
+
+
 <input type="text" id="user-name-input" class="login-input" placeholder="NAME" maxlength="10">
 
 <input type="password" id="user-pass-input" class="login-input" placeholder="****" autocomplete="new-password">
@@ -51,28 +48,6 @@
     
     <button onclick="joinAsGuest()" style="margin-top:20px; background:none; border:none; color:#666; cursor:pointer; text-decoration:underline;">ゲストで遊ぶ</button>
   </div>
-</div>
-
-<!-- ゲーム画面本体 -->
-<div id="main-container" style="display: flex; gap: 20px; align-items: flex-start;">
-
-  <div id="game-wrapper" style="position: relative; width: 800px; height: 600px;">
-    <canvas id="stage" width="800" height="600"></canvas>
-    <canvas id="tooltip-layer" width="800" height="600" style="position: absolute; top:0; left:0; z-index: 9999; pointer-events: none;"></canvas>
-  </div>
-
-  <div id="wiki-menu-container">
-    <div class="wiki-menu-header">WIKI MENU</div>
-    <div class="wiki-menu-content">
-      <button class="wiki-btn" onclick="window.open('https://あなたのWikiURL', '_blank')">Wikiトップ</button>
-      <button class="wiki-btn" onclick="window.open('https://あなたのWikiURL/自分のページ', '_blank')">自分の日誌</button>
-      <div class="wiki-news-label">最新の片鱗</div>
-      <div id="wiki-news-feed">
-        <p>・Wiki連携を準備中...</p>
-      </div>
-    </div>
-  </div>
-
 </div>
 
 <!-- 🏪 露店管理ウィンドウ（SHOPデザイン統合版） -->
@@ -230,6 +205,7 @@
         </div>
     </div>
 </div>
+
 <div id="shop-overlay" class="maple-window" style="display: none; position: absolute; top: 40%; left: 50%; transform: translate(-50%, -50%); width: 700px; padding: 0; z-index: 9999;">
     
     <div id="shop-header" style="background: linear-gradient(to bottom, #bfcddb, #96a7b8); border-bottom: 2px solid #777; padding: 5px 12px; display: flex; justify-content: space-between; align-items: center; border-radius: 4px 4px 0 0;">
@@ -348,30 +324,6 @@
     </div>
 </div>
 
-<!-- UI操作エリア -->
-<div id="ui-container">
-  <div class="chat-row">
-    <select id="chat-mode" onchange="onChatModeChange()">
-      <option value="all">全体</option>
-      <option value="friend">友達</option>
-      <option value="group">グループ</option>
-      <option value="whisper">内緒話</option>
-    </select>
-    <input type="text" id="chat-in" placeholder="メッセージを入力してEnter...">
-  </div>
-
-  <div id="msg-box"></div>
-
-  <div class="channel-box">
-    <span style="font-size:12px; color:#666;">CH移動:</span>
-    <button onclick="changeChannel(1)">CH.1</button>
-    <button onclick="changeChannel(2)">CH.2</button>
-    <button onclick="changeChannel(3)">CH.3</button>
-    <button onclick="changeChannel(4)">CH.4</button>
-    <button onclick="changeChannel(5)">CH.5</button>
-  </div>
-</div>
-
 <!-- アイテムを捨てる時のポップアップ -->
 <div id="drop-form" style="display:none;">
   <p id="drop-label"></p>
@@ -381,68 +333,15 @@
   <button id="drop-cancel">やめる</button>
 </div>
 
-<!-- スクリプトの読み込み（元の順番を維持） -->
-<script src="//imgv.jp/imglive/src/game.js"></script>
-<script src="//imgv.jp/imglive/src/view.js"></script>
-<script src="//imgv.jp/imglive/src/sound.js"></script>
-
-<script>
-  // 既存のイベント設定をそのまま維持
-  document.getElementById('stage').addEventListener('mousedown', () => {
-    if (typeof attack === 'function') attack(); 
-  });
-
-  // ゲストログイン（自動開始）
-  window.onload = () => {
-    // ログイン済み判定などがない場合はゲストとして開始
-    if (typeof joinAsGuest === 'function') {
-      // joinAsGuest(); // 必要に応じてコメントアウトを外してください
-    }
-  };
-
-  // チャンネル選択の見た目切り替え
-  /*
-  function selectChannel(ch) {
-    document.querySelectorAll('.ch-btn').forEach(btn => btn.classList.remove('active'));
-    document.getElementById(`ch-btn-${ch}`).classList.add('active');
-  }
-  */
-  // 🌟 新しいツールチップ用のキャンバスを取得
-//const tCanvas = document.getElementById('tooltip-layer');
-//const tCtx = tCanvas.getContext('2d');
-
-// メインのcanvasで使っているdpr（解像度）の設定があれば合わせます
-// もし dpr という変数がない場合は const dpr = window.devicePixelRatio || 1; としてください
-/*
-function setupTooltipCanvas() {
-    const dpr = window.devicePixelRatio || 1;
-    
-    // キャンバスのサイズを画面ぴったりに合わせる
-    tCanvas.width = window.innerWidth * dpr;
-    tCanvas.height = window.innerHeight * dpr;
-    
-    // 表示上のサイズを調整
-    tCanvas.style.width = window.innerWidth + 'px';
-    tCanvas.style.height = window.innerHeight + 'px';
-    
-    // 描画の細かさをメインと合わせる
-    tCtx.scale(dpr, dpr);
-}
-
-// 実行する
-setupTooltipCanvas();
-*/
-
-// 画面のサイズが変わった時もぴったり重なるようにする
-//window.addEventListener('resize', setupTooltipCanvas);
-
-</script>
-
 <div id="player-context-menu" style="display:none; position:fixed; background:#222; color:#fff; border:1px solid #ffcc00; z-index:20000; padding:10px; font-family:sans-serif; border-radius:4px;">
-    <div id="menu-player-name" style="font-weight:bold; color:#ffcc00; margin-bottom:5px;">プレイヤー</div>
-    <div class="menu-item" onclick="handleProfileClick()" style="padding: 10px 12px; cursor: pointer; font-size: 14px; border-top: 1px solid #444;">
-    👤 プロフィールを見る
-</div>
+    <div id="menu-player-name" style="font-weight:bold; color:#ffcc00; margin-bottom:5px; border-bottom:1px solid #444; padding-bottom:5px;">プレイヤー名</div>
+    
+    <!-- ここから5つの黄金メニュー -->
+    <div class="menu-item" onclick="handleProfileClick" style="padding: 8px; cursor: pointer;">👤 プロフィール</div>
+    <div class="menu-item" onclick="" style="padding: 8px; cursor: pointer;">📈 活動履歴</div>
+    <div class="menu-item" onclick="" style="padding: 8px; cursor: pointer;">🎁 コレクション</div>
+    <div class="menu-item" onclick="" style="padding: 8px; cursor: pointer;">🤝 コミュニティ</div>
+    <div class="menu-item" onclick="" style="padding: 8px; cursor: pointer; border-top: 1px solid #444; margin-top:5px;">⚙️ 詳細ツール</div>
 </div>
 
 <div id="player-profile-window" style="
@@ -479,6 +378,3 @@ setupTooltipCanvas();
         <button onclick="closeProfile()" style="display: block; width: 100%; margin-top: 15px; padding: 8px; background: #555; color: white; border: none; border-radius: 4px; cursor: pointer;">閉じる</button>
     </div>
 </div>
-
-</body>
-</html>
