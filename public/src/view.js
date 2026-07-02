@@ -2938,9 +2938,7 @@ function drawGame(hero, others, enemies, items, platforms, ladders, damageTexts,
     // ==========================================
     if (DEBUG_MODE) {
         drawDebugLayer(hero, enemies, items, platforms);
-    }
-	
-	// 🌟 追記：他プレイヤーの判定枠をメインCanvasに描く
+		// 🌟 追記：他プレイヤーの判定枠をメインCanvasに描く
     if (typeof others !== 'undefined') {
         // ctx は drawGame 内で使っているメインの Context を使用してください
         for (let id in others) {
@@ -2957,6 +2955,7 @@ function drawGame(hero, others, enemies, items, platforms, ladders, damageTexts,
             ctx.arc(p.x, p.y, 5, 0, Math.PI * 2);
             ctx.fill();
         }
+    }
     }
 	
 	if (window.isDisconnected) {
@@ -3298,12 +3297,12 @@ function drawEntities(hero, others, enemies, items, frame) {
 }
 
 // ============================================================
-// :::DRAW_VENDING_SIGN::: 🏪 露店看板のレンダリングと判定領域設定
+// :::DRAW_VENDING_SIGN::: 🏪 露店看板のレンダリング（メイプル風・固定特大サイズ版）
 // ============================================================
 /**
  * 役割：
  * - プレイヤーの開店状態(is_vending)の監視とレンダリングのトリガー
- * - タイトルテキストの長さに基づいた看板ボックス（シンプルでおしゃれな尻尾付き吹き出し）の自動調整
+ * - タイトルテキストの長さに関わらず、キャラ約2体分の固定幅（160px ※計算値）箱を生成
  * - 他プレイヤー表示時の座標ズレ補正（manualOffsetX）の適用
  * - 看板エリアのクリック判定用データ（p.vending_rect）のCanvasへの登録
  * - 2行対応：長すぎるテキストは指定幅で折り返し、はみ出る分は「...」に省略
@@ -3317,13 +3316,13 @@ function drawVendingSign(p) {
 
     ctx.save();
     
-    // 文字の長さに合わせて看板のサイズを自動調整（すっきりしたフォント指定）
-    ctx.font = "13px sans-serif";
+    // 文字の長さに合わせて看板のサイズを自動調整（メイプル風のフォント設定）
+    ctx.font = "12px sans-serif";
     
     // 🌟 描画用の変数：中身が空の場合のみ、見た目上のフォールバックを表示
     let displayTitle = title;
     if (!title || title === "") {
-        displayTitle = "Loading title..."; 
+        displayTitle = "いらっしゃいませ！"; 
     }
 
     // 💡 はみ出る文字を「...」に省略する関数（最大幅を超えたら切り詰める）
@@ -3336,14 +3335,12 @@ function drawVendingSign(p) {
         return truncated + "...";
     }
 
-    // 看板の基準幅とpadding
-    const maxSignW = 180; 
-    const padding = 14;
-    const textWidth = Math.min(ctx.measureText(displayTitle).width, maxSignW - (padding * 2));
-    const signW = textWidth + (padding * 2);
+    // 🌟 📏 【サイズ固定】どんなタイトルでも常に固定幅・固定高さ
+    const signW = 160; 
+    const paddingH = 20;
     
-    // 🌟 看板の高さ（2行表示に対応するため 40px）
-    const signH = 40;
+    // 🌟 看板の高さ（2行表示に対応するため 80px）
+    const signH = 80;
 
     // 🛠 手動調整用パラメータ
     let manualOffsetX = 0;
@@ -3351,33 +3348,33 @@ function drawVendingSign(p) {
         manualOffsetX = -130; 
     }
 
-    // 表示位置：キャラクターの頭上中央
+    // 表示位置：キャラクターの頭上
     const charCenter = p.x + (p.w || 40) / 2 + manualOffsetX;
     const signX = charCenter - (signW / 2);
-    const signY = p.y - 80; // 頭上の位置
-    const rectY = signY - 17; // 四角形の描画開始位置
+    const signY = p.y - 125; // 頭上の位置
+    const rectY = signY - 25; // 四角形の描画開始位置
 
+    // ------------------------------------------------------------
+    // 🌟 【メイプル風レトロフキ出しデザインへ変更】
+    // ------------------------------------------------------------
     // 看板の影（ふんわりと浮いている上品な影）
     ctx.shadowColor = "rgba(0, 0, 0, 0.15)";
-    ctx.shadowBlur = 8;
-    ctx.shadowOffsetY = 3;
+    ctx.shadowBlur = 10;
+    ctx.shadowOffsetY = 4;
 
-    // 🌟 【シンプルでおしゃれなデザイン】白に近いごく薄いブルーグレーのグラデーション
-    const grad = ctx.createLinearGradient(signX, rectY, signX, rectY + signH);
-    grad.addColorStop(0, "#F8FAFC"); 
-    grad.addColorStop(1, "#E2E8F0"); 
+    // 背景色：薄いブルーベリー/アイスブルー色
+    ctx.fillStyle = "#F3F4FB"; 
     
-    ctx.fillStyle = grad;
-    ctx.strokeStyle = "#CBD5E1"; // フチ：主張しすぎない細い枠線
-    ctx.lineWidth = 1;
+    // フチ取り設定（濃いブルーグレー）
+    ctx.strokeStyle = "#475569"; 
+    ctx.lineWidth = 2;
 
     // 💡 尻尾（三角のツメ）つきの吹き出しパスを描く
-    const radius = 6; // 角の丸み
-    const tailW = 12; // 尻尾の幅
-    const tailH = 8;  // 尻尾の高さ
+    const radius = 4; // ドット風に見せるため角丸は小さめに
+    const tailW = 20;  // 尻尾の幅
+    const tailH = 12;  // 尻尾の高さ
     
     ctx.beginPath();
-    // 左上から時計回りにパスを作成
     ctx.moveTo(signX + radius, rectY);
     ctx.lineTo(signX + signW - radius, rectY);
     ctx.quadraticCurveTo(signX + signW, rectY, signX + signW, rectY + radius);
@@ -3397,14 +3394,56 @@ function drawVendingSign(p) {
     ctx.closePath();
     ctx.fill();
     ctx.stroke();
+    // ------------------------------------------------------------
 
-    // 看板の文字
-    ctx.shadowBlur = 0; // 文字には影をつけない
-    ctx.fillStyle = "#000000"; // 文字色：くっきり見やすい黒文字
+    // 🌟 【メイプル風UI装飾の描画】
+    ctx.shadowBlur = 0; // 以降の描画には影をつけない
+
+    // 下部インナーバーの境界線
+    ctx.beginPath();
+    ctx.moveTo(signX + 4, rectY + signH - 24);
+    ctx.lineTo(signX + signW - 4, rectY + signH - 24);
+    ctx.strokeStyle = "#CBD5E1";
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    // 🟡 左側のメルコインアイコン（黄色い丸とフチ）
+    ctx.beginPath();
+    ctx.arc(signX + 20, rectY + signH - 12, 8, 0, Math.PI * 2);
+    ctx.fillStyle = "#EAB308"; // 黄色
+    ctx.fill();
+    ctx.strokeStyle = "#A16207";
+    ctx.stroke();
+    
+    // 🔒 鍵アイコン等のプレースホルダー
+    ctx.fillStyle = "#94A3B8";
+    ctx.fillRect(signX + 38, rectY + signH - 18, 10, 12);
+
+    // 🔵 中央のステータス/丸いUIボタン
+    ctx.beginPath();
+    ctx.arc(signX + 90, rectY + signH - 12, 8, 0, Math.PI * 2);
+    ctx.fillStyle = "#FFFFFF";
+    ctx.fill();
+    ctx.strokeStyle = "#0EA5E9"; // メイプルブルーのフチ
+    ctx.stroke();
+
+    // 🟠 右下のオレンジ色の小さな三角形（インジケータ）
+    ctx.beginPath();
+    ctx.moveTo(signX + signW - 16, rectY + signH - 8);
+    ctx.lineTo(signX + signW - 8, rectY + signH - 8);
+    ctx.lineTo(signX + signW - 8, rectY + signH - 16);
+    ctx.closePath();
+    ctx.fillStyle = "#F97316";
+    ctx.fill();
+
+    // --- 看板の文字 ---
+    ctx.fillStyle = "#0F172A"; // 文字色：くっきり見やすい濃い色
     ctx.textAlign = "left"; 
     
-    // 💡 2行表示のロジック（文字数が多く、看板に収まりきらない場合は2行に分割）
-    const availableW = signW - (padding * 2);
+    // 💡 2行表示のロジック（固定幅から余白を引いた幅を基準に判定）
+    const availableW = signW - (paddingH * 2);
+    const lineHeight = 20; // 文字描画間隔をUIに合わせて調整
+
     if (ctx.measureText(displayTitle).width > availableW) {
         // ざっくり真ん中で文字を分割
         const midIndex = Math.floor(displayTitle.length / 2);
@@ -3415,20 +3454,20 @@ function drawVendingSign(p) {
         const safeLine1 = getEllipsisText(line1, availableW);
         const safeLine2 = getEllipsisText(line2, availableW);
 
-        // 1行目と2行目をY座標をずらして描画
-        ctx.fillText(safeLine1, signX + padding, signY - 6);
-        ctx.fillText(safeLine2, signX + padding, signY + 12);
+        // 装飾エリアと被らないようにY座標を計算して描画
+        ctx.fillText(safeLine1, signX + paddingH, signY - (lineHeight / 2) - 2);
+        ctx.fillText(safeLine2, signX + paddingH, signY + (lineHeight / 2) - 2);
     } else {
-        // 収まる場合は中央（Y座標標準）に1行で描画
-        ctx.fillText(displayTitle, signX + padding, signY + 3);
+        // 収まる場合は中央上部に1行で描画
+        ctx.fillText(displayTitle, signX + paddingH, signY + 2);
     }
 
-    // --- 💡 クリック判定用の座標データ（尻尾の高さを含めず元の矩形で判定させる方が自然なため、signHを使用） ---
+    // --- 💡 クリック判定用の座標データ（尻尾の高さまで含めて判定させる） ---
     p.vending_rect = {
         x: signX,
         y: rectY,
         w: signW,
-        h: signH
+        h: signH + tailH
     };
     
     ctx.restore();
@@ -4392,6 +4431,21 @@ function renderPlayerSprite(ctx, p, img, vData) {
     ctx.restore();
 }
 
+/**
+ * 文字列から固有の数値を生成するハッシュ関数
+ * キャラクターごとに異なるオフセット値を生み出すために使用します
+ */
+function hashCode(str) {
+    let hash = 0;
+    if (!str || str.length === 0) return hash;
+    for (let i = 0; i < str.length; i++) {
+        const char = str.charCodeAt(i);
+        hash = ((hash << 5) - hash) + char;
+        hash |= 0; // 32bit 整数に変換
+    }
+    return Math.abs(hash);
+}
+
 // ============================================================
 // :::GET_PLAYER_CURRENT_IMG::: 🎬 アニメーション状態解析と画像特定
 // ============================================================
@@ -4403,7 +4457,7 @@ function renderPlayerSprite(ctx, p, img, vData) {
  * - 各種状態での描画フォールバック（画像が取得できない場合の安全対策）
  */
 function getPlayerCurrentImg(p, g, v, frame, sprites, playerSprites, isMe) {
-    // 🌟 修正：速度の取得を安定化
+    // 🌟 速度の取得を安定化
     const speed = isMe ? (typeof hero !== 'undefined' ? hero.vx : 0) : (p.vx || 0);
     const isMoving = Math.abs(speed) > 0.1;
     const isGrounded = !p.jumping;
@@ -4430,11 +4484,11 @@ function getPlayerCurrentImg(p, g, v, frame, sprites, playerSprites, isMe) {
     }
 
     // --- 2. 🌀 ダウン（ロール）中 ---
-	/*
+    /*
     if (p.isDown) {
         return AnimUtils.getFrame(characterData?.["Roll"], 0, sprites.playerDown);
     }
-	*/
+    */
 
     // --- 3. 🪜 ハシゴ登り ---
     if (p.climbing) {
@@ -4465,9 +4519,16 @@ function getPlayerCurrentImg(p, g, v, frame, sprites, playerSprites, isMe) {
 
     // --- 7. 🧘 待機状態 (Idle) ---
     const frames = characterData?.["Idle"];
+    
+    // 💡 昔のメイプルのようにキャラごとに待機モーションのタイミングをバラつかせるため、
+    // キャラクターの固有ID（p.idや名前など）をハッシュ化した値をオフセットとして加算します。
+    // （※お使いの環境のプレイヤーブルオブジェクト構造に合わせて `p.id` の部分は適宜書き換えてください）
+    const uniqueId = p.id || (g + "_" + v); // IDがない場合はグループと番号から生成
+    const offset = hashCode(String(uniqueId));
+    
     return AnimUtils.getFrame(
         frames, 
-        AnimUtils.getIdx(frame, 6, frames?.length || 0), 
+        AnimUtils.getIdx(frame + offset, 6, frames?.length || 0), 
         sprites.playerA
     );
 
@@ -5327,6 +5388,18 @@ function drawTopStatusUI(hero) {
     ctx.quadraticCurveTo(hpBarX, hpBarY, hpBarX + hpRadius, hpBarY);
     ctx.closePath();
     ctx.stroke();
+
+    // 🌟 📏 HPバー下半分のみに10分割目盛りを描画（Y座標の中央からバー底辺まで）
+    ctx.strokeStyle = "rgba(0, 0, 0, 0.4)";
+    ctx.lineWidth = 1;
+    const hpTickStart = hpBarY + (barHeight / 2);
+    for (let i = 1; i < 10; i++) {
+        const tickX = hpBarX + (barWidth / 10) * i;
+        ctx.beginPath();
+        ctx.moveTo(tickX, hpTickStart);
+        ctx.lineTo(tickX, hpBarY + barHeight);
+        ctx.stroke();
+    }
     
     // HPテキスト (視認性向上のためのシャドウ追加)
     ctx.fillStyle = "#fff";
@@ -5413,6 +5486,18 @@ function drawTopStatusUI(hero) {
     ctx.quadraticCurveTo(hpBarX, expBarY, hpBarX + expRadius, expBarY);
     ctx.closePath();
     ctx.stroke();
+
+    // 🌟 📏 EXPバー下半分のみに10分割目盛りを描画
+    ctx.strokeStyle = "rgba(0, 0, 0, 0.4)";
+    ctx.lineWidth = 1;
+    const expTickStart = expBarY + (expBarH / 2);
+    for (let i = 1; i < 10; i++) {
+        const tickX = hpBarX + (barWidth / 10) * i;
+        ctx.beginPath();
+        ctx.moveTo(tickX, expTickStart);
+        ctx.lineTo(tickX, expBarY + expBarH);
+        ctx.stroke();
+    }
     
     // EXPラベル (シャドウ追加で視認性アップ)
     ctx.fillStyle = "#fff";

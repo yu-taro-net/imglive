@@ -2520,8 +2520,8 @@ function update() {
 
     if (typeof tCtx !== 'undefined') {
         if (typeof hoveringSlot !== 'undefined' && hoveringSlot) {
-            // drawItemTooltip(tCtx, hoveringSlot, mouseX, mouseY, hero);
-        }
+			drawItemTooltip(tCtx, hoveringSlot, window.mouseX, window.mouseY, hero);
+		}
     }
     // --- [描画処理：ここまで] ---
 
@@ -3209,11 +3209,13 @@ socket.on('vending_data_res', (data) => {
         }
     }
 
-    // ⚠️ サーバーデータ異常チェック
-    const bugItem = (data.items || []).find(i => i && !i.display_name && !i.name);
-    if (bugItem) {
-        console.error("🚨 サーバーデータ異常:", bugItem);
-    }
+    // 判定ロジックのイメージ（該当箇所の修正例）
+const bugItem = (data.items || []).find(i => {
+    if (!i) return false;
+    // 名前が深い階層に入っている場合を考慮し、判定を緩和する
+    const hasName = i.display_name || i.name || (i.data && (i.data.display_name || i.data.name));
+    return !hasName; // 名前が見つからない場合に true（異常）と判定する仕組みになっています
+});
     
     console.log("%c🏪 [VENDING_RECEIVE] データ受信", "background: #2ecc71; color: white; padding: 2px 5px;", data);
 
@@ -3350,7 +3352,7 @@ socket.on('vending_data_res', (data) => {
         }
 
         const newHTML = `
-            <div style="display: flex; align-items: center; gap: 10px; pointer-events: none; flex: 1;">
+            <div style="display: flex; align-items: center; gap: 10px; flex: 1;">
                 <div style="width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,0.03); border-radius: 4px;">
                     <img src="${iconPath}" 
                          onerror="this.onerror=null; this.src='assets/items/default.png';" 
@@ -3380,8 +3382,48 @@ socket.on('vending_data_res', (data) => {
                 buyFromVending(data.ownerId, item.db_id || item.id);
             }
         };
-        itemRow.onmouseenter = () => { itemRow.style.background = "rgba(255, 204, 0, 0.15)"; };
-        itemRow.onmouseleave = () => { itemRow.style.background = "transparent"; };
+        
+        itemRow.onmouseenter = (e) => { 
+            itemRow.style.background = "rgba(255, 204, 0, 0.15)";
+            
+            if (typeof window !== 'undefined') {
+                window.hoveringSlot = item;
+                
+                // 🌟 ツールチップを描画するCanvas要素を取得（ID名は実際のCanvasに合わせてください）
+                const gameCanvas = document.getElementById('game-canvas') || document.querySelector('canvas');
+                if (gameCanvas) {
+                    const rect = gameCanvas.getBoundingClientRect();
+                    // Canvasの左上からの相対座標（ローカル座標）に変換してセットする
+                    window.mouseX = e.clientX - rect.left;
+                    window.mouseY = e.clientY - rect.top;
+                } else {
+                    window.mouseX = e.clientX;
+                    window.mouseY = e.clientY;
+                }
+            }
+        };
+
+        itemRow.onmousemove = (e) => {
+            if (typeof window !== 'undefined') {
+                const gameCanvas = document.getElementById('game-canvas') || document.querySelector('canvas');
+                if (gameCanvas) {
+                    const rect = gameCanvas.getBoundingClientRect();
+                    window.mouseX = e.clientX - rect.left;
+                    window.mouseY = e.clientY - rect.top;
+                } else {
+                    window.mouseX = e.clientX;
+                    window.mouseY = e.clientY;
+                }
+            }
+        };
+        
+        itemRow.onmouseleave = () => { 
+            itemRow.style.background = "transparent"; 
+            
+            if (typeof window !== 'undefined' && window.hoveringSlot === item) {
+                window.hoveringSlot = null;
+            }
+        };
     });
 
     // 余分な行を削除

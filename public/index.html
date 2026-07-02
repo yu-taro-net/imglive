@@ -32,7 +32,7 @@
   <title>imglive - Adventure RPG</title>
   <script src="https://satisfied-nourishment-production.up.railway.app/socket.io/socket.io.js"></script>
 </head>
-<body>
+<body style="justify-content: center;">
 
 <!-- ゲーム画面本体 -->
 <div id="main-container" style="display: flex; gap: 20px; align-items: flex-start;">
@@ -151,6 +151,7 @@
     })();
 </script>
 
+<!--
 <script>
   // 既存のイベント設定をそのまま維持
   document.getElementById('stage').addEventListener('mousedown', () => {
@@ -165,43 +166,8 @@
     }
   };
 
-  // チャンネル選択の見た目切り替え
-  /*
-  function selectChannel(ch) {
-    document.querySelectorAll('.ch-btn').forEach(btn => btn.classList.remove('active'));
-    document.getElementById(`ch-btn-${ch}`).classList.add('active');
-  }
-  */
-  // 🌟 新しいツールチップ用のキャンバスを取得
-//const tCanvas = document.getElementById('tooltip-layer');
-//const tCtx = tCanvas.getContext('2d');
-
-// メインのcanvasで使っているdpr（解像度）の設定があれば合わせます
-// もし dpr という変数がない場合は const dpr = window.devicePixelRatio || 1; としてください
-/*
-function setupTooltipCanvas() {
-    const dpr = window.devicePixelRatio || 1;
-    
-    // キャンバスのサイズを画面ぴったりに合わせる
-    tCanvas.width = window.innerWidth * dpr;
-    tCanvas.height = window.innerHeight * dpr;
-    
-    // 表示上のサイズを調整
-    tCanvas.style.width = window.innerWidth + 'px';
-    tCanvas.style.height = window.innerHeight + 'px';
-    
-    // 描画の細かさをメインと合わせる
-    tCtx.scale(dpr, dpr);
-}
-
-// 実行する
-setupTooltipCanvas();
-*/
-
-// 画面のサイズが変わった時もぴったり重なるようにする
-//window.addEventListener('resize', setupTooltipCanvas);
-
 </script>
+-->
 
 </body>
 </html>
