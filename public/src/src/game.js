@@ -1254,11 +1254,6 @@ socket.on('login_response', (data) => {
     const loginError = document.getElementById('login-error');
     const passwordInput = document.getElementById('user-pass-input');
     const nameInput = document.getElementById('user-name-input'); 
-	
-	if (data.success && data.stats) {
-        console.log("ログイン成功、モデルID:", data.stats.model_id);
-        //alert("現在のモデルIDは: " + data.stats.model_id + " です");
-    }
 
     if (data.success) {
 	    // 🌟 【ここに追加】ログイン保持用トークンの保存
@@ -2447,10 +2442,10 @@ function update() {
     }
 
     // まだリクエストしていなければ、1回だけ送信
-    if (!hasRequestedAccountInfo && typeof socket !== 'undefined') {
+    //if (!hasRequestedAccountInfo && typeof socket !== 'undefined') {
         socket.emit('get_account_info');
-        hasRequestedAccountInfo = true;
-    }
+    //    hasRequestedAccountInfo = true;
+    //}
     
     // 🌟 【追加】ここで常にオプション設定とheroを同期させる
     if (typeof hero !== 'undefined' && gameWindows.options) {
@@ -2525,8 +2520,8 @@ function update() {
 
     if (typeof tCtx !== 'undefined') {
         if (typeof hoveringSlot !== 'undefined' && hoveringSlot) {
-			drawItemTooltip(tCtx, hoveringSlot, window.mouseX, window.mouseY, hero);
-		}
+            // drawItemTooltip(tCtx, hoveringSlot, mouseX, mouseY, hero);
+        }
     }
     // --- [描画処理：ここまで] ---
 
@@ -2538,14 +2533,6 @@ function update() {
 
     requestAnimationFrame(update); // 次のフレームへ
 }
-
-// 20秒（20,000ミリ秒）ごとにアカウント情報を要求するタイマー
-setInterval(() => {
-    if (typeof socket !== 'undefined' && socket.connected) {
-        socket.emit('get_account_info');
-        console.log("定期的なアカウント情報更新リクエストを送信しました");
-    }
-}, 20000); // 20000ms = 20秒
 
 // ==========================================
 // 📡 1. 通信と基本設定（ローカル・本番自動切り替え版）
@@ -2639,24 +2626,21 @@ if (regBtn) {
         const username = nameInput.value.trim();
         const password = passInput.value;
 
-        // --- 🌟 修正点: 名前制限を2文字以上6文字以下に変更 ---
-        const isNameInvalid = username.length < 2 || username.length > 6;
-        const isPassInvalid = password.length < 4;
-
-        if (isNameInvalid || isPassInvalid) {
+        // --- 🌟 alert を使わず UI を更新 (既存のバリデーションロジックを踏襲) ---
+        if (username.length < 2 || password.length < 4) {
             if (loginError) {
-                loginError.innerText = "名前は2〜6文字、パスワードは4文字以上で入力してください";
+                loginError.innerText = "名前は2文字以上、パスワードは4文字以上で入力してください";
                 loginError.style.color = "#ff4444";
             }
 
-            // 条件を満たしていない入力欄を赤枠にする (既存ロジック踏襲)
-            if (isNameInvalid) {
+            // 条件を満たしていない入力欄を赤枠にする (openDropForm 踏襲)
+            if (username.length < 2) {
                 nameInput.style.border = "2px solid #ff4444";
             } else {
                 nameInput.style.border = "1px solid #ccc";
             }
 
-            if (isPassInvalid) {
+            if (password.length < 4) {
                 passInput.style.border = "2px solid #ff4444";
             } else {
                 passInput.style.border = "1px solid #ccc";
@@ -3225,13 +3209,11 @@ socket.on('vending_data_res', (data) => {
         }
     }
 
-    // 判定ロジックのイメージ（該当箇所の修正例）
-const bugItem = (data.items || []).find(i => {
-    if (!i) return false;
-    // 名前が深い階層に入っている場合を考慮し、判定を緩和する
-    const hasName = i.display_name || i.name || (i.data && (i.data.display_name || i.data.name));
-    return !hasName; // 名前が見つからない場合に true（異常）と判定する仕組みになっています
-});
+    // ⚠️ サーバーデータ異常チェック
+    const bugItem = (data.items || []).find(i => i && !i.display_name && !i.name);
+    if (bugItem) {
+        console.error("🚨 サーバーデータ異常:", bugItem);
+    }
     
     console.log("%c🏪 [VENDING_RECEIVE] データ受信", "background: #2ecc71; color: white; padding: 2px 5px;", data);
 
@@ -3368,7 +3350,7 @@ const bugItem = (data.items || []).find(i => {
         }
 
         const newHTML = `
-            <div style="display: flex; align-items: center; gap: 10px; flex: 1;">
+            <div style="display: flex; align-items: center; gap: 10px; pointer-events: none; flex: 1;">
                 <div style="width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,0.03); border-radius: 4px;">
                     <img src="${iconPath}" 
                          onerror="this.onerror=null; this.src='assets/items/default.png';" 
@@ -3398,48 +3380,8 @@ const bugItem = (data.items || []).find(i => {
                 buyFromVending(data.ownerId, item.db_id || item.id);
             }
         };
-        
-        itemRow.onmouseenter = (e) => { 
-            itemRow.style.background = "rgba(255, 204, 0, 0.15)";
-            
-            if (typeof window !== 'undefined') {
-                window.hoveringSlot = item;
-                
-                // 🌟 ツールチップを描画するCanvas要素を取得（ID名は実際のCanvasに合わせてください）
-                const gameCanvas = document.getElementById('game-canvas') || document.querySelector('canvas');
-                if (gameCanvas) {
-                    const rect = gameCanvas.getBoundingClientRect();
-                    // Canvasの左上からの相対座標（ローカル座標）に変換してセットする
-                    window.mouseX = e.clientX - rect.left;
-                    window.mouseY = e.clientY - rect.top;
-                } else {
-                    window.mouseX = e.clientX;
-                    window.mouseY = e.clientY;
-                }
-            }
-        };
-
-        itemRow.onmousemove = (e) => {
-            if (typeof window !== 'undefined') {
-                const gameCanvas = document.getElementById('game-canvas') || document.querySelector('canvas');
-                if (gameCanvas) {
-                    const rect = gameCanvas.getBoundingClientRect();
-                    window.mouseX = e.clientX - rect.left;
-                    window.mouseY = e.clientY - rect.top;
-                } else {
-                    window.mouseX = e.clientX;
-                    window.mouseY = e.clientY;
-                }
-            }
-        };
-        
-        itemRow.onmouseleave = () => { 
-            itemRow.style.background = "transparent"; 
-            
-            if (typeof window !== 'undefined' && window.hoveringSlot === item) {
-                window.hoveringSlot = null;
-            }
-        };
+        itemRow.onmouseenter = () => { itemRow.style.background = "rgba(255, 204, 0, 0.15)"; };
+        itemRow.onmouseleave = () => { itemRow.style.background = "transparent"; };
     });
 
     // 余分な行を削除
@@ -3515,19 +3457,6 @@ function buyFromVending(ownerId, dbId) {
         }
     }
 }
-
-// サーバーから「モデルIDの保存成功」通知を受け取る
-socket.on('update_model_success', (data) => {
-    // 💡 取得確認のログとアラート
-    console.log("✅ サーバーから保存成功通知を受信しました:", data);
-    //alert("キャラクターの設定が完了しました！冒険に出発しましょう。");
-	alert("現在のモデルIDは: " + data.model_id + " です");
-
-    // ここでゲーム開始に必要な処理があれば呼び出す
-    // 例:
-    // window.isGameStarted = true;
-    // socket.emit('join', { ... });
-});
 
 // ============================================================
 // :::SOCKET_ON_VENDING_BUY_SUCCESS::: 💰 露店購入の成功と所持金清算
