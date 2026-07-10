@@ -950,78 +950,54 @@ startBtn.onclick = () => {
 // ==========================================
 
 // ============================================================
-// :::LOGIN_SYSTEM_INITIALIZER::: 🔐 ログイン機能の安全な初期化
+// :::HANDLE_LOGIN_REQUEST::: 🔐 ログイン認証処理・サーバーリクエスト
 // ============================================================
-const initLoginSystem = () => {
-    // ボタンと入力欄をここで確実に取得
-    const startBtn = document.getElementById('start-game-btn');
-    const nameInput = document.getElementById('user-name-input');
-    const passwordInput = document.getElementById('user-pass-input');
+/**
+ * 役割：
+ * - ログイン情報の入力バリデーション（空チェックとUIフィードバック）
+ * - 認証情報のサーバーへの送信（ユーザー名、パスワード、チャネル、キャラ情報）
+ * - 送信前の入力欄フォーカス解除とエラー表示のリセット
+ */
+startBtn.onclick = () => {
+    const userName = nameInput.value.trim();
+    const passwordInput = document.getElementById('user-pass-input'); 
+    const password = passwordInput.value;
+    const loginError = document.getElementById('login-error');
 
-    // まだ要素が準備できていなければ0.1秒後に再試行（これが安定の秘訣です）
-    if (!startBtn || !nameInput || !passwordInput) {
-        setTimeout(initLoginSystem, 100);
+    // --- 1. 入力チェック ---
+    if (!userName || !password) {
+        if (loginError) {
+            loginError.innerText = "名前とパスワードを入力してください";
+            loginError.style.color = "#ff4444";
+        }
+        if (!userName) nameInput.style.border = "2px solid #ff4444";
+        if (!password) passwordInput.style.border = "2px solid #ff4444";
         return;
     }
 
-    // --- ここから下が「うまくいく」と分かっているあなたのコード ---
-    startBtn.onclick = () => {
-        const userName = nameInput.value.trim();
-        const password = passwordInput.value;
-        const loginError = document.getElementById('login-error');
+    // --- 2. 正常な場合はスタイルをリセット ---
+    nameInput.style.border = "1px solid #ccc";
+    passwordInput.style.border = "1px solid #ccc";
+    if (loginError) loginError.innerText = "";
 
-        // --- 1. 入力チェック ---
-        if (!userName || !password) {
-            if (loginError) {
-                loginError.innerText = "名前とパスワードを入力してください";
-                loginError.style.color = "#ff4444";
-            }
-            if (!userName) nameInput.style.border = "2px solid #ff4444";
-            if (!password) passwordInput.style.border = "2px solid #ff4444";
-            return;
-        }
-
-        // --- 2. 正常な場合はスタイルをリセット ---
-        nameInput.style.border = "1px solid #ccc";
-        passwordInput.style.border = "1px solid #ccc";
-        if (loginError) loginError.innerText = "";
-
-        // --- 3. フォーカスを外す ---
-        nameInput.blur();
-        passwordInput.blur();
-        
-        // 🌟 サーバーへのログイン送信
-        if (typeof socket !== 'undefined' && socket.connected) {
-            socket.emit('login', { 
-                username: userName, 
-                password: password,
-                channel: typeof selectedChannel !== 'undefined' ? selectedChannel : 1,
-                group: typeof selectedGroup !== 'undefined' ? selectedGroup : 0, 
-                charVar: typeof selectedCharVar !== 'undefined' ? selectedCharVar : 1
-            });
-            console.log("🚀 認証リクエスト送信... 名前/メアド:", userName, "チャンネル:", selectedChannel);
-        }
-    };
-
-    // 💡 ついでにショートカット（Enterキー）も有効化しておきます
-    passwordInput.onkeydown = (e) => {
-        if (e.key === 'Enter') {
-            e.preventDefault();
-            startBtn.onclick();
-        }
-    };
-    nameInput.onkeydown = (e) => {
-        if (e.key === 'Enter') {
-            e.preventDefault();
-            startBtn.onclick();
-        }
-    };
-
-    console.log("✅ ログインボタンの紐付けが完了しました");
+    // --- 3. フォーカスを外す ---
+    nameInput.blur();
+    passwordInput.blur();
+    
+    // 🌟 【修正】ここではまだ画面を隠さず、キャラ選択も呼ばない！
+    // 🌟 まずサーバーにログイン情報を送信して、ID・パスワードが合っているか確認を求めます
+    if (typeof socket !== 'undefined' && socket.connected) {
+        socket.emit('login', { 
+            username: userName, 
+            password: password,
+            channel: selectedChannel,
+            // 💡 まだキャラ選択前なので初期値を送ります（サーバー側の仕様に合わせて調整してください）
+            group: typeof selectedGroup !== 'undefined' ? selectedGroup : 0, 
+            charVar: typeof selectedCharVar !== 'undefined' ? selectedCharVar : 1
+        });
+        console.log("🚀 認証リクエスト送信... 名前/メアド:", userName, "チャンネル:", selectedChannel);
+    }
 };
-
-// 実行開始
-initLoginSystem();
 
 // ============================================================
 // :::SETUP_LOGIN_HOTKEY::: 🔑 パスワード入力欄のログイン・ショートカット
@@ -1274,16 +1250,10 @@ if (savedToken) {
  * - ゲーム開始時の `join` 通知とサウンド/ループ処理の起動（isGameStarted状態依存）
  * - ログイン失敗時のエラーUI表示とリトライ制御
  */
- /*
 socket.on('login_response', (data) => {
     const loginError = document.getElementById('login-error');
     const passwordInput = document.getElementById('user-pass-input');
     const nameInput = document.getElementById('user-name-input'); 
-	
-	if (data.success && data.stats) {
-        console.log("ログイン成功、モデルID:", data.stats.model_id);
-        //alert("現在のモデルIDは: " + data.stats.model_id + " です");
-    }
 
     if (data.success) {
 	    // 🌟 【ここに追加】ログイン保持用トークンの保存
@@ -1394,99 +1364,6 @@ socket.on('login_response', (data) => {
             passwordInput.value = "";
             setTimeout(() => passwordInput.focus(), 10);
         }
-    }
-});
-*/
-
-// :::ON_AUTH_RESPONSE::: 🔒 ログイン認証のみ（詳細データ未着）
-socket.on('auth_response', (data) => {
-    console.log("🔒 認証成功。キャラクター選択画面へ");
-	
-	//alert(data.model_id);
-    
-    // ログインパネルを隠す
-    const loginOverlay = document.getElementById('login-overlay');
-    if (loginOverlay) loginOverlay.style.display = 'none';
-
-    // 🚀 【救出処理・同期】
-    const tCanvas = document.getElementById('tooltip-layer');
-    const stageCanvas = document.getElementById('stage');
-    if (tCanvas && stageCanvas) {
-        stageCanvas.parentElement.appendChild(tCanvas); 
-    }
-
-	if (data.model_id !== -1) {
-        selectCharacterAndLogin(data.model_id);
-    } else {
-        // -1 なら選択画面を出す
-        createCharSelector();
-    }
-	
-    // キャラクター選択画面を呼び出す
-    //createCharSelector();
-});
-
-// :::ON_LOGIN_DATA::: 🚀 本番ログインデータ受信・ゲーム開始・状態遷移
-socket.on('login_data', (data) => {
-
-	console.log("🏁 [重要] login_data 到着:", data);
-	
-    const loginError = document.getElementById('login-error');
-    
-    if (!data.success) {
-        if (loginError) loginError.innerText = data.message;
-        return;
-    }
-
-    // 💡 トークン保存
-    if (data.token) localStorage.setItem('game_token', data.token);
-    myId = socket.id;
-
-    // 💡 モデルIDが -1 以外なら選択画面をスキップして即開始
-    if (data.stats && data.stats.model_id !== -1) {
-        console.log("🌟 キャラクター選択済み (ModelID: " + data.stats.model_id + ")。自動開始します。");
-        window.isGameStarted = true;
-        selectedGroup = data.stats.model_id;
-        
-        // ログインパネルを念のため隠す
-        const loginOverlay = document.getElementById('login-overlay');
-        if (loginOverlay) loginOverlay.style.display = 'none';
-    }
-
-    // 💡 hero やグローバルへのデータ退避
-    const userName = data.username;
-    if (typeof hero !== 'undefined') {
-        hero.name = userName;
-        if (data.stats) {
-            hero.level = data.stats.level || 1;
-            hero.hp    = data.stats.hp || 100;
-            hero.mp    = data.stats.mp || 50;
-            hero.gold  = data.stats.gold || 0;
-            hero.x     = data.stats.x || 100;
-            hero.y     = data.stats.y || 400;
-            hero.jobId = data.stats.job_id || 0;
-        }
-        hero.channel = data.channel || 1;
-        if (typeof updateChannelUI === 'function') updateChannelUI(hero.channel);
-    }
-
-    // 🌟 ゲーム開始処理（自動ログイン時もここが実行される）
-    if (window.isGameStarted) {
-        socket.emit('join', { 
-            name: userName, 
-            channel: hero.channel,
-            group: selectedGroup,
-            x: hero.x,
-            y: hero.y
-        });
-        
-        socket.emit('get_account_info');
-
-        if (typeof audioCtx !== 'undefined' && audioCtx.state === 'suspended') audioCtx.resume();
-        if (typeof playBGM === 'function') playBGM();
-        if (typeof update === 'function') update();
-        
-        console.log("✅ ゲームセッションを開始しました");
     }
 });
 
@@ -2565,10 +2442,10 @@ function update() {
     }
 
     // まだリクエストしていなければ、1回だけ送信
-    if (!hasRequestedAccountInfo && typeof socket !== 'undefined') {
+    //if (!hasRequestedAccountInfo && typeof socket !== 'undefined') {
         socket.emit('get_account_info');
-        hasRequestedAccountInfo = true;
-    }
+    //    hasRequestedAccountInfo = true;
+    //}
     
     // 🌟 【追加】ここで常にオプション設定とheroを同期させる
     if (typeof hero !== 'undefined' && gameWindows.options) {
@@ -2656,14 +2533,6 @@ function update() {
 
     requestAnimationFrame(update); // 次のフレームへ
 }
-
-// 20秒（20,000ミリ秒）ごとにアカウント情報を要求するタイマー
-setInterval(() => {
-    if (typeof socket !== 'undefined' && socket.connected) {
-        socket.emit('get_account_info');
-        console.log("定期的なアカウント情報更新リクエストを送信しました");
-    }
-}, 20000); // 20000ms = 20秒
 
 // ==========================================
 // 📡 1. 通信と基本設定（ローカル・本番自動切り替え版）
@@ -2757,24 +2626,21 @@ if (regBtn) {
         const username = nameInput.value.trim();
         const password = passInput.value;
 
-        // --- 🌟 修正点: 名前制限を2文字以上6文字以下に変更 ---
-        const isNameInvalid = username.length < 2 || username.length > 6;
-        const isPassInvalid = password.length < 4;
-
-        if (isNameInvalid || isPassInvalid) {
+        // --- 🌟 alert を使わず UI を更新 (既存のバリデーションロジックを踏襲) ---
+        if (username.length < 2 || password.length < 4) {
             if (loginError) {
-                loginError.innerText = "名前は2〜6文字、パスワードは4文字以上で入力してください";
+                loginError.innerText = "名前は2文字以上、パスワードは4文字以上で入力してください";
                 loginError.style.color = "#ff4444";
             }
 
-            // 条件を満たしていない入力欄を赤枠にする (既存ロジック踏襲)
-            if (isNameInvalid) {
+            // 条件を満たしていない入力欄を赤枠にする (openDropForm 踏襲)
+            if (username.length < 2) {
                 nameInput.style.border = "2px solid #ff4444";
             } else {
                 nameInput.style.border = "1px solid #ccc";
             }
 
-            if (isPassInvalid) {
+            if (password.length < 4) {
                 passInput.style.border = "2px solid #ff4444";
             } else {
                 passInput.style.border = "1px solid #ccc";
@@ -3634,19 +3500,6 @@ function buyFromVending(ownerId, dbId) {
     }
 }
 
-// サーバーから「モデルIDの保存成功」通知を受け取る
-socket.on('update_model_success', (data) => {
-    // 💡 取得確認のログとアラート
-    console.log("✅ サーバーから保存成功通知を受信しました:", data);
-    //alert("キャラクターの設定が完了しました！冒険に出発しましょう。");
-	alert("現在のモデルIDは: " + data.model_id + " です");
-
-    // ここでゲーム開始に必要な処理があれば呼び出す
-    // 例:
-    // window.isGameStarted = true;
-    // socket.emit('join', { ... });
-});
-
 // ============================================================
 // :::SOCKET_ON_VENDING_BUY_SUCCESS::: 💰 露店購入の成功と所持金清算
 // ============================================================
@@ -4012,10 +3865,3 @@ setInterval(() => {
         saveGameData();
     }
 }, 10000);
-
-// 全ての通信を監視する最強のデバッグコード
-/*
-socket.onAny((event, ...args) => {
-    console.log(`📡 [受信したイベント]: ${event}`, args);
-});
-*/

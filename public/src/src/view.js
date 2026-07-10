@@ -833,8 +833,7 @@ function loadStaticImages() {
                     fullPath = `${basePath}/${folderName}/${fName}${num}.png`;
                 } else {
                     // 👤 Char系：skeleton-Attack_0.png 形式
-					// 停止(2026/7/10)
-                    //fullPath = `${basePath}/${folderName}/${fName}-${fileSuffix}_${i}.png`;
+                    fullPath = `${basePath}/${folderName}/${fName}-${fileSuffix}_${i}.png`;
                 }
                 
                 img.src = fullPath;
@@ -6575,14 +6574,40 @@ const createCharSelector = () => {
         };
 
         btn.onclick = () => {
-    animTimers.forEach(t => clearInterval(t));
-    
-    // 切り出した関数を実行
-    selectCharacterAndLogin(i - 1);
-    
-    // 画面削除
-    overlay.remove();
-};
+            // パネルのアニメーションタイマーを停止
+            animTimers.forEach(t => clearInterval(t));
+
+            // 1. 変数を更新（選択したキャラのIDをセット）
+            selectedGroup = i - 1; 
+            selectedCharVar = 1; 
+
+            // 2. 🖼️ 画像データをロード（自身の画面用）
+            loadCharFrames(selectedGroup, selectedCharVar);
+
+            // 🌟 修正：ログイン情報を取得し、最初から「選択したキャラ」でログインリクエストを送る
+            // これにより、他ユーザーから見た時に「7」を介さず直接このキャラで出現します
+            const nameInput = document.getElementById('user-name-input');
+            const passInput = document.getElementById('user-pass-input');
+            const userName = nameInput ? nameInput.value.trim() : "";
+            const password = passInput ? passInput.value : "";
+
+            if (typeof socket !== 'undefined' && socket.connected) {
+                socket.emit('login', { 
+                    username: userName, 
+                    password: password,
+                    channel: selectedChannel,
+                    group: selectedGroup,    // 👈 最初から選んだグループを送信
+                    charVar: selectedCharVar
+                });
+                console.log(`🚀 ログイン送信: ${userName} (Chara ${selectedGroup})`);
+            }
+            
+            // 4. ゲーム開始フラグを立てて、パネルを消去
+            window.isGameStarted = true;
+            console.log(`Loaded Folder: ${folderIdStr}, Displayed as: Chara ${displayNumStr}`);
+            
+            overlay.remove();
+        };
 
         btn.appendChild(nameTag);
         grid.appendChild(btn);
@@ -6590,40 +6615,6 @@ const createCharSelector = () => {
 
     overlay.appendChild(grid);
     document.body.appendChild(overlay);
-};
-
-// キャラクターを選択し、サーバーへログインリクエストを送信する共通関数
-const selectCharacterAndLogin = (groupIndex) => {
-
-	console.log("🔥 [着火] キャラ選択を実行しました");
-	
-    // 選択されたグループIDをセット
-    selectedGroup = groupIndex;
-    selectedCharVar = 1;
-
-    // 画像のロード
-    loadCharFrames(selectedGroup, selectedCharVar);
-
-    // ユーザー情報の取得
-    const nameInput = document.getElementById('user-name-input');
-    const passInput = document.getElementById('user-pass-input');
-    const userName = nameInput ? nameInput.value.trim() : "";
-    const password = passInput ? passInput.value : "";
-
-    // ログイン送信
-    if (typeof socket !== 'undefined' && socket.connected) {
-        socket.emit('login', {
-            username: userName,
-            password: password,
-            channel: selectedChannel,
-            group: selectedGroup,
-            charVar: selectedCharVar
-        });
-        console.log(`🚀 ログイン送信: ${userName} (Chara ${selectedGroup})`);
-    }
-
-    // ゲーム開始フラグ
-    window.isGameStarted = true;
 };
 
 // view.js の一番下に記述

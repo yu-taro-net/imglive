@@ -308,17 +308,23 @@ socket.on('login', async (data) => {
             );
 
             // 🌟 1回目のログイン（初期選択値でのダミー通信）の場合
-            if (socket.loginCount === 1) {
-                socket.emit('login_response', {
-                    success: true,
-                    id: user.id,
-                    username: user.username,
-                    channel: parseInt(channel) || 1,
-                    token: token,
-                    message: '1回目認証成功（キャラ選択へ進みます）'
-                });
-                return;
-            }
+if (socket.loginCount === 1) {
+    // 💡 ステータスを一度だけチェックしに行く
+    const statsSql = 'SELECT model_id FROM player_stats WHERE user_id = ?';
+    const [statsResults] = await pool.query(statsSql, [user.id]);
+    const modelId = statsResults.length > 0 ? statsResults[0].model_id : -1;
+
+    socket.emit('auth_response', {
+        success: true,
+        id: user.id,
+        username: user.username,
+        channel: parseInt(channel) || 1,
+        token: token,
+        model_id: modelId, // 🌟 ここに model_id を追加！
+        message: '1回目認証成功（キャラ確認完了）'
+    });
+    return;
+}
 
             // 🚀 ここから下は「2回目の本番ログイン」の時だけ実行されます
             socket.username = user.username;
@@ -379,7 +385,7 @@ socket.on('login', async (data) => {
             socket.join(roomName);
 
             // 3. 認証成功のレスポンス
-            socket.emit('login_response', {
+            socket.emit('login_data', {
                 success: true,
                 id: user.id,
                 username: user.username,
@@ -482,7 +488,7 @@ socket.on('join', data => {
             emitPlayerList();
 
             debugChat(`👋 ${userName} さんが チャンネル ${channel} に参加しました（キャラID: ${p.group}）`);
-            LOG.SYS(`[入室データ確認] ${JSON.stringify(p)}`);
+            //LOG.SYS(`[入室データ確認] ${JSON.stringify(p)}`);
         }
     } catch (e) {
         debugChat(`❌ joinエラー: ${e.message}`, 'error');
@@ -4910,6 +4916,7 @@ setInterval(() => {
 
     // --- 2. デバッグ情報の送信処理（旧 setInterval からの統合） ---
     // どの名前でアイテムが管理されていても捕まえられるようにします
+	/*
     let count = 0;
     if (typeof items !== 'undefined') {
         count = Object.keys(items).length;
@@ -4927,6 +4934,7 @@ setInterval(() => {
             itemCount: count // 捕まえたアイテム数を送る
         });
     }
+	*/
 
 }, SETTINGS.SYSTEM.TICK_RATE);
 
