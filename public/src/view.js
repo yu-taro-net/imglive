@@ -4333,17 +4333,9 @@ ladders.forEach(l => {
 // ============================================================
 // :::DRAW_PLAYER_OBJ::: 👤 キャラクター描画の司令塔（自分・他者共通）
 // ============================================================
-/**
- * 役割：
- * - チャンネル判定：自分と同じチャンネルのプレイヤーのみをレンダリング対象とする「門番」機能
- * - キャラクタースプライトの動的ロード管理：表示に必要なキャラデータが未定義の場合の自動ロード
- * - レンダリングの統合：calculatePlayerVisuals と renderPlayerSprite による座標・描画計算
- * - 状態に基づく描画スキップ：無敵時間(invincible)の点滅演出制御
- * - UIの統合：プレイヤー名やHPバー（drawPlayerUI）の同期表示
- */
 function drawPlayerObj(p, isMe, id) {
     if (!p) return;
-	
+    
     // 🌟 チャンネルチェックの門番
     if (!isMe && typeof hero !== 'undefined') {
         const myChan = hero.channel || 1;
@@ -4351,27 +4343,26 @@ function drawPlayerObj(p, isMe, id) {
         if (opChan !== myChan) return;
     }
 
-    // 1. 🎭 キャラクター設定の読み込み
-    const g = isMe ? selectedGroup : (p.group !== undefined ? p.group : 5);
-    const v = isMe ? selectedCharVar : (p.charVar !== undefined ? p.charVar : 6);
+    // 1. 🎭 キャラクター設定の決定 (ここを model_id 優先に修正)
+    // サーバーから同期されている p.model_id を使用し、未定義ならグループID(p.group)へフォールバック
+    const g = isMe ? (typeof selectedGroup !== 'undefined' ? selectedGroup : 0) : (p.model_id !== undefined ? p.model_id : (p.group || 0));
+    const v = isMe ? (typeof selectedCharVar !== 'undefined' ? selectedCharVar : 1) : (p.charVar !== undefined ? p.charVar : 1);
 
-    // 🌟 修正：その人の見た目(g, v)がまだロードされていない場合、ここでロードを実行
-    // これにより getPlayerCurrentImg 内部の characterData が undefined になるのを防ぎます
+    // 🌟 ロードチェック：g, v の組み合わせが未ロードなら実行
     if (!playerSprites[g] || !playerSprites[g][v]) {
         loadCharFrames(g, v);
     }
 
-    // 2. 🎨 描画準備（サイズ・座標の計算）
+    // 2. 🎨 描画準備
     const visualData = calculatePlayerVisuals(p, g, isMe);
 
-    // 3. 🖼️ 表示する画像の決定（ロジックは踏襲）
+    // 3. 🖼️ 表示する画像の決定
     const currentImg = getPlayerCurrentImg(p, g, v, frame, sprites, playerSprites, isMe);
 
     // 4. ✍️ 実際の描画実行
     if (currentImg && !(p.invincible > 0 && Math.floor(frame / 4) % 2 === 0)) {
         renderPlayerSprite(ctx, p, currentImg, visualData);
     } else if (!isMe) {
-        // 画像ロード待ちの他人のためのデバッグ表示（映らない原因切り分け用）
         ctx.fillStyle = "rgba(255,255,255,0.5)";
         ctx.fillText("Loading image...", p.x, p.y - 10);
     }
@@ -4539,6 +4530,8 @@ function getPlayerCurrentImg(p, g, v, frame, sprites, playerSprites, isMe) {
 
 // ★ バッジ用の画像オブジェクトを生成して読み込みます
 const badgeImg = new Image();
+let isBadgeLoaded = false; // 💡 追加：読み込み完了フラグ
+badgeImg.onload = () => { isBadgeLoaded = true; }; // 💡 追加：ロード完了時にフラグを更新
 badgeImg.src = '//imglive.net/badge.png';
 
 // ============================================================
@@ -4628,14 +4621,13 @@ function drawPlayerUI(ctx, p, isMe, pW, frame) {
     // --- 4. バッジ画像と名前テキストの描画 ---
     let currentX = p.x + pW / 2 - totalW / 2 + (VIEW_CONFIG.playerName.paddingW / 2);
     
-    // 連携している（isLinked）かつ画像読み込み完了時のみバッジを描画する
-    if (p.isLinked && badgeImg.complete) {
+    // 💡 修正：badgeImg.complete だけでなく、ロードフラグもチェックするように変更
+    if (p.isLinked && (badgeImg.complete || isBadgeLoaded)) {
         ctx.drawImage(badgeImg, currentX, nameY - 14, imgW, imgH);
         currentX += imgW + 4; // 描画した分だけX座標を進める
     }
     
     // --- 5. 名前のテキスト描画 ---
-    // オンライン中（isOnline）なら金色（#ffd700）、そうでなければ白色（#ffffff）に装飾
     ctx.fillStyle = p.isOnline ? "#ffd700" : "#ffffff";
     ctx.textAlign = "left"; 
     ctx.fillText(rawName, currentX, nameY);
@@ -6592,39 +6584,59 @@ const createCharSelector = () => {
     document.body.appendChild(overlay);
 };
 
-// キャラクターを選択し、サーバーへログインリクエストを送信する共通関数
+/**
+ * 修正後の役割：
+ * - ログイン済みかどうかを判定し、ログインなら変更リクエスト、そうでなければ通常ログインを送信
+ */
 const selectCharacterAndLogin = (groupIndex) => {
-
-	console.log("🔥 [着火] キャラ選択を実行しました");
-	
-    // 選択されたグループIDをセット
+    console.log("🔥 [着火] キャラ選択を実行しました");
+    
     selectedGroup = groupIndex;
     selectedCharVar = 1;
 
-    // 画像のロード
-    loadCharFrames(selectedGroup, selectedCharVar);
-
-    // ユーザー情報の取得
-    const nameInput = document.getElementById('user-name-input');
-    const passInput = document.getElementById('user-pass-input');
-    const userName = nameInput ? nameInput.value.trim() : "";
-    const password = passInput ? passInput.value : "";
-
-    // ログイン送信
-    if (typeof socket !== 'undefined' && socket.connected) {
-        socket.emit('login', {
-            username: userName,
-            password: password,
-            channel: selectedChannel,
-            group: selectedGroup,
-            charVar: selectedCharVar
-        });
-        console.log(`🚀 ログイン送信: ${userName} (Chara ${selectedGroup})`);
+    if (typeof loadCharFrames === 'function') {
+        loadCharFrames(selectedGroup, selectedCharVar);
     }
 
-    // ゲーム開始フラグ
-    window.isGameStarted = true;
+    // ログイン済み(ゲーム中)かどうかの判定
+    const isAlreadyLoggedIn = window.isGameStarted;
+
+    if (typeof socket !== 'undefined' && socket.connected) {
+        if (isAlreadyLoggedIn) {
+            // 🌟 【パターンA】ゲーム中なら「アバター変更」リクエストを送る
+            socket.emit('change_model', { 
+                modelId: selectedGroup 
+            });
+            console.log(`✨ アバター変更リクエスト送信: Model ID ${selectedGroup}`);
+        } else {
+            // 🌟 【パターンB】ログイン前なら「ログイン」リクエストを送る
+            const nameInput = document.getElementById('user-name-input');
+            const passInput = document.getElementById('user-pass-input');
+            
+            socket.emit('login', {
+                username: nameInput ? nameInput.value.trim() : "",
+                password: passInput ? passInput.value : "",
+                channel: typeof selectedChannel !== 'undefined' ? selectedChannel : 1,
+                group: selectedGroup,
+                charVar: selectedCharVar,
+                model_id: selectedGroup 
+            });
+            console.log("🚀 ログインリクエスト送信");
+        }
+    }
+
+    // ゲーム開始フラグは初回ログイン時のみ立てる
+    if (!isAlreadyLoggedIn) {
+        window.isGameStarted = true;
+    }
 };
+
+socket.on('request_char_select', () => {
+    // 既存のキャラ選択関数を再実行
+    if (typeof createCharSelector === 'function') {
+        createCharSelector();
+    }
+});
 
 // view.js の一番下に記述
 socket.onAny((event, ...args) => {

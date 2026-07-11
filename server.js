@@ -257,22 +257,17 @@ io.on('connection', socket => {
 const crypto = require('crypto'); // 💡 上部でcryptoをインポートしてください
 
 socket.on('login', async (data) => {
-    // 🌟 修正：クライアントから送られてくる channel を受け取る
-    const { username, password, channel } = data;
+    // クライアントから受け取るデータ
+    const { username, password, channel, group } = data; // 🌟 group(model_id) を受け取る
     
-    // 🌟 【追加】重複ログインチェック
+    // 重複ログインチェック
     const isAlreadyLoggedIn = Object.values(players).some(p => p.name === username);
-    
     if (isAlreadyLoggedIn) {
-        socket.emit('login_response', { 
-            success: false, 
-            message: 'そのキャラクター名は現在接続中です' 
-        });
+        socket.emit('login_response', { success: false, message: 'そのキャラクター名は現在接続中です' });
         return; 
     }
 
     try {
-        // 1. ユーザーの存在確認
         const sql = 'SELECT * FROM users WHERE username = ?';
         const [userResults] = await pool.query(sql, [username]);
 
@@ -282,78 +277,63 @@ socket.on('login', async (data) => {
         }
 
         const user = userResults[0];
-
-        // 🌟 パスワードの照合
         const match = await bcrypt.compare(password, user.password_hash);
 
         if (match) {
-            // ------------------------------------------------------------
-            // 🛡️ ログイン回数のカウントガードを追加
-            // ------------------------------------------------------------
-            if (!socket.loginCount) {
-                socket.loginCount = 0;
-            }
+            if (!socket.loginCount) socket.loginCount = 0;
             socket.loginCount++;
 
-            // ------------------------------------------------------------
-            // 🌟 ログイン維持用トークンの発行 (共通)
-            // ------------------------------------------------------------
             const token = crypto.randomBytes(32).toString('hex');
             const expiry = new Date();
-            expiry.setDate(expiry.getDate() + 30); // 30日間保持
+            expiry.setDate(expiry.getDate() + 30);
 
-            await pool.query(
-                'UPDATE users SET remember_token = ?, token_expires = ? WHERE id = ?',
-                [token, expiry, user.id]
-            );
+            await pool.query('UPDATE users SET remember_token = ?, token_expires = ? WHERE id = ?', [token, expiry, user.id]);
 
-            // 🌟 1回目のログイン（初期選択値でのダミー通信）の場合
-if (socket.loginCount === 1) {
-    // 💡 ステータスを一度だけチェックしに行く
-    const statsSql = 'SELECT model_id FROM player_stats WHERE user_id = ?';
-    const [statsResults] = await pool.query(statsSql, [user.id]);
-    const modelId = statsResults.length > 0 ? statsResults[0].model_id : -1;
+            // 1回目のログイン（初期選択値でのダミー通信）
+            if (socket.loginCount === 1) {
+                const statsSql = 'SELECT model_id FROM player_stats WHERE user_id = ?';
+                const [statsResults] = await pool.query(statsSql, [user.id]);
+                const modelId = statsResults.length > 0 ? statsResults[0].model_id : -1;
 
-    socket.emit('auth_response', {
-        success: true,
-        id: user.id,
-        username: user.username,
-        channel: parseInt(channel) || 1,
-        token: token,
-        model_id: modelId, // 🌟 ここに model_id を追加！
-        message: '1回目認証成功（キャラ確認完了）'
-    });
-    return;
-}
+                socket.emit('auth_response', {
+                    success: true,
+                    id: user.id,
+                    username: user.username,
+                    channel: parseInt(channel) || 1,
+                    token: token,
+                    model_id: modelId,
+                    message: '1回目認証成功（キャラ確認完了）'
+                });
+                return;
+            }
 
-            // 🚀 ここから下は「2回目の本番ログイン」の時だけ実行されます
+            // 🚀 2回目：本番ログイン（ここで model_id を更新する）
             socket.username = user.username;
 
-            // 🌟 【修正ポイント】SQLを修正して model_id を明示的に取得
+            // 🌟 【追加】キャラクター選択画面で送られてきた model_id をDBに反映
+            if (group !== undefined) {
+                await pool.query('UPDATE player_stats SET model_id = ? WHERE user_id = ?', [group, user.id]);
+            }
+
             const statsSql = 'SELECT *, model_id FROM player_stats WHERE user_id = ?';
             const [statsResults] = await pool.query(statsSql, [user.id]);
 
             if (statsResults.length === 0) {
-                LOG.DB(`ステータス取得失敗 (ID: ${user.id}):データが見つかりません`);
                 socket.emit('login_response', { success: false, message: 'キャラクターデータの読み込みに失敗しました' });
                 return;
             }
 
             const stats = statsResults[0];
             const savedInventory = await loadUserInventory(user.id);
-
             const fixedInventory = Array(10).fill(null);
             savedInventory.forEach((item) => {
                 const sIdx = item.slot_index; 
-                if (sIdx !== undefined && sIdx !== null && sIdx >= 0 && sIdx < 10) {
-                    fixedInventory[sIdx] = item;
-                }
+                if (sIdx >= 0 && sIdx < 10) fixedInventory[sIdx] = item;
             });
 
             const selectedChannel = parseInt(channel) || 1;
             const roomName = `channel_${selectedChannel}`;
             const correctMaxHP = MAX_HP_TABLE[stats.level] || stats.max_hp;
-            const adjustedCurrentHP = stats.hp > correctMaxHP ? correctMaxHP : stats.hp;
 
             players[socket.id] = {
                 dbId: user.id,
@@ -363,7 +343,7 @@ if (socket.loginCount === 1) {
                 gold: Number(stats.gold || 0),
                 level: stats.level,
                 exp: stats.exp,
-                hp: adjustedCurrentHP,
+                hp: Math.min(stats.hp, correctMaxHP),
                 maxHp: correctMaxHP,
                 mp: stats.mp,
                 maxMp: stats.max_mp,
@@ -371,20 +351,18 @@ if (socket.loginCount === 1) {
                 x: stats.pos_x,
                 y: stats.pos_y,
                 job_id: stats.job_id,
-                model_id: stats.model_id, // 🌟 メモリ上にも保持
+                model_id: stats.model_id, // 更新後の値を保持
                 str: stats.str || 4,
                 dex: stats.dex || 4,
                 luk: stats.luk || 4,
                 ap: stats.ap || 0,
-                inventory: fixedInventory, 
-                lastPickupTime: 0,
-                is_vending: false,
-                vending_title: ""
+                inventory: fixedInventory,
+                is_vending: false
             };
 
             socket.join(roomName);
 
-            // 3. 認証成功のレスポンス
+            // 認証成功のレスポンス
             socket.emit('login_data', {
                 success: true,
                 id: user.id,
@@ -393,8 +371,7 @@ if (socket.loginCount === 1) {
                 token: token,
                 stats: {
                     level: stats.level,
-                    exp: stats.exp,
-                    model_id: stats.model_id, // 🌟 追加：これでクライアントに送られます
+                    model_id: stats.model_id, // クライアントへ送る
                     hp: players[socket.id].hp,
                     max_hp: players[socket.id].maxHp,
                     mp: stats.mp,
@@ -403,11 +380,6 @@ if (socket.loginCount === 1) {
                     map_id: stats.map_id,
                     x: stats.pos_x,
                     y: stats.pos_y,
-                    job_id: stats.job_id,
-                    str: stats.str || 4,
-                    dex: stats.dex || 4,
-                    luk: stats.luk || 4,
-                    ap: stats.ap || 0,
                     inventory: fixedInventory
                 },
                 message: 'ログイン成功！'
@@ -415,21 +387,13 @@ if (socket.loginCount === 1) {
 
             socket.emit('inventory_update', fixedInventory);
             socket.to(roomName).emit('player_joined', players[socket.id]);
-
-            LOG.DB(`ログイン成功: ${user.username} (Lv.${stats.level}) -> ${roomName}`);
-
-            try {
-                await pool.query("SET time_zone = '+09:00';");
-                await pool.query('UPDATE users SET last_login = NOW() WHERE id = ?', [user.id]);
-            } catch (tzErr) {
-                LOG.DB(`ログイン時間更新エラー: ${tzErr.message}`);
-            }
+            await pool.query('UPDATE users SET last_login = NOW() WHERE id = ?', [user.id]);
 
         } else {
             socket.emit('login_response', { success: false, message: 'ユーザー名またはパスワードが違います' });
         }
     } catch (err) {
-        console.error("❌ ログイン処理中にエラーが発生しました:", err);
+        console.error("❌ ログイン処理エラー:", err);
         socket.emit('login_response', { success: false, message: 'サーバーエラーが発生しました' });
     }
 });
@@ -2143,6 +2107,28 @@ socket.on('close_vending', () => {
     }
 });
 
+// サーバー側 (server.js)
+socket.on('change_model', async (data) => {
+    const { modelId } = data; // クライアントから送られてくる新しいID
+    const userId = players[socket.id]?.dbId;
+
+    if (userId) {
+        // DBを更新
+        await pool.query('UPDATE player_stats SET model_id = ? WHERE user_id = ?', [modelId, userId]);
+        
+        // メモリの値を更新
+        players[socket.id].model_id = modelId;
+        
+        // 全員に通知（見た目を即座に切り替えるため）
+        io.to(`channel_${players[socket.id].channel}`).emit('model_changed', {
+            playerId: socket.id,
+            modelId: modelId
+        });
+        
+        console.log(`✨ ID: ${userId} のモデルを ${modelId} に更新しました`);
+    }
+});
+
 // 💡 server.js のトップレベルでキャッシュ用オブジェクトを作成
 socket.on('get_account_info', async () => {
     const username = socket.username;
@@ -3758,6 +3744,20 @@ function executeAdminCommand(socket, p, text) {
         if (typeof LOG !== 'undefined' && LOG.SUCCESS) {
             LOG.SUCCESS(`🏪 ${p.name} の露店開設プロセスを開始しました`);
         }
+        return true;
+    }
+	
+	// 🎭 【コマンド10】キャラクター選択画面を再表示
+    if (text === '/char') {
+        LOG.SUCCESS(`🎭 ${p.name} のキャラ選択画面を呼び出します`);
+        
+        // 1. クライアントにキャラ選択UIの表示をリクエスト
+        socket.emit('request_char_select'); 
+        
+        // 2. 状態のクリア（必要に応じて）
+        // プレイヤーがキャラ選択中であることを示すフラグを立てることも可能です
+        p.isSelectingChar = true; 
+        
         return true;
     }
 
