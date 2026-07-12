@@ -4,10 +4,11 @@
 const IMAGE_DOMAIN = (
     window.location.hostname === "localhost" || 
     window.location.protocol === "file:" ||
-    window.location.hostname === "127.0.0.1"
+    window.location.hostname === "127.0.0.1" ||
+    window.location.hostname === "mysite.secret.jp" // 🌟 ここを追加！
 ) 
-? ""                         // 💻 ローカル時は何も付け足さない（空文字）
-: "https://imglive.net/";    // 🌐 本番時は、どのドメインから開いても常に imglive.net を参照する！
+? ""                        // 💻 ローカル・本番どちらも相対パスで読み込む
+: "https://imglive.net/";   // 🌐 それ以外の場合は古い固定ドメインへ（必要に応じて調整）
 
 // ============================================================
 // ⚙️ [SECTION 1: CONFIG] ゲーム設定・定数
