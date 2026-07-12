@@ -1622,17 +1622,20 @@ function makeDraggable(windowId, headerId) {
  * - プレイヤーがUIを自由な位置に配置できるよう設定
  */
 window.addEventListener('DOMContentLoaded', () => {
-    // 1. プロフィール
-    makeDraggable('player-profile-window', 'profile-header');
+    // 既存の要素のみにドラッグを適用する安全な関数
+    const safeMakeDraggable = (winId, headId) => {
+        if (document.getElementById(winId) && document.getElementById(headId)) {
+            makeDraggable(winId, headId);
+        } else {
+            console.log(`ℹ️ まだ生成されていないか要素が見つかりません: ${winId}`);
+        }
+    };
 
-    // 2. 自分の露店ウィンドウ
-    makeDraggable('vending-window', 'vending-header');
-
-    // 3. 他人の露店ウィンドウ
-    makeDraggable('other-vending-window', 'other-vending-header');
-
-    // 4. ショップ画面（本体のID, 取っ手のID）
-    makeDraggable('shop-overlay', 'shop-header');
+    // それぞれのウィンドウに対して適用
+    safeMakeDraggable('player-profile-window', 'profile-header');
+    safeMakeDraggable('vending-window', 'vending-header');
+    safeMakeDraggable('other-vending-window', 'other-vending-header');
+    safeMakeDraggable('shop-overlay', 'shop-header');
 });
 
 // ============================================================
@@ -6592,7 +6595,7 @@ const selectCharacterAndLogin = (groupIndex) => {
     console.log("🔥 [着火] キャラ選択を実行しました");
     
     selectedGroup = groupIndex;
-    selectedCharVar = 1;
+    selectedCharVar = 9;
 
     if (typeof loadCharFrames === 'function') {
         loadCharFrames(selectedGroup, selectedCharVar);
