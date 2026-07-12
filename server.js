@@ -2457,8 +2457,8 @@ async function loadItemCatalogFromDB() {
             //"money7":     { "type": "ETC", "name": "money7", "display_name": "銅メダル1", "src": "item_assets/Bronze_", "isAnimated": true },
             "gold_one":   { "type": "ETC", "name": "gold_one", "display_name": "ワンメダル(金)1", "src": "item_assets/GoldOne_", "isAnimated": true },
             "gold_heart": { "type": "ETC", "name": "gold_heart", "display_name": "ハートメダル(金)1", "src": "item_assets/GoldHeart_", "isAnimated": true },
-            "money1":     { "type": "ETC", "name": "money1", "display_name": "10ゴールド1", "src": "item_assets/money1_", "isAnimated": true },
-            "money3":     { "type": "ETC", "name": "money3", "display_name": "100ゴールド1", "src": "item_assets/money3_", "isAnimated": true },
+            //"money1":     { "type": "ETC", "name": "money1", "display_name": "10ゴールド1", "src": "item_assets/money1_", "isAnimated": true },
+            //"money3":     { "type": "ETC", "name": "money3", "display_name": "100ゴールド1", "src": "item_assets/money3_", "isAnimated": true },
         };
 
         // --- 🌟 📦 送信用に合体させる ---

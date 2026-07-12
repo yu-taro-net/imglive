@@ -246,7 +246,7 @@ let itemImages = {};
 /**
  * 役割：
  * - サーバーから全アイテム画像のリスト（imageSources）を受信
- * - 実行環境に応じたベースパスの自動切り替え
+ * - 実行環境に応じたベースパスの自動切り替え（ローカル vs imglive.net）
  * - CORS対策（crossOrigin）を施した画像オブジェクトの生成
  * - ブラウザへの画像キャッシュ（プリロード）の実行
  * - 読み込み成否のログ出力（デバッグ用）
@@ -255,23 +255,21 @@ socket.on('init_item_images', (data) => {
     console.log("📩 サーバーから届いた生データ:", data);
     imageSources = data; 
 
-    // 💻 開発環境、または現在の運用ドメインかどうかの判定フラグ
+    // 💻 ローカル環境（PC内開発）かどうかの判定フラグ
     const IS_LOCAL = (
         window.location.hostname === "localhost" || 
         window.location.hostname === "127.0.0.1" ||
-        window.location.protocol === "file:" ||
-        window.location.hostname === "mysite.secret.jp" || // 🌟 現在の環境を追加
-		window.location.hostname === "imglive.net"           // 以前使っていた本番環境も追加
+        window.location.protocol === "file:"
     );
 
-    // 🌐 どちらのサイトから開いても、アセットの取得先を適切に切り替える
+    // 🌐 どちらのサイトから開いても、アセットの取得先は「imglive.net」に固定する！
     const ASSET_BASE = IS_LOCAL 
         ? "" 
-        : "https://mysite.secret.jp/imglive"; // 💡 現在のサーバーパスを基準に設定
+        : "https://imglive.net"; // 💡 ここを imglive.net に固定
 
     for (let key in data) {
         const img = new Image();
-        img.crossOrigin = "anonymous"; // 🌟 CORS対策
+        img.crossOrigin = "anonymous"; // 🌟 imglive.net から画像を引っ張ってくるために必須（CORS対策）
         
         let path = data[key]; // 例: "/item_assets/sword.png"
         
@@ -280,7 +278,7 @@ socket.on('init_item_images', (data) => {
             if (!path.startsWith('/')) {
                 path = '/' + path;
             }
-            img.src = ASSET_BASE + path; // 結果: https://mysite.secret.jp/imglive/item_assets/sword.png
+            img.src = ASSET_BASE + path; // 結果: https://imglive.net/item_assets/sword.png
         } else {
             img.src = path;
         }
@@ -6597,7 +6595,7 @@ const selectCharacterAndLogin = (groupIndex) => {
     console.log("🔥 [着火] キャラ選択を実行しました");
     
     selectedGroup = groupIndex;
-    selectedCharVar = 9;
+    selectedCharVar = 1;
 
     if (typeof loadCharFrames === 'function') {
         loadCharFrames(selectedGroup, selectedCharVar);
