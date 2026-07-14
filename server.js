@@ -2129,7 +2129,6 @@ socket.on('change_model', async (data) => {
     }
 });
 
-// 💡 server.js のトップレベルでキャッシュ用オブジェクトを作成
 socket.on('get_account_info', async () => {
     const username = socket.username;
     if (!username) return;
@@ -2144,15 +2143,16 @@ socket.on('get_account_info', async () => {
                 isOnline: !!rows[0].is_online
             };
 
-            // 💡 キャッシュと比較：内容が同じなら「更新なし」として空を返す（または何も返さない）
+            // 💡 修正：キャッシュの有無に関わらず、リクエストがあれば必ず最新を送る
+            // キャッシュは「変更があったかどうかの判定」だけに使い、送信は強制実行する
             const cacheKey = username;
-            if (JSON.stringify(playerStatusCache[cacheKey]) === JSON.stringify(currentStatus)) {
-                return; // 変更がないので通信を発生させない
-            }
-
-            // 変更があればキャッシュを更新して送信
+            
+            // 必要であればキャッシュは更新だけ行う
             playerStatusCache[cacheKey] = currentStatus;
+            
+            // 💡 ここで return せず、必ず送信する
             socket.emit('account_info_response', currentStatus);
+            console.log(`[通信] ${username} へ最新の連携情報を送信しました`);
         }
     } catch (err) {
         console.error("アカウント情報取得エラー:", err);

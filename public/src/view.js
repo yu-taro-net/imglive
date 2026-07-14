@@ -246,7 +246,7 @@ let itemImages = {};
 /**
  * 役割：
  * - サーバーから全アイテム画像のリスト（imageSources）を受信
- * - 実行環境に応じたベースパスの自動切り替え
+ * - 実行環境に応じたベースパスの自動切り替え（ローカル vs imglive.net）
  * - CORS対策（crossOrigin）を施した画像オブジェクトの生成
  * - ブラウザへの画像キャッシュ（プリロード）の実行
  * - 読み込み成否のログ出力（デバッグ用）
@@ -255,23 +255,21 @@ socket.on('init_item_images', (data) => {
     console.log("📩 サーバーから届いた生データ:", data);
     imageSources = data; 
 
-    // 💻 開発環境、または現在の運用ドメインかどうかの判定フラグ
+    // 💻 ローカル環境（PC内開発）かどうかの判定フラグ
     const IS_LOCAL = (
         window.location.hostname === "localhost" || 
         window.location.hostname === "127.0.0.1" ||
-        window.location.protocol === "file:" ||
-        window.location.hostname === "mysite.secret.jp" || // 🌟 現在の環境を追加
-		window.location.hostname === "imglive.net"           // 以前使っていた本番環境も追加
+        window.location.protocol === "file:"
     );
 
-    // 🌐 どちらのサイトから開いても、アセットの取得先を適切に切り替える
+    // 🌐 どちらのサイトから開いても、アセットの取得先は「imglive.net」に固定する！
     const ASSET_BASE = IS_LOCAL 
         ? "" 
-        : "https://mysite.secret.jp/imglive"; // 💡 現在のサーバーパスを基準に設定
+        : "https://imglive.net"; // 💡 ここを imglive.net に固定
 
     for (let key in data) {
         const img = new Image();
-        img.crossOrigin = "anonymous"; // 🌟 CORS対策
+        img.crossOrigin = "anonymous"; // 🌟 imglive.net から画像を引っ張ってくるために必須（CORS対策）
         
         let path = data[key]; // 例: "/item_assets/sword.png"
         
@@ -280,7 +278,7 @@ socket.on('init_item_images', (data) => {
             if (!path.startsWith('/')) {
                 path = '/' + path;
             }
-            img.src = ASSET_BASE + path; // 結果: https://mysite.secret.jp/imglive/item_assets/sword.png
+            img.src = ASSET_BASE + path; // 結果: https://imglive.net/item_assets/sword.png
         } else {
             img.src = path;
         }
@@ -2871,22 +2869,33 @@ socket.on('item_pickup_log', (data) => {
 
 // クライアント側：サーバーからの返事を受け取って表示を更新する
 socket.on('account_info_response', (data) => {
-	
-    //console.log("【確認】サーバーからデータが届いたよ！:", data);
-	
+    console.log("【受信成功】サーバーからデータが届いた:", data);
+
+    // 1. 設定画面（UI用）の更新
     if (gameWindows.options) {
         gameWindows.options.wikiId = data.wikiId;
-        // 【追加】ここで isLinked も保存します！
         gameWindows.options.isLinked = data.isLinked; 
         gameWindows.options.isOnline = data.isOnline; 
-        
-        console.log("Wiki IDを受信成功:", data.wikiId, " / 連携状態:", data.isLinked);
     }
 
-    // 💡 【追加のステップ】ゲーム内の自キャラ（hero）にも状態を直接セットする
+    // 2. 自キャラ（hero）の状態を更新
     if (typeof hero !== 'undefined') {
         hero.isLinked = data.isLinked;
         hero.isOnline = data.isOnline;
+        console.log("【確認】heroのステータスを更新しました:", hero.isLinked);
+    }
+
+    // 💡 3. 【重要】描画中の全プレイヤー配列を走査して強制同期させる
+    // あなたの環境にある全プレイヤーを保持している変数名（例: players や allPlayers）に合わせてください
+    if (typeof players !== 'undefined') {
+        players.forEach(p => {
+            // もし自分のIDと一致するプレイヤーがいれば、heroと同じく状態を更新
+            // （IDの持ち方はp.idやp.userIdなど適宜変更してください）
+            if (p.id === hero.id) {
+                p.isLinked = data.isLinked;
+                p.isOnline = data.isOnline;
+            }
+        });
     }
 });
 
@@ -4550,6 +4559,10 @@ badgeImg.src = '//imglive.net/badge.png';
  * - 描画最適化：テキスト幅に基づく背景帯の動的サイズ決定
  */
 function drawPlayerUI(ctx, p, isMe, pW, frame) {
+
+	// --- デバッグ行 ---
+// プレイヤーデータの中身と、描画領域の計算値を出力します
+console.log(`[デバッグ:${p.name}] 連携状態:${p.isLinked}, 位置(x,y):(${Math.round(p.x)},${Math.round(p.y)}), 描画許可:${(p.x > 0 && p.y > 0)}`);
     
     // --- 1. HPバーの描画 (自分以外のプレイヤーのみ表示) ---
     if (!isMe) {
