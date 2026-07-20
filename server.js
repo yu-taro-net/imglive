@@ -2125,7 +2125,7 @@ socket.on('change_model', async (data) => {
     const modelId = data.modelId;
     
     // 🌟 【修正】クライアントが何を言おうと、styleId を強制的に 1 に固定する
-    const styleId = 1; 
+    const styleId = data.styleId; 
     
     const userId = players[socket.id]?.dbId;
 
@@ -3792,6 +3792,20 @@ function executeAdminCommand(socket, p, text) {
         
         return true;
     }
+	
+	// 🎭 【コマンド11】キャラクター選択画面を再表示
+if (text === '/char2') {
+    // 🌟 model_id があればそれを使う、なければ group を使う（両方なければ 8 を使う）
+    const targetModelId = p.model_id || p.group || 8;
+
+    LOG.SUCCESS(`🎭 ${p.name} (ModelID: ${targetModelId}) のキャラ選択画面を呼び出します`);
+    
+    // 🌟 決定した ID を送信
+    socket.emit('request_char_select2', { modelId: targetModelId }); 
+    
+    p.isSelectingChar = true;
+    return true;
+}
 
     return false; // どのコマンドにも該当しなかった
 }

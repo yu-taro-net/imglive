@@ -6611,6 +6611,128 @@ const createCharSelector = () => {
     document.body.appendChild(overlay);
 };
 
+const createCharSelector2 = (currentModelId) => {
+    const overlay = document.createElement('div');
+    overlay.id = 'char-selector-overlay';
+    overlay.style.cssText = `
+        position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+        background: radial-gradient(circle, #222 0%, #050505 100%);
+        display: flex; flex-direction: column;
+        align-items: center; justify-content: center; z-index: 10000;
+    `;
+
+    const title = document.createElement('h2');
+    title.innerText = "CHARACTER STYLE SELECT"; 
+    title.style.cssText = "color: #fff; margin-bottom: 40px; font-family: sans-serif; letter-spacing: 6px; text-shadow: 0 0 10px rgba(0,255,204,0.5); font-weight: lighter;";
+    overlay.appendChild(title);
+
+    const grid = document.createElement('div');
+    grid.style.cssText = `
+        display: grid; grid-template-columns: repeat(4, 110px);
+        grid-template-rows: repeat(4, 110px); gap: 20px;
+    `;
+
+    const animTimers = [];
+
+    for (let i = 1; i <= 15; i++) {
+        const btn = document.createElement('button');
+        const folderIdStr = String(i).padStart(2, '0'); 
+        const displayNumStr = String(i).padStart(2, '0'); 
+		const modelDir = String(currentModelId).padStart(2, '0');
+        const charFileNameId = "01"; 
+
+        let currentFrame = 0;
+        const totalFrames = 20;
+
+        const getIdlePath = (frame) => {
+            const frameStr = String(frame).padStart(2, '0');
+            //return `${IMAGE_DOMAIN}char_assets/${folderIdStr}/01/Idle/Characters-Character${charFileNameId}-Idle_${frameStr}.png`;
+            return `${IMAGE_DOMAIN}char_assets/${modelDir}/${folderIdStr}/Idle/Characters-Character${folderIdStr}-Idle_${frameStr}.png`;
+        };
+
+        const preloadLinks = [];
+        for (let f = 0; f < totalFrames; f++) {
+            const img = new Image();
+            img.src = getIdlePath(f);
+            preloadLinks.push(img);
+        }
+
+        const nameTag = document.createElement('div');
+        nameTag.innerText = `Chara ${displayNumStr}`; 
+        nameTag.style.cssText = `
+            position: absolute; top: 8px; left: 0; width: 100%;
+            color: #888; font-size: 11px; text-align: center;
+            transition: all 0.3s; font-family: 'Courier New', monospace;
+            letter-spacing: 1px;
+            z-index: 10;
+        `;
+
+        btn.style.cssText = `
+            position: relative;
+            width: 100%; height: 100%; cursor: pointer; 
+            border: 1px solid #333; 
+            background-color: rgba(30, 30, 30, 0.8); 
+            transition: all 0.3s ease; border-radius: 8px;
+            overflow: hidden;
+            background-image: url('${getIdlePath(0)}');
+            background-size: 180%;
+            background-repeat: no-repeat;
+            background-position: center bottom;
+            image-rendering: pixelated;
+            box-shadow: inset 0 0 15px rgba(0,0,0,0.6);
+        `;
+
+        const timer = setInterval(() => {
+            currentFrame = (currentFrame + 1) % totalFrames;
+            btn.style.backgroundImage = `url('${preloadLinks[currentFrame].src}')`;
+        }, 100);
+        animTimers.push(timer);
+
+        btn.onmouseover = () => { 
+            btn.style.backgroundColor = "#444"; 
+            btn.style.borderColor = "#00ffcc";
+            btn.style.transform = "scale(1.1) translateY(-5px)";
+            btn.style.boxShadow = "0 5px 15px rgba(0, 255, 204, 0.3)";
+            btn.style.backgroundSize = "200%";
+            nameTag.style.color = "#00ffcc";
+            nameTag.style.transform = "scale(1.1)";
+        };
+
+        btn.onmouseout = () => { 
+            btn.style.backgroundColor = "rgba(30, 30, 30, 0.8)"; 
+            btn.style.borderColor = "#333";
+            btn.style.transform = "scale(1.0) translateY(0)";
+            btn.style.boxShadow = "inset 0 0 15px rgba(0,0,0,0.6)";
+            btn.style.backgroundSize = "180%";
+            nameTag.style.color = "#888";
+            nameTag.style.transform = "scale(1.0)";
+        };
+
+        btn.onclick = () => {
+    // すべてのアニメーションタイマーを停止
+    animTimers.forEach(t => clearInterval(t));
+    
+    // 選択したモデルIDと、初期スタイルID「1」を渡す
+    const selectedModelId = currentModelId;
+    const initialStyleId = i; // 🌟 ここで明示的に定義
+    
+    console.log(`🎭 キャラクター選択: Model=${selectedModelId}, Style=${initialStyleId}`);
+
+    // 関数へ渡す
+    selectCharacterAndLogin(selectedModelId, initialStyleId);
+    
+    // オーバーレイを削除
+    overlay.remove();
+};
+
+        btn.appendChild(nameTag);
+        grid.appendChild(btn);
+    }
+
+    overlay.appendChild(grid);
+    document.body.appendChild(overlay);
+};
+
 /**
  * 修正後の役割：
  * - ログイン済みかどうかを判定し、ログインなら変更リクエスト、そうでなければ通常ログインを送信
@@ -6666,6 +6788,24 @@ socket.on('request_char_select', () => {
     }
 });
 
+socket.on('request_char_select2', (data) => {
+    // 🌟 値がない場合、現在の hero の情報を参照して補完する
+    let modelId = data ? data.modelId : null;
+    
+    if (modelId === null || modelId === undefined) {
+        // もしデータがなければ、クライアント側で把握している hero から取得
+        if (typeof hero !== 'undefined' && hero.model_id !== undefined) {
+            modelId = hero.model_id;
+        } else {
+            modelId = 8; // 最悪のケースのデフォルト値
+        }
+    }
+
+    if (typeof createCharSelector2 === 'function') {
+        createCharSelector2(modelId);
+    }
+});
+
 // view.js の一番下に記述
 socket.onAny((event, ...args) => {
     window.lastReceivedTime = Date.now();
@@ -6679,8 +6819,8 @@ socket.on('model_changed', (data) => {
     if (players[data.playerId]) {
         players[data.playerId].model_id = data.modelId;
         //players[data.playerId].style_id = data.styleId; // 🌟 スタイルも更新
-        players[data.playerId].style_id = 1; // 🌟 スタイルも更新
-        players[data.playerId].charVar = 1;
+        players[data.playerId].style_id = data.modelId; // 🌟 スタイルも更新
+        players[data.playerId].charVar = data.modelId;
 		
         console.log(`🔄 プレイヤー ${data.playerId} の見た目を更新しました: Model=${data.modelId}, Style=${data.styleId}`);
         
