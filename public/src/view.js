@@ -4349,6 +4349,8 @@ ladders.forEach(l => {
 // ============================================================
 function drawPlayerObj(p, isMe, id) {
     if (!p) return;
+	
+	//p.charVar = 1;   // スタイルIDを強制的に 1 にする
     
     // 🌟 チャンネルチェックの門番
     if (!isMe && typeof hero !== 'undefined') {
@@ -4562,7 +4564,7 @@ function drawPlayerUI(ctx, p, isMe, pW, frame) {
 
 	// --- デバッグ行 ---
 // プレイヤーデータの中身と、描画領域の計算値を出力します
-console.log(`[デバッグ:${p.name}] 連携状態:${p.isLinked}, 位置(x,y):(${Math.round(p.x)},${Math.round(p.y)}), 描画許可:${(p.x > 0 && p.y > 0)}`);
+//console.log(`[デバッグ:${p.name}] 連携状態:${p.isLinked}, 位置(x,y):(${Math.round(p.x)},${Math.round(p.y)}), 描画許可:${(p.x > 0 && p.y > 0)}`);
     
     // --- 1. HPバーの描画 (自分以外のプレイヤーのみ表示) ---
     if (!isMe) {
@@ -6585,12 +6587,19 @@ const createCharSelector = () => {
         };
 
         btn.onclick = () => {
+    // すべてのアニメーションタイマーを停止
     animTimers.forEach(t => clearInterval(t));
     
-    // 切り出した関数を実行
-    selectCharacterAndLogin(i - 1);
+    // 選択したモデルIDと、初期スタイルID「1」を渡す
+    const selectedModelId = i - 1;
+    const initialStyleId = 1; // 🌟 ここで明示的に定義
     
-    // 画面削除
+    console.log(`🎭 キャラクター選択: Model=${selectedModelId}, Style=${initialStyleId}`);
+
+    // 関数へ渡す
+    selectCharacterAndLogin(selectedModelId, initialStyleId);
+    
+    // オーバーレイを削除
     overlay.remove();
 };
 
@@ -6606,11 +6615,11 @@ const createCharSelector = () => {
  * 修正後の役割：
  * - ログイン済みかどうかを判定し、ログインなら変更リクエスト、そうでなければ通常ログインを送信
  */
-const selectCharacterAndLogin = (groupIndex) => {
+const selectCharacterAndLogin = (groupIndex, styleIndex) => {
     console.log("🔥 [着火] キャラ選択を実行しました");
     
     selectedGroup = groupIndex;
-    selectedCharVar = 9;
+    selectedCharVar = styleIndex;
 
     if (typeof loadCharFrames === 'function') {
         loadCharFrames(selectedGroup, selectedCharVar);
@@ -6623,7 +6632,8 @@ const selectCharacterAndLogin = (groupIndex) => {
         if (isAlreadyLoggedIn) {
             // 🌟 【パターンA】ゲーム中なら「アバター変更」リクエストを送る
             socket.emit('change_model', { 
-                modelId: selectedGroup 
+                modelId: selectedGroup,
+				styleId: selectedCharVar
             });
             console.log(`✨ アバター変更リクエスト送信: Model ID ${selectedGroup}`);
         } else {
@@ -6660,6 +6670,26 @@ socket.on('request_char_select', () => {
 socket.onAny((event, ...args) => {
     window.lastReceivedTime = Date.now();
     //window.isDisconnected = false;
+});
+
+socket.on('model_changed', (data) => {
+    console.log("📩 サーバーから model_changed を受信:", data);
+
+    // 1. プレイヤーリスト(players)を更新
+    if (players[data.playerId]) {
+        players[data.playerId].model_id = data.modelId;
+        //players[data.playerId].style_id = data.styleId; // 🌟 スタイルも更新
+        players[data.playerId].style_id = 1; // 🌟 スタイルも更新
+        players[data.playerId].charVar = 1;
+		
+        console.log(`🔄 プレイヤー ${data.playerId} の見た目を更新しました: Model=${data.modelId}, Style=${data.styleId}`);
+        
+        // 2. もし独自にキャラの画像パスをプリロードしている場合は、ここで再読み込みが必要かもしれません
+        // 必要であれば、ここで描画フラグを立てるか描画関数を呼び出します
+        // e.g., updatePlayerSprite(data.playerId);
+    } else {
+        console.warn(`⚠️ プレイヤー ${data.playerId} はローカルのplayersリストに存在しません`);
+    }
 });
 
 // 実行

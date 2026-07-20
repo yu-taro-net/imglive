@@ -1416,7 +1416,7 @@ socket.on('auth_response', (data) => {
     }
 
 	if (data.model_id !== -1) {
-        selectCharacterAndLogin(data.model_id);
+        selectCharacterAndLogin(data.model_id, data.style_id);
     } else {
         // -1 なら選択画面を出す
         createCharSelector();
@@ -1447,6 +1447,7 @@ socket.on('login_data', (data) => {
         console.log("🌟 キャラクター選択済み (ModelID: " + data.stats.model_id + ")。自動開始します。");
         window.isGameStarted = true;
         selectedGroup = data.stats.model_id;
+        selectedCharVar = data.stats.style_id;
         
         // ログインパネルを念のため隠す
         const loginOverlay = document.getElementById('login-overlay');
@@ -1476,6 +1477,7 @@ socket.on('login_data', (data) => {
             name: userName, 
             channel: hero.channel,
             group: selectedGroup,
+            charVar: selectedCharVar,
             x: hero.x,
             y: hero.y
         });

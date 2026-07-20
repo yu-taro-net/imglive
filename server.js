@@ -257,8 +257,8 @@ io.on('connection', socket => {
 const crypto = require('crypto'); // 💡 上部でcryptoをインポートしてください
 
 socket.on('login', async (data) => {
-    // クライアントから受け取るデータ
-    const { username, password, channel, group } = data; // 🌟 group(model_id) を受け取る
+    // 🌟 クライアントから受け取るデータに style_id を追加
+    const { username, password, channel, group, style_id } = data; 
     
     // 重複ログインチェック
     const isAlreadyLoggedIn = Object.values(players).some(p => p.name === username);
@@ -291,9 +291,10 @@ socket.on('login', async (data) => {
 
             // 1回目のログイン（初期選択値でのダミー通信）
             if (socket.loginCount === 1) {
-                const statsSql = 'SELECT model_id FROM player_stats WHERE user_id = ?';
+                const statsSql = 'SELECT model_id, style_id FROM player_stats WHERE user_id = ?';
                 const [statsResults] = await pool.query(statsSql, [user.id]);
                 const modelId = statsResults.length > 0 ? statsResults[0].model_id : -1;
+                const styleId = statsResults.length > 0 ? (statsResults[0].style_id || 1) : 1;
 
                 socket.emit('auth_response', {
                     success: true,
@@ -302,20 +303,24 @@ socket.on('login', async (data) => {
                     channel: parseInt(channel) || 1,
                     token: token,
                     model_id: modelId,
+                    style_id: styleId, // 🌟 追加
                     message: '1回目認証成功（キャラ確認完了）'
                 });
                 return;
             }
 
-            // 🚀 2回目：本番ログイン（ここで model_id を更新する）
+            // 🚀 2回目：本番ログイン
             socket.username = user.username;
 
-            // 🌟 【追加】キャラクター選択画面で送られてきた model_id をDBに反映
-            if (group !== undefined) {
-                await pool.query('UPDATE player_stats SET model_id = ? WHERE user_id = ?', [group, user.id]);
+            // 🌟 キャラクター選択画面で送られてきた値をDBに反映
+            if (group !== undefined || style_id !== undefined) {
+                await pool.query(
+                    'UPDATE player_stats SET model_id = COALESCE(?, model_id), style_id = COALESCE(?, style_id) WHERE user_id = ?', 
+                    [group, style_id, user.id]
+                );
             }
 
-            const statsSql = 'SELECT *, model_id FROM player_stats WHERE user_id = ?';
+            const statsSql = 'SELECT *, model_id, style_id FROM player_stats WHERE user_id = ?';
             const [statsResults] = await pool.query(statsSql, [user.id]);
 
             if (statsResults.length === 0) {
@@ -324,6 +329,8 @@ socket.on('login', async (data) => {
             }
 
             const stats = statsResults[0];
+            const finalStyleId = (stats.style_id !== null && stats.style_id !== undefined) ? stats.style_id : 1;
+
             const savedInventory = await loadUserInventory(user.id);
             const fixedInventory = Array(10).fill(null);
             savedInventory.forEach((item) => {
@@ -351,7 +358,8 @@ socket.on('login', async (data) => {
                 x: stats.pos_x,
                 y: stats.pos_y,
                 job_id: stats.job_id,
-                model_id: stats.model_id, // 更新後の値を保持
+                model_id: stats.model_id,
+                style_id: finalStyleId, // 🌟 保持
                 str: stats.str || 4,
                 dex: stats.dex || 4,
                 luk: stats.luk || 4,
@@ -371,7 +379,8 @@ socket.on('login', async (data) => {
                 token: token,
                 stats: {
                     level: stats.level,
-                    model_id: stats.model_id, // クライアントへ送る
+                    model_id: stats.model_id,
+                    style_id: finalStyleId, // 🌟 クライアントへ送る
                     hp: players[socket.id].hp,
                     max_hp: players[socket.id].maxHp,
                     mp: stats.mp,
@@ -412,6 +421,7 @@ socket.on('join', data => {
 
         // 🎨 クライアントがボタンで選んだグループ番号を取得
         let selectedGroup = (typeof data === 'object' && data.group !== undefined) ? parseInt(data.group) : 0;
+        let selectedCharVar = (typeof data === 'object' && data.charVar !== undefined) ? parseInt(data.charVar) : 0;
 
         // チャンネル番号を数値として取得（1〜5 の範囲）
         let channel = (typeof data === 'object') ? parseInt(data.channel) : 1;
@@ -429,7 +439,7 @@ socket.on('join', data => {
         if (p) {
             p.channel = channel;
             p.group = selectedGroup;
-            p.charVar = 1;
+            p.charVar = selectedCharVar;
 
             // 🚨【整合性担保のための安全処理】
             // 2回目の本番loginで読み込まれた後に届く決定値(group: 14等)を、メモリのjob_idへ確実に同期させます
@@ -2109,23 +2119,43 @@ socket.on('close_vending', () => {
 
 // サーバー側 (server.js)
 socket.on('change_model', async (data) => {
-    const { modelId } = data; // クライアントから送られてくる新しいID
+    console.log(`🔍 [DEBUG] change_model received:`, data);
+
+    // 🌟 クライアントから送られてきた modelId を使う
+    const modelId = data.modelId;
+    
+    // 🌟 【修正】クライアントが何を言おうと、styleId を強制的に 1 に固定する
+    const styleId = 1; 
+    
     const userId = players[socket.id]?.dbId;
 
     if (userId) {
-        // DBを更新
-        await pool.query('UPDATE player_stats SET model_id = ? WHERE user_id = ?', [modelId, userId]);
+        console.log(`🔍 [DEBUG] Before Update - Memory: model_id=${players[socket.id].model_id}, style_id=${players[socket.id].style_id}`);
+
+        // 🌟 DBを更新 (style_id は常に 1)
+        await pool.query(
+            'UPDATE player_stats SET model_id = ?, style_id = ? WHERE user_id = ?', 
+            [modelId, styleId, userId]
+        );
         
-        // メモリの値を更新
+        // 🌟 メモリの値を更新
         players[socket.id].model_id = modelId;
+        players[socket.id].style_id = styleId; // 常に 1
+		players[socket.id].charVar = styleId;
         
-        // 全員に通知（見た目を即座に切り替えるため）
+        console.log(`🔍 [DEBUG] After Update - Memory: model_id=${players[socket.id].model_id}, style_id=${players[socket.id].style_id}`);
+
+        // 🌟 全員に通知 (Style: 1 を送信)
         io.to(`channel_${players[socket.id].channel}`).emit('model_changed', {
             playerId: socket.id,
-            modelId: modelId
+            modelId: players[socket.id].model_id,
+            styleId: players[socket.id].style_id, // 常に 1 が届く
+			charVar: players[socket.id].charVar
         });
         
-        console.log(`✨ ID: ${userId} のモデルを ${modelId} に更新しました`);
+        console.log(`✨ ID: ${userId} のアバターを Model:${modelId} Style:${styleId} に更新しました`);
+    } else {
+        console.warn(`⚠️ [DEBUG] change_model failed: userId not found for socket ${socket.id}`);
     }
 });
 
@@ -2210,6 +2240,7 @@ socket.on('get_target_account_info', async (targetName) => {
             }
         });
 		
+		/*
 		socket.on('update_model_id', async (data) => {
     const { model_id } = data;
     
@@ -2251,7 +2282,8 @@ socket.on('get_target_account_info', async (targetName) => {
         console.error("🚨 [DEBUG:UPDATE_MODEL] DB更新エラー:", err);
     }
 });
-
+		*/
+		
 // サーバー側：クライアントからの「状態を再読み込みして」というお願いを受け取る
 socket.on('request_online_refresh', (data) => {
     console.log("オンライン状態の更新リクエストを受信しました:", data.userId);
