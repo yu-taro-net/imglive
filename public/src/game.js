@@ -2315,6 +2315,64 @@ socket.on('update_shop', (newData) => {
     }
 });
 
+
+// 共通のラッパー適用関数（先ほどのコードを流用）
+const applyDragWrapper = (targetId, headerId) => {
+    const target = document.getElementById(targetId);
+    const header = document.getElementById(headerId);
+    if (!target || !header || document.getElementById(`${targetId}-wrapper`)) return;
+
+    const wrapper = document.createElement('div');
+    wrapper.id = `${targetId}-wrapper`;
+    
+    Object.assign(wrapper.style, {
+        position: 'fixed',
+        top: '50%',
+        left: '50%',
+        transform: 'translate(-50%, -50%)',
+        zIndex: '9999',
+        margin: '0'
+    });
+
+    target.parentNode.insertBefore(wrapper, target);
+    wrapper.appendChild(target);
+    
+    Object.assign(target.style, { position: 'relative', left: '0', top: '0', margin: '0', transform: 'none' });
+    Object.assign(header.style, { cursor: 'move', userSelect: 'none' });
+
+    header.addEventListener('mousedown', (e) => {
+        const rect = wrapper.getBoundingClientRect();
+        wrapper.style.left = `${rect.left}px`;
+        wrapper.style.top = `${rect.top}px`;
+        wrapper.style.transform = 'none';
+
+        const offsetX = e.clientX - rect.left;
+        const offsetY = e.clientY - rect.top;
+
+        const onMouseMove = (ev) => {
+            wrapper.style.left = `${ev.clientX - offsetX}px`;
+            wrapper.style.top = `${ev.clientY - offsetY}px`;
+        };
+        const onMouseUp = () => {
+            document.removeEventListener('mousemove', onMouseMove);
+            document.removeEventListener('mouseup', onMouseUp);
+        };
+        document.addEventListener('mousemove', onMouseMove);
+        document.addEventListener('mouseup', onMouseUp);
+        e.stopPropagation();
+    });
+};
+
+// --- ここで対象を増やします ---
+window.addEventListener('load', () => {
+    setTimeout(() => {
+        applyDragWrapper('shop-overlay', 'shop-header');
+        applyDragWrapper('vending-window', 'vending-header');
+        applyDragWrapper('other-vending-window', 'other-vending-header');
+        applyDragWrapper('player-profile-window', 'profile-header');
+    }, 1000);
+});
+
 // ============================================================
 // :::SELECT_SHOP_ITEM::: 🛒 ショップ商品選択時のハイライト処理
 // ============================================================
