@@ -215,6 +215,106 @@ const COMBAT_FORMULA = {
 
 const loggedInUsers = new Set();
 
+// 【重要】既存のログイン処理を切り出した関数
+async function performLogin(socket, user, token, channel, group, style_id) {
+    try {
+        // キャラクター選択画面で送られてきた値をDBに反映
+        if (group !== undefined || style_id !== undefined) {
+            await pool.query(
+                'UPDATE player_stats SET model_id = COALESCE(?, model_id), style_id = COALESCE(?, style_id) WHERE user_id = ?', 
+                [group, style_id, user.id]
+            );
+        }
+
+        const statsSql = 'SELECT *, model_id, style_id FROM player_stats WHERE user_id = ?';
+        const [statsResults] = await pool.query(statsSql, [user.id]);
+
+        if (statsResults.length === 0) {
+            socket.emit('login_response', { success: false, message: 'キャラクターデータの読み込みに失敗しました' });
+            return;
+        }
+
+        const stats = statsResults[0];
+        const finalStyleId = (stats.style_id !== null && stats.style_id !== undefined) ? stats.style_id : 1;
+
+        // インベントリロード (既存の関数を使用)
+        const savedInventory = await loadUserInventory(user.id);
+        const fixedInventory = Array(10).fill(null);
+        savedInventory.forEach((item) => {
+            const sIdx = item.slot_index; 
+            if (sIdx >= 0 && sIdx < 10) fixedInventory[sIdx] = item;
+        });
+
+        const selectedChannel = parseInt(channel) || 1;
+        const roomName = `channel_${selectedChannel}`;
+        const correctMaxHP = MAX_HP_TABLE[stats.level] || stats.max_hp;
+
+        // プレイヤーオブジェクト作成
+        players[socket.id] = {
+            dbId: user.id,
+            id: user.id,
+            name: user.username,
+            channel: selectedChannel,
+            gold: Number(stats.gold || 0),
+            level: stats.level,
+            exp: stats.exp,
+            hp: Math.min(stats.hp, correctMaxHP),
+            maxHp: correctMaxHP,
+            mp: stats.mp,
+            maxMp: stats.max_mp,
+            map_id: stats.map_id,
+            x: stats.pos_x,
+            y: stats.pos_y,
+            job_id: stats.job_id,
+            model_id: stats.model_id,
+            style_id: finalStyleId,
+            str: stats.str || 4,
+            dex: stats.dex || 4,
+            luk: stats.luk || 4,
+            ap: stats.ap || 0,
+            inventory: fixedInventory,
+            is_vending: false
+        };
+
+        socket.join(roomName);
+
+        // 認証成功のレスポンス
+        socket.emit('login_data', {
+            success: true,
+            id: user.id,
+            username: user.username,
+            channel: selectedChannel,
+            token: token,
+            stats: {
+                level: stats.level,
+                model_id: stats.model_id,
+                style_id: finalStyleId,
+                hp: players[socket.id].hp,
+                max_hp: players[socket.id].maxHp,
+                mp: stats.mp,
+                max_mp: stats.max_mp,
+                gold: stats.gold,
+                map_id: stats.map_id,
+                x: stats.pos_x,
+                y: stats.pos_y,
+                inventory: fixedInventory
+            },
+            message: 'ログイン成功！'
+        });
+
+        socket.emit('inventory_update', fixedInventory);
+        socket.to(roomName).emit('player_joined', players[socket.id]);
+        
+        // 🌟 ここで online 状態を 1 にし、last_login を更新
+        await pool.query('UPDATE users SET is_online = 1, last_login = NOW() WHERE id = ?', [user.id]);
+        socket.username = user.username; // 切断処理のためにusernameを保存
+
+    } catch (err) {
+        console.error("❌ performLogin処理エラー:", err);
+        socket.emit('login_response', { success: false, message: 'ログイン後のデータ読み込みに失敗しました' });
+    }
+}
+
 // ============================================================
 // :::SOCKET_CONNECTION::: 📞 サーバー正門・新規接続処理・初期データ配信
 // ============================================================
@@ -257,10 +357,8 @@ io.on('connection', socket => {
 const crypto = require('crypto'); // 💡 上部でcryptoをインポートしてください
 
 socket.on('login', async (data) => {
-    // 🌟 クライアントから受け取るデータに style_id を追加
     const { username, password, channel, group, style_id } = data; 
     
-    // 重複ログインチェック
     const isAlreadyLoggedIn = Object.values(players).some(p => p.name === username);
     if (isAlreadyLoggedIn) {
         socket.emit('login_response', { success: false, message: 'そのキャラクター名は現在接続中です' });
@@ -289,121 +387,68 @@ socket.on('login', async (data) => {
 
             await pool.query('UPDATE users SET remember_token = ?, token_expires = ? WHERE id = ?', [token, expiry, user.id]);
 
-            // 1回目のログイン（初期選択値でのダミー通信）
             if (socket.loginCount === 1) {
+                // 1回目のダミー通信（コードはそのまま）
                 const statsSql = 'SELECT model_id, style_id FROM player_stats WHERE user_id = ?';
                 const [statsResults] = await pool.query(statsSql, [user.id]);
                 const modelId = statsResults.length > 0 ? statsResults[0].model_id : -1;
                 const styleId = statsResults.length > 0 ? (statsResults[0].style_id || 1) : 1;
-
-                socket.emit('auth_response', {
-                    success: true,
-                    id: user.id,
-                    username: user.username,
-                    channel: parseInt(channel) || 1,
-                    token: token,
-                    model_id: modelId,
-                    style_id: styleId, // 🌟 追加
-                    message: '1回目認証成功（キャラ確認完了）'
-                });
+                socket.emit('auth_response', { success: true, id: user.id, username: user.username, channel: parseInt(channel) || 1, token: token, model_id: modelId, style_id: styleId, message: '1回目認証成功' });
                 return;
             }
 
-            // 🚀 2回目：本番ログイン
-            socket.username = user.username;
-
-            // 🌟 キャラクター選択画面で送られてきた値をDBに反映
-            if (group !== undefined || style_id !== undefined) {
-                await pool.query(
-                    'UPDATE player_stats SET model_id = COALESCE(?, model_id), style_id = COALESCE(?, style_id) WHERE user_id = ?', 
-                    [group, style_id, user.id]
-                );
-            }
-
-            const statsSql = 'SELECT *, model_id, style_id FROM player_stats WHERE user_id = ?';
-            const [statsResults] = await pool.query(statsSql, [user.id]);
-
-            if (statsResults.length === 0) {
-                socket.emit('login_response', { success: false, message: 'キャラクターデータの読み込みに失敗しました' });
-                return;
-            }
-
-            const stats = statsResults[0];
-            const finalStyleId = (stats.style_id !== null && stats.style_id !== undefined) ? stats.style_id : 1;
-
-            const savedInventory = await loadUserInventory(user.id);
-            const fixedInventory = Array(10).fill(null);
-            savedInventory.forEach((item) => {
-                const sIdx = item.slot_index; 
-                if (sIdx >= 0 && sIdx < 10) fixedInventory[sIdx] = item;
-            });
-
-            const selectedChannel = parseInt(channel) || 1;
-            const roomName = `channel_${selectedChannel}`;
-            const correctMaxHP = MAX_HP_TABLE[stats.level] || stats.max_hp;
-
-            players[socket.id] = {
-                dbId: user.id,
-                id: user.id,
-                name: user.username,
-                channel: selectedChannel,
-                gold: Number(stats.gold || 0),
-                level: stats.level,
-                exp: stats.exp,
-                hp: Math.min(stats.hp, correctMaxHP),
-                maxHp: correctMaxHP,
-                mp: stats.mp,
-                maxMp: stats.max_mp,
-                map_id: stats.map_id,
-                x: stats.pos_x,
-                y: stats.pos_y,
-                job_id: stats.job_id,
-                model_id: stats.model_id,
-                style_id: finalStyleId, // 🌟 保持
-                str: stats.str || 4,
-                dex: stats.dex || 4,
-                luk: stats.luk || 4,
-                ap: stats.ap || 0,
-                inventory: fixedInventory,
-                is_vending: false
-            };
-
-            socket.join(roomName);
-
-            // 認証成功のレスポンス
-            socket.emit('login_data', {
-                success: true,
-                id: user.id,
-                username: user.username,
-                channel: selectedChannel,
-                token: token,
-                stats: {
-                    level: stats.level,
-                    model_id: stats.model_id,
-                    style_id: finalStyleId, // 🌟 クライアントへ送る
-                    hp: players[socket.id].hp,
-                    max_hp: players[socket.id].maxHp,
-                    mp: stats.mp,
-                    max_mp: stats.max_mp,
-                    gold: stats.gold,
-                    map_id: stats.map_id,
-                    x: stats.pos_x,
-                    y: stats.pos_y,
-                    inventory: fixedInventory
-                },
-                message: 'ログイン成功！'
-            });
-
-            socket.emit('inventory_update', fixedInventory);
-            socket.to(roomName).emit('player_joined', players[socket.id]);
-            await pool.query('UPDATE users SET last_login = NOW() WHERE id = ?', [user.id]);
+            // 🚀 2回目：共通関数でログイン処理
+            await performLogin(socket, user, token, channel, group, style_id);
 
         } else {
             socket.emit('login_response', { success: false, message: 'ユーザー名またはパスワードが違います' });
         }
     } catch (err) {
         console.error("❌ ログイン処理エラー:", err);
-        socket.emit('login_response', { success: false, message: 'サーバーエラーが発生しました' });
+        socket.emit('login_response', { success: false, message: 'サーバーエラー' });
+    }
+});
+
+socket.on('auto_login', async (data) => {
+    const { token } = data;
+    try {
+        // トークンが有効かチェック
+        const [rows] = await pool.query('SELECT * FROM users WHERE remember_token = ? AND token_expires > NOW() LIMIT 1', [token]);
+
+        if (rows.length > 0) {
+            const user = rows[0];
+            // 🚀 共通関数でログイン処理
+            await performLogin(socket, user, token, 1, null, null); 
+            console.log(`✨ 自動ログイン成功: ${user.username}`);
+        } else {
+            socket.emit('login_required');
+        }
+    } catch (err) {
+        console.error("❌ 自動ログインエラー:", err);
+    }
+});
+
+socket.on('logout', async () => {
+    // socket.username が存在する場合のみ実行
+    if (socket.username) {
+        try {
+            // トークンをNULLにして、自動ログイン権限を破棄
+            // ※ is_online = 0 は含めないようにしました
+            await pool.query(
+                'UPDATE users SET remember_token = NULL, token_expires = NULL WHERE username = ?',
+                [socket.username]
+            );
+            
+            console.log(`👋 ユーザー ${socket.username} の自動ログイン権限を破棄しました`);
+            
+            // 必要であれば、Socket.ioの管理オブジェクトからは削除
+            // (まだゲームを続ける場合は、この delete は外してください)
+            // delete players[socket.id]; 
+            socket.username = null; 
+            
+        } catch (err) {
+            console.error("❌ ログアウト処理エラー:", err);
+        }
     }
 });
 
