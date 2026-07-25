@@ -14,22 +14,6 @@
     </div>
 </div>
 
-<!-- 🌟 これが一番上のカバー（ローディング画面） -->
-    <div id="loading-cover" style="
-        position: fixed; 
-        top: 0; left: 0; 
-        width: 100%; height: 100%; 
-        background: #000; /* 黒背景ならチラつきが全く見えません */
-        z-index: 9999; /* ログイン画面(z-index:1000など)より高くする */
-        display: flex; 
-        justify-content: center; 
-        align-items: center; 
-        color: white;
-    ">
-        <div class="spinner"></div>
-		<div class="loading-text">Now Loading...</div>
-    </div>
-
 <!-- ログイン画面 -->
 <div id="login-overlay">
   <div class="login-card">
@@ -39,7 +23,6 @@
 	<!--
 <input type="text" id="user-email-input" class="login-input" placeholder="EMAIL" maxlength="10">
 -->
-
 
 <input type="text" id="user-name-input" class="login-input" placeholder="NAME" maxlength="10">
 
@@ -246,6 +229,14 @@
   <p id="drop-error"></p>
   <button id="drop-confirm">捨てる</button>
   <button id="drop-cancel">やめる</button>
+</div>
+
+<div id="death-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 1000; justify-content: center; align-items: center;">
+    <!-- 内側のウィンドウ：背景白・文字色を黒に指定 -->
+    <div style="background: white; color: #333; padding: 20px; border-radius: 10px; text-align: center; border: 2px solid #333;">
+        <h2 id="death-message">力尽きました...</h2>
+        <button id="respawn-button" style="padding: 10px 20px; cursor: pointer;">復活する</button>
+    </div>
 </div>
 
 <div id="player-context-menu" style="display:none; position:fixed; background:#222; color:#fff; border:1px solid #ffcc00; z-index:20000; padding:10px; font-family:sans-serif; border-radius:4px;">

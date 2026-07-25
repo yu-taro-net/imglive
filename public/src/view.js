@@ -2832,6 +2832,26 @@ socket.on('enemy_hit_sync', (data) => {
     }
 });
 
+// モーダルのDOM要素を取得
+const deathModal = document.getElementById('death-modal');
+const respawnBtn = document.getElementById('respawn-button');
+const deathMsg = document.getElementById('death-message');
+
+// サーバーから死亡通知が来たとき
+socket.on('show_death_dialog', (data) => {
+    deathMsg.innerText = data.message; // メッセージを反映
+    deathModal.style.display = 'flex'; // モーダルを表示
+});
+
+// 復活ボタンが押された時の処理
+respawnBtn.addEventListener('click', () => {
+    // サーバーに復活リクエストを送る
+    socket.emit('request_respawn');
+    
+    // モーダルを隠す
+    deathModal.style.display = 'none';
+});
+
 // ============================================================
 // :::SOCKET_ITEM_PICKUP_LOG::: 🎒 アイテム取得ログの受信と管理
 // ============================================================
@@ -4472,6 +4492,28 @@ function getPlayerCurrentImg(p, g, v, frame, sprites, playerSprites, isMe) {
 
     // 引数として渡された g と v を使ってデータにアクセス
     const characterData = (playerSprites[g] && playerSprites[g][v]);
+	
+	// --- 0. 👻 死亡中 (最優先) ---
+    if (p.hp <= 0) {
+        const frames = characterData?.["Dead"];
+        if (frames && frames.length > 0) {
+            // 🌟 死亡したフレームを記録していなければ、この瞬間に記録する
+            if (!p.deathFrame) p.deathFrame = frame;
+
+            // 🌟 死亡してからの経過時間を計算
+            const deathDuration = frame - p.deathFrame;
+            
+            // 6フレームごとに画像を切り替える（数字は好みに応じて調整してください）
+            const animIdx = Math.floor(deathDuration / 2);
+            
+            // 最後まで行ったらそのコマで固定する
+            const idx = Math.min(animIdx, frames.length - 1);
+            
+            return frames[idx];
+        }
+        // "Dead"画像が無い場合の安全対策
+        return sprites.playerA; 
+    }
 
     // --- 1. ⚔️ 攻撃中 (最優先) ---
     if (p.isAttacking > 0) {
@@ -4545,10 +4587,14 @@ function getPlayerCurrentImg(p, g, v, frame, sprites, playerSprites, isMe) {
 }
 
 // ★ バッジ用の画像オブジェクトを生成して読み込みます
-const badgeImg = new Image();
-let isBadgeLoaded = false; // 💡 追加：読み込み完了フラグ
-badgeImg.onload = () => { isBadgeLoaded = true; }; // 💡 追加：ロード完了時にフラグを更新
-badgeImg.src = '//imglive.net/badge.png';
+// 💡 const ではなく window.badgeImg にする
+window.badgeImg = new Image();
+window.isBadgeLoaded = false; 
+
+window.badgeImg.onload = () => { 
+    window.isBadgeLoaded = true; 
+};
+window.badgeImg.src = '//imglive.net/badge.png';
 
 // ============================================================
 // :::DRAW_PLAYER_UI::: 🏷️ キャラクター頭上UI（HPバー・名前）の表示
@@ -4654,11 +4700,11 @@ function drawPlayerUI(ctx, p, isMe, pW, frame) {
     console.log("DEBUG: ブラケット記法でアクセス:", hero['isLinked']);
 }
 
-    if (currentLinked && (badgeImg.complete || isBadgeLoaded)) {
-        console.log("🔥 バッジ描画を実行中！"); // 成功した時にこれが出るはず
-        ctx.drawImage(badgeImg, currentX, nameY - 14, imgW, imgH);
-        currentX += imgW + 4; 
-    }
+    if (currentLinked && window.badgeImg && (window.badgeImg.complete || window.isBadgeLoaded)) {
+		// console.log("🔥 バッジ描画を実行中！"); 
+		ctx.drawImage(window.badgeImg, currentX, nameY - 14, imgW, imgH);
+		currentX += imgW + 4; 
+	}
     
     // --- 5. 名前のテキスト描画 ---
     // 💡 修正：p.isOnline の代わりに currentOnline を使用

@@ -138,6 +138,9 @@ class Player {
 
   // 🌟 修正：敵の位置(enemyX)を受け取ってノックバック方向を決める
   receiveDamage(amount, enemyX = null) {
+  
+	if (this.hp <= 0) return;
+	
     if (this.invincible > 0) return; // 無敵中なら何もしない
 
     this.hp -= amount;
@@ -312,7 +315,10 @@ class Player {
 
         // サーバー通信とリスポーン判定
         socket.emit('player_damaged', { val: dmg, newHp: this.hp });
-        if (this.hp <= 0) this.respawn();
+        if (this.hp <= 0) {
+			// this.respawn(); // ここをコメントアウト
+			console.log("死亡しました。復活待機中...");
+		}
       }
     });
   }

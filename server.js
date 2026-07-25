@@ -2360,6 +2360,15 @@ socket.on('request_online_refresh', (data) => {
     });
 });
 
+socket.on('request_respawn', () => {
+    const p = players[socket.id];
+    if (p && p.hp <= 0) {
+        p.hp = p.maxHp || 100; // ここでHPを回復
+        // 必要に応じて復活地点へ移動させる処理をここへ書く
+        if (typeof sendState === 'function') sendState();
+    }
+});
+
     } catch (globalError) {
         // 🚨 接続時の根本的なエラーをキャッチ
         debugChat(`🚨 Socket接続処理で重大な不具合: ${globalError.message}`, 'error');
@@ -4593,17 +4602,19 @@ function upsertUserInventory(userId, slotIdx, itemData, equipmentId = null) {
 }
 
 // ============================================================
-// :::HANDLE_DAMAGED::: 🛡️ 被ダメージ判定・HP計算・蘇生処理
+// :::HANDLE_DAMAGED::: 🛡️ 被ダメージ判定・HP計算・死亡処理
 // ============================================================
 function handlePlayerDamaged(socket, data) {
     // 🛡️ 安全装置：関数全体をtry-catchで保護
     try {
         const p = players[socket.id];
         if (!p) return;
+		
+		if (p.hp <= 0) return;
 
         // 🌟 プレイヤーの所属チャンネルを取得
         const chId = p.channel || 1;
-        // 🌟 そのチャンネルの敵リストを特定（enemies[chId] は配列）
+        // 🌟 そのチャンネルの敵リストを特定
         const currentEnemies = enemies[chId] || [];
 
         // 🌟 修正：全体の enemies ではなく currentEnemies から探す
@@ -4623,19 +4634,19 @@ function handlePlayerDamaged(socket, data) {
         const currentHp = Number(p.hp) || 100;
         p.hp = Math.max(0, currentHp - damageValue);
 
-        // 復活処理 (既存のコードを維持)
+        // 死亡時の処理
         if (p.hp <= 0) {
-            console.log(`[RESPAWN] ${p.name} が倒れましたが、復活しました！`);
+            console.log(`[DEATH] ${p.name} が倒れました。`);
 
-            // 🌟 追記：死亡した瞬間にクライアントへ通知を送り、playDieSound() を発動させる
+            // 死亡した瞬間にクライアントへ通知を送り、playDieSound() を発動させる
             socket.emit('player_die_sound');
 
-            // 最大HPの設定があればそれを使い、なければ100にします
-            p.hp = p.maxHp || 100;
-            p.x = 50;
-            p.y = 500;
-            
-            // 🛡️ 復活時は即座に状態を送信して位置を同期
+            // 🌟 変更点：ワープさせず、復活ダイアログの表示を指示する
+            socket.emit('show_death_dialog', { 
+                message: "力尽きました... 復活しますか？" 
+            });
+
+            // 🛡️ 死亡状態になったことを周囲に同期するため、状態更新は実行する
             if (typeof sendState === 'function') {
                 sendState();
             }
