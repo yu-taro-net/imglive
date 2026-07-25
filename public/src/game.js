@@ -1274,129 +1274,84 @@ if (savedToken) {
  * - ゲーム開始時の `join` 通知とサウンド/ループ処理の起動（isGameStarted状態依存）
  * - ログイン失敗時のエラーUI表示とリトライ制御
  */
- /*
 socket.on('login_response', (data) => {
-    const loginError = document.getElementById('login-error');
-    const passwordInput = document.getElementById('user-pass-input');
-    const nameInput = document.getElementById('user-name-input'); 
-	
-	if (data.success && data.stats) {
-        console.log("ログイン成功、モデルID:", data.stats.model_id);
-        //alert("現在のモデルIDは: " + data.stats.model_id + " です");
-    }
-
     if (data.success) {
-	    // 🌟 【ここに追加】ログイン保持用トークンの保存
-        if (data.token) {
-            localStorage.setItem('game_token', data.token);
-            console.log("✅ トークンを保存しました");
-        }
-		
-        myId = socket.id; 
-        console.log(`[LOGIN SUCCESS] Player: ${data.username} (Internal ID: ${socket.id})`);
-
-        if (loginError) loginError.innerText = "";
-        if (nameInput) nameInput.style.border = "1px solid #ccc";
-        if (passwordInput) passwordInput.style.border = "1px solid #ccc";
-
-        // 🚀 【救出処理・同期】
-        const tCanvas = document.getElementById('tooltip-layer');
-        const stageCanvas = document.getElementById('stage');
-        if (tCanvas && stageCanvas) {
-            stageCanvas.parentElement.appendChild(tCanvas); 
-            console.log("🌟 Tooltip Layer synced with Stage!");
-        }
-
-        // ========================================================
-        // 🌟 【修正の核心】ID・パスワードが合っているので、ここで画面遷移！
-        // ========================================================
-        // 1. まだキャラクターを選んでいない場合（ゲーム開始前）のみパネルを開く
-        if (!window.isGameStarted) {
-            // ログインパネルをここで隠す
-            const loginOverlay = document.getElementById('login-overlay');
-            if (loginOverlay) loginOverlay.style.display = 'none';
-
-            // キャラクター選択画面を安全に呼び出す
-            createCharSelector();
-        }
-        // ========================================================
-
-        // 💡 サーバーから返ってきたアカウント基本データを hero やグローバルに退避
-        const userName = data.username;
-        if (typeof hero !== 'undefined') {
-            hero.name = userName;
-            if (data.stats) {
-                hero.level = data.stats.level || 1;
-                hero.hp    = data.stats.hp || 100;
-                hero.mp    = data.stats.mp || 50;
-                hero.gold  = data.stats.gold || 0;
-                hero.x     = data.stats.x || 100;
-                hero.y     = data.stats.y || 400;
-                hero.jobId = data.stats.job_id || 0;
-            }
-            hero.channel = data.channel || selectedChannel; 
-            
-            // 選択画面での初期表示用（まだ確定ではない）
-            hero.group = typeof selectedGroup !== 'undefined' ? selectedGroup : 0;
-            hero.charVar = typeof selectedCharVar !== 'undefined' ? selectedCharVar : 1; 
-
-            if (typeof updateChannelUI === 'function') {
-                updateChannelUI(hero.channel);
-            }
-        }
-
-        // ========================================================
-        // 🌟 【ここが重要】ここではゲームをまだ開始（emit / update）しない！
-        // ========================================================
-        // ※ もし以前の『キャラ選択完了後のボタン処理』側（createCharSelector内）に 
-        // socket.emit('join') や playBGM()、update() がすでに記述されている場合は、
-        // この login_response 側からは削除（あるいは実行をスキップ）するのが正解です。
-        //
-        // もし「選択画面のボタン側」にまだ引っ越しさせていない場合は、
-        // 以下の条件文によって「すでにキャラ選択が終わって開始フラグが立った状態の2回目」だけ
-        // 実行されるようにガードをかけて暴発を防ぎます。
-        // ========================================================
-        if (window.isGameStarted) {
-            socket.emit('join', { 
-                name: userName, 
-                channel: hero.channel,
-                group: typeof selectedGroup !== 'undefined' ? selectedGroup : hero.group,
-                x: hero.x,
-                y: hero.y
-            });
-			
-			// 💡 【ここに追加します】
-            // ゲーム世界に降り立った瞬間に、サーバーへ自分の最新ステータス（is_onlineなど）を問い合わせる通信を送信！
-            socket.emit('get_account_info');
-
-            if (typeof audioCtx !== 'undefined' && audioCtx.state === 'suspended') {
-                audioCtx.resume();
-            }
-            
-            if (typeof playBGM === 'function') {
-                playBGM();
-            }
-
-            if (typeof update === 'function') {
-                update();
-            }
-        }
-
+        //handleLoginSuccess(data);
     } else {
-        // ❌ 認証に失敗した場合は、画面を隠さずにそのまま残してエラー枠線を表示
-        if (loginError) {
-            loginError.innerText = data.message;
-            loginError.style.color = "#ff4444";
-        }
-        if (nameInput) nameInput.style.border = "2px solid #ff4444";
-        if (passwordInput) {
-            passwordInput.style.border = "2px solid #ff4444";
-            passwordInput.value = "";
-            setTimeout(() => passwordInput.focus(), 10);
-        }
+        handleLoginError(data.message);
     }
 });
-*/
+
+function handleLoginError(message) {
+    const loginError = document.getElementById('login-error');
+    const passwordInput = document.getElementById('user-pass-input');
+    const nameInput = document.getElementById('user-name-input');
+
+    if (loginError) {
+        loginError.innerText = message || "ログインに失敗しました";
+        loginError.style.color = "#ff4444";
+    }
+    
+    // UIを赤枠にする
+    if (nameInput) nameInput.style.border = "2px solid #ff4444";
+    if (passwordInput) {
+        passwordInput.style.border = "2px solid #ff4444";
+        passwordInput.value = ""; // パスワードをクリア
+        setTimeout(() => passwordInput.focus(), 10);
+    }
+}
+
+function handleLoginSuccess(data) {
+    // 1. トークン保存
+    if (data.token) {
+        localStorage.setItem('game_token', data.token);
+    }
+
+    myId = socket.id;
+    
+    // 2. UIリセット
+    const loginError = document.getElementById('login-error');
+    const passwordInput = document.getElementById('user-pass-input');
+    const nameInput = document.getElementById('user-name-input');
+    if (loginError) loginError.innerText = "";
+    if (nameInput) nameInput.style.border = "1px solid #ccc";
+    if (passwordInput) passwordInput.style.border = "1px solid #ccc";
+
+    // 3. 画面遷移（キャラ選択）
+    if (!window.isGameStarted) {
+        const loginOverlay = document.getElementById('login-overlay');
+        if (loginOverlay) loginOverlay.style.display = 'none';
+        createCharSelector();
+    }
+
+    // 4. データ同期 (heroへの代入)
+    if (typeof hero !== 'undefined') {
+        hero.name = data.username;
+        if (data.stats) {
+            Object.assign(hero, {
+                level: data.stats.level || 1,
+                hp: data.stats.hp || 100,
+                mp: data.stats.mp || 50,
+                gold: data.stats.gold || 0,
+                x: data.stats.x || 100,
+                y: data.stats.y || 400,
+                jobId: data.stats.job_id || 0
+            });
+        }
+        hero.channel = data.channel || (typeof selectedChannel !== 'undefined' ? selectedChannel : 1);
+        if (typeof updateChannelUI === 'function') updateChannelUI(hero.channel);
+    }
+
+    // 5. ゲーム開始後の処理
+    if (window.isGameStarted) {
+        socket.emit('join', { name: data.username, channel: hero.channel, group: hero.group, x: hero.x, y: hero.y });
+        socket.emit('get_account_info');
+
+        if (typeof audioCtx !== 'undefined' && audioCtx.state === 'suspended') audioCtx.resume();
+        if (typeof playBGM === 'function') playBGM();
+        if (typeof update === 'function') update();
+    }
+}
 
 // :::ON_AUTH_RESPONSE::: 🔒 ログイン認証のみ（詳細データ未着）
 socket.on('auth_response', (data) => {
@@ -1426,15 +1381,41 @@ socket.on('auth_response', (data) => {
     //createCharSelector();
 });
 
+window.isGameLoopRunning = false; // ループが動いているかを管理するフラグ
+
 // :::ON_LOGIN_DATA::: 🚀 本番ログインデータ受信・ゲーム開始・状態遷移
 socket.on('login_data', (data) => {
 
-	console.log("🏁 [重要] login_data 到着:", data);
-	
-    const loginError = document.getElementById('login-error');
+	// 💡 受信データ全体をログに出す
+    console.log("📥 [Debug] 受信した login_data:", data);
     
+    // 💡 特定のキーが存在するか確認してログに出す
+    console.log("🔎 is_linked は含まれているか?:", 'is_linked' in data);
+    console.log("🔎 is_online は含まれているか?:", 'is_online' in data);
+    
+    // 💡 もし含まれていなければ、送られてきた全キーをリストアップする
+    if (!('is_linked' in data)) {
+        console.warn("⚠️ 警告: is_linked が見当たりません。送られてきたキー一覧:", Object.keys(data));
+    }
+
+    console.log("🏁 [重要] login_data 到着:", data);
+    
+    // 💡 ログイン判定が完了したので、読み込みカバーを強制的に非表示にする
+    const loadingCover = document.getElementById('loading-cover');
+    if (loadingCover) loadingCover.style.display = 'none';
+
+    const loginError = document.getElementById('login-error');
+    const loginOverlay = document.getElementById('login-overlay');
+    
+    // 💡 ログイン失敗時の処理
     if (!data.success) {
         if (loginError) loginError.innerText = data.message;
+        
+        // 失敗した場合はログイン画面を再表示（CSSのimportantを上書き）
+        if (loginOverlay) loginOverlay.style.setProperty('display', 'flex', 'important');
+        
+        // 不要になったトークンは削除
+        localStorage.removeItem('game_token');
         return;
     }
 
@@ -1449,15 +1430,33 @@ socket.on('login_data', (data) => {
         selectedGroup = data.stats.model_id;
         selectedCharVar = data.stats.style_id;
         
-        // ログインパネルを念のため隠す
-        const loginOverlay = document.getElementById('login-overlay');
-        if (loginOverlay) loginOverlay.style.display = 'none';
+        // ログインパネルを隠す（CSSのimportantを上書きして非表示）
+        if (loginOverlay) loginOverlay.style.setProperty('display', 'none', 'important');
+    } else {
+        // キャラクター未選択の場合、ログインパネルは出したままにする
+        console.log("👤 キャラクター選択が必要です。");
     }
 
     // 💡 hero やグローバルへのデータ退避
     const userName = data.username;
     if (typeof hero !== 'undefined') {
         hero.name = userName;
+        
+        // 🌟 修正：サーバーから送られてきた連携・オンライン状態を即時反映
+        hero.isLinked = data.is_linked;
+        hero.isOnline = data.is_online;
+		
+		console.log("【ログイン処理】受け取ったデータ:", data);
+		console.log("【ログイン処理】更新後のhero:", hero);
+        
+		// ★ここを追加！★
+        // 描画ループが参照している players[socket.id] にも値をセットする
+        if (typeof players !== 'undefined' && players[socket.id]) {
+            players[socket.id].isLinked = data.is_linked;
+            players[socket.id].isOnline = data.is_online;
+            console.log("✅ players[socket.id] を同期しました:", players[socket.id].isLinked);
+        }
+		
         if (data.stats) {
             hero.level = data.stats.level || 1;
             hero.hp    = data.stats.hp || 100;
@@ -1471,7 +1470,7 @@ socket.on('login_data', (data) => {
         if (typeof updateChannelUI === 'function') updateChannelUI(hero.channel);
     }
 
-    // 🌟 ゲーム開始処理（自動ログイン時もここが実行される）
+    // 🌟 ゲーム開始処理
     if (window.isGameStarted) {
         socket.emit('join', { 
             name: userName, 
@@ -1486,7 +1485,15 @@ socket.on('login_data', (data) => {
 
         if (typeof audioCtx !== 'undefined' && audioCtx.state === 'suspended') audioCtx.resume();
         if (typeof playBGM === 'function') playBGM();
-        if (typeof update === 'function') update();
+
+        // 【ここを修正】すでにループが動いていなければ、1回だけ起動する
+        if (typeof update === 'function' && !window.isGameLoopRunning) {
+            window.isGameLoopRunning = true; // 「起動したぞ！」というフラグを立てる
+            update(); // 初回起動
+            console.log("✅ ゲームループを1回だけ起動しました");
+        } else {
+            console.log("⚠️ すでにループは動いています");
+        }
         
         console.log("✅ ゲームセッションを開始しました");
     }
@@ -2632,10 +2639,10 @@ function update() {
     
     // 🌟 【追加】ここで常にオプション設定とheroを同期させる
     if (typeof hero !== 'undefined' && gameWindows.options) {
-        hero.isLinked = gameWindows.options.isLinked;
+        //hero.isLinked = gameWindows.options.isLinked;
     }
 	if (typeof hero !== 'undefined' && gameWindows.options) {
-        hero.isOnline = gameWindows.options.isOnline;
+        //hero.isOnline = gameWindows.options.isOnline;
     }
     // ----------------------------------------------------
 
@@ -2718,12 +2725,14 @@ function update() {
 }
 
 // 20秒（20,000ミリ秒）ごとにアカウント情報を要求するタイマー
+/*
 setInterval(() => {
     if (typeof socket !== 'undefined' && socket.connected) {
         socket.emit('get_account_info');
         console.log("定期的なアカウント情報更新リクエストを送信しました");
     }
 }, 20000); // 20000ms = 20秒
+*/
 
 // ==========================================
 // 📡 1. 通信と基本設定（ローカル・本番自動切り替え版）
@@ -4080,14 +4089,32 @@ socket.onAny((event, ...args) => {
 });
 */
 
-// window.onload ではなく、addEventListener を使うのが安全です
 window.addEventListener('load', () => {
-    const savedToken = localStorage.getItem('remember_token');
+    // キー名を 'game_token' に統一
+    const savedToken = localStorage.getItem('game_token'); 
+    const loadingCover = document.getElementById('loading-cover');
+    const loginOverlay = document.getElementById('login-overlay');
+
+    // タイムアウト設定：5秒経っても反応がなければ強制的にログイン画面へ
+    const timeoutTimer = setTimeout(() => {
+        console.log("⏰ サーバー応答なし：タイムアウトしました");
+        if (loadingCover) loadingCover.style.display = 'none';
+        if (loginOverlay) loginOverlay.style.display = 'block';
+    }, 5000); 
+
     if (savedToken) {
-        console.log("📤 トークンを送信します");
+        console.log("📤 自動ログイン試行中...");
         socket.emit('auto_login', { token: savedToken });
+        
+        // 【重要】サーバーから返事が来たら、タイマーをキャンセルする
+        socket.once('login_data', () => {
+            clearTimeout(timeoutTimer);
+        });
     } else {
-        console.log("⚠️ トークンなし");
+        clearTimeout(timeoutTimer); // タイマー不要なので解除
+        console.log("⚠️ トークンなし、ログイン画面を表示");
+        if (loadingCover) loadingCover.style.display = 'none';
+        if (loginOverlay) loginOverlay.style.display = 'block';
     }
 });
 

@@ -187,7 +187,7 @@ body {
   width: 100%; height: 100%;
   background: radial-gradient(circle, #222 0%, #050505 100%);
   z-index: 2000;
-  display: flex;
+  display: flex !important;
   justify-content: center;
   align-items: center;
 }
@@ -199,7 +199,8 @@ body {
   border-radius: 15px;
   text-align: center;
   min-width: 320px;
-  box-shadow: 0 0 30px rgba(0, 255, 204, 0.3);
+	box-shadow: 0 0 30px rgba(0, 255, 204, 0.3);
+	-webkit-user-select: none;
 }
 
 .login-card h2 {
@@ -702,4 +703,42 @@ body {
   border-top: 1px solid #ccc;
   padding: 6px 12px;
   border-radius: 0 0 6px 6px;
+}
+
+#loading-cover {
+    position: fixed; 
+    top: 0; left: 0; 
+    width: 100%; height: 100%; 
+    background: #000; 
+    z-index: 9999; 
+    display: flex; 
+    flex-direction: column; /* 縦並びにする */
+    justify-content: center; 
+    align-items: center; 
+    color: #fff;
+    font-family: 'Segoe UI', sans-serif;
+}
+
+/* スピナー（回転する輪） */
+.spinner {
+    width: 40px;
+    height: 40px;
+    border: 3px solid rgba(255, 255, 255, 0.1); /* 薄い背景 */
+    border-top: 3px solid #fff; /* 上だけ白くして回転を見せる */
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    margin-bottom: 20px; /* テキストとの間隔 */
+}
+
+/* 下のテキスト */
+.loading-text {
+    letter-spacing: 2px;
+    font-size: 14px;
+    opacity: 0.8;
+}
+
+/* 回転のアニメーション */
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
 }

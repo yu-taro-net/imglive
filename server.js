@@ -234,6 +234,10 @@ async function performLogin(socket, user, token, channel, group, style_id) {
             return;
         }
 
+        // 🌟 追加：ログインした瞬間の最新の連携状態をDBから取得
+        const [userStatusRows] = await pool.query('SELECT is_linked FROM users WHERE id = ?', [user.id]);
+        const isLinked = userStatusRows[0] ? (userStatusRows[0].is_linked === 1) : false;
+
         const stats = statsResults[0];
         const finalStyleId = (stats.style_id !== null && stats.style_id !== undefined) ? stats.style_id : 1;
 
@@ -285,6 +289,9 @@ async function performLogin(socket, user, token, channel, group, style_id) {
             username: user.username,
             channel: selectedChannel,
             token: token,
+            // 🌟 追加：クライアント側で即時判定するためのステータスを同梱
+            is_linked: isLinked,
+            is_online: true,
             stats: {
                 level: stats.level,
                 model_id: stats.model_id,
@@ -306,7 +313,7 @@ async function performLogin(socket, user, token, channel, group, style_id) {
         socket.to(roomName).emit('player_joined', players[socket.id]);
         
         // 🌟 ここで online 状態を 1 にし、last_login を更新
-        await pool.query('UPDATE users SET is_online = 1, last_login = NOW() WHERE id = ?', [user.id]);
+        //await pool.query('UPDATE users SET is_online = 1, last_login = NOW() WHERE id = ?', [user.id]);
         socket.username = user.username; // 切断処理のためにusernameを保存
 
     } catch (err) {

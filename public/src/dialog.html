@@ -14,6 +14,22 @@
     </div>
 </div>
 
+<!-- 🌟 これが一番上のカバー（ローディング画面） -->
+    <div id="loading-cover" style="
+        position: fixed; 
+        top: 0; left: 0; 
+        width: 100%; height: 100%; 
+        background: #000; /* 黒背景ならチラつきが全く見えません */
+        z-index: 9999; /* ログイン画面(z-index:1000など)より高くする */
+        display: flex; 
+        justify-content: center; 
+        align-items: center; 
+        color: white;
+    ">
+        <div class="spinner"></div>
+		<div class="loading-text">Now Loading...</div>
+    </div>
+
 <!-- ログイン画面 -->
 <div id="login-overlay">
   <div class="login-card">

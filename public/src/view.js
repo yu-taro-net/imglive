@@ -4562,10 +4562,16 @@ badgeImg.src = '//imglive.net/badge.png';
  */
 function drawPlayerUI(ctx, p, isMe, pW, frame) {
 
-	// --- デバッグ行 ---
-// プレイヤーデータの中身と、描画領域の計算値を出力します
-//console.log(`[デバッグ:${p.name}] 連携状態:${p.isLinked}, 位置(x,y):(${Math.round(p.x)},${Math.round(p.y)}), 描画許可:${(p.x > 0 && p.y > 0)}`);
-    
+	// 💡 修正：ここで isMe の値そのものを確認します
+    if (p.id === hero.id) {
+        //console.log(`🎨 描画中... [ID:${p.id}] 判定結果: isMe=${isMe}`);
+    }
+
+    // 💡 修正：自分(isMe)なら hero を、他人なら p を参照するステータス判定を作成
+    // hero はサーバー通信で上書きされないため、常に正しい値を保持しています
+    const currentLinked = isMe ? (typeof hero !== 'undefined' && hero.isLinked) : (p.isLinked || false);
+    const currentOnline = isMe ? (typeof hero !== 'undefined' && hero.isOnline) : (p.isOnline || false);
+
     // --- 1. HPバーの描画 (自分以外のプレイヤーのみ表示) ---
     if (!isMe) {
         const barW = VIEW_CONFIG.hpBar.width; 
@@ -4601,8 +4607,8 @@ function drawPlayerUI(ctx, p, isMe, pW, frame) {
     const imgW = 16;
     const imgH = 16;
     
-    // 連携している（isLinked）場合のみ、アイコン画像の幅＋隙間を確保する
-    const badgeW = p.isLinked ? (imgW + 4) : 0;
+    // 💡 修正：p.isLinked の代わりに currentLinked を使用
+    const badgeW = currentLinked ? (imgW + 4) : 0;
     const nameWidth = ctx.measureText(rawName).width;
     
     // 背景帯の合計幅（名前の幅 ＋ バッジの幅 ＋ パディング）
@@ -4641,14 +4647,22 @@ function drawPlayerUI(ctx, p, isMe, pW, frame) {
     // --- 4. バッジ画像と名前テキストの描画 ---
     let currentX = p.x + pW / 2 - totalW / 2 + (VIEW_CONFIG.playerName.paddingW / 2);
     
-    // 💡 修正：badgeImg.complete だけでなく、ロードフラグもチェックするように変更
-    if (p.isLinked && (badgeImg.complete || isBadgeLoaded)) {
+    // 💡 ここにデバッグログを追加
+    if (isMe) {
+    console.log("DEBUG: Object.keysに含まれるか:", Object.keys(hero).includes('isLinked'));
+    console.log("DEBUG: プロパティの詳細:", Object.getOwnPropertyDescriptor(hero, 'isLinked'));
+    console.log("DEBUG: ブラケット記法でアクセス:", hero['isLinked']);
+}
+
+    if (currentLinked && (badgeImg.complete || isBadgeLoaded)) {
+        console.log("🔥 バッジ描画を実行中！"); // 成功した時にこれが出るはず
         ctx.drawImage(badgeImg, currentX, nameY - 14, imgW, imgH);
-        currentX += imgW + 4; // 描画した分だけX座標を進める
+        currentX += imgW + 4; 
     }
     
     // --- 5. 名前のテキスト描画 ---
-    ctx.fillStyle = p.isOnline ? "#ffd700" : "#ffffff";
+    // 💡 修正：p.isOnline の代わりに currentOnline を使用
+    ctx.fillStyle = currentOnline ? "#ffd700" : "#ffffff";
     ctx.textAlign = "left"; 
     ctx.fillText(rawName, currentX, nameY);
 }
