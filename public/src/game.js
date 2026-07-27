@@ -2218,7 +2218,7 @@ row.innerHTML = `
         else if (imgName === 'scroll_star') { itemName = "スターの書"; displayPrice = 25000; }
         else if (imgName === 'gold') { itemName = "金塊"; displayPrice = 500; }
         else if (imgName === 'treasure') { itemName = "ひみつの宝箱"; displayPrice = 2500; }
-        else if (imgName === 'sword') { itemName = "マニアックソード"; displayPrice = 250; }
+        else if (imgName === 'sword') { itemName = "マニアックソード1"; displayPrice = 250; }
         else if (imgName === 'shield') { itemName = "トリシールド"; displayPrice = 150; }
         else {
             displayPrice = Math.floor((item.price || 0) * 0.5);
@@ -2328,6 +2328,88 @@ socket.on('update_shop', (newData) => {
     }
 });
 
+// 💡 図鑑データを保持するための変数
+let currentZukanItems = [];
+
+// 💡 既存のソケット通信リスナー
+socket.on('open_zukan', (data) => {
+    console.log("📥 [Debug] 受信した図鑑データ:", data);
+    
+    // データを保存
+    currentZukanItems = data.items || [];
+    
+    // ウィンドウを開く
+    const overlay = document.getElementById('zukan-overlay');
+    overlay.style.display = 'flex';
+    
+    // 初期状態（全体）で描画
+    renderZukanList('all');
+});
+
+// 💡 リストを再描画する関数（フィルタリング機能付き）
+function renderZukanList(category) {
+    const container = document.getElementById('zukan-list-content');
+    container.innerHTML = ''; // クリア
+
+    if (currentZukanItems.length === 0) {
+        container.innerHTML = "<div style='color:red; padding:10px;'>データがありません！</div>";
+        return;
+    }
+
+    // フィルタリング処理（categoryが'all'ならそのまま、それ以外ならtypeで絞り込み）
+    // ※DBの item.type と、タブの data-category が一致している前提です
+    const filteredItems = (category === 'all') 
+        ? currentZukanItems 
+        : currentZukanItems.filter(item => item.type === category);
+
+    filteredItems.forEach(item => {
+    const row = document.createElement('div');
+    row.className = "shop-item-row-div zukan-row";
+    
+    // 画像パスが空の場合の予備（デフォルト画像）
+    //const imgSrc = item.image_path ? `/images/items/${item.image_name}.png` : '/images/default_icon.png';
+	const imgSrc = `${IMAGE_DOMAIN}item_assets/${item.image_name}.png`;
+	
+    row.innerHTML = `
+        <img src="${imgSrc}" class="zukan-thumb" alt="icon">
+        <div style="width:50px; font-size:10px; color:#888;">ID:${item.item_id}</div>
+        <div style="flex-grow:1; font-weight:bold;">${item.display_name}</div>
+        <div style="font-size:10px; color:#666; width:80px; text-align:right;">${item.name}</div>
+    `;
+    
+    row.onclick = () => console.log("🔍 クリックしたアイテム詳細:", item);
+	// 💡 マウスを乗せた瞬間に、薄いデータとカタログデータを合体させる！
+row.onmouseenter = () => {
+    // 1. カタログが存在するか確認（エラー回避）
+    const catalog = (typeof window.ITEM_CATALOG !== 'undefined') ? window.ITEM_CATALOG : {};
+    
+    // 2. カタログから、そのアイテムの「詳細データ」を探す
+    const master = catalog[item.item_id] || {};
+    
+    // 3. 【結合！】スプレッド構文で2つを1つにする
+    // master(下) + item(上) で、itemが優先されるように合体
+    const richItem = { ...master, ...item };
+    
+    // 4. ツールチップ描画用の変数にセット
+    window.currentHoverSlot = richItem; 
+};
+	row.onmouseleave = () => { window.currentHoverSlot = null; };
+    container.appendChild(row);
+});
+}
+
+// 💡 タブクリック時のイベント設定（一度だけ実行）
+document.querySelectorAll('.zukan-tab-item').forEach(tab => {
+    tab.addEventListener('click', (e) => {
+        // activeクラスの切り替え
+        document.querySelectorAll('.zukan-tab-item').forEach(t => t.classList.remove('active'));
+        e.target.classList.add('active');
+
+        // カテゴリを取得して再描画
+        const category = e.target.getAttribute('data-category');
+        renderZukanList(category);
+    });
+});
 
 // 共通のラッパー適用関数（先ほどのコードを流用）
 const applyDragWrapper = (targetId, headerId) => {
@@ -2383,6 +2465,7 @@ window.addEventListener('load', () => {
         applyDragWrapper('vending-window', 'vending-header');
         applyDragWrapper('other-vending-window', 'other-vending-header');
         applyDragWrapper('player-profile-window', 'profile-header');
+        applyDragWrapper('zukan-overlay', 'zukan-header');
     }, 1000);
 });
 

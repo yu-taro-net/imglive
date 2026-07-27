@@ -743,10 +743,181 @@ body {
     100% { transform: rotate(360deg); }
 }
 
-#death-modal {
-    display: none; /* 初期状態は非表示 */
+/* --- 死亡モーダル用装飾（落ち着いた青バージョン） --- */
+.death-overlay {
+  position: fixed;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  background: rgba(0, 0, 0, 0.7); /* 少し透明度を上げて圧迫感を軽減 */
+  z-index: 9999;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.death-card {
+  background: #1e293b; /* 既存ステージの色 */
+  padding: 40px;
+  border: 3px solid #60a5fa; /* 統一感のある青枠 */
+  border-radius: 12px;
+  text-align: center;
+  min-width: 320px;
+  box-shadow: 0 0 30px rgba(96, 165, 250, 0.3); /* 青い光彩 */
+  color: #fff;
+  font-family: 'Segoe UI', sans-serif;
+}
+
+.death-card h2 {
+  letter-spacing: 2px;
+  margin-bottom: 30px;
+  color: #e2e8f0; /* 少し柔らかい白 */
+  text-shadow: 0 0 10px rgba(96, 165, 250, 0.5);
+}
+
+.death-btn {
+  padding: 12px 30px;
+  background: transparent;
+  color: #60a5fa;
+  border: 2px solid #60a5fa;
+  border-radius: 6px;
+  cursor: pointer;
+  text-transform: uppercase;
+  font-weight: bold;
+  transition: 0.3s;
+}
+
+.death-btn:hover {
+  background: #60a5fa;
+  color: #fff;
+  box-shadow: 0 0 15px rgba(96, 165, 250, 0.6);
+}
+
+.death-btn:active {
+  transform: translateY(2px);
+}
+
+/* --- 図鑑ウィンドウ全体 --- */
+#zukan-overlay {
+    display: flex;
+    flex-direction: column;
+    background: #fdfaf0; /* 背景が明るい */
+    color: #333;         /* 🌟 これを追加！文字色を濃いグレーに */
+    border: 2px solid #555;
+    box-shadow: 4px 4px 0px rgba(0,0,0,0.2);
+    border-radius: 4px;
+    overflow: hidden;
     position: fixed;
-    top: 0; left: 0;
-    width: 100%; height: 100%;
-    z-index: 9999; /* ゲームUIより手前に */
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 9999;
+    width: 400px;
+    height: 500px;
+}
+
+/* --- ヘッダー --- */
+#zukan-header {
+    flex: 0 0 auto;             /* ヘッダーの高さは固定（縮まない） */
+    background: linear-gradient(to bottom, #7a9cbf, #5a7ca1);
+    color: white;
+    padding: 6px 10px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    cursor: move;
+    font-size: 13px;
+    border-bottom: 1px solid #333;
+}
+
+#zukan-header button {
+    background: #ff6b6b;
+    border: 1px solid #993333;
+    color: white;
+    cursor: pointer;
+    font-weight: bold;
+}
+
+/* --- アイテムリストのコンテナ --- */
+.shop-main-area {
+    flex: 1;                    /* 残りのスペースをすべて埋める */
+    overflow-y: auto;           /* はみ出た分をスクロールさせる */
+    background: #fff;
+    margin: 5px;
+    border: 1px inset #ccc;
+}
+
+/* --- リスト行 --- */
+.zukan-row {
+    display: flex;
+    align-items: center;
+    padding: 6px;
+    border-bottom: 1px solid #eee;
+    font-size: 12px;
+    cursor: pointer;
+}
+.zukan-row:hover { background: #e0f7fa; }
+.zukan-row:nth-child(even) { background: #f9f9f9; }
+
+/* --- IDラベル --- */
+.zukan-id-badge {
+    color: #888;
+    font-size: 10px;
+    margin-right: 10px;
+    min-width: 40px;
+    font-family: monospace;
+}
+
+/* タブエリアのスタイル */
+.zukan-tabs {
+    display: flex;
+    background: #e6e6e6;
+    border-bottom: 2px solid #555;
+    position: relative; /* 🌟 重なり順を正しく制御 */
+    z-index: 10;        /* 🌟 他の要素より上に持ってくる */
+}
+
+.zukan-tab-item {
+    padding: 5px 15px;
+    cursor: pointer;
+    font-size: 12px;
+    border-right: 1px solid #ccc;
+    background: #f0f0f0;
+}
+
+.zukan-tab-item.active {
+    background: #fff;
+    font-weight: bold;
+    border-bottom: 2px solid #fdfaf0; /* 下のウィンドウ背景と馴染ませる */
+    margin-bottom: -2px;
+}
+
+.zukan-tab-item:hover {
+    background: #fff;
+}
+
+/* サムネイルのスタイル */
+.zukan-thumb {
+    width: 32px;
+    height: 32px;
+    object-fit: contain; /* 画像が歪まないようにする */
+    margin-right: 10px;
+    background: #eee;    /* 画像がない時の背景 */
+	border-radius: 4px;
+	image-rendering: pixelated;
+}
+
+.shop-item-row-div.zukan-row {
+    display: flex;
+    align-items: center;
+    width: 100%;          /* 🌟 親要素いっぱいに広げる */
+    box-sizing: border-box; /* 🌟 パディングを含めて幅を計算する（これ重要！） */
+    padding: 6px 10px;    /* 左右に少し余白を持たせる */
+    border-bottom: 1px solid #eee;
+    cursor: pointer;
+}
+
+/* 念のため、親コンテナも幅100%に固定 */
+#zukan-list-content {
+    width: 100%;
+    margin: 0;            /* margin: 5px を削除して、親の幅を100%使い切る */
 }

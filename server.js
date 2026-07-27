@@ -350,7 +350,8 @@ io.on('connection', socket => {
 
         // 接続時にIDを通知
         socket.emit('your_id', socket.id);
-        debugChat(`🔌 新しい接続: ${socket.id}`);
+		debugChat(`🔌 新しい接続(connection): socket.id->${socket.id}`);
+		debugChat("[CONN] Connected | ID: " + socket.id);
 
         socket.emit('init_monster_configs', MONSTER_CONFIGS);
         socket.emit('init_item_config', ITEM_CONFIG);
@@ -710,6 +711,8 @@ socket.on('save_player_data', (data) => {
 // ============================================================
 socket.on('disconnect', () => {
     LOG.SYS(`ユーザーが切断しました: ${socket.id}`);
+	debugChat("[DISCONN] Disconnected | ID: " + socket.id);
+	
     try {
         // プレイヤーデータを取得
         const p = players[socket.id];
@@ -3868,7 +3871,91 @@ if (text === '/char2') {
     return true;
 }
 
+if (text === '/zukan') {
+    (async () => {
+        // 全データを取得
+        const items = await getZukanData(pool, 'all'); 
+        console.log(`📡 [Debug] ${items.length} 件のアイテムを取得`);
+        socket.emit('open_zukan', { items: items });
+    })();
+    return true;
+}
+
     return false; // どのコマンドにも該当しなかった
+}
+
+// 図鑑用データを取得する関数
+async function getZukanData(pool, category = 'all') {
+    try {
+        console.log(`🔍 [Debug] DB問い合わせ開始: カテゴリ=${category}`);
+
+        // 全てのカラム構成を統一します (description を必ず入れる)
+        const equipSql = `
+            SELECT item_id as id, name, display_name, image_name, price, 'equip' as category, NULL as description,
+                   lv, str, dex, \`int\`, luk, atk, def, maxHp, maxMp
+            FROM item_equip_catalog`;
+
+        const consumeSql = `
+            SELECT item_id as id, name, display_name, image_name, price, 'consume' as category, description,
+                   NULL as lv, NULL as str, NULL as dex, NULL as \`int\`, NULL as luk, NULL as atk, NULL as def,
+                   NULL as maxHp, NULL as maxMp
+            FROM item_consume_catalog`;
+
+        const etcSql = `
+            SELECT item_id as id, name, display_name, image_name, price, 'etc' as category, description,
+                   NULL as lv, NULL as str, NULL as dex, NULL as \`int\`, NULL as luk, NULL as atk, NULL as def,
+                   NULL as maxHp, NULL as maxMp
+            FROM item_etc_catalog`;
+
+        let sql = "";
+        if (category === 'equip') sql = equipSql;
+        else if (category === 'consume') sql = consumeSql;
+        else if (category === 'etc') sql = etcSql;
+        else sql = `${equipSql} UNION ALL ${consumeSql} UNION ALL ${etcSql}`;
+
+        console.log("📝 [Debug] 実行するSQL:", sql);
+        const [rows] = await pool.query(sql);
+
+        // richData に変換する処理（そのまま）
+        const richData = rows.map(item => {
+            let data = {
+                item_id: item.id,
+                name: item.name,
+                display_name: item.display_name,
+                image_name: item.image_name,
+                price: item.price,
+                type: item.category,
+                description: item.description || "" // descriptionがNULLなら空文字にする
+            };
+
+            if (item.lv !== null) {
+                data.lv = item.lv;
+                data.atk = item.atk || 0;
+                data.def = item.def || 0;
+                data.str = item.str || 0;
+                data.dex = item.dex || 0;
+                data.int = item.int || 0;
+                data.luk = item.luk || 0;
+                data.maxHp = item.maxHp || 0;
+                data.maxMp = item.maxMp || 0;
+
+                const sum = (item.str || 0) + (item.dex || 0) + (item.int || 0) + (item.luk || 0) + 
+                            (item.atk || 0) + (item.def || 0) + 
+                            Math.floor((item.maxHp || 0) / 10) + Math.floor((item.maxMp || 0) / 10);
+                
+                data.totalFirstStats = sum;
+                data.totalALLStats = sum;
+            }
+            return data;
+        });
+
+        console.log(`✅ [Debug] リッチデータ取得成功: ${richData.length} 件`);
+        return richData;
+
+    } catch (err) {
+        console.error("❌ [Debug] 図鑑DBエラー詳細:", err.message);
+        return []; 
+    }
 }
 
 // ============================================================
@@ -4609,8 +4696,19 @@ function handlePlayerDamaged(socket, data) {
     try {
         const p = players[socket.id];
         if (!p) return;
-		
-		if (p.hp <= 0) return;
+        
+        // 🛡️ 死亡時はダメージ計算をスキップ
+        if (p.hp <= 0) return;
+
+        // 🌟 新機能：ダメージクールダウン (0.5秒間は重複ダメージを無視)
+        const now = Date.now();
+        const COOLDOWN_MS = 500; 
+        if (p.lastDamageTime && (now - p.lastDamageTime) < COOLDOWN_MS) {
+            // クールダウン中のため、今回はダメージを与えない
+            return; 
+        }
+        // ダメージを与えたので時刻を更新
+        p.lastDamageTime = now;
 
         // 🌟 プレイヤーの所属チャンネルを取得
         const chId = p.channel || 1;

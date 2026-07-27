@@ -1636,6 +1636,7 @@ window.addEventListener('DOMContentLoaded', () => {
     safeMakeDraggable('vending-window', 'vending-header');
     safeMakeDraggable('other-vending-window', 'other-vending-header');
     safeMakeDraggable('shop-overlay', 'shop-header');
+    safeMakeDraggable('zukan-overlay', 'zukan-header');
 });
 
 // ============================================================
@@ -2993,33 +2994,36 @@ function drawGame(hero, others, enemies, items, platforms, ladders, damageTexts,
     }
     }
 	
-	if (window.isDisconnected) {
-    ctx.save();
-    
-    // 【重要】座標変換をすべてリセットする（これが無いとズレます）
-    ctx.setTransform(1, 0, 0, 1, 0, 0); 
-    
-    // 画面全体を覆う黒い背景
-    ctx.fillStyle = "rgba(0, 0, 0, 0.7)";
-    // 実際のキャンバスの横幅と高さをそのまま使う
-    ctx.fillRect(0, 0, canvas.width, canvas.height); 
-    
-    ctx.fillStyle = "#ffffff";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    
-    // 文字サイズを調整
-    ctx.font = "bold 40px sans-serif";
-    
-    // 現在のキャンバスの真ん中を取得
-    const centerX = canvas.width / 2;
-    const centerY = canvas.height / 2;
-    
-    // 描画
-    ctx.fillText("接続が切れました", centerX, centerY);
-    
-    ctx.restore();
-}
+	// 🌟 接続切れ時の描画（アニメーション付き）
+    if (window.isDisconnected) {
+        ctx.save();
+        ctx.setTransform(1, 0, 0, 1, 0, 0); // 座標リセット
+        
+        // 画面全体を覆う背景
+        ctx.fillStyle = "rgba(0, 0, 0, 0.8)";
+        ctx.fillRect(0, 0, canvas.width, canvas.height); 
+        
+        // アニメーション用の透明度計算 (Math.sinでゆっくり明滅)
+        const pulse = 0.5 + 0.4 * Math.abs(Math.sin(Date.now() / 500));
+        ctx.globalAlpha = pulse;
+        
+        // テキストの設定
+        ctx.fillStyle = "#ffffff";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.font = "bold 40px 'Segoe UI', sans-serif";
+        
+        // メッセージ描画
+        const centerX = canvas.width / 2;
+        const centerY = canvas.height / 2;
+        ctx.fillText("接続が切れました", centerX, centerY);
+        
+        // サブメッセージ
+        ctx.font = "20px 'Segoe UI', sans-serif";
+        ctx.fillText("ブラウザをリロード（再読み込み）してください", centerX, centerY + 60);
+        
+        ctx.restore();
+    }
 }
 
 // ============================================================
@@ -3926,6 +3930,9 @@ function drawUIOverlay(hero) {
  * - 描画パイプラインの安全管理（save/restoreによる汚染防止）
  */
 function drawItemTooltip(ctx, slot, mouseX, mouseY, hero) {
+
+	//console.log("🔍 ツールチップ描画対象:", slot); // これでslotの中身を見てください
+	
     if (!slot) return;
 
     // 🛡️ 1. 現在のCanvas状態（フォント、色、座標系）をすべて保存
@@ -3935,6 +3942,7 @@ function drawItemTooltip(ctx, slot, mouseX, mouseY, hero) {
     const isEquipment = (
         slot.type === 'sword' || 
         slot.type === 'shield' || 
+        slot.type === 'equip' || 
         slot.category === 'weapon1' || 
         slot.category === 'shield1' || 
         slot.category === 'armor1' ||
@@ -3985,7 +3993,19 @@ function drawItemTooltip(ctx, slot, mouseX, mouseY, hero) {
     }
     if (isEquipment && successCount > 0) baseItemName = `${baseItemName} (+${successCount})`;
 
-    let itemName = baseItemName;
+	let itemName = baseItemName;
+	
+	// オリジナルの名称出し分けロジックを維持
+        if (slot.name === 'sweets') { itemName = "おいしいケーキ"; displayPrice = 50; }
+        else if (slot.name === 'scroll_star') { itemName = "スターの書"; displayPrice = 25000; }
+        else if (slot.name === 'gold') { itemName = "金塊"; displayPrice = 500; }
+        else if (slot.name === 'treasure') { itemName = "ひみつの宝箱"; displayPrice = 2500; }
+        else if (slot.name === 'sword') { baseItemName = "マニアックソード1"; displayPrice = 250; }
+        else if (slot.name === 'shield') { baseItemName = "トリシールド"; displayPrice = 150; }
+        else {
+            //displayPrice = Math.floor((item.price || 0) * 0.5);
+        }
+		
     let statusText = "";
     let displayColor = "#ffffff";
     let glowColor = null;
@@ -4474,6 +4494,8 @@ function hashCode(str) {
     return Math.abs(hash);
 }
 
+window.deathStates = {};
+
 // ============================================================
 // :::GET_PLAYER_CURRENT_IMG::: 🎬 アニメーション状態解析と画像特定
 // ============================================================
@@ -4493,26 +4515,34 @@ function getPlayerCurrentImg(p, g, v, frame, sprites, playerSprites, isMe) {
     // 引数として渡された g と v を使ってデータにアクセス
     const characterData = (playerSprites[g] && playerSprites[g][v]);
 	
-	// --- 0. 👻 死亡中 (最優先) ---
+	// --- 0. 👻 死亡中 ---
     if (p.hp <= 0) {
         const frames = characterData?.["Dead"];
         if (frames && frames.length > 0) {
-            // 🌟 死亡したフレームを記録していなければ、この瞬間に記録する
-            if (!p.deathFrame) p.deathFrame = frame;
+            
+            // 💡 修正：p.id をキーにして deathStates に記録する
+            if (!window.deathStates[p.id]) {
+                window.deathStates[p.id] = frame; 
+            }
 
-            // 🌟 死亡してからの経過時間を計算
-            const deathDuration = frame - p.deathFrame;
+            // 経過時間を計算
+            const deathDuration = frame - window.deathStates[p.id];
             
-            // 6フレームごとに画像を切り替える（数字は好みに応じて調整してください）
-            const animIdx = Math.floor(deathDuration / 2);
+            // アニメーション速度（3 を変更して調整）
+            const animIdx = Math.floor(deathDuration / 3);
             
-            // 最後まで行ったらそのコマで固定する
+            // 最後まで行ったらそのコマで固定
             const idx = Math.min(animIdx, frames.length - 1);
             
             return frames[idx];
         }
-        // "Dead"画像が無い場合の安全対策
         return sprites.playerA; 
+    } else {
+        // 💡 修正：生きている場合は、念のため死亡記録を消しておく
+        // これで復活した時にまた最初から再生されます
+        if (window.deathStates[p.id]) {
+            delete window.deathStates[p.id];
+        }
     }
 
     // --- 1. ⚔️ 攻撃中 (最優先) ---
@@ -4694,11 +4724,13 @@ function drawPlayerUI(ctx, p, isMe, pW, frame) {
     let currentX = p.x + pW / 2 - totalW / 2 + (VIEW_CONFIG.playerName.paddingW / 2);
     
     // 💡 ここにデバッグログを追加
+	/*
     if (isMe) {
     console.log("DEBUG: Object.keysに含まれるか:", Object.keys(hero).includes('isLinked'));
     console.log("DEBUG: プロパティの詳細:", Object.getOwnPropertyDescriptor(hero, 'isLinked'));
     console.log("DEBUG: ブラケット記法でアクセス:", hero['isLinked']);
 }
+	*/
 
     if (currentLinked && window.badgeImg && (window.badgeImg.complete || window.isBadgeLoaded)) {
 		// console.log("🔥 バッジ描画を実行中！"); 
