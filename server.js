@@ -157,7 +157,7 @@ const SETTINGS = {
     FRICTION: 0.98,       // 空中摩擦（1に近いほど止まらない）
     TICK_RATE: 40,         // 更新間隔（ミリ秒）
 	// --- 🌟 追加：敵の移動制限範囲 ---
-    ENEMY_MIN_X: 400,
+    ENEMY_MIN_X: 0,
     ENEMY_MAX_X: 800
   },
   PLAYER: {
@@ -2731,6 +2731,27 @@ const MAP_DATA = {
   ladders: [{ x: 580, y1: 130, y2: 565 }] // はしご
 };
 
+// 🌟 プレイヤーが乗っているプラットフォームのインデックスを返す関数
+function getPlatIndexFromCoords(x, y) {
+    const footY = y + 20; 
+
+    for (let i = 0; i < MAP_DATA.platforms.length; i++) {
+        const p = MAP_DATA.platforms[i];
+        
+        // 1. 横幅の判定（少し広めに取ると安定します）
+        const inRangeX = (x >= p.x - 20 && x <= (p.x + p.w + 20));
+        
+        // 2. 高低差の判定
+        const diffY = Math.abs(footY - p.y);
+
+        // 🌟 ここを 40 ではなく余裕を持って 50 に設定します
+        if (inRangeX && diffY < 50) {
+            return i; 
+        }
+    }
+    return null; // どれにも該当しなければ地面
+}
+
 // プログラム全体で使う図鑑の変数（空で初期化）
 let ENEMY_CATALOG = {};
 // 🌟 外部から参照するための配列形式
@@ -2827,12 +2848,13 @@ async function loadEnemyCatalog() {
 
 const ENEMY_PLAN = [
   { plat: 0,    id: 2010 }, 
+  //{ plat: 0,    id: 2160 }, 
   { plat: 1,    id: 2050 }, 
   { plat: 1,    id: 2020 }, 
   { plat: 2,    id: 2080 }, 
   { plat: 2,    id: 2080 }, 
-  { plat: 2,    id: 2080 }, 
-  { plat: null, id: 2160 }
+  { plat: 2,    id: 2080 },
+  { plat: null,    id: 2010 }
 ];
 
 // ==========================================
@@ -2939,28 +2961,82 @@ handleDisconnect();
 // :::CLASS_ENEMY::: 👾 敵キャラクターの定義・AI・物理演算
 // ============================================================
 class Enemy {
-  constructor(id, platIndex) {
-    this.id = id;
-    this.platIndex = platIndex; 
+
+  // 足場の湧き位置
+  static PLAT_X = 60;
+  // 地面の湧き位置
+  static FIELD_X = 500;
+
+  constructor(data) {
+    // 🐣 デバッグ開始：出生の記録
+    console.group(`🐣 [Monster Constructor] ID:${data.id} 生成開始`);
+    console.log("   受信データ(data):", { ...data }); // 元データをコピーして表示
+
+    // 1. 基本情報の抽出
+    this.id = data.id;
+    this.platIndex = data.platIndex;
+    this.x = data.x;
+    this.y = data.y;
+	
+	this.spawnX = data.x;
+    this.spawnY = data.y;
+    this.spawnOffset = 0;
+    
+    console.log("   初期代入直後: x=", this.x, "y=", this.y);
+    
+    // 2. 🌟 オフセットの計算
+    const p = (this.platIndex !== null && typeof MAP_DATA !== 'undefined') ? MAP_DATA.platforms[this.platIndex] : null;
+    if (p) {
+        this.offset = this.x - p.x;
+        this.offset = Math.max(0, Math.min(p.w - (data.w || 50) * 0.2, this.offset));
+    } else {
+        this.offset = 0;
+    }
+	
+	this.spawnOffset = this.offset;
+
+    // 3. 描画ガードフラグ
+    this.isJustSpawned = true;
+    this.opacity = 0;
     
     // ジャンプ関連の初期化
     this.jumpY = 0;
     this.jumpV = 0;
     this.jumpFrame = 0;
 
-    this.reset();
+    // ⚡⚡⚡ ここが重要：resetの前後を監視 ⚡⚡⚡
+    console.log("   reset() 実行前: x=", this.x, "y=", this.y);
+    this.reset(data);
+    console.log("   reset() 実行後: x=", this.x, "y=", this.y);
+    // ⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡⚡
+	
+    // 🌟 最終防衛ライン
+    if (data.x !== undefined) this.x = data.x;
+    if (data.y !== undefined) this.y = data.y;
+	
+    console.log(`[最終防衛ライン通過後] ID:${this.id} 確定座標: x=${this.x}, y=${this.y}, opacity=${this.opacity}`);
+    console.groupEnd(); // デバッグ終了
   }
 
   // ==========================================
 // 🔄 状態リセット（初期化）
 // ==========================================
-reset() {
+reset(data) {
   // 1. 表示・生存フラグ
   this.alive         = true;
-  this.opacity       = 1;
-  this.spawnAlpha    = 0;
+  // 🌟 【最重要修正】
+    // 召喚直後（isJustSpawned が true）なら、不透明（1）にしない！
+    //if (this.isJustSpawned) {
+        this.opacity = 0; 
+    //} else {
+    //    this.opacity = 1;
+    //}
   this.isFading      = false;
   this.deathFrame    = 0;
+  
+  this.x = this.spawnX;
+  this.y = this.spawnY;
+  this.offset = this.spawnOffset;
 
   // 2. 動作・タイマー
   this.kbV           = 0;
@@ -2968,7 +3044,7 @@ reset() {
   this.isEnraged     = false;
   this.respawnTimer  = 0;
   this.waitTimer     = 0;
-  this.offset        = 0;
+  this.offset        = Enemy.PLAT_X;
   this.dir = Math.random() < 0.5 ? 1 : -1;
 
   // 3. 🛡️ ステータス読み込み（ENEMY_CATALOGから直接取得）
@@ -2994,31 +3070,47 @@ reset() {
   this.w = baseW * this.scale * 0.2;
   this.h = baseH * this.scale * 0.2;
 
-  // 5. 初期座標の決定
-  this.initPosition();
+  // 🌟 5. 【修正】ここがポイント！
+    // 既に x, y が決まっているなら、initPosition（強制リセット）を実行しない！
+    // 🌟 修正：isPatching フラグが立っている、または既に座標があるならスキップ！
+    //if (this.isPatching || (this.x !== undefined && this.y !== undefined)) {
+    //    console.log(`[デバッグ] ID:${this.id} はパッチ中または座標指定済みのため、位置リセットをスキップ`);
+    //} else {
+        this.initPosition();
+    //}
 }
 
   // 初期位置を決める内部処理
   initPosition() {
-    const randomOffset = Math.floor(Math.random() * 61) - 30;
-    const p = (this.platIndex !== null) ? MAP_DATA.platforms[this.platIndex] : null;
+    // 🌟 1. 【最強のガード】
+    // 既に x, y が決まっているなら、初期化ロジック（足場計算含む）を完全にスキップ！
+    //if (this.x !== undefined && this.y !== undefined) {
+    //    console.log(`[デバッグ] ID:${this.id} は座標指定済みのため、初期化ロジックをスキップ`);
+    //    return; 
+    //}
+	
+	if (this.spawnX !== undefined) return;
 
-    if (p) {
-      this.offset = Math.floor(Math.random() * (p.w - this.w));
-      this.x = p.x + this.offset;
-      this.y = p.y - this.h;
+    // 2. ここから下が「座標がない時」だけ動くロジック
+    if (this.platIndex !== null) {
+        const p = MAP_DATA.platforms[this.platIndex];
+        this.x = p.x;
+        this.y = p.y; // 👈 ここで強制リセットされていたのが犯人です
     } else {
-      this.x = 550 + randomOffset;
-      this.y = SETTINGS.SYSTEM.GROUND_Y - this.h;
+        this.x = Enemy.FIELD_X;
+        this.y = 550; // 地面
     }
-  }
+}
 
   // ======================================================
   // ⚙️ フレームごとの更新処理
   // ======================================================
   update() {
     // 出現時のフェードイン
-    if (this.spawnAlpha < 1) this.spawnAlpha += 0.05;
+    if (this.spawnAlpha < 1) {
+		this.spawnAlpha += 0.05; // 徐々に表示する
+		this.opacity = this.spawnAlpha; // 描画時の不透明度に反映
+	}
 
     // 1. 死亡・消滅・復活の管理
     if (this.handleDeathAndRespawn()) return;
@@ -3052,11 +3144,20 @@ reset() {
     // 2. 死亡状態（リスポーン待ち）の処理
     if (!this.alive) {
       if (--this.respawnTimer <= 0) {
-        this.reset();                // パラメータの初期化
-        // 特定のプラットフォーム上の場合、透明から開始
+        // --- 🔍 ここにデバッグ行を追加 ---
+        console.group(`🔄 [Respawn Debug] ID:${this.id} 復活の瞬間`);
+        console.log("リセット前: opacity =", this.opacity, "alive =", this.alive);
+        
+        this.reset();
+        
+        console.log("リセット後: opacity =", this.opacity, "alive =", this.alive);
+        console.groupEnd();
+        // ------------------------------
+        
+        // 特定のプラットフォーム上の場合、念のためここでも透明化を保証
         if (this.platIndex !== null) this.opacity = 0;
       }
-      return true; // 死亡中のため、以降の更新をスキップ
+      return true;
     }
 
     // 生存中の場合は false を返し、通常の更新処理を続行
@@ -3193,42 +3294,55 @@ moveTowardsTarget(target) {
 }
 
   // 🚶 巡回移動（パトロール）
-  movePatrol() {
+movePatrol() {
+	// 🌟 これを追加（毎フレーム実行されます）
+    if (this.id === 2160) {
+        //console.log(`[監視中] ID:2160 現在地X:${this.x.toFixed(1)}, Dir:${this.dir}`);
+    }
+	
     // 現在乗っているプラットフォームのデータを取得
     const p = (this.platIndex !== null) ? MAP_DATA.platforms[this.platIndex] : null;
 
+    // --- 🔍 デバッグ：巡回開始前の状態 ---
+    // もしここでログが大量に出すぎる場合は、特定のIDの時だけ表示するように変更してください
+    // console.log(`[Patrol] ID:${this.id} X:${this.x.toFixed(1)} platIndex:${this.platIndex} Dir:${this.dir}`);
+
     if (!p) {
-      // 1. 地面がない（空中・自由移動）場合：画面の左右端で反転
-      this.x += this.speed * this.dir;
+        // 1. 地面がない（空中・自由移動）場合：画面の左右端で反転
+        this.x += this.speed * this.dir;
 
-      // 左端に到達
-      if (this.x < SETTINGS.SYSTEM.ENEMY_MIN_X) {
-        this.x = SETTINGS.SYSTEM.ENEMY_MIN_X;
-        this.dir = 1; // 右へ反転
-      }
-      // 右端に到達
-      if (this.x > SETTINGS.SYSTEM.ENEMY_MAX_X - this.w) {
-        this.x = SETTINGS.SYSTEM.ENEMY_MAX_X - this.w;
-        this.dir = -1; // 左へ反転
-      }
+        // 左端に到達
+        if (this.x < SETTINGS.SYSTEM.ENEMY_MIN_X) {
+            //console.log(`[Patrol Debug] ID:${this.id} 反転！左端到達. 現在X:${this.x.toFixed(1)}, MIN_X:${SETTINGS.SYSTEM.ENEMY_MIN_X}`);
+            this.x = SETTINGS.SYSTEM.ENEMY_MIN_X;
+            this.dir = 1; // 右へ反転
+        }
+        // 右端に到達
+        else if (this.x > SETTINGS.SYSTEM.ENEMY_MAX_X - this.w) {
+            //console.log(`[Patrol Debug] ID:${this.id} 反転！右端到達. 現在X:${this.x.toFixed(1)}, MAX_X:${SETTINGS.SYSTEM.ENEMY_MAX_X}`);
+            this.x = SETTINGS.SYSTEM.ENEMY_MAX_X - this.w;
+            this.dir = -1; // 左へ反転
+        }
     } else {
-      // 2. プラットフォーム上の場合：足場の端で反転＆一時停止
-      this.offset += this.speed * this.dir;
+        // 2. プラットフォーム上の場合：足場の端で反転＆一時停止
+        this.offset += this.speed * this.dir;
 
-      // 足場の左端に到達
-      if (this.offset <= 0) {
-        this.offset = 0.5;    // めり込み防止の微調整
-        this.dir = 1;         // 右へ反転
-        this.waitTimer = 40;  // 立ち止まって考える時間
-      }
-      // 足場の右端に到達
-      else if (this.offset >= p.w - this.w) {
-        this.offset = p.w - this.w - 0.5; // めり込み防止の微調整
-        this.dir = -1;                    // 左へ反転
-        this.waitTimer = 40;              // 立ち止まって考える時間
-      }
+        // 足場の左端に到達
+        if (this.offset <= 0) {
+            //console.log(`[Patrol Debug] ID:${this.id} 反転！プラットフォーム左端到達. Offset:${this.offset.toFixed(1)}`);
+            this.offset = 0.5;    // めり込み防止の微調整
+            this.dir = 1;         // 右へ反転
+            this.waitTimer = 40;  // 立ち止まって考える時間
+        }
+        // 足場の右端に到達
+        else if (this.offset >= p.w - this.w) {
+            //console.log(`[Patrol Debug] ID:${this.id} 反転！プラットフォーム右端到達. Offset:${this.offset.toFixed(1)}`);
+            this.offset = p.w - this.w - 0.5; // めり込み防止の微調整
+            this.dir = -1;                    // 左へ反転
+            this.waitTimer = 40;              // 立ち止まって考える時間
+        }
     }
-  }
+}
 
   // 🎯 最終座標の決定
   calculateFinalPosition() {
@@ -3236,6 +3350,11 @@ moveTowardsTarget(target) {
     const isFloating = [1010, 1020, 1030].includes(this.id);
     const floatOffset = isFloating ? 12 : 0; // 浮遊キャラは地面から12px浮かせる
 
+	// どんな場所にいても、リスポーン直後は透明度を徐々に上げる
+    if (this.opacity < 1) {
+        this.opacity += 0.02;
+    }
+	
     // 現在の足場情報を取得
     const p = (this.platIndex !== null) ? MAP_DATA.platforms[this.platIndex] : null;
 
@@ -3273,9 +3392,12 @@ let droppedItems = {};
 // ============================================================
 function initMonsters() {
     CHANNELS.forEach(chId => {
-        // チャンネルごとに、ENEMY_PLANに基づいて「新しいモンスターの群れ」を生成
-        // 💡 踏襲ポイント：ご提示のロジックをそのまま使用しています
-        enemies[chId] = ENEMY_PLAN.map(p => new Enemy(p.id, p.plat));
+        // 🌟 修正：引数を「オブジェクト形式」に変更！
+        // これにより、Enemyクラスの constructor(data) に正しくデータが渡ります
+        enemies[chId] = ENEMY_PLAN.map(p => new Enemy({ 
+            id: p.id, 
+            platIndex: p.plat 
+        }));
         
         // 各チャンネルごとのドロップアイテム用ポケットを用意
         droppedItems[chId] = [];
@@ -3653,6 +3775,15 @@ async function getShopInventory(pool) {
     });
 }
 
+// 💡 「召喚の包み」辞書
+const SUMMON_MAP = {
+    // アイテムID: 敵ID
+    50001: 2010, // 50001を使うと、enemy_id 1010 が出る
+    50002: 2020, // 50002を使うと、enemy_id 1020 が出る
+    50003: 2300, // ボス召喚など
+    50004: 2160  // ボス召喚など
+};
+
 // ============================================================
 // :::EXEC_ADMIN_CMD::: 🛠️ 管理者コマンド・テスト・露店開設の司令塔
 // ============================================================
@@ -3693,6 +3824,7 @@ function executeAdminCommand(socket, p, text) {
     }
 
     // 👹 【コマンド5】モンスター召喚
+	/*
     if (text === '/spawn') {
         const newEnemy = {
             id: Date.now(),
@@ -3713,7 +3845,8 @@ function executeAdminCommand(socket, p, text) {
         sendState();
         return true;
     }
-
+	*/
+	
     // 🎁 【コマンド6】テスト用アイテムをドロップ
     if (text === '/item') {
         const newItem = {
@@ -3881,6 +4014,31 @@ if (text === '/zukan') {
     return true;
 }
 
+// チャットコマンドの処理に追加
+if (text.startsWith('/summon')) {
+    console.log("🔍 [Debug] summonコマンドを検知しました！"); // 追加
+    
+    const parts = text.split(' ');
+    const summonItemId = parseInt(parts[1]);
+    console.log("🔍 [Debug] 入力されたID:", summonItemId); // 追加
+
+    // 辞書に存在するか確認
+    if (SUMMON_MAP[summonItemId]) {
+        console.log("🔍 [Debug] 辞書にIDが存在します。召喚関数を呼び出します。"); // 追加
+        (async () => {
+            try {
+                await executeSummon(socket, summonItemId);
+                console.log("🔍 [Debug] executeSummon完了！"); // 追加
+            } catch (e) {
+                console.error("❌ [Debug] executeSummonでエラー発生:", e);
+            }
+        })();
+    } else {
+        console.log("⚠️ [Debug] 辞書にIDが見つかりません。SUMMON_MAP:", SUMMON_MAP); // 追加
+    }
+    return true;
+}
+
     return false; // どのコマンドにも該当しなかった
 }
 
@@ -3956,6 +4114,88 @@ async function getZukanData(pool, category = 'all') {
         console.error("❌ [Debug] 図鑑DBエラー詳細:", err.message);
         return []; 
     }
+}
+
+async function executeSummon(socket, itemId) {
+
+    console.log("🛠️ [Debug] playersの中身:", typeof players, players);
+    
+    const enemyId = SUMMON_MAP[itemId]; // アイテムに対応する敵IDを取得
+    if (!enemyId) return; // 召喚アイテムじゃないなら無視
+
+    // 💡 1. データベースから敵の能力値を一発で取得する！
+    const [rows] = await pool.query("SELECT * FROM enemy_catalog WHERE enemy_id = ?", [enemyId]);
+    const enemyData = rows[0]; // これで敵の全データが手に入る
+
+    if (!enemyData) {
+        console.error("モンスターデータが見つかりません:", enemyId);
+        return;
+    }
+
+    // 💡 2. プレイヤーの座標などを取得
+    const player = players[socket.id];
+    if (!player) {
+        console.error("プレイヤーデータが見つかりません:", socket.id);
+        return;
+    }
+
+    // 💡 3. モンスターの配置座標と足場判定を計算
+    const platIndex = getPlatIndexFromCoords(player.x, player.y);
+    // 足場に乗っていれば足場のY座標(天面)を、そうでなければプレイヤーのY座標を採用
+    //let spawnY;
+	//if (platIndex !== null) {
+		// もし platIndex が null じゃなければ
+	//	spawnY = player.y;
+	//} else {
+		// もし platIndex が null なら（それ以外）
+	//	spawnY = player.y;
+	//}
+
+    // 💡 4. モンスターをスポーンさせる
+    const monsterObj = {
+        ...enemyData,
+        id: enemyData.enemy_id, // ← DBのIDをクライアントが期待する 'id' に合わせる
+        alive: true,            // ← 明示的にデフォルト値を入れる
+        isFading: false,        // ← 明示的にデフォルト値を入れる
+        unique_id: Date.now() + Math.random(),
+        x: player.x,            // プレイヤーのXと一致
+        y: player.y,              // 計算した spawnY を反映
+		spawnX: player.x, 
+		spawnY: player.y,
+        platIndex: platIndex,   // 判定した足場Indexを反映
+        currentHp: enemyData.hp,
+        maxHp: enemyData.hp,
+		opacity: 0,                   // 👈 最初は透明にする
+		spawnAlpha: 0,
+        jumpY: 0,
+        jumpV: 0,
+        jumpFrame: 0,
+		isJustSpawned: true,
+        //opacity: 1,
+        //spawnAlpha: 1.0000000000000002,
+        deathFrame: 0,
+        kbV: 0,
+        isAttacking: 0,
+        isEnraged: false,
+        respawnTimer: 0,
+        waitTimer: 0
+    };
+
+    // 💡 【重要】サーバー側の管理配列にモンスターを追加する（これがないと同期されません）
+    if (!enemies[player.channel]) enemies[player.channel] = [];
+    enemies[player.channel].push(monsterObj);
+    
+    // 💡 チャンネルIDを文字列の部屋名として統一（'channel_' 接頭辞を付与）
+    const targetRoom = `channel_${player.channel}`; 
+
+    // 💡 ここが重要！そのチャンネルの部屋にソケットを参加させる
+    socket.join(targetRoom); 
+    
+    // 💡 その部屋（チャンネル）にいる人だけに送信！
+    io.to(targetRoom).emit('spawn_monster', monsterObj);
+
+    console.log(`🚀 [Debug] ${targetRoom} のプレイヤー全員に送信しました！`);
+    console.log(`🚀 [Debug] 召喚後のチャンネル内敵数: ${enemies[player.channel].length}`);
 }
 
 // ============================================================
@@ -4172,7 +4412,7 @@ function handleAttack(socket, data) {
 
         // 🌟 【音の同期用】同じ部屋(チャンネル)の全員にのみ「ヒット通知」を送る
         io.to(`channel_${chId}`).emit('enemy_hit_sync', { 
-            enemyId: nearest.id, 
+            enemyId: nearest.unique_id,
             attackerId: socket.id,
             isDead: isFatalBlow 
         });
@@ -4205,18 +4445,57 @@ function handleAttack(socket, data) {
         });
 
         // --- 💀 死亡判定と報酬処理 ---
-        if (isFatalBlow) {
-            nearest.alive = false;
-            const rewardExp = nearest.exp || 10; 
-            socket.emit('exp_log', { amount: rewardExp }); 
-            addExperience(p, rewardExp, socket);
-            spawnDropItems(nearest, chId);
-            
-            nearest.hp = 0;
-            nearest.isFading = true;
-            nearest.deathFrame = 0;
-            p.score = (Number(p.score) || 0) + 100;
-        }
+if (isFatalBlow) {
+
+	const enemyIndex = enemies[chId].indexOf(nearest); 
+    
+    if (enemyIndex >= 7) { 
+        const fieldMonster = enemies[chId][0]; 
+        console.log("=== 🔍 プロパティ比較テスト ===");
+        console.log("【既存の敵】 update持ってる？:", typeof fieldMonster.update);
+        console.log("【召喚獣】 update持ってる？:", typeof nearest.update);
+        console.log("【既存の敵】 deathFrame:", fieldMonster.deathFrame);
+        console.log("【召喚獣】 deathFrame:", nearest.deathFrame);
+        console.log("===============================");
+    }
+	
+    //nearest.alive = false;
+    nearest.isFading = true; 
+    nearest.hp = 0;
+    nearest.deathFrame = 0;
+
+    // 🌟 境界線の設定 (ここをそのチャンネルの「初期敵数」に合わせてください)
+    // 例えば、初期配置の敵が10体なら、それより後の番号(10番目以降)はすべて召喚獣
+    const FIELD_ENEMY_COUNT = 7; 
+
+    // 現在のインデックスを取得
+    const index = enemies[chId].indexOf(nearest);
+
+    // 判定：インデックスが境界線以上なら「召喚獣」
+    if (index >= FIELD_ENEMY_COUNT) {
+        console.log(`[Server] 召喚獣(index:${index})を検知、2秒後に削除します`);
+        
+        setTimeout(() => {
+            const list = enemies[chId];
+            if (list) {
+                const idx = list.indexOf(nearest); // 再取得して安全に削除
+                if (idx !== -1) {
+                    list.splice(idx, 1);
+                }
+            }
+        }, 2000);
+    } else {
+        // フィールドの敵の場合：削除せず、リスポーン処理へ任せる（何もしない）
+        console.log(`[Server] フィールド敵(index:${index})を検知、復活管理に委ねます`);
+    }
+
+    // --- 報酬処理（共通） ---
+    const rewardExp = nearest.exp || 10; 
+    socket.emit('exp_log', { amount: rewardExp }); 
+    addExperience(p, rewardExp, socket);
+    spawnDropItems(nearest, chId);
+    p.score = (Number(p.score) || 0) + 100;
+}
     }
 }
 
@@ -4915,10 +5194,58 @@ function updateEnemies() {
         // 2. そのチャンネル内のモンスター配列をループする
         currentEnemies.forEach((e, index) => {
             try {
+                // 🌟 【修正】メソッド移植パッチ（位置保護版）
+                // :::UPDATE_ENEMIES::: 内のパッチ処理
+if (e && typeof e.update !== 'function') {
+    const template = currentEnemies[0]; 
+    if (template) {
+        // 1. プロトタイプ継承
+        Object.setPrototypeOf(e, Object.getPrototypeOf(template));
+        
+        // 2. 🌟 座標と足場情報を一時保存
+        // 💡 ポイント：undefinedなら0ではなく元の値を維持する処理に変更
+        const savedX = (e.x !== undefined) ? e.x : 0;
+        const savedY = (e.y !== undefined) ? e.y : 0;
+        const savedPlat = e.platIndex;
+        const savedOffset = (e.offset !== undefined) ? e.offset : 0;
+
+        // 3. 機能を初期化（ここで reset が呼ばれる）
+        if (typeof e.reset === 'function') {
+            e.isPatching = true;
+            e.reset();
+            delete e.isPatching;
+        }
+        
+        // 4. 🌟 座標と足場情報を復元
+        // 💡 ポイント：無理やり上書きして、さらにoffsetを再計算させる
+        e.x = savedX;
+        e.y = savedY;
+        e.platIndex = savedPlat;
+        e.offset = savedOffset;
+
+        // 🌟 【最重要】もし足場があるなら、offsetを再計算して強制的に合わせる！
+        if (e.platIndex !== null && typeof MAP_DATA !== 'undefined' && MAP_DATA.platforms[e.platIndex]) {
+            const p = MAP_DATA.platforms[e.platIndex];
+            // プレイヤーのXが p.x + offset になるように逆算
+            // もしxが0なら、足場の左端にしておく
+            if (e.x === 0) e.x = p.x; 
+            e.offset = e.x - p.x;
+        }
+
+        console.log(`[Patch] 召喚獣(ID:${e.id})を能力継承・位置復元しました: x=${e.x}, y=${e.y}, offset=${e.offset}`);
+    }
+}
+
                 // 🛡️ ガード：データ破損チェック
                 if (!e || typeof e.update !== 'function') return;
 
-                e.update(); // 動きの計算
+                // 🌟 【追加】召喚直後の位置保護（1フレームのみ物理演算をスキップ）
+                if (e.isJustSpawned) {
+                    e.isJustSpawned = false; // フラグを解除
+                    return; // 物理処理（update）をスキップして終了
+                }
+
+                e.update(); // 動きの計算（ここで handleDeathAndRespawn が呼ばれ deathFrame が進む）
 
                 // ダメージ点滅タイマー
                 if (e.damageTimer > 0) e.damageTimer--;
@@ -4927,23 +5254,20 @@ function updateEnemies() {
                 if (e.isAttacking > 0) {
                     e.isAttacking--;
 
-                    // ⚔️ 振り下ろし判定：22から始まるカウントのうち、15〜8の時だけ当たり判定を出す
-                    // これにより「振りかぶっている間」や「振り切った後」は当たらないようになります
+                    // ⚔️ 振り下ろし判定
                     if (e.isAttacking <= 15 && e.isAttacking >= 8) {
                         e.isAttackingHitFrame = true;
                     } else {
                         e.isAttackingHitFrame = false;
                     }
                 } else {
-                    e.isAttackingHitFrame = false; // 攻撃していない時は判定OFF
+                    e.isAttackingHitFrame = false;
                     if (e.isEnraged) {
-                        // 🌟 怒り状態なら1%の確率で攻撃開始 (22フレーム設定)
                         if (Math.random() < 0.01) e.isAttacking = 22;
                     }
                 }
 
-                // --- 🌟 プレイヤーへのダメージ判定処理の呼び出し ---
-                // ※この関数の外または下で定義されているダメージチェックを呼び出します
+                // --- 🌟 プレイヤーへのダメージ判定処理 ---
                 checkMonsterHitsPlayers(e, chId);
 
             } catch (err) {
@@ -5009,6 +5333,25 @@ function isRectOverlapping(x1, y1, w1, h1, x2, y2, w2, h2) {
 function updatePlayers() {
     for (let id in players) {
         const p = players[id];
+		
+		// 🌟 関数で現在の足場を判定
+        const currentPlat = getPlatIndexFromCoords(p.x, p.y);
+        
+        // 前回の判定結果と比較して、変わった時だけログを出す
+        if (p.prevPlat !== currentPlat) {
+            const label = currentPlat === null ? "地面(null)" : `足場${currentPlat + 1} (index:${currentPlat})`;
+            console.log(`[DEBUG_MY_POS] プレイヤー ${p.name} | 現在の高さ:${label} | X:${p.x} Y:${p.y}`);
+            
+			LOG.SYS(`プレイヤー ${p.name} が ${label} に移動しました (X:${p.x} Y:${p.y})`);
+			
+			// 2. 🌟 チャットへの通知（追加！）
+			// そのチャンネルにいる全員に「誰がどこに移動したか」を通知します
+			io.to(`channel_${p.channel}`).emit('chat_message', {
+				sender: "SYSTEM",
+				text: `${p.name}さんが ${label} に移動しました。`
+			});
+			p.prevPlat = currentPlat; 
+        }
 
         // 1. 攻撃タイマーの管理（既存ロジック）
         if (p.isAttacking > 0) {

@@ -2817,18 +2817,26 @@ socket.on('tsuchida_debug', (data) => {
  * - プレイヤーの攻撃成功を聴覚でフィードバックする
  */
 socket.on('enemy_hit_sync', (data) => {
-    // 自分の攻撃が当たった時だけ音を鳴らす
+    // 自分の攻撃が当たった時だけ処理
     if (data.attackerId !== socket.id) return;
 
-    // 敵のデータを特定
-    const target = enemies.find(e => e.id === data.enemyId);
-    if (!target) return;
+    // 🌟 【修正】id ではなく unique_id で敵を探す
+    const target = enemies.find(e => e.unique_id === data.enemyId);
+    
+    if (!target) {
+        console.log(`⚠️ 敵が見つかりません (ID: ${data.enemyId})`);
+        return;
+    }
 
+    // 🌟 【重要】ここで状態も更新する（もし他の同期処理がない場合）
     if (data.isDead) {
-        // サーバーが「死んだ」と認めた時だけ死亡音
+        target.alive = false;     // 死亡状態にする
+        target.isFading = true;   // フェードアウト開始
+        target.deathFrame = 0;    // 死亡アニメーション開始
+        
         if (typeof playEnemyDieSound === 'function') playEnemyDieSound(target);
     } else {
-        // サーバーが「当たった（まだ生きてる）」と認めた時だけヒット音
+        // まだ生きている場合（被弾時）
         if (typeof playEnemyHitSound === 'function') playEnemyHitSound(target);
     }
 });
@@ -2906,17 +2914,15 @@ socket.on('account_info_response', (data) => {
         console.log("【確認】heroのステータスを更新しました:", hero.isLinked);
     }
 
-    // 💡 3. 【重要】描画中の全プレイヤー配列を走査して強制同期させる
-    // あなたの環境にある全プレイヤーを保持している変数名（例: players や allPlayers）に合わせてください
-    if (typeof players !== 'undefined') {
-        players.forEach(p => {
-            // もし自分のIDと一致するプレイヤーがいれば、heroと同じく状態を更新
-            // （IDの持ち方はp.idやp.userIdなど適宜変更してください）
-            if (p.id === hero.id) {
-                p.isLinked = data.isLinked;
-                p.isOnline = data.isOnline;
-            }
-        });
+    // 💡 3. 【修正版】ループを使わず、直接IDを指定して同期する
+    // players がオブジェクト `{ "socketID": { ... } }` であるなら、これで一発です
+    if (typeof players !== 'undefined' && hero && hero.id) {
+        if (players[hero.id]) {
+            players[hero.id].isLinked = data.isLinked;
+            players[hero.id].isOnline = data.isOnline;
+        } else {
+            console.warn("⚠️ プレイヤーリストに自分のIDが見つかりませんでした:", hero.id);
+        }
     }
 });
 
@@ -3263,6 +3269,13 @@ function drawDebugLayer(hero, enemies, items, platforms) {
  * - キャラクター中心座標の計算およびエフェクトの追従描画
  */
 function drawEntities(hero, others, enemies, items, frame) {
+
+	// デバッグ：配列の中に何体いるか確認
+	if (frame % 180 === 0) {
+		const activeEnemies = enemies.filter(e => e.alive);
+		console.log(`現在の敵の総数: ${enemies.length}, 生きている敵の数: ${activeEnemies.length}`);
+	}
+	
     // -------------------------------------------------------
     // 1. 敵（モンスター）を描画
     // -------------------------------------------------------
@@ -4745,6 +4758,9 @@ function drawPlayerUI(ctx, p, isMe, pW, frame) {
     ctx.fillText(rawName, currentX, nameY);
 }
 
+// モンスターの数を保持する変数（ファイルの先頭付近で宣言）
+let lastEnemyCount = 0;
+
 // ============================================================
 // :::DRAW_ENEMIES::: 👾 敵キャラクターの全軍レンダリング管理
 // ============================================================
@@ -4757,6 +4773,41 @@ function drawPlayerUI(ctx, p, isMe, pW, frame) {
  * - UI統合：敵HPバー(drawEnemyHPBar)の同期描画
  */
 function drawEnemies(enemies, hero, frame) {
+
+	console.log("🎨 描画ループ開始！ 現在の敵の数:", enemies.length);
+	
+	// 🌟 10秒ごと（60FPSなら約600フレーム）にログを出す
+    if (frame % 600 === 0) {
+        console.log("--- ⏰ 10秒ごとの敵配列スナップショット ---");
+        console.table(enemies);
+    }
+	
+	// 描画ループの中など
+if (enemies.length !== lastEnemyCount) {
+    //console.log(`⚠️ 敵の数が変化しました: ${lastEnemyCount} → ${enemies.length}`);
+	const aliveEnemies = enemies.filter(e => e && e.alive);
+	console.log("⚠️ 現在の生存している敵の数:", aliveEnemies.length);
+	// もしここで 7 と出るなら、なぜ配列の長さが 8 なのに生きているのが 7 なのかがわかります
+	console.log("死んでいる敵:", enemies.filter(e => !e.alive));
+    lastEnemyCount = enemies.length;
+}
+	
+	// --- 🚨 【強制可視化テスト】 🚨 ---
+    // 画像もエフェクトも無視して、とりあえず赤い四角を強制描画する
+    enemies.forEach(en => {
+		// --- 🚨 【最終診断】 🚨 ---
+        // 強制的に生存フラグを立てて、消える原因を探る
+        if (!en.alive) {
+             //console.log(`❌ ID:${en.id} が消えた理由: alive=${en.alive}, hp=${en.hp}, isFading=${en.isFading}`);
+             //en.alive = true; // 強制的に生き返らせる
+        }
+        ctx.save();
+        ctx.fillStyle = "red"; // モンスターの場所に赤い四角を描く
+        ctx.fillRect(en.x, en.y, 50, 50); 
+        ctx.restore();
+    });
+    // ----------------------------------
+	
     enemies.forEach(en => {
         
         // --- 1. 🛑 描画判定 ---
@@ -4769,9 +4820,12 @@ function drawEnemies(enemies, hero, frame) {
 
         // --- 3. ✨ 透明度設定 ---
         if (en.isFading) {
+            // 死亡演出中は deathFrame を使う
             ctx.globalAlpha = Math.max(0, 1 - (en.deathFrame / VIEW_CONFIG.enemy.deathAnimDuration));
-        } else if (en.spawnAlpha !== undefined) {
-            ctx.globalAlpha = en.spawnAlpha;
+        } else {
+            // 🌟 修正：spawnAlpha ではなく opacity を使うように変更！
+            // opacity があればそれを使う、なければ 1 (不透明) にする
+            ctx.globalAlpha = (en.opacity !== undefined) ? en.opacity : 1;
         }
 
         // --- 4. 🖼️ 画像とサイズの準備 (footYを追加) ---
@@ -5051,6 +5105,11 @@ function getEnemyVisualData(en, sprites, frame, hero) {
  * - 描画設定：VIEW_CONFIG を介した一貫したサイズ・オフセット管理
  */
 function drawEnemyHPBar(en, frame) {
+
+	if (frame % 180 === 0) {
+		console.log(`🔍 [Debug] ID:${en.id} HP:${en.hp} / Max:${en.maxHp}`);
+	}
+	
     if (en.isFading) return;
 
     // 🌟 修正ポイント：固定値 (2000, 500, 200) ではなく、

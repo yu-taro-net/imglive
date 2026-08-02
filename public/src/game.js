@@ -1860,7 +1860,7 @@ socket.on('state', (data) => {
     // -------------------------------------------------------
     // 4. 周辺環境（自分以外）のフィルタリング更新
     // -------------------------------------------------------
-    enemies   = data.enemies;   
+    //enemies   = data.enemies;   
     platforms = data.platforms; 
     ladders   = data.ladders;   
 
@@ -2468,6 +2468,78 @@ window.addEventListener('load', () => {
         applyDragWrapper('zukan-overlay', 'zukan-header');
     }, 1000);
 });
+
+// --- 📡 クライアント受信アンテナ ---
+
+// 1. 新しいモンスターがスポーンした瞬間の処理
+socket.on('spawn_monster', (monsterData) => {
+    // 💡 データの整合性をチェック
+    if (monsterData.x === undefined || monsterData.y === undefined) {
+        console.error("❌ サーバーから座標が送られてきていません！", monsterData);
+        return; // 座標がないなら召喚しない
+    }
+	
+	//monsterData.y = player.y; // 👈 ここでプレイヤーのYを強引に代入
+    //monsterData.x = player.x;
+
+    // 💡 確実に「スポーン直後」であることを明示
+    monsterData.isJustSpawned = true; 
+    monsterData.opacity = 0; // 描画ガードを二重にする
+
+    // 二重生成防止（コメントアウトを外して活用しましょう）
+    const exists = enemies.find(e => e.unique_id === monsterData.unique_id);
+    if (!exists) {
+        enemies.push(monsterData); 
+        console.log(`🆕 モンスター召喚: ${monsterData.id} 位置(${monsterData.x}, ${monsterData.y})`);
+    }
+});
+
+// 2. サーバーから来る「現在の敵リスト」を同期する処理（最重要！）
+socket.on('update_enemies', (data) => {
+    // 💡 これが最も確実な方法です。サーバーから送られてきた「敵リスト」を
+    // クライアントの「描画リスト(globalEnemies)」にそのまま代入（同期）します。
+    // これにより、表示のズレが完全になくなります。
+    
+    // データが配列ならそのまま代入
+    if (Array.isArray(data)) {
+        enemies = data; 
+    }
+});
+
+/*
+socket.on('spawn_monster', (monsterData) => {
+    console.log("✨ データ受信:", monsterData);
+
+	console.log("DEBUG: Push前の配列の長さ:", enemies.length);
+	
+    // 1. まず生成する
+    const newEnemy = new Enemy(monsterData.enemy_id, null);
+
+    // 2. サーバーから届いた値で「上書き」する（これが重要！）
+    newEnemy.x = monsterData.x;
+    newEnemy.y = monsterData.y;
+    newEnemy.hp = monsterData.currentHp;
+    newEnemy.maxHp = monsterData.currentHp;
+    
+    // 3. サイズもサーバーから届いたものに修正する
+    // クラス内で勝手に小さくされてしまったので、ここで戻します
+    newEnemy.w = monsterData.w * monsterData.scale; // 265 * 1 = 265
+    newEnemy.h = monsterData.h * monsterData.scale; // 218 * 1 = 218
+    
+    // 4. その他パラメータも同期
+    newEnemy.atk = monsterData.atk;
+    newEnemy.exp = monsterData.exp;
+    newEnemy.money = monsterData.money;
+    newEnemy.type = monsterData.type;
+
+    // 5. 配列に追加
+    enemies.push(newEnemy);
+	
+	console.log("DEBUG: Push後の配列の長さ:", enemies.length);
+
+    console.log("👾 敵を召喚完了！サイズ:", newEnemy.w, "x", newEnemy.h);
+});
+*/
 
 // ============================================================
 // :::SELECT_SHOP_ITEM::: 🛒 ショップ商品選択時のハイライト処理
@@ -4217,3 +4289,40 @@ function logout() {
     // 3. 画面を更新してログイン画面へ
     location.reload(); 
 }
+
+// --- 👾 クライアント側で不足しているサーバーデータを補完 ---
+
+// 1. SETTINGS の仮定義
+const SETTINGS = {
+    SYSTEM: {
+        GROUND_Y: 600,   // 地面の高さ（画面に合わせて調整してください）
+        ENEMY_MIN_X: 0,  // 移動範囲最小
+        ENEMY_MAX_X: 800 // 移動範囲最大
+    }
+};
+
+// 2. MAP_DATA の仮定義（Enemyクラスがplatformsを探してエラーになるのを防ぐ）
+const MAP_DATA = {
+    platforms: [] // 空にしておけば、if (p) でプラットフォームなしとして処理されます
+};
+
+// もしこれでも「playersが定義されていません」と言われたら、以下を追加
+if (typeof players === 'undefined') {
+    var players = {};
+}
+
+// game.js の適当な場所（クラス定義の前など）にこれを貼り付け
+const ENEMY_CATALOG = {
+    1010: { // 召喚テスト用の敵ID
+        type: "Char13",
+        scale: 1,
+        hp: 40,
+        atk: 4,
+        def: 0,
+        speed: 1.5,
+        exp: 1,
+        money: 3,
+        w: 322,
+        h: 242
+    }
+};
