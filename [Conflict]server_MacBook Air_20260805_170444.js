@@ -3024,8 +3024,8 @@ const DROP_DATABASE = {
 };
 
 const DROP_CHANCE_TABLES = {
-  "drop1": { "default": 50, "avatar": 50, "pouch": 50, "gold_heart": 40, "money5": 20, "gold_one": 5 }, // 50%でドロップ、そのうち20%で金塊
-  "drop2": { "default": 100, "avatar": 50, "pouch": 50, "medal1": 80, "shield": 90,　"sword": 90, "gold": 80 },
+  "drop1": { "default": 50, "pouch": 50, "gold_heart": 40, "money5": 20, "gold_one": 5 }, // 50%でドロップ、そのうち20%で金塊
+  "drop2": { "default": 100, "pouch": 50, "medal1": 80, "shield": 90,　"sword": 90, "gold": 80 },
   "drop3": { "default": 50, "gold_heart": 40, "money6": 50 },
   "drop4": { "default": 80, "medal1": 80, "treasure": 80, "sweets": 80, "gold_heart": 40, "shield": 20 },
 };
@@ -3130,9 +3130,6 @@ class Enemy {
     // 1. 基本情報の抽出
     this.id = data.id;
     this.platIndex = data.platIndex;
-	
-	this.auraType = data.auraType || 'none';
-	
     this.x = data.x;
     this.y = data.y;
 	
@@ -3553,29 +3550,14 @@ let droppedItems = {};
 // ============================================================
 function initMonsters() {
     CHANNELS.forEach(chId => {
-        enemies[chId] = ENEMY_PLAN.map(p => {
-            // 図鑑やプランからオーラを決める、または抽選する
-            let assignedAura = p.auraType || 'none';
-            if (!p.auraType) {
-                const rand = Math.random();
-                if (rand < 0.15) assignedAura = 'gold';
-                else if (rand < 0.25) assignedAura = 'red';
-                else if (rand < 0.35) assignedAura = 'blue';
-            }
-
-            const enemy = new Enemy({ 
-                id: p.id, 
-                platIndex: p.plat,
-                auraType: assignedAura // 🌟 個体にオーラをセット！
-            });
-
-            // 🔍 【デバッグ用】本当に生成時にオーラが入っているか確認
-			// 2026-8-5停止
-            //console.log(`[Step1 Spawn] 敵ID:${enemy.id} 型:${enemy.type} オーラ:${enemy.auraType}`);
-
-            return enemy;
-        });
+        // 🌟 修正：引数を「オブジェクト形式」に変更！
+        // これにより、Enemyクラスの constructor(data) に正しくデータが渡ります
+        enemies[chId] = ENEMY_PLAN.map(p => new Enemy({ 
+            id: p.id, 
+            platIndex: p.plat 
+        }));
         
+        // 各チャンネルごとのドロップアイテム用ポケットを用意
         droppedItems[chId] = [];
     });
 
@@ -5056,8 +5038,7 @@ async function loadUserInventory(userId) {
 
         // ゲーム内プレイヤーオブジェクトに渡すための配列を成形
         const inventory = rows.map((row, index) => {
-			// 2026-8-5停止
-            //console.log(` --- [Slot:${row.slot_index}] 解析開始 (${row.item_type}) ---`);
+            console.log(` --- [Slot:${row.slot_index}] 解析開始 (${row.item_type}) ---`);
 
             const item = {
                 slot_index: row.slot_index, // 🌟 追記：ログイン処理での配置に必要
@@ -5223,8 +5204,7 @@ function handlePlayerDamaged(socket, data) {
         // カタログの atk (50など) を優先し、なければ 10 にする
         const damageValue = attacker ? (attacker.atk || 5) : 10;
         
-		// 2026-8-5停止
-        //debugChat(`[ダメージ判定] ch:${chId} 攻撃者: ${attacker ? attacker.type : '不明'}, ダメージ: ${damageValue}`, 'error');
+        debugChat(`[ダメージ判定] ch:${chId} 攻撃者: ${attacker ? attacker.type : '不明'}, ダメージ: ${damageValue}`, 'error');
 
         // 🛡️ 数値のガード：HPが万が一 NaN(非数) にならないよう Number() で保証
         const currentHp = Number(p.hp) || 100;

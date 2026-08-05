@@ -1637,6 +1637,7 @@ window.addEventListener('DOMContentLoaded', () => {
     safeMakeDraggable('other-vending-window', 'other-vending-header');
     safeMakeDraggable('shop-overlay', 'shop-header');
     safeMakeDraggable('zukan-overlay', 'zukan-header');
+    safeMakeDraggable('mzukan-overlay', 'mzukan-header');
 });
 
 // ============================================================
@@ -2848,18 +2849,20 @@ const deathMsg = document.getElementById('death-message');
 
 // サーバーから死亡通知が来たとき
 socket.on('show_death_dialog', (data) => {
-    deathMsg.innerText = data.message; // メッセージを反映
-    deathModal.style.display = 'flex'; // モーダルを表示
+    if (deathMsg) deathMsg.innerText = data.message; // メッセージを反映
+    if (deathModal) deathModal.style.display = 'flex'; // モーダルを表示
 });
 
-// 復活ボタンが押された時の処理
-respawnBtn.addEventListener('click', () => {
-    // サーバーに復活リクエストを送る
-    socket.emit('request_respawn');
-    
-    // モーダルを隠す
-    deathModal.style.display = 'none';
-});
+// 🌟 復活ボタンが存在する場合のみイベントを登録する（エラー防止）
+if (respawnBtn) {
+    respawnBtn.addEventListener('click', () => {
+        // サーバーに復活リクエストを送る
+        socket.emit('request_respawn');
+        
+        // モーダルを隠す
+        if (deathModal) deathModal.style.display = 'none';
+    });
+}
 
 // ============================================================
 // :::SOCKET_ITEM_PICKUP_LOG::: 🎒 アイテム取得ログの受信と管理
@@ -3013,19 +3016,30 @@ function drawGame(hero, others, enemies, items, platforms, ladders, damageTexts,
         const pulse = 0.5 + 0.4 * Math.abs(Math.sin(Date.now() / 500));
         ctx.globalAlpha = pulse;
         
-        // テキストの設定
-        ctx.fillStyle = "#ffffff";
+        const centerX = canvas.width / 2;
+        const centerY = canvas.height / 2;
+
+        // 💡 対策：影(shadow)の代わりに、黒い文字を少しずらして重ねることで
+        // 動作を重くせずにきれいに縁取る方法が一番安全でアニメーションも止まりません！
+        
+        // 1. メインテキスト（黒の影用）
+        ctx.fillStyle = "#000000";
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
         ctx.font = "bold 40px 'Segoe UI', sans-serif";
+        ctx.fillText("接続が切れました", centerX + 2, centerY + 2);
         
-        // メッセージ描画
-        const centerX = canvas.width / 2;
-        const centerY = canvas.height / 2;
+        // 2. メインテキスト（白）
+        ctx.fillStyle = "#ffffff";
         ctx.fillText("接続が切れました", centerX, centerY);
         
-        // サブメッセージ
+        // 3. サブテキスト（黒の影用）
         ctx.font = "20px 'Segoe UI', sans-serif";
+        ctx.fillStyle = "#000000";
+        ctx.fillText("ブラウザをリロード（再読み込み）してください", centerX + 2, centerY + 62);
+
+        // 4. サブテキスト（白）
+        ctx.fillStyle = "#ffffff";
         ctx.fillText("ブラウザをリロード（再読み込み）してください", centerX, centerY + 60);
         
         ctx.restore();
@@ -4013,6 +4027,7 @@ function drawItemTooltip(ctx, slot, mouseX, mouseY, hero) {
         else if (slot.name === 'scroll_star') { itemName = "スターの書"; displayPrice = 25000; }
         else if (slot.name === 'gold') { itemName = "金塊"; displayPrice = 500; }
         else if (slot.name === 'treasure') { itemName = "ひみつの宝箱"; displayPrice = 2500; }
+        else if (slot.name === 'pouch') { itemName = "モンスターの包み"; displayPrice = 2500; }
         else if (slot.name === 'sword') { baseItemName = "マニアックソード1"; displayPrice = 250; }
         else if (slot.name === 'shield') { baseItemName = "トリシールド"; displayPrice = 150; }
         else {
@@ -4428,9 +4443,21 @@ function drawPlayerObj(p, isMe, id) {
     // 3. 🖼️ 表示する画像の決定
     const currentImg = getPlayerCurrentImg(p, g, v, frame, sprites, playerSprites, isMe);
 
-    // 4. ✍️ 実際の描画実行
+    // 4. 🖼️ 表示する画像の決定
     if (currentImg && !(p.invincible > 0 && Math.floor(frame / 4) % 2 === 0)) {
+        
+        // 🌟 ここから修正：無敵なら半透明にする
+        const originalAlpha = ctx.globalAlpha; // 元の透明度を保存
+        if (p.isInvincible) {
+            ctx.globalAlpha = 0.5; // 半透明にする（0.0～1.0の間で調整可）
+        }
+
         renderPlayerSprite(ctx, p, currentImg, visualData);
+
+        // 描画が終わったらすぐに元に戻す
+        ctx.globalAlpha = originalAlpha; 
+        // 🌟 ここまで修正
+        
     } else if (!isMe) {
         ctx.fillStyle = "rgba(255,255,255,0.5)";
         ctx.fillText("Loading image...", p.x, p.y - 10);
@@ -4592,7 +4619,7 @@ function getPlayerCurrentImg(p, g, v, frame, sprites, playerSprites, isMe) {
     }
 
     // --- 4. 💫 無敵（スタン）状態 ---
-    if (p.invincible > 0) {
+    if (p.invincible > 0 && !p.isInvincible) {
         const frames = characterData?.["Stuned"];
         return AnimUtils.getFrame(frames, AnimUtils.getIdx(frame, 3, frames?.length || 0), sprites.playerA);
     }
@@ -4758,8 +4785,57 @@ function drawPlayerUI(ctx, p, isMe, pW, frame) {
     ctx.fillText(rawName, currentX, nameY);
 }
 
-// モンスターの数を保持する変数（ファイルの先頭付近で宣言）
-let lastEnemyCount = 0;
+// モンスターの数を保持する変数（ファイルの先頭付近で安全に初期化）
+if (typeof window.lastEnemyCount === 'undefined') {
+    window.lastEnemyCount = 0;
+}
+
+// 🌟 ファイルの先頭（drawEnemiesの外）に置いておくメモ帳
+if (typeof window.enemyAuraCache === 'undefined') {
+    window.enemyAuraCache = {};
+}
+
+// ============================================================
+// ⚙️ 【設定】オーラの有効/無効をここで一発切り替え
+// ============================================================
+const ENABLE_ENEMY_AURAS = true; // false にすればオーラ機能を丸ごとOFFにできます
+
+// ============================================================
+// 🌟 【変更】サーバーから送られてきた auraType をそのまま取得する関数
+// ============================================================
+function getOrAssignEnemyAura(en) {
+    // サーバー（initMonsters）で決定され、通信で送られてきた en.auraType をそのまま使う！
+    // データがない場合の安全策として 'none' を返す
+    return (en && en.auraType) ? en.auraType : 'none';
+}
+
+// ============================================================
+// 🎨 【別関数化】オーラのグロー描画を適用する関数
+// ============================================================
+function applyEnemyAuraEffect(auraType, drawFunction) {
+    // 機能がOFF、または 'none' の場合はそのまま普通に描画する
+    if (!ENABLE_ENEMY_AURAS || auraType === 'none') {
+        drawFunction();
+        return;
+    }
+
+    ctx.save();
+    if (auraType === 'gold') {
+        ctx.shadowBlur = 15;          // 光の広がり具合
+        ctx.shadowColor = "#ffcc00";   // ゴールドの光
+    } else if (auraType === 'red') {
+        ctx.shadowBlur = 18;          // 光の広がり具合
+        ctx.shadowColor = "#ff4444";   // レッドの光
+    } else if (auraType === 'blue') {
+        ctx.shadowBlur = 15;          // 光の広がり具合
+        ctx.shadowColor = "#00ccff";   // ブルーの光
+    }
+
+    // 実際の描画処理を実行
+    drawFunction();
+
+    ctx.restore(); // グロー効果をリセット
+}
 
 // ============================================================
 // :::DRAW_ENEMIES::: 👾 敵キャラクターの全軍レンダリング管理
@@ -4783,13 +4859,13 @@ function drawEnemies(enemies, hero, frame) {
     }
 	
 	// 描画ループの中など
-if (enemies.length !== lastEnemyCount) {
-    //console.log(`⚠️ 敵の数が変化しました: ${lastEnemyCount} → ${enemies.length}`);
+if (enemies.length !== window.lastEnemyCount) {
+    //console.log(`⚠️ 敵の数が変化しました: ${window.lastEnemyCount} → ${enemies.length}`);
 	const aliveEnemies = enemies.filter(e => e && e.alive);
 	console.log("⚠️ 現在の生存している敵の数:", aliveEnemies.length);
 	// もしここで 7 と出るなら、なぜ配列の長さが 8 なのに生きているのが 7 なのかがわかります
 	console.log("死んでいる敵:", enemies.filter(e => !e.alive));
-    lastEnemyCount = enemies.length;
+    window.lastEnemyCount = enemies.length;
 }
 	
 	// --- 🚨 【強制可視化テスト】 🚨 ---
@@ -4801,10 +4877,10 @@ if (enemies.length !== lastEnemyCount) {
              //console.log(`❌ ID:${en.id} が消えた理由: alive=${en.alive}, hp=${en.hp}, isFading=${en.isFading}`);
              //en.alive = true; // 強制的に生き返らせる
         }
-        ctx.save();
-        ctx.fillStyle = "red"; // モンスターの場所に赤い四角を描く
-        ctx.fillRect(en.x, en.y, 50, 50); 
-        ctx.restore();
+        //ctx.save();
+        //ctx.fillStyle = "red"; // モンスターの場所に赤い四角を描く
+        //ctx.fillRect(en.x, en.y, 50, 50); 
+        //ctx.restore();
     });
     // ----------------------------------
 	
@@ -4885,8 +4961,13 @@ if (enemies.length !== lastEnemyCount) {
             if (isMonsterType) shouldFlip = !shouldFlip;
             if (shouldFlip) ctx.scale(-1, 1);
 
-            // 🖼️ 画像の描画 (基準点 footY で位置を合わせる)
-            ctx.drawImage(img, -drawW / 2, -footY, drawW, drawH);
+            // 🌟 オーラの決定と、別関数を使った描画のラップ
+            const auraType = getOrAssignEnemyAura(en);
+
+            applyEnemyAuraEffect(auraType, () => {
+                // 🖼️ 画像の描画 (基準点 footY で位置を合わせる)
+                ctx.drawImage(img, -drawW / 2, -footY, drawW, drawH);
+            });
 
             // 🔍 【攻撃判定枠（Attack Box）】
             if (en.isAttackingHitFrame) {
@@ -7344,10 +7425,13 @@ window.addEventListener('keydown', (e) => {
 });
 */
 
-/*
-// ダブルクリック（dblclick）
-canvas.addEventListener('dblclick', (event) => {
-    console.log("ダブルクリックを検知しました！");
+// ============================================================
+// :::DOUBLE_CLICK_CONTROLLER::: 🖱️ インベントリの確実なダブルクリック判定
+// ============================================================
+let lastClickTime = 0;
+let lastClickIndex = -1;
+
+canvas.addEventListener('click', (event) => {
     const rect = canvas.getBoundingClientRect();
     const clickX = event.clientX - rect.left;
     const clickY = event.clientY - rect.top;
@@ -7355,13 +7439,88 @@ canvas.addEventListener('dblclick', (event) => {
     if (clickY >= 130 && clickY <= 170) {
         const index = Math.floor((clickX - 20) / 48);
         if (index >= 0 && index < 10) {
-            console.log(`${index}番のアイテムをサーバーへ捨てるリクエスト送信`);
-            socket.emit('dropItem', index); 
-            selectedSlotIndex = -1;
+            const currentTime = Date.now();
+            const timeDiff = currentTime - lastClickTime;
+
+            // 🌟 「同じスロット」を「400ミリ秒（0.4秒）以内」に2回クリックしたか？
+            if (lastClickIndex === index && timeDiff < 400 && timeDiff > 50) {
+                console.log(`[Doubleclick] スロット ${index} のダブルクリックを検知！`);
+
+                const item = inventoryVisualBuffer && inventoryVisualBuffer[index];
+                if (!item) {
+                    lastClickTime = 0;
+                    lastClickIndex = -1;
+                    return;
+                }
+
+                console.log(`${index}番のアイテム:`, item);
+
+                // item_consume_catalog に登録されている消費アイテムの名前リスト
+                const consumableNames = ['sweets', 'scroll_star', 'pouch'];
+
+                // アイテムの識別名を取得
+                const itemName = (item.name || item.type || "").toLowerCase();
+
+                // リストに含まれている場合のみ「消費アイテム」と判定する
+                if (consumableNames.includes(itemName)) {
+                    console.log(`[ItemUse] 消費アイテムを使用します (スロット: ${index}, アイテム: ${itemName})`);
+                    
+                    // サーバーへ「このスロットのアイテムを使うよ」とリクエスト送信
+                    socket.emit('useConsumableItem', { slotIndex: index, itemName: itemName });
+                    
+                    if (typeof playMouseClickSound === 'function') playMouseClickSound();
+                } else {
+                    console.log("このアイテムはダブルクリックでは使用できません。");
+                }
+
+                selectedSlotIndex = -1;
+
+                // 判定をリセット
+                lastClickTime = 0;
+                lastClickIndex = -1;
+            } else {
+                // 1回目のクリックとして時間とスロット番号を記録
+                lastClickTime = currentTime;
+                lastClickIndex = index;
+            }
+        }
+    } else {
+        // インベントリ外をクリックした場合はリセット
+        lastClickIndex = -1;
+    }
+});
+
+canvas.addEventListener('click', (event) => {
+    const rect = canvas.getBoundingClientRect();
+    const clickX = event.clientX - rect.left;
+    const clickY = event.clientY - rect.top;
+
+    // --- 所持金UI (drawGoldUI) の描画位置とサイズ ---
+    const drawX = 25;
+    const drawY = 90;
+    const barW = 150;
+    const barH = 32;
+
+    // クリック位置が所持金UIの範囲内か判定
+    if (clickX >= drawX && clickX <= drawX + barW &&
+        clickY >= drawY && clickY <= drawY + barH) {
+        
+        console.log("💰 所持金UIがクリックされました！");
+
+        // 例：クリックしたらとりあえず「100G」をドロップするコマンドをサーバーへ送る
+        // （もしチャット経由で実行したい場合は socket.emit('chat', { text: '/dropgold 100' }) のように送ることもできます）
+        
+        // サーバー側のチャットコマンド処理と同じ仕組みを動かす場合、
+        // サーバーに専用のイベントを作るか、チャット送信イベントとして送ります：
+        if (typeof socket !== 'undefined') {
+            // チャット経由でサーバーのコマンド処理を走らせる場合
+            socket.emit('chat', { text: '/dropgold 100' });
+            
+            // または、もしクライアント側から直接サーバーのコマンド判定関数に似た処理を呼びたい場合は、
+            // サーバー側に専用のソケットイベント（例: socket.emit('requestDropGold', 100)）を作るとスムーズです。
         }
     }
 });
-*/
 
 // 🌟 サーバーの通信とは「別ルート」でホバーを描画する専用ループ
 // view.js 内の drawItemHoverLoop を修正

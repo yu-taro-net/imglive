@@ -200,7 +200,10 @@ body {
   text-align: center;
   min-width: 320px;
 	box-shadow: 0 0 30px rgba(0, 255, 204, 0.3);
-	-webkit-user-select: none;
+	-webkit-user-select: none; /* Safari, Chrome, Opera用 */
+-moz-user-select: none;    /* Firefox用 */
+-ms-user-select: none;     /* Edge/IE用 */
+user-select: none;         /* これが標準！ */
 }
 
 .login-card h2 {
@@ -920,4 +923,30 @@ body {
 #zukan-list-content {
     width: 100%;
     margin: 0;            /* margin: 5px を削除して、親の幅を100%使い切る */
+}
+
+/* 文字とドットの親要素 */
+.loading-text {
+    display: inline-block;
+    font-family: monospace; /* 文字幅が一定のフォントだとより綺麗です */
+}
+
+/* ドット専用の固定枠 */
+.dots {
+    display: inline-block;
+    width: 20px;      /* ここで幅を固定！これで文字が動きません */
+    text-align: left; /* ドットは左寄せ */
+}
+
+/* ドットのアニメーション */
+.dots::after {
+    animation: dots 1.5s steps(4, end) infinite;
+    content: "";
+}
+
+@keyframes dots {
+    0%   { content: ""; }
+    25%  { content: "."; }
+    50%  { content: ".."; }
+    75%  { content: "..."; }
 }

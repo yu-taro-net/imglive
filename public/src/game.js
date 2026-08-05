@@ -116,6 +116,8 @@ class Player {
     // 🌟 追加：ノックバック・硬直状態の管理
     this.isStunned = false; 
     this.stunTimer = 0;
+	
+	this.isInvincible = false; // 最初は無敵ではありません
   }
 
   // 移動のロジック
@@ -138,10 +140,11 @@ class Player {
 
   // 🌟 修正：敵の位置(enemyX)を受け取ってノックバック方向を決める
   receiveDamage(amount, enemyX = null) {
-  
-	if (this.hp <= 0) return;
-	
-    if (this.invincible > 0) return; // 無敵中なら何もしない
+    // 🌟 管理者無敵なら、ダメージ処理そのものを完全に無視する
+    if (this.isInvincible) return; 
+
+    if (this.hp <= 0) return;
+    if (this.invincible > 0) return; // 被弾による無敵中なら何もしない
 
     this.hp -= amount;
 
@@ -151,16 +154,15 @@ class Player {
 
     this.invincible = 60; // 1秒間無敵
 
-    // 🌟 追加：ノックバックと硬直の発生
+    // 🌟 ノックバックと硬直の発生（ここも管理者無敵なら通らない）
     if (!this.climbing) {
-        this.dy = -8; // 上方向に跳ねる
+        this.dy = -8; 
         
-        // 敵が右にいれば左へ、いなければ(または左なら)右へ飛ばす
         const knockbackDir = (enemyX !== null && this.x < enemyX) ? -1 : 1;
         this.x += knockbackDir * 30; 
 
-        this.isStunned = true; // 操作不能開始
-        this.stunTimer = 30;   // 約0.3秒の硬直
+        this.isStunned = true; 
+        this.stunTimer = 30;   
     }
     
     console.log(`${this.name}は ${amount} のダメージを受けた！ 残りHP: ${this.hp}`);
@@ -308,6 +310,12 @@ class Player {
       );
 
       if (isHit) {
+        // 🌟 ここで管理者無敵をチェック！
+        if (this.isInvincible) {
+            console.log("🛡️ 無敵のため衝突を無視しました");
+            return; // 衝突したことにしない（＝スタンもしない、ダメージも受けない）
+        }
+
         const dmg = Math.floor(Math.random() * 8) + 8;
         
         // 🌟 修正：敵の位置(en.x)を渡してノックバックを計算させる
@@ -316,9 +324,8 @@ class Player {
         // サーバー通信とリスポーン判定
         socket.emit('player_damaged', { val: dmg, newHp: this.hp });
         if (this.hp <= 0) {
-			// this.respawn(); // ここをコメントアウト
-			console.log("死亡しました。復活待機中...");
-		}
+            console.log("死亡しました。復活待機中...");
+        }
       }
     });
   }
@@ -1269,6 +1276,14 @@ if (savedToken) {
     socket.emit('auto_login', { token: savedToken });
 }
 
+socket.on('player_update_godmode', (data) => {
+    // 自分のプレイヤーオブジェクトに、受け取ったフラグを反映させる
+    if (typeof hero !== 'undefined') {
+        hero.isInvincible = data.isInvincible;
+        console.log(`クライアント側：無敵状態を ${data.isInvincible} に同期しました`);
+    }
+});
+
 // ============================================================
 // :::ON_LOGIN_RESPONSE::: 🔑 ログイン認証応答・ゲーム開始・状態遷移
 // ============================================================
@@ -2218,6 +2233,7 @@ row.innerHTML = `
         else if (imgName === 'scroll_star') { itemName = "スターの書"; displayPrice = 25000; }
         else if (imgName === 'gold') { itemName = "金塊"; displayPrice = 500; }
         else if (imgName === 'treasure') { itemName = "ひみつの宝箱"; displayPrice = 2500; }
+        else if (imgName === 'pouch') { itemName = "モンスターの包み"; displayPrice = 2500; }
         else if (imgName === 'sword') { itemName = "マニアックソード1"; displayPrice = 250; }
         else if (imgName === 'shield') { itemName = "トリシールド"; displayPrice = 150; }
         else {
@@ -2411,6 +2427,155 @@ document.querySelectorAll('.zukan-tab-item').forEach(tab => {
     });
 });
 
+// ============================================================
+// 📖 エネミー図鑑 (/mzukan) のクライアント側処理 (2ペイン分割対応版)
+// ============================================================
+
+// オーラの色コード変換補助
+function getAuraColorCode(auraType) {
+    if (auraType === 'gold') return '#d97706';
+    if (auraType === 'red') return '#dc2626';
+    if (auraType === 'blue') return '#2563eb';
+    return '#6b7280';
+}
+
+// 1. サーバーからデータを受け取ったときの処理
+socket.on('open_mzukan', (data) => {
+    const enemies = data.enemies || [];
+    const tbody = document.getElementById('mzukan-table-body');
+    const modal = document.getElementById('mzukan-overlay');
+    const detailPane = document.getElementById('mzukan-detail-pane'); // 👉 右側の詳細ペイン
+
+    if (!tbody || !modal) {
+        console.error("❌ エネミー図鑑のHTML要素が見つかりません。");
+        return;
+    }
+
+    // テーブルの中身を一度空にする
+    tbody.innerHTML = '';
+    
+    // 開いた直後の詳細ペインを初期化
+    if (detailPane) {
+        detailPane.innerHTML = `<div style="color: #888; font-size: 13px;">👈 左のリストからモンスターを選択してください</div>`;
+    }
+
+    // データのループでリストを構築
+    enemies.forEach((en, index) => {
+        const tr = document.createElement('tr');
+        tr.style.cssText = "border-bottom: 1px solid #e0e0e0; cursor: pointer; transition: background 0.15s;";
+        
+        // ホバー時のエフェクト
+        tr.onmouseover = () => { if (!tr.classList.contains('selected')) tr.style.background = '#f0f4f8'; };
+        tr.onmouseout = () => { if (!tr.classList.contains('selected')) tr.style.background = 'white'; };
+
+        const rowColor = en.is_boss ? '#d9534f' : '#333333';
+
+        // 🌟 IDごとのフォルダ番号の対応表
+        const monsterFolderMap = {
+            2010: 1,
+            2020: 2,
+            2050: 5,
+            2080: 8,
+            2160: 16,
+            2300: 30
+        };
+
+        const mNum = monsterFolderMap[en.enemy_id];
+        
+        // 画像HTMLの生成
+        let imageHtml = '-';
+        let imgPath = '';
+        if (mNum !== undefined) {
+            imgPath = `char_assets_enemy/Monster${mNum}/Idle/tile000.png`;
+            imageHtml = `<img src="${imgPath}" alt="${en.name}" style="width: 28px; height: 28px; object-fit: contain;" onerror="this.style.display='none'">`;
+        }
+
+        // 👈 左側リストの1行分のHTML（スリムなレイアウト）
+        tr.innerHTML = `
+            <td style="padding: 4px; text-align: center; background: #fff;">${imageHtml}</td>
+            <td style="padding: 6px;">
+                <div style="font-weight: bold; color: ${rowColor};">${en.type} <span style="font-size: 10px; color: #777;">(${en.name})</span></div>
+                <div style="font-size: 10px; color: #aaa;">ID: ${en.enemy_id}</div>
+            </td>
+            <td style="padding: 6px; text-align: center; font-weight: bold; color: #555;">
+                ${en.level}
+            </td>
+        `;
+
+        // 🖱️ リストの行がクリックされたときの処理（選択ハイライト ＆ 右側に詳細表示）
+        tr.addEventListener('click', () => {
+            // 全ての行の選択スタイルをリセット
+            document.querySelectorAll('#mzukan-table-body tr').forEach(row => {
+                row.classList.remove('selected');
+                row.style.background = 'white';
+            });
+
+            // 選択された行をハイライト
+            tr.classList.add('selected');
+            tr.style.background = '#dbeafe'; // 薄い青のハイライト
+
+            // 👉 右側の詳細ペインを更新する
+            if (detailPane) {
+                const bossText = en.is_boss ? '👑 はい (ボス)' : 'いいえ (通常)';
+                const auraColor = getAuraColorCode(en.auraType);
+
+                detailPane.innerHTML = `
+                    <div style="width: 100%; text-align: left; background: white; padding: 15px; border-radius: 6px; border: 1px solid #ddd; box-sizing: border-box;">
+                        <!-- タイトル画像 ＆ 名前 -->
+                        <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 12px; border-bottom: 2px solid #eee; padding-bottom: 10px;">
+                            <div style="background: #111; border-radius: 6px; padding: 4px; width: 50px; height: 50px; display: flex; align-items: center; justify-content: center;">
+                                <img src="${imgPath}" style="max-width: 44px; max-height: 44px; object-fit: contain;" onerror="this.style.display='none'">
+                            </div>
+                            <div>
+                                <h3 style="margin: 0; font-size: 15px; color: #222;">${en.name}</h3>
+                                <span style="font-size: 11px; background: #e5e7eb; padding: 2px 6px; border-radius: 3px; color: #4b5563;">タイプ: ${en.type}</span>
+                                <span style="font-size: 11px; background: ${en.is_boss ? '#fee2e2' : '#f3f4f6'}; color: ${en.is_boss ? '#991b1b' : '#374151'}; padding: 2px 6px; border-radius: 3px; margin-left: 4px;">${en.is_boss ? '👑 ボス' : '通常'}</span>
+                            </div>
+                        </div>
+
+                        <!-- ステータス詳細グリッド -->
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 12px; color: #444; margin-bottom: 12px;">
+                            <div style="background: #f9fafb; padding: 6px 8px; border-radius: 4px;"><strong>ID:</strong> ${en.enemy_id}</div>
+                            <div style="background: #f9fafb; padding: 6px 8px; border-radius: 4px;"><strong>Lv:</strong> ${en.level}</div>
+                            <div style="background: #f9fafb; padding: 6px 8px; border-radius: 4px;"><strong>HP:</strong> ${en.hp}</div>
+                            <div style="background: #f9fafb; padding: 6px 8px; border-radius: 4px;"><strong>ATK (攻撃):</strong> ${en.atk}</div>
+                            <div style="background: #f9fafb; padding: 6px 8px; border-radius: 4px;"><strong>EXP:</strong> ${en.exp}</div>
+                            <div style="background: #f9fafb; padding: 6px 8px; border-radius: 4px;"><strong>ボス判定:</strong> ${bossText}</div>
+                        </div>
+
+                        <!-- オーラ属性などの追加情報 -->
+                        <div style="font-size: 12px; background: #f3f4f6; padding: 8px 10px; border-radius: 4px; border-left: 3px solid #3b82f6;">
+                            <strong>初期オーラ属性:</strong> <span style="color: ${auraColor}; font-weight: bold; text-shadow: 0 0 1px #888;">${en.auraType || 'none'}</span>
+                        </div>
+                    </div>
+                `;
+            }
+        });
+
+        tbody.appendChild(tr);
+
+        // 💡 リストの最初のモンスターをデフォルトで選択状態にする
+        if (index === 0) {
+            tr.click();
+        }
+    });
+
+    // 3. モーダルウィンドウを表示する
+    modal.style.display = 'block';
+    console.log(`📖 エネミー図鑑ウィンドウを開きました (${enemies.length}件)`);
+});
+
+// 4. 閉じるボタン [×] を押したときにウィンドウを隠す処理
+document.addEventListener('click', (event) => {
+    if (event.target && event.target.id === 'mzukan-close-btn') {
+        const modal = document.getElementById('mzukan-overlay');
+        if (modal) {
+            modal.style.display = 'none';
+            console.log("📖 エネミー図鑑ウィンドウを閉じました。");
+        }
+    }
+});
+
 // 共通のラッパー適用関数（先ほどのコードを流用）
 const applyDragWrapper = (targetId, headerId) => {
     const target = document.getElementById(targetId);
@@ -2466,6 +2631,7 @@ window.addEventListener('load', () => {
         applyDragWrapper('other-vending-window', 'other-vending-header');
         applyDragWrapper('player-profile-window', 'profile-header');
         applyDragWrapper('zukan-overlay', 'zukan-header');
+        applyDragWrapper('mzukan-overlay', 'mzukan-header');
     }, 1000);
 });
 

@@ -207,6 +207,44 @@
     </div>
 </div>
 
+<!-- 📖 エネミー図鑑ウィンドウ (2ペイン分割レイアウト版) -->
+<div id="mzukan-overlay" class="maple-window" style="display: none; width: 750px; height: 480px; top: 50%; left: 50%; transform: translate(-50%, -50%); position: fixed; z-index: 10000; box-shadow: 0 8px 24px rgba(0,0,0,0.4); border-radius: 6px; overflow: hidden; background: #efefef;">
+    
+    <!-- ヘッダー -->
+    <div id="mzukan-header" class="maple-header" style="display: flex; justify-content: space-between; align-items: center; background: #333; padding: 8px 12px; cursor: move;">
+        <span style="font-weight: bold; color: white; text-shadow: 1px 1px 1px rgba(0,0,0,0.5); font-size: 13px;">[図鑑] エネミーカタログ (enemy_catalog)</span>
+        <button id="mzukan-close-btn" class="maple-btn" style="background: #ff6b6b; color: white; border: 1px solid #c0392b; width: 24px; height: 24px; border-radius: 4px; cursor: pointer; font-weight: bold;">✕</button>
+    </div>
+
+    <!-- メインコンテンツエリア（左右2ペイン分割） -->
+    <div style="display: flex; height: calc(100% - 40px); box-sizing: border-box;">
+        
+        <!-- 👈 左側：モンスター一覧（箇条書きリスト風テーブル） -->
+        <div style="width: 42%; border-right: 2px solid #ccc; background: white; overflow-y: auto; box-sizing: border-box;">
+            <table style="width: 100%; border-collapse: collapse; font-size: 12px; text-align: left;">
+                <thead>
+                    <tr style="background: #e0e0e0; border-bottom: 2px solid #bbb; color: #333; position: sticky; top: 0; z-index: 1;">
+                        <th style="padding: 6px; width: 35px; text-align: center;">画像</th>
+                        <th style="padding: 6px;">ID / 名前</th>
+                        <th style="padding: 6px; width: 35px; text-align: center;">Lv</th>
+                    </tr>
+                </thead>
+                <tbody id="mzukan-table-body">
+                    <!-- JavaScriptでここにリスト行が挿入されます -->
+                </tbody>
+            </table>
+        </div>
+
+        <!-- 👉 右側：選択したモンスターの詳細閲覧画面 -->
+        <div id="mzukan-detail-pane" style="width: 58%; padding: 20px; background: #f9f9f9; overflow-y: auto; box-sizing: border-box; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center;">
+            <div style="color: #888; font-size: 13px;">
+                👈 左のリストからモンスターを選択してください
+            </div>
+        </div>
+
+    </div>
+</div>
+
 <div id="vending-notice-modal" style="display:none; position:fixed; top:30%; left:50%; transform:translateX(-50%); background:rgba(0,0,0,0.85); color:#fff; border:1px solid #ffcc00; padding:20px; z-index:210000; min-width:250px; text-align:center; border-radius:10px; box-shadow: 0 5px 15px rgba(0,0,0,0.5);">
     <p id="vending-notice-text" style="margin-bottom:15px; font-weight:bold;"></p>
     <button id="vending-notice-close-btn" style="padding:5px 20px; cursor:pointer; background:#444; color:#fff; border:1px solid #777; border-radius:4px;">閉じる</button>
