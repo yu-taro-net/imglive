@@ -2171,6 +2171,18 @@ function renderShopUI(data) {
         goldDisplay.innerText = (hero.gold || 0).toLocaleString();
     }
 
+    // 🌟 1. お店の商品リスト（data.inventory）から「ID -> 名前・価格」のカタログ辞書を自動生成する
+    const catalogMap = {};
+    if (data && data.inventory) {
+        data.inventory.forEach(catItem => {
+            catalogMap[String(catItem.id)] = {
+                name: catItem.name,
+                price: catItem.price,
+                image_name: catItem.image_name
+            };
+        });
+    }
+
     // 2. 商品リストを生成（購入リスト）
     itemList.innerHTML = ''; 
     console.log(`📝 商品リスト生成開始（全 ${data.inventory.length} 件）`);
@@ -2184,26 +2196,26 @@ function renderShopUI(data) {
         const imgPath = `${IMAGE_DOMAIN}item_assets/${imgName}.png`;
 
         // 🌟 アイテム名の安全な処理（シングルクォート対策）
-const safeBuyName = (item.display_name || item.name || "アイテム");
+        const safeBuyName = (item.display_name || item.name || "アイテム");
 
-// 🌟 重要: buyItem の引数に 'アイテム種別' と '表示名' を追加
-row.innerHTML = `
-    <div class="shop-item-row-div" 
-         ondblclick="buyItem('${String(actualItemId)}', '${item.type || item.item_type}', '${safeBuyName}')" 
-         onclick="selectShopItem(this)">
-        <div style="width: 38px; height: 38px; min-width: 38px; background: #ffffff; border: 1px solid #ddd; margin-right: 12px; display: flex; align-items: center; justify-content: center; border-radius: 4px; overflow: hidden; pointer-events: none;">
-            <img src="${imgPath}" style="max-width: 30px; max-height: 30px; image-rendering: pixelated;" onerror="this.src='assets/items/default.png'">
-        </div>
-        <div style="flex-grow: 1; font-family: sans-serif; pointer-events: none;">
-            <div style="font-weight: bold; color: #000; font-size: 13px;">${item.display_name || item.name}</div>
-            <div style="font-size: 11px; color: #333;">${(item.price || 0).toLocaleString()} メル</div>
-        </div>
-    </div>
-    <button onclick="buyItem('${String(actualItemId)}', '${item.type || item.item_type}', '${safeBuyName}')" 
-            style="display:none; background: linear-gradient(to bottom, #ffebad, #ffc44d); border: 1px solid #e6a700; color: #000; padding: 4px 12px; cursor: pointer; border-radius: 5px; font-weight: bold; font-family: inherit; font-size: 11px; box-shadow: 0 1px 0 rgba(255,255,255,0.5) inset; transition: filter 0.2s;">
-        買う
-    </button>
-`;
+        // 🌟 重要: buyItem の引数に 'アイテム種別' と '表示名' を追加
+        row.innerHTML = `
+            <div class="shop-item-row-div" 
+                 ondblclick="buyItem('${String(actualItemId)}', '${item.type || item.item_type}', '${safeBuyName}')" 
+                 onclick="selectShopItem(this)">
+                <div style="width: 38px; height: 38px; min-width: 38px; background: #ffffff; border: 1px solid #ddd; margin-right: 12px; display: flex; align-items: center; justify-content: center; border-radius: 4px; overflow: hidden; pointer-events: none;">
+                    <img src="${imgPath}" style="max-width: 30px; max-height: 30px; image-rendering: pixelated;" onerror="this.src='assets/items/default.png'">
+                </div>
+                <div style="flex-grow: 1; font-family: sans-serif; pointer-events: none;">
+                    <div style="font-weight: bold; color: #000; font-size: 13px;">${item.display_name || item.name}</div>
+                    <div style="font-size: 11px; color: #333;">${(item.price || 0).toLocaleString()} メル</div>
+                </div>
+            </div>
+            <button onclick="buyItem('${String(actualItemId)}', '${item.type || item.item_type}', '${safeBuyName}')" 
+                    style="display:none; background: linear-gradient(to bottom, #ffebad, #ffc44d); border: 1px solid #e6a700; color: #000; padding: 4px 12px; cursor: pointer; border-radius: 5px; font-weight: bold; font-family: inherit; font-size: 11px; box-shadow: 0 1px 0 rgba(255,255,255,0.5) inset; transition: filter 0.2s;">
+                買う
+            </button>
+        `;
 
         row.onmouseenter = () => { window.currentHoverSlot = item; };
         row.onmouseleave = () => { window.currentHoverSlot = null; };
@@ -2217,27 +2229,42 @@ row.innerHTML = `
 
     myItems.forEach((item, index) => {
         if (!item) return;
+        
+        console.log(`📦 [Debug] スロット ${index} のアイテムデータ:`, item);
 
         const row = document.createElement('div');
         row.style = "display: flex; align-items: center; padding: 3px; border-bottom: 1px solid #333; background: rgba(0,0,0,0.2); margin-bottom: 2px; cursor: default;";
         
-        const imgName = item.image_name || item.type || item.id;
-        const imgPath = `${IMAGE_DOMAIN}item_assets/${imgName}.png`;
-        
-        let itemName = item.display_name || item.name || "";
+        // カタログ辞書から該当アイテムの情報を検索（item.id または item.item_id または item.type をキーにする）
+        const lookupKey = String(item.id || item.item_id || "");
+        const catalogMatch = catalogMap[lookupKey];
+
+        // 🌟 修正：item.displayName、item.name、辞書データ、フォールバックの順で確実に名称を取得
+        let itemName = item.displayName || item.name || (catalogMatch ? catalogMatch.name : null);
+
+        if (!itemName || itemName === item.type) {
+			/*
+            const defaultNames = {
+                'shield': 'トリシールド',
+                'sword': 'マニアックソード',
+                'pouch': 'モンスターの包み',
+                'sweets': 'おいしいケーキ',
+                'gold': '金塊',
+                'treasure': 'ひみつの宝箱'
+            };
+            itemName = defaultNames[item.type] || item.type || "アイテム";
+			*/
+        }
+
         let displayPrice = 0;
         let iconGlowStyle = "";
 
-        // オリジナルの名称出し分けロジックを維持
-        if (imgName === 'sweets') { itemName = "おいしいケーキ"; displayPrice = 50; }
-        else if (imgName === 'scroll_star') { itemName = "スターの書"; displayPrice = 25000; }
-        else if (imgName === 'gold') { itemName = "金塊"; displayPrice = 500; }
-        else if (imgName === 'treasure') { itemName = "ひみつの宝箱"; displayPrice = 2500; }
-        else if (imgName === 'pouch') { itemName = "モンスターの包み"; displayPrice = 2500; }
-        else if (imgName === 'sword') { itemName = "マニアックソード1"; displayPrice = 250; }
-        else if (imgName === 'shield') { itemName = "トリシールド"; displayPrice = 150; }
-        else {
-            displayPrice = Math.floor((item.price || 0) * 0.5);
+        // 価格の決定（アイテム自体のprice、またはカタログ辞書のpriceを使用し、売却価格は半額にする）
+        const rawPrice = item.price !== undefined && item.price !== null ? Number(item.price) : (catalogMatch ? catalogMatch.price : 0);
+        if (rawPrice > 0) {
+            displayPrice = Math.floor(rawPrice * 0.5);
+        } else {
+            displayPrice = 0;
         }
 
         const isEquipment = (
@@ -2249,13 +2276,13 @@ row.innerHTML = `
             ['sword', 'armor', 'shield'].includes(item.item_type)
         );
 
-        // オリジナルのランク判定ロジックを維持
+        // ランク判定ロジックはそのまま維持
         if (isEquipment && item.totalALLStats !== undefined && item.totalFirstStats !== undefined) {
             const bonus = item.totalALLStats - item.totalFirstStats;
             let rankName = "";
             let rankGlowColor = "";
 
-            if (bonus >= 30)       { rankGlowColor = "#ff0000"; rankName = "(神級)"; }
+            if (bonus >= 30)      { rankGlowColor = "#ff0000"; rankName = "(神級)"; }
             else if (bonus >= 25) { rankGlowColor = "#00ff00"; rankName = "(超伝説)"; }
             else if (bonus >= 20) { rankGlowColor = "#ffff00"; rankName = "(極上)"; }
             else if (bonus >= 15) { rankGlowColor = "#ff00ff"; rankName = "(伝説)"; }
@@ -2270,36 +2297,34 @@ row.innerHTML = `
             }
         }
 
-        // 🌟 修正ポイント: 装備固有IDがあれば優先し、カタログIDをフォールバックに
         const sendId = item.equipment_id || item.instanceId || item.id || item.item_id;
         const targetSlot = (item.slot_index !== undefined) ? item.slot_index : index;
         const safeItemName = itemName;
 
-        // 🌟 修正箇所: item.instanceId (または equipment_id) があれば装備品とみなす
-const isEquip = !!(item.instanceId || item.equipment_id);
+        const isEquip = !!(item.instanceId || item.equipment_id);
+        const imgName = catalogMatch ? catalogMatch.image_name : (item.image_name || item.type || item.id);
+        const imgPath = `${IMAGE_DOMAIN}item_assets/${imgName}.png`;
 
-// 🌟 重要: ${String(sendId)} をシングルクォートで囲い、完全に文字列として送信
-// 🌟 第4引数に所持数、第5引数に装備フラグを追加
-row.innerHTML = `
-    <div class="sell-item-row-div" 
-         onclick="event.stopPropagation(); selectSellItem(event, this)"
-         ondblclick="sellItem('${String(sendId)}', ${targetSlot}, '${safeItemName}', ${item.count || 1}, ${isEquip})">
-        <div style="width: 38px; height: 38px; min-width: 38px; background: #ffffff; border: 1px solid #ddd; margin-right: 12px; display: flex; align-items: center; justify-content: center; border-radius: 4px; overflow: hidden; position: relative; pointer-events: none;">
-            <img src="${imgPath}" style="max-width: 30px; max-height: 30px; image-rendering: pixelated; ${iconGlowStyle}" onerror="this.src='assets/items/default.png'">
-            <span style="position: absolute; bottom: 0; right: 0; font-size: 9px; background: rgba(0,0,0,0.7); color: white; padding: 0 3px; border-radius: 2px; font-family: sans-serif; line-height: 1.5;">
-                ${item.count || 1}
-            </span>
-        </div>
-        <div style="flex-grow: 1; font-family: sans-serif; pointer-events: none; text-align: left;">
-            <div style="font-weight: bold; color: #000; font-size: 13px;">${itemName}</div>
-            <div style="font-size: 11px; color: #333;">${displayPrice.toLocaleString()} メル</div>
-        </div>
-    </div>
-    <button onclick="sellItem('${String(sendId)}', ${targetSlot}, '${safeItemName}', ${item.count || 1}, ${isEquip})" 
-            style="display:none; background: linear-gradient(to bottom, #ffebad, #ffc44d); border: 1px solid #e6a700; color: #000; padding: 4px 12px; cursor: pointer; border-radius: 5px; font-weight: bold; font-family: inherit; font-size: 11px; box-shadow: 0 1px 0 rgba(255,255,255,0.5) inset; transition: filter 0.2s;">
-        売る
-    </button>
-`;
+        row.innerHTML = `
+            <div class="sell-item-row-div" 
+                 onclick="event.stopPropagation(); selectSellItem(event, this)"
+                 ondblclick="sellItem('${String(sendId)}', ${targetSlot}, '${safeItemName}', ${item.count || 1}, ${isEquip})">
+                <div style="width: 38px; height: 38px; min-width: 38px; background: #ffffff; border: 1px solid #ddd; margin-right: 12px; display: flex; align-items: center; justify-content: center; border-radius: 4px; overflow: hidden; position: relative; pointer-events: none;">
+                    <img src="${imgPath}" style="max-width: 30px; max-height: 30px; image-rendering: pixelated; ${iconGlowStyle}" onerror="this.src='assets/items/default.png'">
+                    <span style="position: absolute; bottom: 0; right: 0; font-size: 9px; background: rgba(0,0,0,0.7); color: white; padding: 0 3px; border-radius: 2px; font-family: sans-serif; line-height: 1.5;">
+                        ${item.count || 1}
+                    </span>
+                </div>
+                <div style="flex-grow: 1; font-family: sans-serif; pointer-events: none; text-align: left;">
+                    <div style="font-weight: bold; color: #000; font-size: 13px;">${itemName}</div>
+                    <div style="font-size: 11px; color: #333;">${displayPrice.toLocaleString()} メル</div>
+                </div>
+            </div>
+            <button onclick="sellItem('${String(sendId)}', ${targetSlot}, '${safeItemName}', ${item.count || 1}, ${isEquip})" 
+                    style="display:none; background: linear-gradient(to bottom, #ffebad, #ffc44d); border: 1px solid #e6a700; color: #000; padding: 4px 12px; cursor: pointer; border-radius: 5px; font-weight: bold; font-family: inherit; font-size: 11px; box-shadow: 0 1px 0 rgba(255,255,255,0.5) inset; transition: filter 0.2s;">
+                売る
+            </button>
+        `;
 
         row.onmouseenter = () => { window.currentHoverSlot = item; };
         row.onmouseleave = () => { window.currentHoverSlot = null; };
@@ -2439,60 +2464,63 @@ function getAuraColorCode(auraType) {
     return '#6b7280';
 }
 
-// 1. サーバーからデータを受け取ったときの処理
+// ============================================================
+// 📖 エネミー図鑑 (/mzukan) のクライアント側処理（テーブル連動・3オーラ対応版）
+// ============================================================
 socket.on('open_mzukan', (data) => {
-    const enemies = data.enemies || [];
+    let enemies = data.enemies || [];
+    
+    const dropDatabase = data.dropDatabase || {};
+    const dropChanceTables = data.dropChanceTables || {};
+    const itemCatalogMap = data.itemCatalogMap || {};
+    // 🌟 サーバーから送られてきた「エネミーごとのオーラ別ドロップテーブル群」を取得
+    const enemyAuraDropTables = data.enemyAuraDropTables || {};
+
     const tbody = document.getElementById('mzukan-table-body');
     const modal = document.getElementById('mzukan-overlay');
-    const detailPane = document.getElementById('mzukan-detail-pane'); // 👉 右側の詳細ペイン
+    const detailPane = document.getElementById('mzukan-detail-pane');
 
     if (!tbody || !modal) {
         console.error("❌ エネミー図鑑のHTML要素が見つかりません。");
         return;
     }
 
-    // テーブルの中身を一度空にする
     tbody.innerHTML = '';
     
-    // 開いた直後の詳細ペインを初期化
     if (detailPane) {
         detailPane.innerHTML = `<div style="color: #888; font-size: 13px;">👈 左のリストからモンスターを選択してください</div>`;
     }
 
-    // データのループでリストを構築
+    const monsterFolderMap = {
+        2010: 1,
+        2020: 2,
+        2050: 5,
+        2080: 8,
+        2160: 16,
+        2300: 30
+    };
+
+    enemies = enemies.filter(en => monsterFolderMap[en.enemy_id] !== undefined);
+
     enemies.forEach((en, index) => {
         const tr = document.createElement('tr');
         tr.style.cssText = "border-bottom: 1px solid #e0e0e0; cursor: pointer; transition: background 0.15s;";
         
-        // ホバー時のエフェクト
         tr.onmouseover = () => { if (!tr.classList.contains('selected')) tr.style.background = '#f0f4f8'; };
         tr.onmouseout = () => { if (!tr.classList.contains('selected')) tr.style.background = 'white'; };
 
         const rowColor = en.is_boss ? '#d9534f' : '#333333';
-
-        // 🌟 IDごとのフォルダ番号の対応表
-        const monsterFolderMap = {
-            2010: 1,
-            2020: 2,
-            2050: 5,
-            2080: 8,
-            2160: 16,
-            2300: 30
-        };
-
         const mNum = monsterFolderMap[en.enemy_id];
         
-        // 画像HTMLの生成
         let imageHtml = '-';
         let imgPath = '';
         if (mNum !== undefined) {
-            imgPath = `char_assets_enemy/Monster${mNum}/Idle/tile000.png`;
-            imageHtml = `<img src="${imgPath}" alt="${en.name}" style="width: 28px; height: 28px; object-fit: contain;" onerror="this.style.display='none'">`;
+            imgPath = `${IMAGE_DOMAIN}char_assets_enemy/Monster${mNum}/Idle/tile000.png`;
+            imageHtml = `<img src="${imgPath}" alt="${en.name}" style="width: 40px; height: 40px; object-fit: contain;" onerror="this.style.display='none'">`;
         }
 
-        // 👈 左側リストの1行分のHTML（スリムなレイアウト）
         tr.innerHTML = `
-            <td style="padding: 4px; text-align: center; background: #fff;">${imageHtml}</td>
+            <td style="padding: 6px; text-align: center; background: #fff;">${imageHtml}</td>
             <td style="padding: 6px;">
                 <div style="font-weight: bold; color: ${rowColor};">${en.type} <span style="font-size: 10px; color: #777;">(${en.name})</span></div>
                 <div style="font-size: 10px; color: #aaa;">ID: ${en.enemy_id}</div>
@@ -2502,51 +2530,168 @@ socket.on('open_mzukan', (data) => {
             </td>
         `;
 
-        // 🖱️ リストの行がクリックされたときの処理（選択ハイライト ＆ 右側に詳細表示）
         tr.addEventListener('click', () => {
-            // 全ての行の選択スタイルをリセット
             document.querySelectorAll('#mzukan-table-body tr').forEach(row => {
                 row.classList.remove('selected');
                 row.style.background = 'white';
             });
 
-            // 選択された行をハイライト
             tr.classList.add('selected');
-            tr.style.background = '#dbeafe'; // 薄い青のハイライト
+            tr.style.background = '#dbeafe';
 
-            // 👉 右側の詳細ペインを更新する
             if (detailPane) {
                 const bossText = en.is_boss ? '👑 はい (ボス)' : 'いいえ (通常)';
                 const auraColor = getAuraColorCode(en.auraType);
 
+                // --- 1. 通常ドロップの取得 ---
+                const dropSetting = dropDatabase[en.type] || { table: "Drop3" };
+                const dropTable = dropChanceTables[dropSetting.table] || {};
+                
+                let dropsHtml = '<div style="color: #777; font-size: 10px; padding: 4px; text-align: center;">ドロップなし</div>';
+                const dropEntries = Object.entries(dropTable).filter(([k]) => k !== "default");
+                
+                if (dropEntries.length > 0) {
+                    dropsHtml = dropEntries.map(([itemName, chance]) => {
+                        const catalogInfo = itemCatalogMap[itemName] || {};
+                        const displayName = catalogInfo.displayName || itemName;
+                        const imageName = catalogInfo.imageName;
+
+                        let itemThumbHtml = '';
+                        if (imageName) {
+                            const fileName = imageName.includes('.') ? imageName : `${imageName}.png`;
+                            const itemImgPath = `${IMAGE_DOMAIN}item_assets/${fileName}`;
+                            itemThumbHtml = `<img src="${itemImgPath}" style="width: 20px; height: 20px; object-fit: contain;" onerror="this.style.display='none'">`;
+                        }
+
+                        return `
+                            <div style="display: flex; align-items: center; justify-content: space-between; background: #ffffff; border: 1px solid #d1d5db; padding: 4px 8px; border-radius: 4px; margin-bottom: 3px; font-size: 10px;">
+                                <div style="display: flex; align-items: center; gap: 6px;">
+                                    <div style="width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; background: #f3f4f6; border-radius: 3px;">
+                                        ${itemThumbHtml}
+                                    </div>
+                                    <span style="color: #1f2937; font-weight: bold;">${displayName}</span>
+                                </div>
+                                <span style="color: #1d4ed8; font-weight: bold; background: #eff6ff; border: 1px solid #bfdbfe; padding: 1px 4px; border-radius: 3px;">${chance}%</span>
+                            </div>
+                        `;
+                    }).join('');
+                }
+
+                // --- 2. 3種類のオーラ別ドロップ生成ヘルパー関数（エネミーのDropテーブルと完全連動） ---
+                const renderAuraDropList = (auraKey, auraTitle, themeColor) => {
+                    const typeDropTables = enemyAuraDropTables[en.type] || {};
+                    const targetTable = typeDropTables[auraKey] || {};
+                    const entries = Object.entries(targetTable).filter(([k]) => k !== "default");
+
+                    if (entries.length === 0) {
+                        return '<div style="color: #888; font-size: 9px; padding: 2px; text-align: center;">なし</div>';
+                    }
+
+                    return entries.map(([itemName, chance]) => {
+                        const catalogInfo = itemCatalogMap[itemName] || {};
+                        const displayName = catalogInfo.displayName || itemName;
+                        const imageName = catalogInfo.imageName;
+
+                        let itemThumbHtml = '';
+                        if (imageName) {
+                            const fileName = imageName.includes('.') ? imageName : `${imageName}.png`;
+                            const itemImgPath = `${IMAGE_DOMAIN}item_assets/${fileName}`;
+                            itemThumbHtml = `<img src="${itemImgPath}" style="width: 18px; height: 18px; object-fit: contain;" onerror="this.style.display='none'">`;
+                        }
+
+                        return `
+                            <div style="display: flex; align-items: center; justify-content: space-between; background: #ffffff; border: 1px solid #e2e8f0; padding: 3px 6px; border-radius: 3px; margin-bottom: 2px; font-size: 9px;">
+                                <div style="display: flex; align-items: center; gap: 5px;">
+                                    <div style="width: 20px; height: 20px; display: flex; align-items: center; justify-content: center; background: #f8fafc; border-radius: 2px;">
+                                        ${itemThumbHtml}
+                                    </div>
+                                    <span style="color: #1f2937; font-weight: bold;">${displayName}</span>
+                                </div>
+                                <span style="font-weight: bold; background: #f8fafc; border: 1px solid #cbd5e1; padding: 1px 3px; border-radius: 2px; color: ${themeColor};">${chance}%</span>
+                            </div>
+                        `;
+                    }).join('');
+                };
+
+                const goldHtml = renderAuraDropList('gold', 'ゴールドオーラ', '#d97706');
+                const redHtml = renderAuraDropList('red', 'レッドオーラ', '#dc2626');
+                const blueHtml = renderAuraDropList('blue', 'ブルーオーラ', '#2563eb');
+
                 detailPane.innerHTML = `
-                    <div style="width: 100%; text-align: left; background: white; padding: 15px; border-radius: 6px; border: 1px solid #ddd; box-sizing: border-box;">
-                        <!-- タイトル画像 ＆ 名前 -->
-                        <div style="display: flex; align-items: center; gap: 12px; margin-bottom: 12px; border-bottom: 2px solid #eee; padding-bottom: 10px;">
-                            <div style="background: #111; border-radius: 6px; padding: 4px; width: 50px; height: 50px; display: flex; align-items: center; justify-content: center;">
-                                <img src="${imgPath}" style="max-width: 44px; max-height: 44px; object-fit: contain;" onerror="this.style.display='none'">
+                    <div style="width: 100%; text-align: left; background: #f8fafc; padding: 12px; border-radius: 8px; border: 1px solid #cbd5e1; box-sizing: border-box; display: flex; flex-direction: column; gap: 8px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);">
+                        
+                        <!-- 上部：モンスター情報（左サムネイル ＆ 右ステータス） -->
+                        <div style="display: flex; gap: 10px; background: #ffffff; border: 1px solid #e2e8f0; padding: 10px; border-radius: 6px; align-items: stretch;">
+                            <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; background: #0f172a; border-radius: 6px; padding: 4px; width: 84px; min-width: 84px; height: 84px; box-shadow: inset 0 2px 4px rgba(0,0,0,0.3); flex-shrink: 0;">
+                                <img src="${imgPath}" style="max-width: 74px; max-height: 74px; object-fit: contain;" onerror="this.style.display='none'">
                             </div>
-                            <div>
-                                <h3 style="margin: 0; font-size: 15px; color: #222;">${en.name}</h3>
-                                <span style="font-size: 11px; background: #e5e7eb; padding: 2px 6px; border-radius: 3px; color: #4b5563;">タイプ: ${en.type}</span>
-                                <span style="font-size: 11px; background: ${en.is_boss ? '#fee2e2' : '#f3f4f6'}; color: ${en.is_boss ? '#991b1b' : '#374151'}; padding: 2px 6px; border-radius: 3px; margin-left: 4px;">${en.is_boss ? '👑 ボス' : '通常'}</span>
+
+                            <div style="display: flex; flex-direction: column; justify-content: space-between; flex-grow: 1; overflow: hidden;">
+                                <div>
+                                    <h3 style="margin: 0; font-size: 14px; color: #0f172a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: bold;">${en.name}</h3>
+                                    <div style="display: flex; gap: 4px; margin-top: 2px;">
+                                        <span style="font-size: 9px; background: #e2e8f0; padding: 1px 5px; border-radius: 3px; color: #334155; font-weight: 500;">${en.type}</span>
+                                        <span style="font-size: 9px; background: ${en.is_boss ? '#fee2e2' : '#f1f5f9'}; color: ${en.is_boss ? '#991b1b' : '#334151'}; border: 1px solid ${en.is_boss ? '#fca5a5' : '#cbd5e1'}; padding: 1px 5px; border-radius: 3px; font-weight: 500;">${en.is_boss ? '👑 ボス' : '通常'}</span>
+                                    </div>
+                                </div>
+
+                                <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 3px; font-size: 10px; color: #334155; margin-top: 4px;">
+                                    <div style="background: #f8fafc; border: 1px solid #e2e8f0; padding: 2px 4px; border-radius: 3px;"><strong>ID:</strong> ${en.enemy_id}</div>
+                                    <div style="background: #f8fafc; border: 1px solid #e2e8f0; padding: 2px 4px; border-radius: 3px;"><strong>Lv:</strong> ${en.level}</div>
+                                    <div style="background: #f8fafc; border: 1px solid #e2e8f0; padding: 2px 4px; border-radius: 3px;"><strong>HP:</strong> ${en.hp}</div>
+                                    <div style="background: #f8fafc; border: 1px solid #e2e8f0; padding: 2px 4px; border-radius: 3px;"><strong>ATK:</strong> ${en.atk}</div>
+                                    <div style="background: #f8fafc; border: 1px solid #e2e8f0; padding: 2px 4px; border-radius: 3px;"><strong>EXP:</strong> ${en.exp}</div>
+                                    <div style="background: #f8fafc; border: 1px solid #e2e8f0; padding: 2px 4px; border-radius: 3px;"><strong>Money:</strong> ${en.money ?? 0}G</div>
+                                    <div style="background: #f8fafc; border: 1px solid #e2e8f0; padding: 2px 4px; border-radius: 3px; grid-column: span 3;"><strong>オーラ:</strong> <span style="color: ${auraColor}; font-weight: bold;">${en.auraType || 'none'}</span></div>
+                                </div>
                             </div>
                         </div>
 
-                        <!-- ステータス詳細グリッド -->
-                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 12px; color: #444; margin-bottom: 12px;">
-                            <div style="background: #f9fafb; padding: 6px 8px; border-radius: 4px;"><strong>ID:</strong> ${en.enemy_id}</div>
-                            <div style="background: #f9fafb; padding: 6px 8px; border-radius: 4px;"><strong>Lv:</strong> ${en.level}</div>
-                            <div style="background: #f9fafb; padding: 6px 8px; border-radius: 4px;"><strong>HP:</strong> ${en.hp}</div>
-                            <div style="background: #f9fafb; padding: 6px 8px; border-radius: 4px;"><strong>ATK (攻撃):</strong> ${en.atk}</div>
-                            <div style="background: #f9fafb; padding: 6px 8px; border-radius: 4px;"><strong>EXP:</strong> ${en.exp}</div>
-                            <div style="background: #f9fafb; padding: 6px 8px; border-radius: 4px;"><strong>ボス判定:</strong> ${bossText}</div>
+                        <!-- 下部：ドロップセクション（左に通常、右に3つのオーラ項目を縦に配置してスッキリ収納） -->
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; flex-grow: 1;">
+                            
+                            <!-- 左側：通常ドロップ一覧 -->
+                            <div style="background: #ffffff; border: 1px solid #cbd5e1; border-radius: 6px; padding: 8px; display: flex; flex-direction: column;">
+                                <div style="font-size: 10px; font-weight: bold; color: #334155; margin-bottom: 4px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #f1f5f9; padding-bottom: 3px;">
+                                    <span>🎯 通常ドロップ</span>
+                                    <span style="font-size: 9px; color: #64748b; background: #f1f5f9; border: 1px solid #e2e8f0; padding: 1px 4px; border-radius: 3px;">${dropSetting.table}</span>
+                                </div>
+                                <div style="max-height: 140px; overflow-y: auto; padding-right: 2px;">
+                                    ${dropsHtml}
+                                </div>
+                            </div>
+
+                            <!-- 右側：3種類のオーラ時ドロップ（縦に並べて美しく格納） -->
+                            <div style="background: #ffffff; border: 1px solid #cbd5e1; border-radius: 6px; padding: 8px; display: flex; flex-direction: column; gap: 6px; max-height: 165px; overflow-y: auto;">
+                                
+                                <!-- ゴールドオーラ -->
+                                <div>
+                                    <div style="font-size: 9px; font-weight: bold; color: #d97706; margin-bottom: 2px; border-bottom: 1px solid #fef3c7; padding-bottom: 2px; display: flex; justify-content: space-between;">
+                                        <span>🌟 ゴールドオーラ</span>
+                                    </div>
+                                    <div>${goldHtml}</div>
+                                </div>
+
+                                <!-- レッドオーラ -->
+                                <div>
+                                    <div style="font-size: 9px; font-weight: bold; color: #dc2626; margin-bottom: 2px; border-bottom: 1px solid #fee2e2; padding-bottom: 2px; display: flex; justify-content: space-between;">
+                                        <span>🔥 レッドオーラ</span>
+                                    </div>
+                                    <div>${redHtml}</div>
+                                </div>
+
+                                <!-- ブルーオーラ -->
+                                <div>
+                                    <div style="font-size: 9px; font-weight: bold; color: #2563eb; margin-bottom: 2px; border-bottom: 1px solid #dbeafe; padding-bottom: 2px; display: flex; justify-content: space-between;">
+                                        <span>💧 ブルーオーラ</span>
+                                    </div>
+                                    <div>${blueHtml}</div>
+                                </div>
+
+                            </div>
+
                         </div>
 
-                        <!-- オーラ属性などの追加情報 -->
-                        <div style="font-size: 12px; background: #f3f4f6; padding: 8px 10px; border-radius: 4px; border-left: 3px solid #3b82f6;">
-                            <strong>初期オーラ属性:</strong> <span style="color: ${auraColor}; font-weight: bold; text-shadow: 0 0 1px #888;">${en.auraType || 'none'}</span>
-                        </div>
                     </div>
                 `;
             }
@@ -2554,13 +2699,11 @@ socket.on('open_mzukan', (data) => {
 
         tbody.appendChild(tr);
 
-        // 💡 リストの最初のモンスターをデフォルトで選択状態にする
         if (index === 0) {
             tr.click();
         }
     });
 
-    // 3. モーダルウィンドウを表示する
     modal.style.display = 'block';
     console.log(`📖 エネミー図鑑ウィンドウを開きました (${enemies.length}件)`);
 });
