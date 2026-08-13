@@ -218,11 +218,39 @@ const COMBAT_FORMULA = {
     }
 };
 
-const loggedInUsers = new Set();
+//const loggedInUsers = new Set();
+
+const activeLogins = {}; // 🌐 現在ログイン中のユーザーIDとsocket.idを管理するマップ
 
 // 【重要】既存のログイン処理を切り出した関数
 async function performLogin(socket, user, token, channel, group, style_id) {
     try {
+        // 🔒 【追加】すでに同じユーザー（user.id）が別の場所でログインしていないかチェック
+        const userId = user.id;
+        if (activeLogins[userId]) {
+            const existingSocketId = activeLogins[userId];
+            
+            // 既存の接続が自分自身でなければ、二重ログインとみなす
+            if (existingSocketId !== socket.id) {
+                console.log(`⚠️ 二重ログイン検知: ユーザーID ${userId} (${user.username}) は既に別の画面で接続中です。`);
+                
+                // 新しい方のログインを拒否
+                socket.emit('login_response', { success: false, message: 'すでに他の場所（または別のタブ）でログインしています。' });
+                return; // ⚠️ ここで処理を中断
+            }
+        }
+
+        // 🟢 ログイン成功として、このユーザーIDと現在のソケットIDを紐づけて記録
+        activeLogins[userId] = socket.id;
+
+        // 🔌 【重要】この接続が切断されたとき（タブを閉じた時など）にリストから削除する
+        socket.on('disconnect', () => {
+            if (activeLogins[userId] === socket.id) {
+                delete activeLogins[userId];
+                console.log(`🔌 ログアウト/切断によるアクティブ解除: ${user.username}`);
+            }
+        });
+
         // キャラクター選択画面で送られてきた値をDBに反映
         if (group !== undefined || style_id !== undefined) {
             await pool.query(
@@ -235,6 +263,8 @@ async function performLogin(socket, user, token, channel, group, style_id) {
         const [statsResults] = await pool.query(statsSql, [user.id]);
 
         if (statsResults.length === 0) {
+            // 万が一失敗した場合は、登録したアクティブ状態も一応消しておく
+            delete activeLogins[userId];
             socket.emit('login_response', { success: false, message: 'キャラクターデータの読み込みに失敗しました' });
             return;
         }
@@ -317,12 +347,12 @@ async function performLogin(socket, user, token, channel, group, style_id) {
         socket.emit('inventory_update', fixedInventory);
         socket.to(roomName).emit('player_joined', players[socket.id]);
         
-        // 🌟 ここで online 状態を 1 にし、last_login を更新
-        //await pool.query('UPDATE users SET is_online = 1, last_login = NOW() WHERE id = ?', [user.id]);
         socket.username = user.username; // 切断処理のためにusernameを保存
 
     } catch (err) {
         console.error("❌ performLogin処理エラー:", err);
+        // エラー時はアクティブ登録を解除
+        if (user && user.id) delete activeLogins[user.id];
         socket.emit('login_response', { success: false, message: 'ログイン後のデータ読み込みに失敗しました' });
     }
 }
@@ -2438,19 +2468,43 @@ socket.on('useConsumableItem', async (data) => {
         try {
             await connection.beginTransaction();
 
-            // 🌟 1. データベースの item_consume_catalog に存在するかチェック
-            const [catalogRows] = await connection.query(
-    'SELECT * FROM item_consume_catalog WHERE name = ?',
-    [requestedItemName]
-);
+            // 🌟 1. データベースの各カタログに存在するか、名前やIDで柔軟に順次チェック
+            let catalogItem = null;
+            
+            // 消費アイテムカタログを検索 (name, display_name, item_id のいずれかに一致するか)
+            let [rows] = await connection.query(
+                'SELECT * FROM item_consume_catalog WHERE name = ? OR display_name = ? OR item_id = ?', 
+                [requestedItemName, requestedItemName, requestedItemName]
+            );
+            
+            if (rows.length > 0) {
+                catalogItem = rows[0];
+            } else {
+                // 見つからなければ ETCカタログを検索
+                [rows] = await connection.query(
+                    'SELECT * FROM item_etc_catalog WHERE name = ? OR display_name = ? OR item_id = ?', 
+                    [requestedItemName, requestedItemName, requestedItemName]
+                );
+                if (rows.length > 0) {
+                    catalogItem = rows[0];
+                } else {
+                    // それでも見つからなければ 装備カタログも検索
+                    [rows] = await connection.query(
+                        'SELECT * FROM item_equip_catalog WHERE name = ? OR display_name = ? OR item_id = ?', 
+                        [requestedItemName, requestedItemName, requestedItemName]
+                    );
+                    if (rows.length > 0) {
+                        catalogItem = rows[0];
+                    }
+                }
+            }
 
-            if (catalogRows.length === 0) {
+            // どのカタログにも存在しない場合
+            if (!catalogItem) {
                 console.log(`[Server] カタログに存在しないため使用できません: ${requestedItemName}`);
                 await connection.rollback();
                 return;
             }
-
-            const catalogItem = catalogRows[0]; // カタログデータ
 
             // 2. 効果ごとの個別処理（HP回復や特殊効果など）
             switch (requestedItemName) {
@@ -2487,6 +2541,18 @@ socket.on('useConsumableItem', async (data) => {
 
                 case 'scroll_star':
                     console.log(`[Server] プレイヤーが scroll_star を使用しました。`);
+                    break;
+					
+				case 'avatar':
+                    console.log(`[Server] プレイヤーが avatar を使用しました。`);
+                    break;
+					
+				case 'freemarket':
+                    console.log(`[Server] プレイヤーが freemarket を使用しました。`);
+                    break;
+					
+				case 'levelup':
+                    console.log(`[Server] プレイヤーが levelup を使用しました。`);
                     break;
 
                 default:
@@ -3280,6 +3346,17 @@ reset(data) {
     //} else {
         this.initPosition();
     //}
+	// 🌟 6. 復活時にオーラを新しくランダム抽選し直す
+  const rand = Math.random();
+  if (rand < 0.15) {
+      this.auraType = 'gold';   // 15%: ゴールド
+  } else if (rand < 0.25) {
+      this.auraType = 'red';    // 10%: レッド
+  } else if (rand < 0.35) {
+      this.auraType = 'blue';   // 10%: ブルー
+  } else {
+      this.auraType = 'none';   // 65%: なし
+  }
 }
 
   // 初期位置を決める内部処理
@@ -4847,7 +4924,7 @@ if (isFatalBlow) {
 // ============================================================
 // :::HANDLE_PICKUP::: 📦 アイテム収集・スタック処理・DB永続化
 // ============================================================
-function handlePickup(socket) {
+async function handlePickup(socket) {
     try {
         const player = players[socket.id];
         if (!player) return;
@@ -4889,14 +4966,11 @@ function handlePickup(socket) {
         // 🌟 重なっている中から「実際に拾えるもの」を一つ選ぶ
         // ------------------------------------------------------------
         let targetItem = null;
-        //const inventoryTypes = ['shield', 'gold', 'treasure', 'pouch', 'sword', 'sweets', 'scroll_star'];
 
         for (const item of candidates) {
-            // 🌟 グローバルにロードされた Set の .has() で高速に判定
             const isInventoryItem = inventoryTypes.has(item.type);
 
             if (isInventoryItem) {
-                // カバンの初期化（未定義対策）
                 if (!player.inventory) player.inventory = Array(10).fill(null);
 
                 let canPickupThis = false;
@@ -4918,18 +4992,15 @@ function handlePickup(socket) {
 
                 if (canPickupThis) {
                     targetItem = item;
-                    break; // 拾えるものが見つかったのでループを抜ける
+                    break;
                 }
             } else {
-                // ゴールドやスコアアイテムなど、カバン制限がないものは即決定
                 targetItem = item;
                 break;
             }
         }
 
-        // 全候補チェックした結果、どれも拾えなかった場合
         if (!targetItem) {
-            // 🌟 【修正】バッグ満杯警告の連続スパムを防ぐため、3秒（3000ms）に1回だけ通知する
             if (!player.lastBagWarningTime || (now - player.lastBagWarningTime > 3000)) {
                 player.lastBagWarningTime = now;
                 console.log(`[DEBUG] バッグがいっぱいで拾えません (${player.name || socket.id})`);
@@ -4942,9 +5013,6 @@ function handlePickup(socket) {
             return;
         }
 
-        // ------------------------------------------------------------
-        // 🌟 以降、元のロジックを踏襲して「targetItem」を処理
-        // ------------------------------------------------------------
         targetItem.isPickedUp = true;
         player.lastPickupTime = now;
 
@@ -4958,11 +5026,9 @@ function handlePickup(socket) {
                 const baseAmount = removedItem.goldValue || 10;
                 let amount;
 
-                // 🌟 判定：プレイヤーが捨てたフラグがあるか？
                 if (removedItem.isPlayerDrop) {
-                    amount = baseAmount; // 捨てた額をそのまま（固定）
+                    amount = baseAmount;
                 } else {
-                    // 👾 敵からのドロップなら乱数で変動させる
                     amount = Math.floor(baseAmount * (0.8 + Math.random() * 0.4));
                 }
 
@@ -4988,8 +5054,27 @@ function handlePickup(socket) {
             if (isInventoryItem) {
                 let stacked = false;
                 const actualCount = removedItem.count || removedItem.amount || 1;
-                let itemName = SERVER_ITEM_NAMES[removedItem.type] || 'アイテム';
-                const pickupMsg = `${itemName}を手に入れました`;
+                
+                const reqItemId = String(removedItem.itemId || removedItem.item_id || removedItem.type);
+                let correctName = SERVER_ITEM_NAMES[removedItem.type] || removedItem.name || 'アイテム';
+                let correctPrice = removedItem.price || 10;
+
+                try {
+                    let [rows] = await pool.query('SELECT price, name, display_name FROM item_consume_catalog WHERE item_id = ? OR name = ?', [reqItemId, removedItem.type]);
+                    if (rows.length === 0) {
+                        [rows] = await pool.query('SELECT price, name, display_name FROM item_etc_catalog WHERE item_id = ? OR name = ?', [reqItemId, removedItem.type]);
+                    }
+                    if (rows.length === 0) {
+                        [rows] = await pool.query('SELECT price, name, display_name FROM item_equip_catalog WHERE item_id = ? OR name = ? OR category = ?', [reqItemId, removedItem.type, removedItem.type]);
+                    }
+
+                    if (rows.length > 0) {
+                        correctPrice = rows[0].price !== undefined ? rows[0].price : correctPrice;
+                        correctName = rows[0].display_name || rows[0].name || correctName;
+                    }
+                } catch (dbErr) {
+                    console.error("⚠️ カタログからの価格・名称取得エラー:", dbErr);
+                }
 
                 // スタック処理
                 const category = itemCategories[removedItem.type];
@@ -4998,46 +5083,43 @@ function handlePickup(socket) {
                     if (stackIndex !== -1) {
                         player.inventory[stackIndex].count = (player.inventory[stackIndex].count || 0) + actualCount;
                         stacked = true;
-                        saveInventoryToDB(player, player.inventory[stackIndex], stackIndex);
-                        // 2026-8-7停止
-                        //socket.emit('chat', { id: 'SYSTEM_LOG', name: '🎊 入手', text: `[${new Date().toLocaleTimeString('ja-JP', { timeZone: 'Asia/Tokyo', hour: '2-digit', minute: '2-digit' })}] ${pickupMsg}` });
                         
-                        // 🌟 【修正】スタック時にも入手ログイベントを送信する
-                        socket.emit('item_pickup_log', { amount: actualCount, itemName: itemName });
+                        player.inventory[stackIndex].price = correctPrice;
+                        player.inventory[stackIndex].display_name = correctName;
+
+                        saveInventoryToDB(player, player.inventory[stackIndex], stackIndex);
+                        socket.emit('item_pickup_log', { amount: actualCount, itemName: correctName });
                     }
                 }
 
-                // 新規格納
+                // 新規格納（重複を排除し1つにまとめました）
                 if (!stacked) {
                     let emptySlotIndex = player.inventory.findIndex(slot => 
                         slot === null || slot === undefined || (typeof slot === 'object' && Object.keys(slot).length === 0)
                     );
 
                     if (emptySlotIndex !== -1) {
-                        // 🌟 修正ポイント：...removedItem で全ステータス（item_id含む）を確実に継承
-                        // これにより拾い直し直後でも売却可能な有効なアイテムデータがメモリに展開されます
                         player.inventory[emptySlotIndex] = { 
                             ...removedItem,
-                            item_id: removedItem.itemId || removedItem.item_id, // カタログIDを確実にセット
+                            item_id: reqItemId, 
                             instanceId: removedItem.instanceId || null,
-                            type: removedItem.type, 
+                            type: removedItem.type,           // 👈 判定用の英語タイプ（'pouch', 'sweets' 等）を死守
+                            name: removedItem.type,           // 👈 使用時のチェック用に英語名（またはアイテムの内部名）を保持
+                            display_name: correctName,        // 👈 表示名（日本語）は綺麗に表示させる
+                            price: correctPrice,              // 👈 正しい売値
                             count: actualCount,
-                            // 元のロジックを維持しつつ、値がない場合のみデフォルト値を設定
                             atk: (removedItem.atk !== undefined) ? removedItem.atk : ((removedItem.type === 'sword') ? 10 : 0), 
                             def: (removedItem.def !== undefined) ? removedItem.def : ((removedItem.type === 'shield') ? 5 : 0)
                         };
 
                         saveInventoryToDB(player, player.inventory[emptySlotIndex], emptySlotIndex);
-                        // 2026-8-7停止
-                        //socket.emit('chat', { id: 'SYSTEM_LOG', name: '🎊 入手', text: `[${new Date().toLocaleTimeString('ja-JP', { timeZone: 'Asia/Tokyo', hour: '2-digit', minute: '2-digit' })}] ${pickupMsg}` });
-                        socket.emit('item_pickup_log', { amount: actualCount, itemName: itemName });
+                        socket.emit('item_pickup_log', { amount: actualCount, itemName: correctName });
                     }
                 }
             } else if (!(removedItem.type === 'medal1' || removedItem.goldValue)) {
                 player.score = (player.score || 0) + (removedItem.type === 'money3' ? 100 : 10);
             }
 
-            // クライアントへ最新の配列を送信（拾い直し直後の売却ボタンの有効化に必須）
             socket.emit('inventory_update', player.inventory);
             if (typeof sendState === 'function') sendState();
         }

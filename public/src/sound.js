@@ -48,23 +48,46 @@ async function loadAudioFile(url) {
 async function setupAudio() {
     // 並列でロードを開始（awaitを一括で待つことで高速化）
     const tasks = {
-        invite:         loadAudioFile('../sound_assets/Invite.mp3'),
-        die:            loadAudioFile('../sound_assets/Tombstone.mp3'),
+		// 2026-8-12追加
+        buy:         	loadAudioFile('../sound_assets2/[s1_buy]drop-money.mp3'),
+		// 2026-8-12更新
+        invite:         loadAudioFile('../sound_assets2/[s2_invite]JRPG_UI_Classic_System_Open_04.wav'),
+		// 2026-8-12更新
+        die:            loadAudioFile('../sound_assets2/[s2_die]DM-CGS-43.wav'),
         mouseover1:     loadAudioFile('../sound_assets/BtMouseOver.mp3'),
         mouseclick:     loadAudioFile('../sound_assets/BtMouseClick.mp3'),
         tab:            loadAudioFile('../sound_assets/Tab.mp3'),
         menuup:         loadAudioFile('../sound_assets/MenuUp.mp3'),
         menudown:       loadAudioFile('../sound_assets/MenuDown.mp3'),
-		levelup:        loadAudioFile('../sound_assets/LevelUp.mp3'),
-        hover:          loadAudioFile('../sound_assets/DragStart.mp3'),
-        drop:           loadAudioFile('../sound_assets/DragEnd.mp3'),
-        item:           loadAudioFile('../sound_assets/PickUpItem.mp3'),
-        jump:           loadAudioFile('../sound_assets/Jump.mp3'),
-		enemyHit:       loadAudioFile('../sound_assets/Damage.mp3'),
+		// 2026-8-12更新
+		levelup:        loadAudioFile('../sound_assets2/[s1_levelup]JRPG_UI_Chibi_System_Startup_01.wav'),
+		// 2026-8-12更新
+        hover:          loadAudioFile('../sound_assets2/[s1_hover]DM-CGS-19.wav'),
+		// 2026-8-12更新
+        drop:           loadAudioFile('../sound_assets2/[s1_drop]DM-CGS-20.wav'),
+		// 2026-8-12更新
+        item:           loadAudioFile('../sound_assets2/[s1_item]JRPG_UI_Chibi_Item_Use_03.wav'),
+		// 2026-8-12更新
+        jump:           loadAudioFile('../sound_assets2/[s1_jump]029_Decline_09.wav'),
+		// 2026-8-12更新
+		enemyHit:       loadAudioFile('../sound_assets2/[s1_hit]61_Hit_03.wav'),
+ 		// 2026-8-12更新
+		attack:       loadAudioFile('../sound_assets2/[s2_attack2]DM-CGS-47.wav'),
+ 		// 2026-8-13更新
+		attack2:       loadAudioFile('../sound_assets2/[s2_attack]DM-CGS-46.wav'),
+ 		// 2026-8-13更新
+		channel:       loadAudioFile('../sound_assets2/[s2_channel]JRPG_UI_Chibi_Dialogue_Open_01v2.wav'),
+ 		// 2026-8-13更新
+		login:         loadAudioFile('../sound_assets2/[s2_login]JRPG_UI_Chibi_Menu_Confirm_02.wav'),
+ 		// 2026-8-13更新
+		summon:        loadAudioFile('../sound_assets2/[s1_summon]maou_se_system06.mp3'),
         // 🌟 ここでそれぞれのモンスターに合わせた音を指定してください
-        monster1Die:    loadAudioFile('../sound_assets/monster1_die.mp3'),      // 普通の音
-        monster2Die:    loadAudioFile('../sound_assets/monster1_die.mp3'),      // monster2も同じで良ければ同じファイル
-        monster3Die:    loadAudioFile('../sound_assets/monster1_die.mp3'),  // ボス用の豪華な音
+		// 2026-8-12更新
+        monster1Die:    loadAudioFile('../sound_assets2/[s1_monster_die]SharkEat.wav'),      // 普通の音
+		// 2026-8-12更新
+        monster2Die:    loadAudioFile('../sound_assets2/[s1_monster_die]SharkEat.wav'),      // monster2も同じで良ければ同じファイル
+		// 2026-8-12更新
+        monster3Die:    loadAudioFile('../sound_assets2/[s1_monster_die]SharkEat.wav'),  // ボス用の豪華な音
         bgm:            loadAudioFile('../sound_assets/Floral_Life.mp3')
     };
 
@@ -129,6 +152,10 @@ function playEffect(buffer, volume = 0.5, rate = 1.0) {
 }
 
 // --- 各アクションごとの関数 ---
+function playBuySound() {
+    playEffect(soundBuffers.buy, 0.5);
+}
+
 function playInviteSound() {
     playEffect(soundBuffers.invite, 0.5);
 }
@@ -170,11 +197,37 @@ function playDropSound() {
 }
 
 function playItemSound() {
-    playEffect(soundBuffers.item, 0.4);
+    playEffect(soundBuffers.item, 0.5);
 }
 
 function playJumpSound() {
     playEffect(soundBuffers.jump, 0.3, 1.1);
+}
+
+function playAttackSound() {
+    // 鳴らしたいサウンドのリストを用意
+    const attackSounds = [
+        soundBuffers.attack,
+        soundBuffers.attack2
+    ];
+
+    // 配列のインデックス（0 または 1）をランダムに選択
+    const randomIndex = Math.floor(Math.random() * attackSounds.length);
+
+    // 選択されたサウンドを再生
+    playEffect(attackSounds[randomIndex], 0.5, 1.1);
+}
+
+function playChannelSound() {
+    playEffect(soundBuffers.channel, 0.5, 1.1);
+}
+
+function playLoginSound() {
+    playEffect(soundBuffers.login, 0.5, 1.1);
+}
+
+function playSummonSound() {
+    playEffect(soundBuffers.summon, 0.5, 1.1);
 }
 
 // ============================================================
@@ -196,7 +249,7 @@ function playEnemyHitSound(enemy) {
     if (finalBuffer) {
         // 少し音程をランダムに変えると、連続攻撃が自然に聞こえます
         const randomRate = 0.9 + Math.random() * 0.2; 
-        playEffect(finalBuffer, 0.4, randomRate);
+        playEffect(finalBuffer, 0.5, randomRate);
     }
 }
 
@@ -273,3 +326,31 @@ function playBGM() {
     bgmSource.start(0);
     console.log("🎵 BGM再生開始！");
 }
+
+/*
+⭐️⭐️ジャンプDM-CGS-07.wav
+⭐️⭐️アイテム使用JRPG_UI_Chibi_Item_Use_02.wav
+⭐️⭐️チャンネルJRPG_UI_Chibi_Dialogue_Open_01v2.wav
+⭐️⭐️攻撃2DM-CGS-47.wav
+⭐️⭐️攻撃DM-CGS-46.wav
+⭐️⭐️購入079_Buy_sell_01.wav
+⭐️⭐️拾うDM-CGS-28.wav
+⭐️⭐️通知ピカーンJRPG_UI_Classic_System_Open_04.wav
+⭐️⭐️倒れるDM-CGS-43.wav
+⭐️アイテム選択DM-CGS-19.wav
+⭐️アイテム選択DM-CGS-20.wav
+⭐️ジャンプ029_Decline_09.wav
+⭐️タブJRPG_UI_Chibi_Menu_Tab_Switch_02.wav
+⭐️メニューJRPG_UI_Chibi_System_Close_02.wav
+⭐️レベルアップJRPG_UI_Chibi_System_Startup_01.wav
+⭐️決定JRPG_UI_Chibi_Notification_Positive_02v2.wav
+⭐️拾う？キラキラJRPG_UI_Chibi_Item_Use_03.wav
+⭐️拾う△JRPG_UI_Chibi_Item_Collect_02.wav
+⭐️成功キラキラJRPG_UI_Chibi_Item_Use_01.wav
+⭐️通知JRPG_UI_Classic_Item_Use_03.wav
+⭐️倒すSharkEat.wav
+⭐️倒れる？DM-CGS-11.wav
+⭐️倒れるs_ef_cm_dm_umbrella_def2.wav
+⭐️買い物 - お金を落とす1.mp3
+⭐️復活JRPG_UI_Chibi_System_Startup_02.wav
+*/

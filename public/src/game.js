@@ -242,6 +242,10 @@ class Player {
     
     this.isAttacking = 20; 
     this.attackStartFrame = frame; 
+	
+	if (typeof playAttackSound === 'function') {
+        playAttackSound();
+    }
   }
   
   // 🌟 攻撃が当たっているか判定
@@ -1368,7 +1372,7 @@ function handleLoginSuccess(data) {
         socket.emit('join', { name: data.username, channel: hero.channel, group: hero.group, x: hero.x, y: hero.y });
         socket.emit('get_account_info');
 
-        if (typeof audioCtx !== 'undefined' && audioCtx.state === 'suspended') audioCtx.resume();
+        if (typeof audioCtx !== 'undefined' && audioCtx.state === 'suspended') audioCtx.resume();		
         if (typeof playBGM === 'function') playBGM();
         if (typeof update === 'function') update();
     }
@@ -1589,6 +1593,11 @@ function selectChannel(ch) {
             btn.classList.remove('active');
         }
     });
+	
+	if (typeof playChannelSound === 'function') {
+        playChannelSound();
+    }
+	
     console.log(`チャンネル ${selectedChannel} が選択されました`);
 }
 
@@ -1703,6 +1712,10 @@ function changeChannel(number) {
     }
 
     console.log(`チャンネル ${number} へ移動中...`);
+	
+	if (typeof playChannelSound === 'function') {
+        playChannelSound();
+    }
 
     // 🌟 2. サーバーに移動リクエストを送る
     socket.emit('change_channel', { newChannel: number });
@@ -2800,6 +2813,10 @@ socket.on('spawn_monster', (monsterData) => {
     if (!exists) {
         enemies.push(monsterData); 
         console.log(`🆕 モンスター召喚: ${monsterData.id} 位置(${monsterData.x}, ${monsterData.y})`);
+		// 🔊 モンスター召喚時の効果音を再生
+        if (typeof playSummonSound === 'function') {
+            playSummonSound();
+        }
     }
 });
 
@@ -2971,6 +2988,10 @@ function sellItem(itemId, slotIndex, displayName, currentCount = 1, isEquipment 
             console.error("エラー: socketが見つかりません");
             return;
         }
+		
+        if (typeof playBuySound === 'function') {
+            playBuySound();
+        }
 
         console.log(`2. サーバーへ売却リクエストを送ります... (${quantity}個)`);
         
@@ -3054,6 +3075,11 @@ function buyItem(itemId, itemType, displayName) {
         if (typeof socket === 'undefined') {
             console.error("エラー: socketが見つかりません");
             return;
+        }
+		
+		// 🛒 購入決定時の効果音を再生
+        if (typeof playBuySound === 'function') {
+            playBuySound();
         }
 
         console.log(`2. サーバーへ購入リクエストを送ります... (ID: ${itemId}, 個数: ${quantity})`);
@@ -4579,6 +4605,10 @@ window.addEventListener('load', () => {
         // 【重要】サーバーから返事が来たら、タイマーをキャンセルする
         socket.once('login_data', () => {
             clearTimeout(timeoutTimer);
+			// 🔊 【ここに書く】オートログイン成功時の効果音を再生
+            //if (typeof playLoginSound === 'function') {
+            //    playLoginSound();
+            //}
         });
     } else {
         clearTimeout(timeoutTimer); // タイマー不要なので解除

@@ -7019,6 +7019,11 @@ const createCharSelector2 = (currentModelId) => {
  */
 const selectCharacterAndLogin = (groupIndex, styleIndex) => {
     console.log("🔥 [着火] キャラ選択を実行しました");
+	
+	// 🔊 キャラ選択・決定時の効果音を再生
+    if (typeof playLoginSound === 'function') {
+        playLoginSound();
+    }
     
     selectedGroup = groupIndex;
     selectedCharVar = styleIndex;
