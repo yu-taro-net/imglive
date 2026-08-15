@@ -2801,9 +2801,11 @@ socket.on('spawn_monster', (monsterData) => {
         return; // 座標がないなら召喚しない
     }
 
-    // 💡 【超重要】召喚された敵の画像がまだなければ、この瞬間に非同期ロードを走らせる！
-    // ※ monsterData.id や monsterData.name を使ってチェック・ロードします
-    ensureEnemySpritesLoaded(monsterData.name, monsterData.id);
+    // 💡 【超重要】サーバーから送られてきた name や type を確実に使ってロードを走らせる
+    const targetName = monsterData.name || monsterData.type;
+    if (targetName) {
+        ensureEnemySpritesLoaded(targetName, monsterData.id);
+    }
 
     // 💡 確実に「スポーン直後」であることを明示
     monsterData.isJustSpawned = true; 

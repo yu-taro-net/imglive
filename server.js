@@ -4624,6 +4624,10 @@ async function executeSummon(socket, enemyId) {
         respawnTimer: 0,
         waitTimer: 0,
         auraType: assignedAura  // 👈 抽選したオーラ属性を追加
+		// 🌟 【超重要】クライアントが確実に画像を読み込めるように名前/アセットキーを明示する！
+        // enemyData の中身（DBの列名）に合わせて調整してください（例: enemyData.name や enemyData.type など）
+        name: enemyData.name || `Monster${enemyData.enemy_id}`, 
+        type: enemyData.type || `monster${enemyData.enemy_id}`
     };
 
     // 💡 【重要】サーバー側の管理配列にモンスターを追加する（これがないと同期されません）
