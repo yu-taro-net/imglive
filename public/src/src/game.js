@@ -2504,12 +2504,14 @@ socket.on('open_mzukan', (data) => {
         detailPane.innerHTML = `<div style="color: #888; font-size: 13px;">👈 左のリストからモンスターを選択してください</div>`;
     }
 
-    // 🌟 102体分（ID 2010〜3020）のマップを自動生成する
-    const monsterFolderMap = {};
-    for (let i = 1; i <= 102; i++) {
-        const enemyId = 2000 + (i * 10);
-        monsterFolderMap[enemyId] = i;
-    }
+    const monsterFolderMap = {
+        2010: 1,
+        2020: 2,
+        2050: 5,
+        2080: 8,
+        2160: 16,
+        2300: 30
+    };
 
     enemies = enemies.filter(en => monsterFolderMap[en.enemy_id] !== undefined);
 
@@ -2527,7 +2529,6 @@ socket.on('open_mzukan', (data) => {
         let imgPath = '';
         if (mNum !== undefined) {
             imgPath = `${IMAGE_DOMAIN}char_assets_enemy/Monster${mNum}/Idle/tile000.png`;
-            // 🌟 リスト側のサムネイルは元のサイズ・パディングのまま維持
             imageHtml = `<img src="${imgPath}" alt="${en.name}" style="width: 40px; height: 40px; object-fit: contain;" onerror="this.style.display='none'">`;
         }
 
@@ -2634,10 +2635,9 @@ socket.on('open_mzukan', (data) => {
                         
                         <!-- 上部：モンスター情報（左サムネイル ＆ 右ステータス） -->
                         <div style="display: flex; gap: 10px; background: #ffffff; border: 1px solid #e2e8f0; padding: 10px; border-radius: 6px; align-items: stretch;">
-                            <!-- 🌟 詳細ペインのサムネイル枠を拡大（110px）＆ パディング少なめ（2px）に調整 -->
-                            <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%); border: 1px solid #cbd5e1; border-radius: 6px; padding: 2px; width: 110px; min-width: 110px; height: 110px; box-shadow: inset 0 1px 3px rgba(255,255,255,0.8); flex-shrink: 0;">
-    <img src="${imgPath}" style="max-width: 100px; max-height: 100px; object-fit: contain; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.15));" onerror="this.style.display='none'">
-</div>
+                            <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; background: #0f172a; border-radius: 6px; padding: 4px; width: 84px; min-width: 84px; height: 84px; box-shadow: inset 0 2px 4px rgba(0,0,0,0.3); flex-shrink: 0;">
+                                <img src="${imgPath}" style="max-width: 74px; max-height: 74px; object-fit: contain;" onerror="this.style.display='none'">
+                            </div>
 
                             <div style="display: flex; flex-direction: column; justify-content: space-between; flex-grow: 1; overflow: hidden;">
                                 <div>

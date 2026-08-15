@@ -48,47 +48,47 @@ async function loadAudioFile(url) {
 async function setupAudio() {
     // 並列でロードを開始（awaitを一括で待つことで高速化）
     const tasks = {
-        // 2026-8-12追加
-        buy:            loadAudioFile(`${IMAGE_DOMAIN}sound_assets2/[s1_buy]drop-money.mp3`),
-        // 2026-8-12更新
-        invite:         loadAudioFile(`${IMAGE_DOMAIN}sound_assets2/[s2_invite]JRPG_UI_Classic_System_Open_04.wav`),
-        // 2026-8-12更新
-        die:            loadAudioFile(`${IMAGE_DOMAIN}sound_assets2/[s2_die]DM-CGS-43.wav`),
-        mouseover1:     loadAudioFile(`${IMAGE_DOMAIN}sound_assets/BtMouseOver.mp3`),
-        mouseclick:     loadAudioFile(`${IMAGE_DOMAIN}sound_assets/BtMouseClick.mp3`),
-        tab:            loadAudioFile(`${IMAGE_DOMAIN}sound_assets/Tab.mp3`),
-        menuup:         loadAudioFile(`${IMAGE_DOMAIN}sound_assets/MenuUp.mp3`),
-        menudown:       loadAudioFile(`${IMAGE_DOMAIN}sound_assets/MenuDown.mp3`),
-        // 2026-8-12更新
-        levelup:        loadAudioFile(`${IMAGE_DOMAIN}sound_assets2/[s1_levelup]JRPG_UI_Chibi_System_Startup_01.wav`),
-        // 2026-8-12更新
-        hover:          loadAudioFile(`${IMAGE_DOMAIN}sound_assets2/[s1_hover]DM-CGS-19.wav`),
-        // 2026-8-12更新
-        drop:           loadAudioFile(`${IMAGE_DOMAIN}sound_assets2/[s1_drop]DM-CGS-20.wav`),
-        // 2026-8-12更新
-        item:           loadAudioFile(`${IMAGE_DOMAIN}sound_assets2/[s1_item]JRPG_UI_Chibi_Item_Use_03.wav`),
-        // 2026-8-12更新
-        jump:           loadAudioFile(`${IMAGE_DOMAIN}sound_assets2/[s1_jump]029_Decline_09.wav`),
-        // 2026-8-12更新
-        enemyHit:       loadAudioFile(`${IMAGE_DOMAIN}sound_assets2/[s1_hit]61_Hit_03.wav`),
-        // 2026-8-12更新
-        attack:         loadAudioFile(`${IMAGE_DOMAIN}sound_assets2/[s2_attack2]DM-CGS-47.wav`),
-        // 2026-8-13更新
-        attack2:        loadAudioFile(`${IMAGE_DOMAIN}sound_assets2/[s2_attack]DM-CGS-46.wav`),
-        // 2026-8-13更新
-        channel:        loadAudioFile(`${IMAGE_DOMAIN}sound_assets2/[s2_channel]JRPG_UI_Chibi_Dialogue_Open_01v2.wav`),
-        // 2026-8-13更新
-        login:          loadAudioFile(`${IMAGE_DOMAIN}sound_assets2/[s2_login]JRPG_UI_Chibi_Menu_Confirm_02.wav`),
-        // 2026-8-13更新
-        summon:         loadAudioFile(`${IMAGE_DOMAIN}sound_assets2/[s1_summon]maou_se_system06.mp3`),
+		// 2026-8-12追加
+        buy:         	loadAudioFile('../sound_assets2/[s1_buy]drop-money.mp3'),
+		// 2026-8-12更新
+        invite:         loadAudioFile('../sound_assets2/[s2_invite]JRPG_UI_Classic_System_Open_04.wav'),
+		// 2026-8-12更新
+        die:            loadAudioFile('../sound_assets2/[s2_die]DM-CGS-43.wav'),
+        mouseover1:     loadAudioFile('../sound_assets/BtMouseOver.mp3'),
+        mouseclick:     loadAudioFile('../sound_assets/BtMouseClick.mp3'),
+        tab:            loadAudioFile('../sound_assets/Tab.mp3'),
+        menuup:         loadAudioFile('../sound_assets/MenuUp.mp3'),
+        menudown:       loadAudioFile('../sound_assets/MenuDown.mp3'),
+		// 2026-8-12更新
+		levelup:        loadAudioFile('../sound_assets2/[s1_levelup]JRPG_UI_Chibi_System_Startup_01.wav'),
+		// 2026-8-12更新
+        hover:          loadAudioFile('../sound_assets2/[s1_hover]DM-CGS-19.wav'),
+		// 2026-8-12更新
+        drop:           loadAudioFile('../sound_assets2/[s1_drop]DM-CGS-20.wav'),
+		// 2026-8-12更新
+        item:           loadAudioFile('../sound_assets2/[s1_item]JRPG_UI_Chibi_Item_Use_03.wav'),
+		// 2026-8-12更新
+        jump:           loadAudioFile('../sound_assets2/[s1_jump]029_Decline_09.wav'),
+		// 2026-8-12更新
+		enemyHit:       loadAudioFile('../sound_assets2/[s1_hit]61_Hit_03.wav'),
+ 		// 2026-8-12更新
+		attack:       loadAudioFile('../sound_assets2/[s2_attack2]DM-CGS-47.wav'),
+ 		// 2026-8-13更新
+		attack2:       loadAudioFile('../sound_assets2/[s2_attack]DM-CGS-46.wav'),
+ 		// 2026-8-13更新
+		channel:       loadAudioFile('../sound_assets2/[s2_channel]JRPG_UI_Chibi_Dialogue_Open_01v2.wav'),
+ 		// 2026-8-13更新
+		login:         loadAudioFile('../sound_assets2/[s2_login]JRPG_UI_Chibi_Menu_Confirm_02.wav'),
+ 		// 2026-8-13更新
+		summon:        loadAudioFile('../sound_assets2/[s1_summon]maou_se_system06.mp3'),
         // 🌟 ここでそれぞれのモンスターに合わせた音を指定してください
-        // 2026-8-12更新
-        monster1Die:    loadAudioFile(`${IMAGE_DOMAIN}sound_assets2/[s1_monster_die]SharkEat.wav`),      // 普通の音
-        // 2026-8-12更新
-        monster2Die:    loadAudioFile(`${IMAGE_DOMAIN}sound_assets2/[s1_monster_die]SharkEat.wav`),      // monster2も同じで良ければ同じファイル
-        // 2026-8-12更新
-        monster3Die:    loadAudioFile(`${IMAGE_DOMAIN}sound_assets2/[s1_monster_die]SharkEat.wav`),  // ボス用の豪華な音
-        bgm:            loadAudioFile(`${IMAGE_DOMAIN}sound_assets/Floral_Life.mp3`)
+		// 2026-8-12更新
+        monster1Die:    loadAudioFile('../sound_assets2/[s1_monster_die]SharkEat.wav'),      // 普通の音
+		// 2026-8-12更新
+        monster2Die:    loadAudioFile('../sound_assets2/[s1_monster_die]SharkEat.wav'),      // monster2も同じで良ければ同じファイル
+		// 2026-8-12更新
+        monster3Die:    loadAudioFile('../sound_assets2/[s1_monster_die]SharkEat.wav'),  // ボス用の豪華な音
+        bgm:            loadAudioFile('../sound_assets/Floral_Life.mp3')
     };
 
     // すべての結果を soundBuffers に格納

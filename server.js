@@ -2517,7 +2517,7 @@ socket.on('useConsumableItem', async (data) => {
 
                 case 'pouch':
                     console.log(`[Server] プレイヤーが pouch（モンスターの包み）を開けました！`);
-                    const summonItemId = 50001;
+                    const summonItemId = 2080;
                     if (typeof executeSummon === 'function') {
                         (async () => {
                             try {
@@ -2544,10 +2544,25 @@ socket.on('useConsumableItem', async (data) => {
                     break;
 					
 				case 'avatar':
+					// 🌟 アバター変更チケット使用時にキャラ選択画面を起動
+                    const targetModelId = player.model_id || player.group || 8;
+                    if (typeof LOG !== 'undefined' && LOG.SUCCESS) {
+                        LOG.SUCCESS(`🎭 ${player.name} (ModelID: ${targetModelId}) のキャラ選択画面を呼び出します`);
+                    } else {
+                        console.log(`🎭 ${player.name} (ModelID: ${targetModelId}) のキャラ選択画面を呼び出します`);
+                    }
+                    socket.emit('request_char_select2', { modelId: targetModelId });
+                    player.isSelectingChar = true;
                     console.log(`[Server] プレイヤーが avatar を使用しました。`);
                     break;
 					
 				case 'freemarket':
+					// 🌟 フリーマーケット（露店）開設UIを呼び出し
+                    console.log(`--- [Vending] ${player.name || socket.id} が露店アイテムを使用 ---`);
+                    socket.emit('request_open_vending_ui');
+                    if (typeof LOG !== 'undefined' && LOG.SUCCESS) {
+                        LOG.SUCCESS(`🏪 ${player.name || socket.id} の露店開設プロセスを開始しました`);
+                    }
                     console.log(`[Server] プレイヤーが freemarket を使用しました。`);
                     break;
 					
@@ -4110,8 +4125,8 @@ const SUMMON_MAP = {
     // アイテムID: 敵ID
     50001: 2010, // 50001を使うと、enemy_id 1010 が出る
     50002: 2020, // 50002を使うと、enemy_id 1020 が出る
-    50003: 2300, // ボス召喚など
-    50004: 2160  // ボス召喚など
+    50030: 2300, // ボス召喚など
+    50160: 2160  // ボス召喚など
 };
 
 // ============================================================
@@ -4427,24 +4442,39 @@ if (text.startsWith('/summon')) {
     console.log("🔍 [Debug] summonコマンドを検知しました！"); // 追加
     
     const parts = text.split(' ');
-    const summonItemId = parseInt(parts[1]);
-    console.log("🔍 [Debug] 入力されたID:", summonItemId); // 追加
+    const targetId = parseInt(parts[1]); // 入力された数値（敵IDなど）
+    console.log("🔍 [Debug] 入力されたID:", targetId); // 追加
 
-    // 辞書に存在するか確認
-    if (SUMMON_MAP[summonItemId]) {
-        console.log("🔍 [Debug] 辞書にIDが存在します。召喚関数を呼び出します。"); // 追加
+    // 入力値が有効な数値（NaNではない）かどうかチェック
+    if (!isNaN(targetId)) {
+        console.log("🔍 [Debug] 有効なIDが入力されました。召喚関数を呼び出します。"); // 追加
         (async () => {
             try {
-                await executeSummon(socket, summonItemId);
+                // SUMMON_MAPを介さず、入力された数値をそのまま渡す
+                await executeSummon(socket, targetId);
                 console.log("🔍 [Debug] executeSummon完了！"); // 追加
             } catch (e) {
                 console.error("❌ [Debug] executeSummonでエラー発生:", e);
             }
         })();
     } else {
-        console.log("⚠️ [Debug] 辞書にIDが見つかりません。SUMMON_MAP:", SUMMON_MAP); // 追加
+        console.log("⚠️ [Debug] 有効なIDが指定されていません。例: /summon 2010"); // 追加
     }
     return true;
+}
+
+if (text.startsWith('/speed')) {
+    const parts = text.split(' ');
+    const speedValue = parseFloat(parts[1]);
+    const player = players[socket.id];
+
+    if (player && !isNaN(speedValue)) {
+        // コマンドで指定された数値を player.speed に代入する
+        player.speed = speedValue; 
+        console.log(`🚀 スピードを ${speedValue} に変更しました！`);
+		socket.emit('update_player_speed', { speed: speedValue });
+    }
+    return type = true; // または return true;
 }
 
     return false; // どのコマンドにも該当しなかった
@@ -4524,12 +4554,16 @@ async function getZukanData(pool, category = 'all') {
     }
 }
 
-async function executeSummon(socket, itemId) {
+async function executeSummon(socket, enemyId) {
 
     console.log("🛠️ [Debug] playersの中身:", typeof players, players);
+    console.log("🛠️ [Debug] 取得する敵ID:", enemyId);
     
-    const enemyId = SUMMON_MAP[itemId]; // アイテムに対応する敵IDを取得
-    if (!enemyId) return; // 召喚アイテムじゃないなら無視
+    // 💡 SUMMON_MAP を介さず、受け取ったIDをそのままチェック
+    if (!enemyId || isNaN(enemyId)) {
+        console.error("❌ [Debug] 有効な敵IDではありません:", enemyId);
+        return;
+    }
 
     // 💡 1. データベースから敵の能力値を一発で取得する！
     const [rows] = await pool.query("SELECT * FROM enemy_catalog WHERE enemy_id = ?", [enemyId]);
@@ -4549,15 +4583,6 @@ async function executeSummon(socket, itemId) {
 
     // 💡 3. モンスターの配置座標と足場判定を計算
     const platIndex = getPlatIndexFromCoords(player.x, player.y);
-    // 足場に乗っていれば足場のY座標(天面)を、そうでなければプレイヤーのY座標を採用
-    //let spawnY;
-	//if (platIndex !== null) {
-		// もし platIndex が null じゃなければ
-	//	spawnY = player.y;
-	//} else {
-		// もし platIndex が null なら（それ以外）
-	//	spawnY = player.y;
-	//}
 
     // 🌟 オーラの抽選処理を追加（既存の敵と同様の確率）
     const rand = Math.random();
@@ -4580,20 +4605,18 @@ async function executeSummon(socket, itemId) {
         isFading: false,        // ← 明示的にデフォルト値を入れる
         unique_id: Date.now() + Math.random(),
         x: player.x,            // プレイヤーのXと一致
-        y: player.y,              // 計算した spawnY を反映
-		spawnX: player.x, 
-		spawnY: player.y,
+        y: player.y,              // プレイヤーのY
+        spawnX: player.x, 
+        spawnY: player.y,
         platIndex: platIndex,   // 判定した足場Indexを反映
         currentHp: enemyData.hp,
         maxHp: enemyData.hp,
-		opacity: 0,                     // 👈 最初は透明にする
-		spawnAlpha: 0,
+        opacity: 0,                     // 👈 最初は透明にする
+        spawnAlpha: 0,
         jumpY: 0,
         jumpV: 0,
         jumpFrame: 0,
-		isJustSpawned: true,
-        //opacity: 1,
-        //spawnAlpha: 1.0000000000000002,
+        isJustSpawned: true,
         deathFrame: 0,
         kbV: 0,
         isAttacking: 0,
@@ -4610,13 +4633,13 @@ async function executeSummon(socket, itemId) {
     // 💡 チャンネルIDを文字列の部屋名として統一（'channel_' 接頭辞を付与）
     const targetRoom = `channel_${player.channel}`; 
 
-    // 💡 ここが重要！そのチャンネルの部屋にソケットを参加させる
+    // 💡 そのチャンネルの部屋にソケットを参加させる
     socket.join(targetRoom); 
     
     // 💡 その部屋（チャンネル）にいる人だけに送信！
     io.to(targetRoom).emit('spawn_monster', monsterObj);
 
-    console.log(`🚀 [Debug] ${targetRoom} のプレイヤー全員に送信しました！ (オーラ: ${assignedAura})`);
+    console.log(`🚀 [Debug] ${targetRoom} のプレイヤー全員に送信しました！ (敵ID: ${enemyId}, オーラ: ${assignedAura})`);
     console.log(`🚀 [Debug] 召喚後のチャンネル内敵数: ${enemies[player.channel].length}`);
 }
 
