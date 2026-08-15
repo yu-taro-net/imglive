@@ -792,22 +792,41 @@ function loadStaticImages() {
 
     if (!MONSTER_CONFIGS || MONSTER_CONFIGS.length === 0) return;
 
-    // 🌟 サーバーのプランで実際に使われているIDリスト（必要に応じて追加・変更可能）
-    // 🌟 1. ENEMY_PLAN から使われているIDのリストを自動で抽出する（重複なし・文字列化）
-    const planEnemyIds = [...new Set(ENEMY_PLAN.map(p => String(p.id)))];
+    // 🌟 1. ENEMY_PLAN からIDを抽出
+    let activeEnemyIds = ENEMY_PLAN.map(p => String(p.id));
 
+    // 🌟 2. 【追加】もし現在画面上（またはゲーム内）に配置されている敵のデータ（enemiesなど）があれば、そのIDも強制的に含める！
+    // ※ グローバル変数として enemies が存在する場合の安全ガード付き
+    if (typeof enemies !== 'undefined') {
+        // enemies が配列の場合と、チャンネルなどでオブジェクトになっている場合の両方に対応
+        let currentEnemiesList = [];
+        if (Array.isArray(enemies)) {
+            currentEnemiesList = enemies;
+        } else if (typeof enemies === 'object' && enemies !== null) {
+            // チャンネル別のオブジェクト構造に対応（chIdごとの配列をフラットにする）
+            currentEnemiesList = Object.values(enemies).flat();
+        }
+
+        currentEnemiesList.forEach(e => {
+            if (e && e.id) {
+                activeEnemyIds.push(String(e.id));
+            }
+        });
+    }
+
+    // 重複を削除
+    const planEnemyIds = [...new Set(activeEnemyIds)];
+
+    // --- 以降の処理はそのまま（planEnemyIds を使ってロードする） ---
     MONSTER_CONFIGS.forEach(m => {
         let isMonsterType = m.id.startsWith("Monster") || planEnemyIds.includes(String(m.id));
         if (!isMonsterType && !allowedCharIds.includes(m.id)) return;
 
-        // 🌟 絞り込みの修正：
-        // 「Monster1〜10」または「プランに含まれるID（2010など）」だけを許可し、それ以外（11以降の無関係な敵）はカットする
         if (isMonsterType) {
             if (m.id.startsWith("Monster")) {
                 const monsterNum = parseInt(m.id.replace("Monster", ""), 10);
-                if (!isNaN(monsterNum) && monsterNum > 10) return; // Monster11以降は除外
+                if (!isNaN(monsterNum) && monsterNum > 10) return; 
             } else {
-                // 2000番台などの場合、プランに含まれていなければ除外して軽さを維持
                 if (!planEnemyIds.includes(String(m.id))) return;
             }
         }
@@ -815,13 +834,11 @@ function loadStaticImages() {
         const basePath = `${IMAGE_DOMAIN}char_assets_enemy/${m.id}`;
         let fName = isMonsterType ? "tile" : "skeleton";
 
-        // --- 各アクションの読み込みヘルパー関数（元のまま） ---
-        const loadSet = (actionName, folderName, fileSuffix) => {
+        const loadSet = (actionName, folderName) => {
             const key = m.name + actionName;
             sprites[key] = [];
             
             let count = 0;
-
             if (m.id === "Monster1") {
                 if (actionName === 'Idle')   count = 27;
                 if (actionName === 'Walk')   count = 20;
@@ -829,41 +846,31 @@ function loadStaticImages() {
                 if (actionName === 'Death')  count = 27;
                 if (actionName === 'Jump')   count = 0;
             } else {
-                const lowerName = actionName.toLowerCase(); 
-                const dbColName = "anim_" + lowerName;      
-                count = m[dbColName] || m[lowerName] || 0;
+                const lowerName = actionName.toLowerCase();      
+                count = m["anim_" + lowerName] || m[lowerName] || 0;
             }
 
             for (let i = 0; i < count; i++) {
                 const img = new Image();
                 img.crossOrigin = "anonymous"; 
-
-                let fullPath;
-                if (isMonsterType) {
-                    const num = String(i).padStart(3, '0');
-                    fullPath = `${basePath}/${folderName}/${fName}${num}.png`;
-                } else {
-                    // fullPath = `${basePath}/${folderName}/${fName}-${fileSuffix}_${i}.png`;
-                }
+                let fullPath = isMonsterType 
+                    ? `${basePath}/${folderName}/${fName}${String(i).padStart(3, '0')}.png`
+                    : '';
                 
                 img.src = fullPath;
-
                 img.onload = () => {
                     img.autoPaddingY = getBottomTransparentPadding(img, 10);
                 };
-
                 sprites[key].push(img);
             }
         };
 
-        // --- 実行（元の形式を完全に維持） ---
-        loadSet('Walk',   'Walk', 'Walk');
-        loadSet('Attack', 'Attack', 'Attack');
-        loadSet('Idle',   'Idle', 'Idle');
-        loadSet('Jump',   'Jump', 'Jump');
-        loadSet('Death',  'Death', 'Death'); 
+        loadSet('Walk',   'Walk');
+        loadSet('Attack', 'Attack');
+        loadSet('Idle',   'Idle');
+        loadSet('Jump',   'Jump');
+        loadSet('Death',  'Death'); 
 
-        // ダメージ等の単体画像
         const idleKey = isMonsterType ? 'tile000' : `${fName}-Idle_0`;
         const baseImg = new Image();
         baseImg.crossOrigin = "anonymous";
@@ -4936,14 +4943,26 @@ if (enemies.length !== window.lastEnemyCount) {
              //console.log(`❌ ID:${en.id} が消えた理由: alive=${en.alive}, hp=${en.hp}, isFading=${en.isFading}`);
              //en.alive = true; // 強制的に生き返らせる
         }
-        //ctx.save();
-        //ctx.fillStyle = "red"; // モンスターの場所に赤い四角を描く
-        //ctx.fillRect(en.x, en.y, 50, 50); 
-        //ctx.restore();
+        ctx.save();
+        ctx.fillStyle = "red"; // モンスターの場所に赤い四角を描く
+        ctx.fillRect(en.x, en.y, 50, 50); 
+        ctx.restore();
     });
     // ----------------------------------
 	
     enemies.forEach(en => {
+	
+		// 💡 🌟ここに強制ロードのチェックを仕込みます！
+        if (en && en.id) {
+            const enemyName = en.name || en.type; // 敵の名前またはタイプ
+            const checkKey = enemyName + (en.action || 'Idle');
+            
+            // まだスプライト（画像配列）が存在しない、または空の場合
+            if (!sprites[checkKey] || sprites[checkKey].length === 0) {
+                // リロード直後などで消えている画像を今すぐロードする！
+                loadSingleEnemyImages(en);
+            }
+        }
         
         // --- 1. 🛑 描画判定 ---
         if (!en.alive && !en.isFading) return;
@@ -5073,6 +5092,62 @@ if (enemies.length !== window.lastEnemyCount) {
         // 🏥 HPバー描画
         drawEnemyHPBar(en, frame);
     });
+}
+
+function loadSingleEnemyImages(enemy) {
+    // すでにロード中やロード済みなら二重でやらないためのガード
+    const actionKey = enemy.name + 'Idle';
+    if (sprites[actionKey] && sprites[actionKey].length > 0) return;
+
+    // MONSTER_CONFIGS から該当する設定を探す
+    const m = MONSTER_CONFIGS.find(conf => String(conf.id) === String(enemy.id) || conf.name === enemy.name);
+    if (!m) return; // コンフィグが見つからない場合はスキップ
+
+    const basePath = `${IMAGE_DOMAIN}char_assets_enemy/${m.id}`;
+    let fName = m.id.startsWith("Monster") || /^\d+$/.test(String(m.id)) ? "tile" : "skeleton";
+
+    const loadSet = (actionName, folderName) => {
+        const key = m.name + actionName;
+        if (sprites[key] && sprites[key].length > 0) return;
+        
+        sprites[key] = [];
+        let count = 0;
+
+        if (m.id === "Monster1") {
+            if (actionName === 'Idle')   count = 27;
+            if (actionName === 'Walk')   count = 20;
+            if (actionName === 'Attack') count = 17;
+            if (actionName === 'Death')  count = 27;
+            if (actionName === 'Jump')   count = 0;
+        } else {
+            const lowerName = actionName.toLowerCase();      
+            count = m["anim_" + lowerName] || m[lowerName] || 0;
+        }
+
+        for (let i = 0; i < count; i++) {
+            const img = new Image();
+            img.crossOrigin = "anonymous"; 
+            img.src = `${basePath}/${folderName}/${fName}${String(i).padStart(3, '0')}.png`;
+            img.onload = () => {
+                img.autoPaddingY = getBottomTransparentPadding(img, 10);
+            };
+            sprites[key].push(img);
+        }
+    };
+
+    // 各アクションの画像を読み込む
+    loadSet('Walk',   'Walk');
+    loadSet('Attack', 'Attack');
+    loadSet('Idle',   'Idle');
+    loadSet('Jump',   'Jump');
+    loadSet('Death',  'Death'); 
+
+    // ベースの1枚絵も念のため
+    const idleKey = (m.id.startsWith("Monster") || /^\d+$/.test(String(m.id))) ? 'tile000' : `${fName}-Idle_0`;
+    const baseImg = new Image();
+    baseImg.crossOrigin = "anonymous";
+    baseImg.src = `${basePath}/Idle/${idleKey}.png`;
+    sprites[m.name] = [baseImg];
 }
 
 // ============================================================
