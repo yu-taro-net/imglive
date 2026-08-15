@@ -771,75 +771,83 @@ function getBottomTransparentPadding(img, manualOffset = 0) {
 }
 
 // ============================================================
-// :::LOAD_STATIC_IMAGES::: 🖼️ 全キャラクター・モンスター素材のロードと整地
+// :::ENEMY_PLAN::: 🗺️ ステップで登場する敵のプラン（ここで一元管理）
 // ============================================================
-/**
- * 役割：
- * - MONSTER_CONFIGS を元に、キャラクター・敵のアセットを動的ロード
- * - Monster系(tile000.png形式)とChar系(skeleton-Name_0.png形式)のパス自動生成
- * - アニメーション枚数の動的決定（DB設定値の優先参照）
- * - 画像読み込み時の「足元透明余白」自動計測と記憶
- * - 共通エフェクト（deathFx）の初期化
- */
+const ENEMY_PLAN = [
+    { plat: 0, id: 2010 }, 
+    //{ plat: 0, id: 2160 }, 
+    { plat: 1, id: 2050 }, 
+    { plat: 1, id: 2020 }, 
+    { plat: 2, id: 2080 }, 
+    { plat: 2, id: 2080 }, 
+    { plat: 2, id: 2080 },
+    { plat: null, id: 2010 }
+];
+
+// ============================================================
+// :::LOAD_STATIC_IMAGES::: 🖼️ 元の「一番軽い構造」を完全維持したプラン対応版
+// ============================================================
 function loadStaticImages() {
-    // 🌟 許可するID（Charシリーズは明示、Monsterシリーズは一括判定へ）
     const allowedCharIds = ["Char01", "Char02", "Char03", "Char10", "Char13", "Char16", "Char19"];
 
     if (!MONSTER_CONFIGS || MONSTER_CONFIGS.length === 0) return;
 
+    // 🌟 サーバーのプランで実際に使われているIDリスト（必要に応じて追加・変更可能）
+    // 🌟 1. ENEMY_PLAN から使われているIDのリストを自動で抽出する（重複なし・文字列化）
+    const planEnemyIds = [...new Set(ENEMY_PLAN.map(p => String(p.id)))];
+
     MONSTER_CONFIGS.forEach(m => {
-        // 🌟 "Monster" で始まるID、もしくは allowedCharIds に含まれる場合のみ読み込む
-        let isMonsterType = m.id.startsWith("Monster");
+        let isMonsterType = m.id.startsWith("Monster") || planEnemyIds.includes(String(m.id));
         if (!isMonsterType && !allowedCharIds.includes(m.id)) return;
 
+        // 🌟 絞り込みの修正：
+        // 「Monster1〜10」または「プランに含まれるID（2010など）」だけを許可し、それ以外（11以降の無関係な敵）はカットする
+        if (isMonsterType) {
+            if (m.id.startsWith("Monster")) {
+                const monsterNum = parseInt(m.id.replace("Monster", ""), 10);
+                if (!isNaN(monsterNum) && monsterNum > 10) return; // Monster11以降は除外
+            } else {
+                // 2000番台などの場合、プランに含まれていなければ除外して軽さを維持
+                if (!planEnemyIds.includes(String(m.id))) return;
+            }
+        }
+
         const basePath = `${IMAGE_DOMAIN}char_assets_enemy/${m.id}`;
-        
-        // 🌟 ファイル名の接頭辞切り替え
         let fName = isMonsterType ? "tile" : "skeleton";
 
-        // --- 各アクションの読み込みヘルパー関数 ---
+        // --- 各アクションの読み込みヘルパー関数（元のまま） ---
         const loadSet = (actionName, folderName, fileSuffix) => {
             const key = m.name + actionName;
             sprites[key] = [];
             
             let count = 0;
 
-            // 🌟 枚数の決定ロジック
             if (m.id === "Monster1") {
-                // Monster1 は個別指定を維持
                 if (actionName === 'Idle')   count = 27;
                 if (actionName === 'Walk')   count = 20;
                 if (actionName === 'Attack') count = 17;
                 if (actionName === 'Death')  count = 27;
                 if (actionName === 'Jump')   count = 0;
             } else {
-                // 🌟 その他のMonsterおよびCharシリーズ：DB設定値を優先参照
                 const lowerName = actionName.toLowerCase(); 
                 const dbColName = "anim_" + lowerName;      
-                
                 count = m[dbColName] || m[lowerName] || 0;
             }
 
             for (let i = 0; i < count; i++) {
                 const img = new Image();
-                // 🌟 画像のドットデータを安全に読み取るためにCORS制限を解除
                 img.crossOrigin = "anonymous"; 
 
                 let fullPath;
-                
                 if (isMonsterType) {
-                    // 👾 Monster系：tile000.png 形式
                     const num = String(i).padStart(3, '0');
                     fullPath = `${basePath}/${folderName}/${fName}${num}.png`;
                 } else {
-                    // 👤 Char系：skeleton-Attack_0.png 形式
-					// 停止(2026/7/10)
-                    //fullPath = `${basePath}/${folderName}/${fName}-${fileSuffix}_${i}.png`;
+                    // fullPath = `${basePath}/${folderName}/${fName}-${fileSuffix}_${i}.png`;
                 }
                 
                 img.src = fullPath;
 
-                // 💡 画像がロードされた瞬間に、1回だけ足元の余白を測って記憶させる
                 img.onload = () => {
                     img.autoPaddingY = getBottomTransparentPadding(img, 10);
                 };
@@ -848,7 +856,7 @@ function loadStaticImages() {
             }
         };
 
-        // --- 実行（元の形式を維持） ---
+        // --- 実行（元の形式を完全に維持） ---
         loadSet('Walk',   'Walk', 'Walk');
         loadSet('Attack', 'Attack', 'Attack');
         loadSet('Idle',   'Idle', 'Idle');
@@ -858,10 +866,12 @@ function loadStaticImages() {
         // ダメージ等の単体画像
         const idleKey = isMonsterType ? 'tile000' : `${fName}-Idle_0`;
         const baseImg = new Image();
+        baseImg.crossOrigin = "anonymous";
         baseImg.src = `${basePath}/Idle/${idleKey}.png`;
         sprites[m.name] = [baseImg]; 
 
         const damageImg = new Image();
+        damageImg.crossOrigin = "anonymous";
         damageImg.src = `${basePath}/Idle/${idleKey}.png`;
         sprites[m.name + 'Damage'] = [damageImg];
     });
@@ -870,6 +880,7 @@ function loadStaticImages() {
     sprites["commonDeath"] = [];
     for (let i = 0; i < 18; i++) {
         const img = new Image();
+        img.crossOrigin = "anonymous";
         img.src = `${IMAGE_DOMAIN}char_assets_enemy/DeathFx/skeleton-animation_${i}.png`;
         sprites["commonDeath"].push(img);
     }

@@ -83,11 +83,11 @@ async function setupAudio() {
         summon:         loadAudioFile(`${IMAGE_DOMAIN}sound_assets2/[s1_summon]maou_se_system06.mp3`),
         // 🌟 ここでそれぞれのモンスターに合わせた音を指定してください
         // 2026-8-12更新
-        monster1Die:    loadAudioFile(`${IMAGE_DOMAIN}sound_assets2/[s1_monster_die]SharkEat.wav`),      // 普通の音
+        monster1Die:    loadAudioFile(`${IMAGE_DOMAIN}sound_assets2/[xs1_monster_die]SharkEat.wav`),      // 普通の音
         // 2026-8-12更新
-        monster2Die:    loadAudioFile(`${IMAGE_DOMAIN}sound_assets2/[s1_monster_die]SharkEat.wav`),      // monster2も同じで良ければ同じファイル
+        monster2Die:    loadAudioFile(`${IMAGE_DOMAIN}sound_assets2/[xs1_monster_die]SharkEat.wav`),      // monster2も同じで良ければ同じファイル
         // 2026-8-12更新
-        monster3Die:    loadAudioFile(`${IMAGE_DOMAIN}sound_assets2/[s1_monster_die]SharkEat.wav`),  // ボス用の豪華な音
+        monster3Die:    loadAudioFile(`${IMAGE_DOMAIN}sound_assets2/[xs1_monster_die]SharkEat.wav`),  // ボス用の豪華な音
         bgm:            loadAudioFile(`${IMAGE_DOMAIN}sound_assets/Floral_Life.mp3`)
     };
 

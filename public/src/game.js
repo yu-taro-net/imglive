@@ -2800,25 +2800,107 @@ socket.on('spawn_monster', (monsterData) => {
         console.error("❌ サーバーから座標が送られてきていません！", monsterData);
         return; // 座標がないなら召喚しない
     }
-	
-	//monsterData.y = player.y; // 👈 ここでプレイヤーのYを強引に代入
-    //monsterData.x = player.x;
+
+    // 💡 【超重要】召喚された敵の画像がまだなければ、この瞬間に非同期ロードを走らせる！
+    // ※ monsterData.id や monsterData.name を使ってチェック・ロードします
+    ensureEnemySpritesLoaded(monsterData.name, monsterData.id);
 
     // 💡 確実に「スポーン直後」であることを明示
     monsterData.isJustSpawned = true; 
     monsterData.opacity = 0; // 描画ガードを二重にする
 
-    // 二重生成防止（コメントアウトを外して活用しましょう）
+    // 二重生成防止
     const exists = enemies.find(e => e.unique_id === monsterData.unique_id);
     if (!exists) {
         enemies.push(monsterData); 
         console.log(`🆕 モンスター召喚: ${monsterData.id} 位置(${monsterData.x}, ${monsterData.y})`);
-		// 🔊 モンスター召喚時の効果音を再生
+        
+        // 🔊 モンスター召喚時の効果音を再生
         if (typeof playSummonSound === 'function') {
             playSummonSound();
         }
     }
 });
+
+// 📌 指定した敵の画像がなければ、その場で個別ロードする関数
+function ensureEnemySpritesLoaded(monsterName, monsterId) {
+    // すでにIdle画像が存在していれば、ロード済みなので何もしない
+    if (sprites[monsterName + 'Idle'] && sprites[monsterName + 'Idle'].length > 0) {
+        return;
+    }
+
+    // MONSTER_CONFIGS から該当する設定を探す
+    const m = MONSTER_CONFIGS.find(conf => String(conf.id) === String(monsterId) || conf.name === monsterName);
+    if (!m) {
+        console.warn(`⚠️ 召喚された敵のコンフィグが見つかりません: ID=${monsterId}`);
+        return;
+    }
+
+    console.log(`📥 新規の敵 [${m.name} (ID: ${m.id})] が召喚されたため、画像を動的ロードします`);
+
+    let isMonsterType = m.id.startsWith("Monster") || /^\d+$/.test(String(m.id));
+    const basePath = `${IMAGE_DOMAIN}char_assets_enemy/${m.id}`;
+    let fName = isMonsterType ? "tile" : "skeleton";
+
+    // アクションごとのロードヘルパー
+    const loadSet = (actionName, folderName) => {
+        const key = m.name + actionName;
+        if (sprites[key]) return;
+        
+        sprites[key] = [];
+        let count = 0;
+
+        if (m.id === "Monster1") {
+            if (actionName === 'Idle')   count = 27;
+            if (actionName === 'Walk')   count = 20;
+            if (actionName === 'Attack') count = 17;
+            if (actionName === 'Death')  count = 27;
+            if (actionName === 'Jump')   count = 0;
+        } else {
+            const lowerName = actionName.toLowerCase(); 
+            const dbColName = "anim_" + lowerName;      
+            count = m[dbColName] || m[lowerName] || 0;
+        }
+
+        for (let i = 0; i < count; i++) {
+            const img = new Image();
+            img.crossOrigin = "anonymous"; 
+
+            let fullPath = isMonsterType 
+                ? `${basePath}/${folderName}/${fName}${String(i).padStart(3, '0')}.png`
+                : '';
+            
+            img.src = fullPath;
+            img.onload = () => {
+                img.autoPaddingY = getBottomTransparentPadding(img, 10);
+            };
+
+            sprites[key].push(img);
+        }
+    };
+
+    // 各アクションをロード
+    loadSet('Walk',   'Walk');
+    loadSet('Attack', 'Attack');
+    loadSet('Idle',   'Idle');
+    loadSet('Jump',   'Jump');
+    loadSet('Death',  'Death'); 
+
+    // 単体画像（ベース・ダメージ用）
+    const idleKey = isMonsterType ? 'tile000' : `${fName}-Idle_0`;
+    if (!sprites[m.name]) {
+        const baseImg = new Image();
+        baseImg.crossOrigin = "anonymous";
+        baseImg.src = `${basePath}/Idle/${idleKey}.png`;
+        sprites[m.name] = [baseImg]; 
+    }
+    if (!sprites[m.name + 'Damage']) {
+        const damageImg = new Image();
+        damageImg.crossOrigin = "anonymous";
+        damageImg.src = `${basePath}/Idle/${idleKey}.png`;
+        sprites[m.name + 'Damage'] = [damageImg];
+    }
+}
 
 // 2. サーバーから来る「現在の敵リスト」を同期する処理（最重要！）
 socket.on('update_enemies', (data) => {
