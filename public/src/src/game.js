@@ -2724,16 +2724,9 @@ socket.on('open_mzukan', (data) => {
 // 4. 閉じるボタン [×] を押したときにウィンドウを隠す処理
 document.addEventListener('click', (event) => {
     if (event.target && event.target.id === 'mzukan-close-btn') {
-        event.stopPropagation(); // 👈 他のドラッグイベントなどの誤作動を防ぐ！
-        
         const modal = document.getElementById('mzukan-overlay');
         if (modal) {
             modal.style.display = 'none';
-            // もしドラッグで位置を動かすための transform や style.top/left が残っていたらリセットする場合：
-            // modal.style.transform = 'translate(-50%, -50%)'; 
-            // modal.style.top = '50%';
-            // modal.style.left = '50%';
-            
             console.log("📖 エネミー図鑑ウィンドウを閉じました。");
         }
     }
