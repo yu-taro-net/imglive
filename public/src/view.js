@@ -1847,7 +1847,7 @@ canvas.addEventListener('mousedown', (event) => {
                 }
 
                 const checkStr = `${item.category} ${item.item_type} ${item.type}`.toLowerCase();
-                const isEquip = checkStr.includes('weapon') || checkStr.includes('armor') || checkStr.includes('shield') || checkStr.includes('sword') || checkStr.includes('equip');
+                const isEquip = checkStr.includes('shield') || checkStr.includes('sword');
                 
                 let rankName = "";
                 if (isEquip) {
@@ -4004,11 +4004,7 @@ function drawItemTooltip(ctx, slot, mouseX, mouseY, hero) {
     const isEquipment = (
         slot.type === 'sword' || 
         slot.type === 'shield' || 
-        slot.type === 'equip' || 
-        slot.category === 'weapon1' || 
-        slot.category === 'shield1' || 
-        slot.category === 'armor1' ||
-        ['sword', 'armor', 'shield'].includes(slot.item_type)
+        ['sword', 'shield'].includes(slot.item_type)
     );
     
     // --- 🌟 動的ステータス計算ロジック ---
@@ -4049,7 +4045,7 @@ function drawItemTooltip(ctx, slot, mouseX, mouseY, hero) {
 
     // 🌟 拾った直後や簡易データで名前が「盾」「剣」になっている場合、カタログから正式名称を即座に解決
     let baseItemName = slot.displayName || slot.display_name;
-    const genericNames = ['盾', '剣', 'sword', 'shield', 'equip', 'アイテム'];
+    const genericNames = ['盾', '剣', 'sword', 'shield', 'アイテム'];
 
     if (!baseItemName || genericNames.includes(baseItemName)) {
         const catalogId = slot.item_id || slot.itemId || slot.id;
@@ -7603,7 +7599,6 @@ canvas.addEventListener('click', (event) => {
 
                 // 🛡️ より強力な装備品判定
                 const isEquipment = itemType === 'sword' || itemType === 'shield' || 
-                                    itemCategory === 'weapon1' || itemCategory === 'shield1' || 
                                     itemName.includes('剣') || itemName.includes('盾') ||
                                     itemName.includes('sword') || itemName.includes('shield');
 

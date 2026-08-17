@@ -1145,7 +1145,7 @@ socket.on('dropItem', async (data) => {
                 : maxCount;
 
             // 🌟 修正：アイテム種別の判定とIDの取得
-            const isEquipment = ['sword', 'shield', 'equip'].includes(String(itemToDrop.type).toLowerCase());
+            const isEquipment = ['sword', 'shield'].includes(String(itemToDrop.type).toLowerCase());
             // instanceId, id, db_id のいずれかからIDを取得
             const targetDbId = itemToDrop.instanceId || itemToDrop.id || itemToDrop.db_id;
 
@@ -1951,8 +1951,7 @@ socket.on('vending_buy_req', async (data) => {
         const totalPrice = pricePerOne * buyQty;         
 
         // 判定：装備品かどうか
-        const isEquipment = itemType.includes('shield') || itemType.includes('weapon') || itemType.includes('armor') || itemType.includes('equipment');
-
+		const isEquipment = itemType.includes('shield') || itemType.includes('sword');
         let finalSlotIndex = -1;
         let isNewSlot = true;
         let mergedDbId = null;
@@ -2409,7 +2408,7 @@ socket.on('equipItem', async (data) => {
         // 🌟 剣や盾などの「装備品カテゴリ」かどうかの判定
         // （先ほどのカタログ判定やカテゴリ、typeなどを活用します）
         const itemTypeStr = String(item.type || item.name || "").toLowerCase();
-        const isEquipment = ['sword', 'shield', 'equip', 'weapon1', 'shield1', 'armor1'].includes(itemTypeStr) || item.category === 'weapon1' || item.category === 'shield1';
+        const isEquipment = ['sword', 'shield'].includes(itemTypeStr);
 
         // 装備品じゃないなら、ここでは何もしない（消費アイテムのsocketに任せる）
         if (!isEquipment) {
@@ -2798,7 +2797,7 @@ async function loadItemCatalogFromDB() {
             "money5":     { "type": "ETC", "name": "money5", "display_name": "金メダル1", "src": "item_assets/Gold_", "isAnimated": true },
             "money6":     { "type": "ETC", "name": "money6", "display_name": "銀メダル1", "src": "item_assets/Silver_", "isAnimated": true },
             //"money7":     { "type": "ETC", "name": "money7", "display_name": "銅メダル1", "src": "item_assets/Bronze_", "isAnimated": true },
-            "gold_one":   { "type": "ETC", "name": "gold_one", "display_name": "ワンメダル(金)1", "src": "item_assets/GoldOne_", "isAnimated": true },
+            "normal_gold":   { "type": "ETC", "name": "normal_gold", "display_name": "ふつうのお金", "src": "item_assets/GoldOne_", "isAnimated": true },
             "gold_heart": { "type": "ETC", "name": "gold_heart", "display_name": "ハートメダル(金)1", "src": "item_assets/GoldHeart_", "isAnimated": true },
             //"money1":     { "type": "ETC", "name": "money1", "display_name": "10ゴールド1", "src": "item_assets/money1_", "isAnimated": true },
             //"money3":     { "type": "ETC", "name": "money3", "display_name": "100ゴールド1", "src": "item_assets/money3_", "isAnimated": true },
@@ -3128,33 +3127,33 @@ const ENEMY_PLAN = [
 // 🌟 モンスターごとのドロップ設定
 // ==========================================
 const DROP_DATABASE = {
-  "Monster1":  { table: "Drop2"},
-  "Monster2":  { table: "Drop2"},
-  "Monster5":  { table: "Drop3"},
-  "Monster8":  { table: "Drop3"},
-  "Monster16":  { table: "Drop4"},
-  "Monster30":  { table: "Drop4"},
-  "Char13":  { table: "Drop2"},
-  "Char10":  { table: "Drop4"  },
-  "Char19":  { table: "Drop4"  },
+  "Monster1":  { table: "Drop_Monster1"},
+  "Monster2":  { table: "Drop_Monster2"},
+  "Monster5":  { table: "Drop_Monster3"},
+  "Monster8":  { table: "Drop_Monster3"},
+  "Monster16":  { table: "Drop_Monster4"},
+  "Monster30":  { table: "Drop_Monster4"},
+  "Char13":  { table: "Drop_Monster2"},
+  "Char10":  { table: "Drop_Monster4"  },
+  "Char19":  { table: "Drop_Monster4"  },
   //"monster20": { table: "drop2"  },
 };
 
 const DROP_CHANCE_TABLES = {
-  "Drop1": { "default": 50, "avatar": 50, "pouch": 50, "gold_heart": 40, "money5": 20, "gold_one": 5 }, // 50%でドロップ、そのうち20%で金塊
-  "Drop2": { "default": 100, "avatar": 50, "pouch": 50, "shield": 90,　"sword": 90, "gold": 80 },
-  "Drop3": { "default": 50, "gold_heart": 40, "money6": 50 },
-  "Drop4": { "default": 80, "medal1": 80, "treasure": 80, "sweets": 80, "gold_heart": 40, "shield": 20 },
+  "Drop_Monster1": { "drop_rate": 100, "normal_gold": 70, "avatar": 10, "pouch": 10 }, // 50%でドロップ、そのうち20%で金塊
+  "Drop_Monster2": { "drop_rate": 100, "normal_gold": 70, "shield": 5,　"sword": 5 },
+  "Drop_Monster3": { "drop_rate": 100, "normal_gold": 50 },
+  "Drop_Monster4": { "drop_rate": 100, "normal_gold": 80, "treasure": 80, "sweets": 80, "shield": 20 },
   
   // --- 🌟 Drop1用のオーラテーブル ---
-    "Drop1_Gold": { "default": 100, "treasure": 100 },
-    "Drop1_Red":  { "default": 100, "avatar": 100 },
-    "Drop1_Blue": { "default": 100, "milk_tea": 100 },
+  "Drop_Monster1_Gold": { "drop_rate": 100, "treasure": 60 },
+  "Drop_Monster1_Red":  { "drop_rate": 100, "avatar": 60 },
+  "Drop_Monster1_Blue": { "drop_rate": 100, "milk_tea": 60 },
 
-    // --- 🌟 Drop2用のオーラテーブル ---
-    "Drop2_Gold": { "default": 100, "gold_heart": 50 },
-    "Drop2_Red":  { "default": 100, "freemarket": 50 },
-    "Drop2_Blue": { "default": 100, "sweets": 50 },
+   // --- 🌟 Drop2用のオーラテーブル ---
+   "Drop_Monster2_Gold": { "drop_rate": 100, "freemarket": 50 },
+   "Drop_Monster2_Red":  { "drop_rate": 100, "freemarket": 40 },
+   "Drop_Monster2_Blue": { "drop_rate": 100, "sweets": 30 },
 };
 
 // ============================================================
@@ -3837,9 +3836,9 @@ function spawnDropItems(enemy, chId) {
         let itemsToDrop = [];
         const dropRoll = Math.random() * 100;
         
-        if (dropRoll <= (chances.default || 100)) {
+        if (dropRoll <= (chances.drop_rate || 100)) {
             for (let type in chances) {
-                if (type === "default") continue;
+                if (type === "drop_rate") continue;
                 if (Math.random() * 100 < chances[type]) {
                     itemsToDrop.push(type);
                 }
@@ -3857,9 +3856,9 @@ function spawnDropItems(enemy, chId) {
                 const auraTable = DROP_CHANCE_TABLES[auraTableName];
                 const auraDropRoll = Math.random() * 100;
 
-                if (auraDropRoll <= (auraTable.default || 100)) {
+                if (auraDropRoll <= (auraTable.drop_rate || 100)) {
                     for (let type in auraTable) {
-                        if (type === "default") continue;
+                        if (type === "drop_rate") continue;
                         if (Math.random() * 100 < auraTable[type]) {
                             itemsToDrop.push(type);
                         }
@@ -3950,7 +3949,7 @@ function spawnDropItems(enemy, chId) {
             // 特殊処理（メダル・金塊）
             if (type === 'medal1') {
                 newItem.goldValue = enemy.money;
-            } else if (type === 'gold_one') {
+            } else if (type === 'normal_gold') {
                 newItem.goldValue = Math.floor(enemy.money * 1.5);
             } else if (type === 'gold_heart') {
                 newItem.goldValue = enemy.money * 3;
@@ -5185,7 +5184,7 @@ function saveInventoryToDB(player, itemData, slotIdx) {
     const type = String(itemData.type).toLowerCase();
 
     // ⚔️ 1. 装備品（sword / shield / equip）の判定
-    if (type === 'sword' || type === 'shield' || type === 'equip') {
+    if (type === 'sword' || type === 'shield') {
         
         // 🌟 追加ロジック: 既存IDの確認（拾い直し対応）
         const existingInstanceId = itemData.instanceId || itemData.db_id;

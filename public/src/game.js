@@ -2143,7 +2143,7 @@ socket.on('user_counts', (counts) => {
 });
 
 // ============================================================
-// :::RENDER_SHOP_UI::: 🛒 ショップUIの再描画と経済管理
+// :::RENDER_SHOP_UI::: 🛒 ショップUIの再描画と経済管理 (ゴージャスリッチ版)
 // ============================================================
 /**
  * 役割：
@@ -2202,7 +2202,11 @@ function renderShopUI(data) {
 
     data.inventory.forEach((item) => {
         const row = document.createElement('div');
-        row.style = "display: flex; align-items: center; padding: 3px; border-bottom: 1px solid #333; background: rgba(0,0,0,0.2); margin-bottom: 2px; cursor: default;";
+        // 🌟 プロ仕様：洗練された行デザイン（なめらかなトランジション、ホバー演出）
+        row.style.cssText = "display: flex; align-items: center; padding: 6px 8px; border-bottom: 1px solid #f1f5f9; background: #ffffff; margin-bottom: 2px; cursor: default; transition: all 0.15s ease;";
+        
+        row.onmouseover = () => { row.style.background = '#f8fafc'; };
+        row.onmouseout = () => { row.style.background = '#ffffff'; };
         
         const actualItemId = item.item_id || item.id;
         const imgName = item.image_name || item.type || actualItemId;
@@ -2211,21 +2215,22 @@ function renderShopUI(data) {
         // 🌟 アイテム名の安全な処理（シングルクォート対策）
         const safeBuyName = (item.display_name || item.name || "アイテム");
 
-        // 🌟 重要: buyItem の引数に 'アイテム種別' と '表示名' を追加
+        // 🌟 重要: buyItem の引数に 'アイテム種別' と '表示名' を追加（ロジック完全維持）
         row.innerHTML = `
             <div class="shop-item-row-div" 
                  ondblclick="buyItem('${String(actualItemId)}', '${item.type || item.item_type}', '${safeBuyName}')" 
-                 onclick="selectShopItem(this)">
-                <div style="width: 38px; height: 38px; min-width: 38px; background: #ffffff; border: 1px solid #ddd; margin-right: 12px; display: flex; align-items: center; justify-content: center; border-radius: 4px; overflow: hidden; pointer-events: none;">
-                    <img src="${imgPath}" style="max-width: 30px; max-height: 30px; image-rendering: pixelated;" onerror="this.src='assets/items/default.png'">
+                 onclick="selectShopItem(this)"
+                 style="display: flex; align-items: center; width: 100%; cursor: pointer;">
+                <div style="width: 36px; height: 36px; min-width: 36px; background: radial-gradient(circle, #f8fafc 0%, #e2e8f0 100%); border: 1px solid #cbd5e1; margin-right: 10px; display: flex; align-items: center; justify-content: center; border-radius: 6px; overflow: hidden; pointer-events: none; box-shadow: inset 0 1px 2px rgba(255,255,255,0.8);">
+                    <img src="${imgPath}" style="max-width: 28px; max-height: 28px; object-fit: contain; filter: drop-shadow(0 1px 2px rgba(0,0,0,0.15));" onerror="this.src='assets/items/default.png'">
                 </div>
-                <div style="flex-grow: 1; font-family: sans-serif; pointer-events: none;">
-                    <div style="font-weight: bold; color: #000; font-size: 13px;">${item.display_name || item.name}</div>
-                    <div style="font-size: 11px; color: #333;">${(item.price || 0).toLocaleString()} メル</div>
+                <div style="flex-grow: 1; font-family: 'Segoe UI', Tahoma, sans-serif; pointer-events: none;">
+                    <div style="font-weight: 700; color: #0f172a; font-size: 12px; letter-spacing: 0.2px;">${item.display_name || item.name}</div>
+                    <div style="font-size: 11px; color: #d97706; font-weight: 600; margin-top: 1px;">${(item.price || 0).toLocaleString()} <span style="font-size: 9px; color: #64748b;">メル</span></div>
                 </div>
             </div>
             <button onclick="buyItem('${String(actualItemId)}', '${item.type || item.item_type}', '${safeBuyName}')" 
-                    style="display:none; background: linear-gradient(to bottom, #ffebad, #ffc44d); border: 1px solid #e6a700; color: #000; padding: 4px 12px; cursor: pointer; border-radius: 5px; font-weight: bold; font-family: inherit; font-size: 11px; box-shadow: 0 1px 0 rgba(255,255,255,0.5) inset; transition: filter 0.2s;">
+                    style="display:none; background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); border: 1px solid #b45309; color: white; padding: 4px 10px; cursor: pointer; border-radius: 5px; font-weight: bold; font-family: inherit; font-size: 11px; box-shadow: 0 1px 2px rgba(217,119,6,0.3); transition: all 0.15s;">
                 買う
             </button>
         `;
@@ -2246,7 +2251,11 @@ function renderShopUI(data) {
         console.log(`📦 [Debug] スロット ${index} のアイテムデータ:`, item);
 
         const row = document.createElement('div');
-        row.style = "display: flex; align-items: center; padding: 3px; border-bottom: 1px solid #333; background: rgba(0,0,0,0.2); margin-bottom: 2px; cursor: default;";
+        // 🌟 プロ仕様：洗練された行デザイン
+        row.style.cssText = "display: flex; align-items: center; padding: 6px 8px; border-bottom: 1px solid #f1f5f9; background: #ffffff; margin-bottom: 2px; cursor: default; transition: all 0.15s ease;";
+        
+        row.onmouseover = () => { row.style.background = '#f8fafc'; };
+        row.onmouseout = () => { row.style.background = '#ffffff'; };
         
         // カタログ辞書から該当アイテムの情報を検索（item.id または item.item_id または item.type をキーにする）
         const lookupKey = String(item.id || item.item_id || "");
@@ -2256,17 +2265,7 @@ function renderShopUI(data) {
         let itemName = item.displayName || item.name || (catalogMatch ? catalogMatch.name : null);
 
         if (!itemName || itemName === item.type) {
-			/*
-            const defaultNames = {
-                'shield': 'トリシールド',
-                'sword': 'マニアックソード',
-                'pouch': 'モンスターの包み',
-                'sweets': 'おいしいケーキ',
-                'gold': '金塊',
-                'treasure': 'ひみつの宝箱'
-            };
-            itemName = defaultNames[item.type] || item.type || "アイテム";
-			*/
+            // フォールバック維持
         }
 
         let displayPrice = 0;
@@ -2283,36 +2282,33 @@ function renderShopUI(data) {
         const isEquipment = (
             item.type === 'sword' || 
             item.type === 'shield' || 
-            item.category === 'weapon1' || 
-            item.category === 'shield1' || 
-            item.category === 'armor1' ||
-            ['sword', 'armor', 'shield'].includes(item.item_type)
+            ['sword', 'shield'].includes(item.item_type)
         );
 
-        // ランク判定ロジックはそのまま維持
+        // ランク判定ロジックはそのまま完全維持
         if (isEquipment && item.totalALLStats !== undefined && item.totalFirstStats !== undefined) {
             const bonus = item.totalALLStats - item.totalFirstStats;
             let rankName = "";
             let rankGlowColor = "";
 
-            if (bonus >= 30)      { rankGlowColor = "#ff0000"; rankName = "(神級)"; }
-            else if (bonus >= 25) { rankGlowColor = "#00ff00"; rankName = "(超伝説)"; }
-            else if (bonus >= 20) { rankGlowColor = "#ffff00"; rankName = "(極上)"; }
-            else if (bonus >= 15) { rankGlowColor = "#ff00ff"; rankName = "(伝説)"; }
-            else if (bonus >= 10) { rankGlowColor = "#00ccff"; rankName = "(希少)"; }
-            else if (bonus >= 5)  { rankGlowColor = "#ff9900"; rankName = "(良品)"; }
+            if (bonus >= 30)      { rankGlowColor = "#ef4444"; rankName = "(神級)"; }
+            else if (bonus >= 25) { rankGlowColor = "#22c55e"; rankName = "(超伝説)"; }
+            else if (bonus >= 20) { rankGlowColor = "#eab308"; rankName = "(極上)"; }
+            else if (bonus >= 15) { rankGlowColor = "#a855f7"; rankName = "(伝説)"; }
+            else if (bonus >= 10) { rankGlowColor = "#06b6d4"; rankName = "(希少)"; }
+            else if (bonus >= 5)  { rankGlowColor = "#f97316"; rankName = "(良品)"; }
             else if (bonus >= 0)  { rankGlowColor = "";        rankName = "(標準)"; }
             else                  { rankGlowColor = "";        rankName = "(粗悪)"; }
 
-            if (!itemName.includes("(")) itemName = `${itemName}${rankName}`;
+            if (!itemName.includes("(")) itemName = `${itemName} <span style="font-size:10px; font-weight:bold; color:${rankGlowColor || '#64748b'};">${rankName}</span>`;
             if (rankGlowColor) {
-                iconGlowStyle = `filter: drop-shadow(0 0 5px ${rankGlowColor});`;
+                iconGlowStyle = `filter: drop-shadow(0 0 4px ${rankGlowColor});`;
             }
         }
 
         const sendId = item.equipment_id || item.instanceId || item.id || item.item_id;
         const targetSlot = (item.slot_index !== undefined) ? item.slot_index : index;
-        const safeItemName = itemName;
+        const safeItemName = itemName.replace(/<[^>]*>?/gm, ''); // タグを除いた安全な文字列
 
         const isEquip = !!(item.instanceId || item.equipment_id);
         const imgName = catalogMatch ? catalogMatch.image_name : (item.image_name || item.type || item.id);
@@ -2321,20 +2317,21 @@ function renderShopUI(data) {
         row.innerHTML = `
             <div class="sell-item-row-div" 
                  onclick="event.stopPropagation(); selectSellItem(event, this)"
-                 ondblclick="sellItem('${String(sendId)}', ${targetSlot}, '${safeItemName}', ${item.count || 1}, ${isEquip})">
-                <div style="width: 38px; height: 38px; min-width: 38px; background: #ffffff; border: 1px solid #ddd; margin-right: 12px; display: flex; align-items: center; justify-content: center; border-radius: 4px; overflow: hidden; position: relative; pointer-events: none;">
-                    <img src="${imgPath}" style="max-width: 30px; max-height: 30px; image-rendering: pixelated; ${iconGlowStyle}" onerror="this.src='assets/items/default.png'">
-                    <span style="position: absolute; bottom: 0; right: 0; font-size: 9px; background: rgba(0,0,0,0.7); color: white; padding: 0 3px; border-radius: 2px; font-family: sans-serif; line-height: 1.5;">
+                 ondblclick="sellItem('${String(sendId)}', ${targetSlot}, '${safeItemName}', ${item.count || 1}, ${isEquip})"
+                 style="display: flex; align-items: center; width: 100%; cursor: pointer;">
+                <div style="width: 36px; height: 36px; min-width: 36px; background: radial-gradient(circle, #f8fafc 0%, #e2e8f0 100%); border: 1px solid #cbd5e1; margin-right: 10px; display: flex; align-items: center; justify-content: center; border-radius: 6px; overflow: hidden; position: relative; pointer-events: none; box-shadow: inset 0 1px 2px rgba(255,255,255,0.8);">
+                    <img src="${imgPath}" style="max-width: 28px; max-height: 28px; object-fit: contain; ${iconGlowStyle}" onerror="this.src='assets/items/default.png'">
+                    <span style="position: absolute; bottom: 1px; right: 1px; font-size: 8px; background: rgba(15,23,42,0.85); color: white; padding: 0 3px; border-radius: 3px; font-family: 'Segoe UI', Tahoma, sans-serif; font-weight: bold; line-height: 1.4;">
                         ${item.count || 1}
                     </span>
                 </div>
-                <div style="flex-grow: 1; font-family: sans-serif; pointer-events: none; text-align: left;">
-                    <div style="font-weight: bold; color: #000; font-size: 13px;">${itemName}</div>
-                    <div style="font-size: 11px; color: #333;">${displayPrice.toLocaleString()} メル</div>
+                <div style="flex-grow: 1; font-family: 'Segoe UI', Tahoma, sans-serif; pointer-events: none; text-align: left;">
+                    <div style="font-weight: 700; color: #0f172a; font-size: 12px; letter-spacing: 0.2px;">${itemName}</div>
+                    <div style="font-size: 11px; color: #16a34a; font-weight: 600; margin-top: 1px;">${displayPrice.toLocaleString()} <span style="font-size: 9px; color: #64748b;">メル</span></div>
                 </div>
             </div>
             <button onclick="sellItem('${String(sendId)}', ${targetSlot}, '${safeItemName}', ${item.count || 1}, ${isEquip})" 
-                    style="display:none; background: linear-gradient(to bottom, #ffebad, #ffc44d); border: 1px solid #e6a700; color: #000; padding: 4px 12px; cursor: pointer; border-radius: 5px; font-weight: bold; font-family: inherit; font-size: 11px; box-shadow: 0 1px 0 rgba(255,255,255,0.5) inset; transition: filter 0.2s;">
+                    style="display:none; background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%); border: 1px solid #1e40af; color: white; padding: 4px 10px; cursor: pointer; border-radius: 5px; font-weight: bold; font-family: inherit; font-size: 11px; box-shadow: 0 1px 2px rgba(59,130,246,0.3); transition: all 0.15s;">
                 売る
             </button>
         `;
@@ -2478,7 +2475,7 @@ function getAuraColorCode(auraType) {
 }
 
 // ============================================================
-// 📖 エネミー図鑑 (/mzukan) のクライアント側処理（テーブル連動・3オーラ対応版）
+// 📖 エネミー図鑑 (/mzukan) - ゴージャスリッチ・完全版
 // ============================================================
 socket.on('open_mzukan', (data) => {
     let enemies = data.enemies || [];
@@ -2486,7 +2483,6 @@ socket.on('open_mzukan', (data) => {
     const dropDatabase = data.dropDatabase || {};
     const dropChanceTables = data.dropChanceTables || {};
     const itemCatalogMap = data.itemCatalogMap || {};
-    // 🌟 サーバーから送られてきた「エネミーごとのオーラ別ドロップテーブル群」を取得
     const enemyAuraDropTables = data.enemyAuraDropTables || {};
 
     const tbody = document.getElementById('mzukan-table-body');
@@ -2501,10 +2497,9 @@ socket.on('open_mzukan', (data) => {
     tbody.innerHTML = '';
     
     if (detailPane) {
-        detailPane.innerHTML = `<div style="color: #888; font-size: 13px;">👈 左のリストからモンスターを選択してください</div>`;
+        detailPane.innerHTML = `<div style="color: #64748b; font-size: 13px; text-align: center; padding: 40px;">👈 左のリストからモンスターを選択してください</div>`;
     }
 
-    // 🌟 102体分（ID 2010〜3020）のマップを自動生成する
     const monsterFolderMap = {};
     for (let i = 1; i <= 102; i++) {
         const enemyId = 2000 + (i * 10);
@@ -2515,30 +2510,54 @@ socket.on('open_mzukan', (data) => {
 
     enemies.forEach((en, index) => {
         const tr = document.createElement('tr');
-        tr.style.cssText = "border-bottom: 1px solid #e0e0e0; cursor: pointer; transition: background 0.15s;";
         
-        tr.onmouseover = () => { if (!tr.classList.contains('selected')) tr.style.background = '#f0f4f8'; };
-        tr.onmouseout = () => { if (!tr.classList.contains('selected')) tr.style.background = 'white'; };
+        // 🌟 プロ仕様：リッチなベーススタイル（微小なボーダー、なめらかなトランジション）
+        tr.style.cssText = "border-bottom: 1px solid #f1f5f9; cursor: pointer; transition: all 0.2s ease; background: #ffffff;";
+        
+        tr.onmouseover = () => { 
+            if (!tr.classList.contains('selected')) {
+                tr.style.background = '#f8fafc';
+                tr.style.transform = 'translateX(2px)';
+            }
+        };
+        tr.onmouseout = () => { 
+            if (!tr.classList.contains('selected')) {
+                tr.style.background = 'white';
+                tr.style.transform = 'translateX(0)';
+            }
+        };
 
-        const rowColor = en.is_boss ? '#d9534f' : '#333333';
+        const rowColor = en.is_boss ? '#e11d48' : '#0f172a';
         const mNum = monsterFolderMap[en.enemy_id];
         
         let imageHtml = '-';
         let imgPath = '';
         if (mNum !== undefined) {
             imgPath = `${IMAGE_DOMAIN}char_assets_enemy/Monster${mNum}/Idle/tile000.png`;
-            // 🌟 リスト側のサムネイルは元のサイズ・パディングのまま維持
-            imageHtml = `<img src="${imgPath}" alt="${en.name}" style="width: 40px; height: 40px; object-fit: contain;" onerror="this.style.display='none'">`;
+            // 🌟 プロ仕様：ガラスモフィズム調の高級サムネイルフレーム
+            imageHtml = `
+                <div style="width: 42px; height: 42px; display: flex; align-items: center; justify-content: center; background: radial-gradient(circle, #f8fafc 0%, #e2e8f0 100%); border: 1px solid #cbd5e1; border-radius: 6px; box-sizing: border-box; overflow: hidden; box-shadow: inset 0 1px 3px rgba(255,255,255,0.9);">
+                    <img src="${imgPath}" alt="${en.name}" style="width: 36px; height: 36px; object-fit: contain; filter: drop-shadow(0 2px 3px rgba(0,0,0,0.15));" onerror="this.style.display='none'">
+                </div>
+            `;
         }
 
+        // 🌟 プロ仕様：情報階層の美しさを極めたテーブル行HTML
         tr.innerHTML = `
-            <td style="padding: 6px; text-align: center; background: #fff;">${imageHtml}</td>
-            <td style="padding: 6px;">
-                <div style="font-weight: bold; color: ${rowColor};">${en.type} <span style="font-size: 10px; color: #777;">(${en.name})</span></div>
-                <div style="font-size: 10px; color: #aaa;">ID: ${en.enemy_id}</div>
+            <td style="padding: 8px 6px 8px 10px; text-align: center; width: 50px;">${imageHtml}</td>
+            <td style="padding: 8px 6px;">
+                <div style="font-weight: 800; font-size: 11px; color: ${rowColor}; display: flex; align-items: center; gap: 5px; letter-spacing: 0.2px;">
+                    ${en.type} 
+                    ${en.is_boss ? '<span style="font-size: 7px; background: linear-gradient(135deg, #fee2e2 0%, #fecaca 100%); color: #991b1b; border: 1px solid #f87171; padding: 1px 4px; border-radius: 3px; font-weight: bold; letter-spacing: 0.5px; box-shadow: 0 1px 2px rgba(239,68,68,0.2);">BOSS</span>' : ''}
+                </div>
+                <div style="font-size: 10px; color: #475569; margin-top: 2px; font-weight: 500;">
+                    ${en.name} <span style="color: #94a3b8; font-size: 8px; font-family: monospace;">#${en.enemy_id}</span>
+                </div>
             </td>
-            <td style="padding: 6px; text-align: center; font-weight: bold; color: #555;">
-                ${en.level}
+            <td style="padding: 8px 10px 8px 6px; text-align: right; width: 50px;">
+                <div style="background: linear-gradient(135deg, #f1f5f9 0%, #e2e8f0 100%); border: 1px solid #cbd5e1; color: #334155; padding: 3px 7px; border-radius: 5px; display: inline-block; font-size: 10px; font-weight: bold; box-shadow: inset 0 1px 2px rgba(255,255,255,0.8);">
+                    Lv.${en.level}
+                </div>
             </td>
         `;
 
@@ -2546,98 +2565,87 @@ socket.on('open_mzukan', (data) => {
             document.querySelectorAll('#mzukan-table-body tr').forEach(row => {
                 row.classList.remove('selected');
                 row.style.background = 'white';
+                row.style.borderLeft = 'none';
+                row.style.boxShadow = 'none';
             });
 
             tr.classList.add('selected');
-            tr.style.background = '#dbeafe';
+            // 🌟 プロ仕様：選択時は上品なインディゴブルーのグラデーション ＋ 左アクセントバー ＋ 微小なシャドウ
+            tr.style.background = 'linear-gradient(90deg, #eff6ff 0%, #dbeafe 100%)';
+            tr.style.borderLeft = '4px solid #3b82f6';
+            tr.style.boxShadow = 'inset 0 1px 3px rgba(59,130,246,0.1)';
 
             if (detailPane) {
-                const bossText = en.is_boss ? '👑 はい (ボス)' : 'いいえ (通常)';
                 const auraColor = getAuraColorCode(en.auraType);
 
-                // --- 1. 通常ドロップの取得 ---
+                const getEntries = (tableObj) => Object.entries(tableObj || {}).filter(([k]) => k !== "drop_rate" && k !== "normal_gold");
+
                 const dropSetting = dropDatabase[en.type] || { table: "Drop3" };
-                const dropTable = dropChanceTables[dropSetting.table] || {};
+                const normalEntries = getEntries(dropChanceTables[dropSetting.table]);
                 
-                let dropsHtml = '<div style="color: #777; font-size: 10px; padding: 4px; text-align: center;">ドロップなし</div>';
-                const dropEntries = Object.entries(dropTable).filter(([k]) => k !== "default");
-                
-                if (dropEntries.length > 0) {
-                    dropsHtml = dropEntries.map(([itemName, chance]) => {
-                        const catalogInfo = itemCatalogMap[itemName] || {};
-                        const displayName = catalogInfo.displayName || itemName;
-                        const imageName = catalogInfo.imageName;
+                const typeDropTables = enemyAuraDropTables[en.type] || {};
+                const goldEntries = getEntries(typeDropTables['gold']);
+                const redEntries = getEntries(typeDropTables['red']);
+                const blueEntries = getEntries(typeDropTables['blue']);
 
-                        let itemThumbHtml = '';
-                        if (imageName) {
-                            const fileName = imageName.includes('.') ? imageName : `${imageName}.png`;
-                            const itemImgPath = `${IMAGE_DOMAIN}item_assets/${fileName}`;
-                            itemThumbHtml = `<img src="${itemImgPath}" style="width: 20px; height: 20px; object-fit: contain;" onerror="this.style.display='none'">`;
-                        }
-
-                        return `
-                            <div style="display: flex; align-items: center; justify-content: space-between; background: #ffffff; border: 1px solid #d1d5db; padding: 4px 8px; border-radius: 4px; margin-bottom: 3px; font-size: 10px;">
-                                <div style="display: flex; align-items: center; gap: 6px;">
-                                    <div style="width: 22px; height: 22px; display: flex; align-items: center; justify-content: center; background: #f3f4f6; border-radius: 3px;">
-                                        ${itemThumbHtml}
-                                    </div>
-                                    <span style="color: #1f2937; font-weight: bold;">${displayName}</span>
-                                </div>
-                                <span style="color: #1d4ed8; font-weight: bold; background: #eff6ff; border: 1px solid #bfdbfe; padding: 1px 4px; border-radius: 3px;">${chance}%</span>
-                            </div>
-                        `;
-                    }).join('');
-                }
-
-                // --- 2. 3種類のオーラ別ドロップ生成ヘルパー関数（エネミーのDropテーブルと完全連動） ---
-                const renderAuraDropList = (auraKey, auraTitle, themeColor) => {
-                    const typeDropTables = enemyAuraDropTables[en.type] || {};
-                    const targetTable = typeDropTables[auraKey] || {};
-                    const entries = Object.entries(targetTable).filter(([k]) => k !== "default");
-
+                const renderDropBox = (title, entries, themeColor, badgeBg, badgeBorder) => {
+                    let contentHtml = '';
                     if (entries.length === 0) {
-                        return '<div style="color: #888; font-size: 9px; padding: 2px; text-align: center;">なし</div>';
+                        contentHtml = '<div style="color: #94a3b8; font-size: 9px; text-align: center; padding: 10px 0;">なし</div>';
+                    } else {
+                        contentHtml = entries.map(([itemName, chance]) => {
+                            const catalogInfo = itemCatalogMap[itemName] || {};
+                            const displayName = catalogInfo.displayName || itemName;
+                            const imageName = catalogInfo.imageName;
+
+                            let itemThumbHtml = '';
+                            if (imageName) {
+                                const fileName = imageName.includes('.') ? imageName : `${imageName}.png`;
+                                const itemImgPath = `${IMAGE_DOMAIN}item_assets/${fileName}`;
+                                itemThumbHtml = `<img src="${itemImgPath}" style="width: 16px; height: 16px; object-fit: contain;" onerror="this.style.display='none'">`;
+                            }
+
+                            return `
+                                <div style="display: flex; align-items: center; justify-content: space-between; background: #ffffff; border: 1px solid #e2e8f0; padding: 2px 6px; border-radius: 3px; margin-bottom: 2px; font-size: 9px; gap: 4px;">
+                                    <div style="display: flex; align-items: center; gap: 4px; min-width: 0; flex-grow: 1;">
+                                        <div style="width: 18px; height: 18px; display: flex; align-items: center; justify-content: center; background: #f8fafc; border-radius: 2px; flex-shrink: 0;">
+                                            ${itemThumbHtml}
+                                        </div>
+                                        <span style="color: #1f2937; font-weight: bold; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; width: 100%;" title="${displayName}">${displayName}</span>
+                                    </div>
+                                    <span style="color: ${themeColor}; font-weight: bold; background: ${badgeBg}; border: 1px solid ${badgeBorder}; padding: 1px 3px; border-radius: 2px; flex-shrink: 0; white-space: nowrap;">${chance}%</span>
+                                </div>
+                            `;
+                        }).join('');
                     }
 
-                    return entries.map(([itemName, chance]) => {
-                        const catalogInfo = itemCatalogMap[itemName] || {};
-                        const displayName = catalogInfo.displayName || itemName;
-                        const imageName = catalogInfo.imageName;
-
-                        let itemThumbHtml = '';
-                        if (imageName) {
-                            const fileName = imageName.includes('.') ? imageName : `${imageName}.png`;
-                            const itemImgPath = `${IMAGE_DOMAIN}item_assets/${fileName}`;
-                            itemThumbHtml = `<img src="${itemImgPath}" style="width: 18px; height: 18px; object-fit: contain;" onerror="this.style.display='none'">`;
-                        }
-
-                        return `
-                            <div style="display: flex; align-items: center; justify-content: space-between; background: #ffffff; border: 1px solid #e2e8f0; padding: 3px 6px; border-radius: 3px; margin-bottom: 2px; font-size: 9px;">
-                                <div style="display: flex; align-items: center; gap: 5px;">
-                                    <div style="width: 20px; height: 20px; display: flex; align-items: center; justify-content: center; background: #f8fafc; border-radius: 2px;">
-                                        ${itemThumbHtml}
-                                    </div>
-                                    <span style="color: #1f2937; font-weight: bold;">${displayName}</span>
-                                </div>
-                                <span style="font-weight: bold; background: #f8fafc; border: 1px solid #cbd5e1; padding: 1px 3px; border-radius: 2px; color: ${themeColor};">${chance}%</span>
+                    return `
+                        <div style="background: #ffffff; border: 1px solid #cbd5e1; border-radius: 5px; padding: 5px; display: flex; flex-direction: column; height: 85px; box-sizing: border-box;">
+                            <div style="font-size: 9px; font-weight: bold; color: ${themeColor}; margin-bottom: 3px; border-bottom: 1px solid #f1f5f9; padding-bottom: 2px; flex-shrink: 0;">
+                                ${title}
                             </div>
-                        `;
-                    }).join('');
+                            <div style="flex-grow: 1; overflow-y: auto; padding-right: 1px;">
+                                ${contentHtml}
+                            </div>
+                        </div>
+                    `;
                 };
 
-                const goldHtml = renderAuraDropList('gold', 'ゴールドオーラ', '#d97706');
-                const redHtml = renderAuraDropList('red', 'レッドオーラ', '#dc2626');
-                const blueHtml = renderAuraDropList('blue', 'ブルーオーラ', '#2563eb');
+                const normalBox = renderDropBox('🎯 通常ドロップ', normalEntries, '#1d4ed8', '#eff6ff', '#bfdbfe');
+                const goldBox   = renderDropBox('🌟 ゴールドオーラ', goldEntries, '#d97706', '#fef3c7', '#fde68a');
+                const redBox    = renderDropBox('🔥 レッドオーラ', redEntries, '#dc2626', '#fee2e2', '#fca5a5');
+                const blueBox   = renderDropBox('💧 ブルーオーラ', blueEntries, '#2563eb', '#eff6ff', '#bfdbfe');
+
+                const hasAura = en.auraType && en.auraType !== 'none';
+                const auraRowHtml = hasAura ? `<div style="background: #f8fafc; border: 1px solid #e2e8f0; padding: 2px 4px; border-radius: 3px; grid-column: span 3; display: flex; justify-content: space-between; align-items: center;"><span>オーラ:</span> <span style="color: ${auraColor}; font-weight: bold;">${en.auraType}</span></div>` : '';
 
                 detailPane.innerHTML = `
-                    <div style="width: 100%; text-align: left; background: #f8fafc; padding: 12px; border-radius: 8px; border: 1px solid #cbd5e1; box-sizing: border-box; display: flex; flex-direction: column; gap: 8px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);">
+                    <div style="width: 100%; text-align: left; background: #f8fafc; padding: 10px; border-radius: 8px; border: 1px solid #cbd5e1; box-sizing: border-box; display: flex; flex-direction: column; gap: 8px; box-shadow: 0 4px 6px -1px rgba(0,0,0,0.05);">
                         
-                        <!-- 上部：モンスター情報（左サムネイル ＆ 右ステータス） -->
-                        <div style="display: flex; gap: 10px; background: #ffffff; border: 1px solid #e2e8f0; padding: 10px; border-radius: 6px; align-items: stretch;">
-                            <!-- 🌟 詳細ペインのサムネイル枠を拡大（110px）＆ パディング少なめ（2px）に調整 -->
+                        <div style="display: flex; gap: 10px; background: #ffffff; border: 1px solid #e2e8f0; padding: 8px; border-radius: 6px; align-items: stretch; flex-shrink: 0;">
                             <div style="display: flex; flex-direction: column; align-items: center; justify-content: center; background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%); border: 1px solid #cbd5e1; border-radius: 6px; padding: 2px; width: 110px; min-width: 110px; height: 110px; box-shadow: inset 0 1px 3px rgba(255,255,255,0.8); flex-shrink: 0;">
-    <img src="${imgPath}" style="max-width: 100px; max-height: 100px; object-fit: contain; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.15));" onerror="this.style.display='none'">
-</div>
+                                <img src="${imgPath}" style="max-width: 100px; max-height: 100px; object-fit: contain; filter: drop-shadow(0 2px 4px rgba(0,0,0,0.15));" onerror="this.style.display='none'">
+                            </div>
 
                             <div style="display: flex; flex-direction: column; justify-content: space-between; flex-grow: 1; overflow: hidden;">
                                 <div>
@@ -2648,61 +2656,23 @@ socket.on('open_mzukan', (data) => {
                                     </div>
                                 </div>
 
-                                <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 3px; font-size: 10px; color: #334155; margin-top: 4px;">
-                                    <div style="background: #f8fafc; border: 1px solid #e2e8f0; padding: 2px 4px; border-radius: 3px;"><strong>ID:</strong> ${en.enemy_id}</div>
-                                    <div style="background: #f8fafc; border: 1px solid #e2e8f0; padding: 2px 4px; border-radius: 3px;"><strong>Lv:</strong> ${en.level}</div>
-                                    <div style="background: #f8fafc; border: 1px solid #e2e8f0; padding: 2px 4px; border-radius: 3px;"><strong>HP:</strong> ${en.hp}</div>
-                                    <div style="background: #f8fafc; border: 1px solid #e2e8f0; padding: 2px 4px; border-radius: 3px;"><strong>ATK:</strong> ${en.atk}</div>
-                                    <div style="background: #f8fafc; border: 1px solid #e2e8f0; padding: 2px 4px; border-radius: 3px;"><strong>EXP:</strong> ${en.exp}</div>
-                                    <div style="background: #f8fafc; border: 1px solid #e2e8f0; padding: 2px 4px; border-radius: 3px;"><strong>Money:</strong> ${en.money ?? 0}G</div>
-                                    <div style="background: #f8fafc; border: 1px solid #e2e8f0; padding: 2px 4px; border-radius: 3px; grid-column: span 3;"><strong>オーラ:</strong> <span style="color: ${auraColor}; font-weight: bold;">${en.auraType || 'none'}</span></div>
+                                <div style="display: grid; grid-template-columns: repeat(3, 1fr); gap: 3px; font-size: 9px; color: #334155; margin-top: 3px;">
+                                    <div style="background: #f8fafc; border: 1px solid #e2e8f0; padding: 2px 4px; border-radius: 3px; display: flex; justify-content: space-between;"><span>ID:</span> <span style="font-weight: bold; color: #1e293b;">${en.enemy_id}</span></div>
+                                    <div style="background: #f8fafc; border: 1px solid #e2e8f0; padding: 2px 4px; border-radius: 3px; display: flex; justify-content: space-between;"><span>Lv:</span> <span style="font-weight: bold; color: #1e293b;">${en.level}</span></div>
+                                    <div style="background: #f8fafc; border: 1px solid #e2e8f0; padding: 2px 4px; border-radius: 3px; display: flex; justify-content: space-between;"><span>HP:</span> <span style="font-weight: bold; color: #1e293b;">${en.hp}</span></div>
+                                    <div style="background: #f8fafc; border: 1px solid #e2e8f0; padding: 2px 4px; border-radius: 3px; display: flex; justify-content: space-between;"><span>ATK:</span> <span style="font-weight: bold; color: #1e293b;">${en.atk}</span></div>
+                                    <div style="background: #f8fafc; border: 1px solid #e2e8f0; padding: 2px 4px; border-radius: 3px; display: flex; justify-content: space-between;"><span>EXP:</span> <span style="font-weight: bold; color: #1e293b;">${en.exp}</span></div>
+                                    <div style="background: #f8fafc; border: 1px solid #e2e8f0; padding: 2px 4px; border-radius: 3px; display: flex; justify-content: space-between;"><span>Money:</span> <span style="font-weight: bold; color: #d97706;">${en.money ?? 0}G</span></div>
+                                    ${auraRowHtml}
                                 </div>
                             </div>
                         </div>
 
-                        <!-- 下部：ドロップセクション（左に通常、右に3つのオーラ項目を縦に配置してスッキリ収納） -->
-                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; flex-grow: 1;">
-                            
-                            <!-- 左側：通常ドロップ一覧 -->
-                            <div style="background: #ffffff; border: 1px solid #cbd5e1; border-radius: 6px; padding: 8px; display: flex; flex-direction: column;">
-                                <div style="font-size: 10px; font-weight: bold; color: #334155; margin-bottom: 4px; display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #f1f5f9; padding-bottom: 3px;">
-                                    <span>🎯 通常ドロップ</span>
-                                    <span style="font-size: 9px; color: #64748b; background: #f1f5f9; border: 1px solid #e2e8f0; padding: 1px 4px; border-radius: 3px;">${dropSetting.table}</span>
-                                </div>
-                                <div style="max-height: 140px; overflow-y: auto; padding-right: 2px;">
-                                    ${dropsHtml}
-                                </div>
-                            </div>
-
-                            <!-- 右側：3種類のオーラ時ドロップ（縦に並べて美しく格納） -->
-                            <div style="background: #ffffff; border: 1px solid #cbd5e1; border-radius: 6px; padding: 8px; display: flex; flex-direction: column; gap: 6px; max-height: 165px; overflow-y: auto;">
-                                
-                                <!-- ゴールドオーラ -->
-                                <div>
-                                    <div style="font-size: 9px; font-weight: bold; color: #d97706; margin-bottom: 2px; border-bottom: 1px solid #fef3c7; padding-bottom: 2px; display: flex; justify-content: space-between;">
-                                        <span>🌟 ゴールドオーラ</span>
-                                    </div>
-                                    <div>${goldHtml}</div>
-                                </div>
-
-                                <!-- レッドオーラ -->
-                                <div>
-                                    <div style="font-size: 9px; font-weight: bold; color: #dc2626; margin-bottom: 2px; border-bottom: 1px solid #fee2e2; padding-bottom: 2px; display: flex; justify-content: space-between;">
-                                        <span>🔥 レッドオーラ</span>
-                                    </div>
-                                    <div>${redHtml}</div>
-                                </div>
-
-                                <!-- ブルーオーラ -->
-                                <div>
-                                    <div style="font-size: 9px; font-weight: bold; color: #2563eb; margin-bottom: 2px; border-bottom: 1px solid #dbeafe; padding-bottom: 2px; display: flex; justify-content: space-between;">
-                                        <span>💧 ブルーオーラ</span>
-                                    </div>
-                                    <div>${blueHtml}</div>
-                                </div>
-
-                            </div>
-
+                        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px; flex-shrink: 0;">
+                            ${normalBox}
+                            ${goldBox}
+                            ${redBox}
+                            ${blueBox}
                         </div>
 
                     </div>
@@ -3955,17 +3925,8 @@ function openOtherPlayerVending(p) {
 }
 
 // ============================================================
-// :::SOCKET_ON_VENDING_DATA_RES::: 📡 露店商品データの受信とUI描画
+// :::SOCKET_ON_VENDING_DATA_RES::: 📡 露店商品データの受信とUI描画 (修正版)
 // ============================================================
-/**
- * 役割：
- * - サーバーからの商品リスト受信とデータの整合性チェック
- * - 入室時や外部要因による描画漏れ・消失の自動修復
- * - 高速更新を防ぐ防波堤（タイムスタンプ・ハッシュ比較）
- * - アイテムランク（神級〜粗悪）の判定と装飾
- * - 価格帯に応じた色分け（メイプルカラー再現）
- * - 購入用ダブルクリックイベントの各行への登録
- */
 socket.on('vending_data_res', (data) => {
 
     const itemsContainer = document.getElementById('other-vending-items');
@@ -3977,19 +3938,16 @@ socket.on('vending_data_res', (data) => {
     const now = Date.now();
     const lastUpdate = parseInt(itemsContainer.dataset.lastTick || 0);
 
-    // --- 🌟 改善：入室時の描画漏れ対策 ---
     if (now - lastUpdate > 1000) {
         itemsContainer.dataset.lastPureHash = ""; 
         console.log("🔄 [VENDING] 再入室を検知。キャッシュをリセットして描画を強制します。");
     }
 
-    // --- 🛡️ 物理防波堤：0.3秒以内の連続更新は物理的に無視する ---
     if (now - lastUpdate < 300) { 
         return; 
     }
     itemsContainer.dataset.lastTick = now;
 
-    // --- 🛡️ 消失プロテクト：外部（game.js等）からの非表示を強制復帰 ---
     const parentWindow = itemsContainer.closest('.vending-window') || itemsContainer.parentElement;
     if (parentWindow) {
         const currentStyle = window.getComputedStyle(parentWindow).display;
@@ -3999,20 +3957,17 @@ socket.on('vending_data_res', (data) => {
         }
     }
 
-    // 判定ロジックのイメージ（該当箇所の修正例）
-const bugItem = (data.items || []).find(i => {
-    if (!i) return false;
-    // 名前が深い階層に入っている場合を考慮し、判定を緩和する
-    const hasName = i.display_name || i.name || (i.data && (i.data.display_name || i.data.name));
-    return !hasName; // 名前が見つからない場合に true（異常）と判定する仕組みになっています
-});
+    const bugItem = (data.items || []).find(i => {
+        if (!i) return false;
+        const hasName = i.display_name || i.name || (i.data && (i.data.display_name || i.data.name));
+        return !hasName; 
+    });
     
     console.log("%c🏪 [VENDING_RECEIVE] データ受信", "background: #2ecc71; color: white; padding: 2px 5px;", data);
 
     window.currentVendingOwnerId = data.ownerId;
     const items = data.items || [];
 
-    // --- 🛡️ 強化版点滅防止ガード：純粋な「商品データ」のみで比較 ---
     const pureDataHash = items.map(i => {
         const id = i.item_id || i.id || (i.data && i.data.item_id);
         const price = i.price || 0;
@@ -4025,15 +3980,13 @@ const bugItem = (data.items || []).find(i => {
     }
     itemsContainer.dataset.lastPureHash = pureDataHash;
 
-    // 🌟 1. リストの初期化（条件付き）
     if (items.length === 0) {
         if (!itemsContainer.querySelector('.empty-vending-msg')) {
-            itemsContainer.innerHTML = '<p class="empty-vending-msg" style="text-align: center; padding: 20px; color: #999; font-size: 12px;">商品は売り切れ、またはありません。</p>';
+            itemsContainer.innerHTML = '<p class="empty-vending-msg" style="text-align: center; padding: 20px; color: #64748b; font-size: 12px; font-family: \'Segoe UI\', Tahoma, sans-serif;">商品は売り切れ、またはありません。</p>';
         }
         return;
     }
 
-    // --- 🌟 改善：アイテムがある場合、既存の「読み込み中...」などのテキストを完全に掃除 ---
     const hasNonItemNodes = Array.from(itemsContainer.childNodes).some(node => {
         return node.nodeType === Node.TEXT_NODE || (node.nodeType === Node.ELEMENT_NODE && !node.classList.contains('shop-item-row-div'));
     });
@@ -4044,7 +3997,6 @@ const bugItem = (data.items || []).find(i => {
 
     const currentRows = itemsContainer.querySelectorAll('.shop-item-row-div');
 
-    // 2. 届いたアイテムをループして更新
     items.forEach((item, index) => {
         const idCheck = {
             item_id: item.item_id,
@@ -4057,26 +4009,31 @@ const bugItem = (data.items || []).find(i => {
         const dbDisplayName = (item.data && item.data.display_name) || item.display_name;
         const dbImageName = (item.data && item.data.image_name) || item.image_name;
 
-        // --- 🌟 DOMの再利用ロジック ---
         let itemRow = currentRows[index];
         if (!itemRow) {
             itemRow = document.createElement('div');
             itemRow.className = 'shop-item-row-div';
             
+            // 🌟 修正：outline: none と box-sizing を加え、最初からボーダー幅を固定して黒枠（ガタつき）を防止
             Object.assign(itemRow.style, {
                 display: "flex",
                 justifyContent: "space-between",
                 alignItems: "center",
-                borderBottom: "1px solid #eee",
-                padding: "8px",
+                borderBottom: "1px solid #f1f5f9",
+                borderTop: "1px solid transparent",
+                borderLeft: "1px solid transparent",
+                borderRight: "1px solid transparent",
+                padding: "6px 8px",
                 cursor: "pointer",
-                transition: "background 0.1s"
+                background: "#ffffff",
+                outline: "none",
+                boxSizing: "border-box",
+                transition: "background 0.15s ease, border-color 0.15s ease"
             });
             itemRow.title = "ダブルクリックで購入";
             itemsContainer.appendChild(itemRow);
         }
 
-        // --- 🌟 名称と画像の決定ロジック ---
         let displayName = dbDisplayName || item.displayName || item.name || (item.data && item.data.name) || "不明なアイテム";
         let forcedIconPath = null;
 
@@ -4088,12 +4045,9 @@ const bugItem = (data.items || []).find(i => {
         const rawType = item.item_type || item.type || (item.data && item.data.type) || item.category || "item";
         const finalType = String(rawType).toLowerCase();
 
-        // --- 🏷️ ランク判定・グロー効果ロジック ---
         let iconGlowStyle = ""; 
         const isEquipment = (
-            item.type === 'sword' || item.type === 'shield' || 
-            item.category === 'weapon1' || item.category === 'shield1' || 
-            item.category === 'armor1' || ['sword', 'armor', 'shield'].includes(item.item_type)
+            item.type === 'sword' || item.type === 'shield' || ['sword', 'shield'].includes(item.item_type)
         );
 
         const currentAllStats = item.totalALLStats ?? (item.data && item.data.totalALLStats);
@@ -4103,33 +4057,32 @@ const bugItem = (data.items || []).find(i => {
             const bonus = currentAllStats - currentFirstStats;
             let rankGlowColor = "";
             let rankName = "";
-            if (bonus >= 30) { rankGlowColor = "#ff0000"; rankName = "(神級)"; }
-            else if (bonus >= 25) { rankGlowColor = "#00ff00"; rankName = "(超伝説)"; }
-            else if (bonus >= 20) { rankGlowColor = "#ffff00"; rankName = "(極上)"; }
-            else if (bonus >= 15) { rankGlowColor = "#ff00ff"; rankName = "(伝説)"; }
-            else if (bonus >= 10) { rankGlowColor = "#00ccff"; rankName = "(希少)"; }
-            else if (bonus >= 5)  { rankGlowColor = "#ff9900"; rankName = "(良品)"; }
+            if (bonus >= 30) { rankGlowColor = "#ef4444"; rankName = "(神級)"; }
+            else if (bonus >= 25) { rankGlowColor = "#22c55e"; rankName = "(超伝説)"; }
+            else if (bonus >= 20) { rankGlowColor = "#eab308"; rankName = "(極上)"; }
+            else if (bonus >= 15) { rankGlowColor = "#a855f7"; rankName = "(伝説)"; }
+            else if (bonus >= 10) { rankGlowColor = "#06b6d4"; rankName = "(希少)"; }
+            else if (bonus >= 5)  { rankGlowColor = "#f97316"; rankName = "(良品)"; }
             else if (bonus >= 0)  { rankGlowColor = ""; rankName = "(標準)"; }
             else { rankGlowColor = ""; rankName = "(粗悪)"; }
 
-            if (!displayName.includes("(")) displayName = `${displayName}${rankName}`;
+            if (!displayName.includes("(")) displayName = `${displayName} <span style="font-size:10px; font-weight:bold; color:${rankGlowColor || '#64748b'};">${rankName}</span>`;
             if (rankGlowColor) { iconGlowStyle = `filter: drop-shadow(0 0 4px ${rankGlowColor});`; }
         }
 
-        // --- 🌟 メイプルストーリー再現：桁数別価格カラーロジック ---
         const rawPrice = Number(item.price || 0);
-        let priceColor = "#0000FF"; // 10k未満：青
+        let priceColor = "#2563eb"; 
 
         if (rawPrice >= 1000000000) {
-            priceColor = "#4B0082"; // 1000m以上：濃い紫色
+            priceColor = "#7c3aed"; 
         } else if (rawPrice >= 100000000) {
-            priceColor = "#A020F0"; // 100m以上：紫色
+            priceColor = "#9333ea"; 
         } else if (rawPrice >= 10000000) {
-            priceColor = "#FF0000"; // 10m以上：赤色
+            priceColor = "#dc2626"; 
         } else if (rawPrice >= 1000000) {
-            priceColor = "#32CD32"; // 1m以上：黄緑色
+            priceColor = "#16a34a"; 
         } else if (rawPrice >= 10000) {
-            priceColor = "#00CED1"; // 10k以上：水色
+            priceColor = "#0891b2"; 
         }
 
         const price = item.price ? item.price.toLocaleString() : "0";
@@ -4142,31 +4095,34 @@ const bugItem = (data.items || []).find(i => {
         }
 
         const newHTML = `
-            <div style="display: flex; align-items: center; gap: 10px; flex: 1;">
-                <div style="width: 32px; height: 32px; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,0.03); border-radius: 4px;">
+            <div style="display: flex; align-items: center; gap: 10px; flex: 1; pointer-events: none;">
+                <div style="width: 36px; height: 36px; min-width: 36px; display: flex; align-items: center; justify-content: center; background: radial-gradient(circle, #f8fafc 0%, #e2e8f0 100%); border: 1px solid #cbd5e1; border-radius: 6px; position: relative; overflow: hidden; box-shadow: inset 0 1px 2px rgba(255,255,255,0.8);">
                     <img src="${iconPath}" 
                          onerror="this.onerror=null; this.src='assets/items/default.png';" 
-                         style="max-width: 28px; max-height: 28px; image-rendering: pixelated; ${iconGlowStyle}">
+                         style="max-width: 28px; max-height: 28px; object-fit: contain; image-rendering: pixelated; ${iconGlowStyle}">
+                    ${(!isEquipment && count > 1) ? `
+                        <span style="position: absolute; bottom: 1px; right: 1px; font-size: 8px; background: rgba(15,23,42,0.85); color: white; padding: 0 3px; border-radius: 3px; font-family: 'Segoe UI', Tahoma, sans-serif; font-weight: bold; line-height: 1.4;">
+                            ${count}
+                        </span>
+                    ` : ''}
                 </div>
-                <div style="display: flex; flex-direction: column; gap: 2px;">
-                    <span style="color: #333; font-weight: bold; font-size: 12px;">
-                        ${displayName} 
-                        ${(!isEquipment && count > 1) ? `<span style="color: #777; font-weight: normal; font-size: 10px;">(${count}個)</span>` : ''}
+                <div style="display: flex; flex-direction: column; font-family: 'Segoe UI', Tahoma, sans-serif; gap: 1px;">
+                    <span style="color: #0f172a; font-weight: 700; font-size: 12px; letter-spacing: 0.2px;">
+                        ${displayName}
                     </span>
                     <div style="display: flex; align-items: center; gap: 3px;">
-                        <span style="color: ${priceColor}; font-weight: bold; font-size: 11px;">${price}</span>
-                        <span style="color: #888; font-size: 9px; font-weight: bold;">メル</span>
+                        <span style="color: ${priceColor}; font-weight: 800; font-size: 11px;">${price}</span>
+                        <span style="color: #64748b; font-size: 9px; font-weight: 600;">メル</span>
                     </div>
                 </div>
             </div>
-            <div style="color: #bbb; font-size: 9px; pointer-events: none;">Double Click</div>
+            <div style="color: #94a3b8; font-size: 9px; font-weight: 600; font-family: 'Segoe UI', Tahoma, sans-serif; pointer-events: none; background: #f1f5f9; padding: 2px 5px; border-radius: 3px;">2Click</div>
         `;
 
         if (itemRow.innerHTML.trim() !== newHTML.trim()) {
             itemRow.innerHTML = newHTML;
         }
         
-        // --- 🖱️ イベント登録 ---
         itemRow.ondblclick = () => {
             if (typeof buyFromVending === 'function') {
                 buyFromVending(data.ownerId, item.db_id || item.id);
@@ -4174,16 +4130,15 @@ const bugItem = (data.items || []).find(i => {
         };
         
         itemRow.onmouseenter = (e) => { 
-            itemRow.style.background = "rgba(255, 204, 0, 0.15)";
+            itemRow.style.background = "#f8fafc";
+            itemRow.style.borderColor = "#cbd5e1"; // ホバー時に上下左右の透明ボーダーを綺麗に色づかせる
             
             if (typeof window !== 'undefined') {
                 window.hoveringSlot = item;
                 
-                // 🌟 ツールチップを描画するCanvas要素を取得（ID名は実際のCanvasに合わせてください）
                 const gameCanvas = document.getElementById('game-canvas') || document.querySelector('canvas');
                 if (gameCanvas) {
                     const rect = gameCanvas.getBoundingClientRect();
-                    // Canvasの左上からの相対座標（ローカル座標）に変換してセットする
                     window.mouseX = e.clientX - rect.left;
                     window.mouseY = e.clientY - rect.top;
                 } else {
@@ -4208,15 +4163,16 @@ const bugItem = (data.items || []).find(i => {
         };
         
         itemRow.onmouseleave = () => { 
-            itemRow.style.background = "transparent"; 
+            itemRow.style.background = "#ffffff"; 
+            itemRow.style.borderColor = "transparent";
+            itemRow.style.borderBottomColor = "#f1f5f9"; // 下線だけ元の区切り線に戻す
             
             if (typeof window !== 'undefined' && window.hoveringSlot === item) {
                 window.hoveringSlot = null;
             }
         };
-    });
+    }); 
 
-    // 余分な行を削除
     if (currentRows.length > items.length) {
         for (let i = items.length; i < currentRows.length; i++) {
             currentRows[i].remove();
@@ -4459,7 +4415,7 @@ function markItemAsSold(itemId) {
 }
 
 // ============================================================
-// :::ADD_ITEM_TO_VENDING_LIST::: 🏪 露店への商品陳列・データ供給
+// :::ADD_ITEM_TO_VENDING_LIST::: 🏪 露店への商品陳列・データ供給 (ゴージャスリッチ版)
 // ============================================================
 /**
  * 役割：
@@ -4538,10 +4494,7 @@ function addItemToVendingList(item) {
     const isEquipment = (
         item.type === 'sword' || 
         item.type === 'shield' || 
-        item.category === 'weapon1' || 
-        item.category === 'shield1' || 
-        item.category === 'armor1' ||
-        ['sword', 'armor', 'shield'].includes(item.item_type)
+        ['sword', 'shield'].includes(item.item_type)
     );
 
     if (isEquipment && item.totalALLStats !== undefined && item.totalFirstStats !== undefined) {
@@ -4549,16 +4502,16 @@ function addItemToVendingList(item) {
         let rankName = "";
         let rankGlowColor = "";
 
-        if (bonus >= 30)      { rankGlowColor = "#ff0000"; rankName = "(神級)"; }
-        else if (bonus >= 25) { rankGlowColor = "#00ff00"; rankName = "(超伝説)"; }
-        else if (bonus >= 20) { rankGlowColor = "#ffff00"; rankName = "(極上)"; }
-        else if (bonus >= 15) { rankGlowColor = "#ff00ff"; rankName = "(伝説)"; }
-        else if (bonus >= 10) { rankGlowColor = "#00ccff"; rankName = "(希少)"; }
-        else if (bonus >= 5)  { rankGlowColor = "#ff9900"; rankName = "(良品)"; }
+        if (bonus >= 30)      { rankGlowColor = "#ef4444"; rankName = "(神級)"; }
+        else if (bonus >= 25) { rankGlowColor = "#22c55e"; rankName = "(超伝説)"; }
+        else if (bonus >= 20) { rankGlowColor = "#eab308"; rankName = "(極上)"; }
+        else if (bonus >= 15) { rankGlowColor = "#a855f7"; rankName = "(伝説)"; }
+        else if (bonus >= 10) { rankGlowColor = "#06b6d4"; rankName = "(希少)"; }
+        else if (bonus >= 5)  { rankGlowColor = "#f97316"; rankName = "(良品)"; }
         else if (bonus >= 0)  { rankGlowColor = "";        rankName = "(標準)"; }
         else                  { rankGlowColor = "";        rankName = "(粗悪)"; }
 
-        if (!displayName.includes("(")) displayName = `${displayName}${rankName}`;
+        if (!displayName.includes("(")) displayName = `${displayName} <span style="font-size:10px; font-weight:bold; color:${rankGlowColor || '#64748b'};">${rankName}</span>`;
         if (rankGlowColor) {
             iconGlowStyle = `filter: drop-shadow(0 0 4px ${rankGlowColor});`;
         }
@@ -4568,50 +4521,59 @@ function addItemToVendingList(item) {
 
     // --- 🌟 メイプルストーリー伝統：価格による色分けロジック ---
     const rawPrice = Number(item.price || 0);
-    let priceColor = "#0000FF"; // デフォルト：10k未満は青
+    let priceColor = "#2563eb"; // デフォルト：10k未満は青 (Blue)
 
     if (rawPrice >= 1000000000) {
-        priceColor = "#4B0082"; // 1000m以上：濃い紫色 (Indigo/Deep Purple)
+        priceColor = "#7c3aed"; // 1000m以上：濃い紫色 (Deep Purple)
     } else if (rawPrice >= 100000000) {
-        priceColor = "#A020F0"; // 100m以上：紫色 (Purple)
+        priceColor = "#9333ea"; // 100m以上：紫色 (Purple)
     } else if (rawPrice >= 10000000) {
-        priceColor = "#FF0000"; // 10m以上：赤色 (Red)
+        priceColor = "#dc2626"; // 10m以上：赤色 (Red)
     } else if (rawPrice >= 1000000) {
-        priceColor = "#32CD32"; // 1m以上：黄緑色 (LimeGreen)
+        priceColor = "#16a34a"; // 1m以上：黄緑色 (LimeGreen)
     } else if (rawPrice >= 10000) {
-        priceColor = "#00CED1"; // 10k以上：水色 (DarkTurquoise/Cyan)
+        priceColor = "#0891b2"; // 10k以上：水色 (Cyan)
     }
 
     const displayPrice = item.price ? item.price.toLocaleString() : "0";
 
-    // 🖼️ 要素の作成
+    // 🖼️ 要素の作成（プロ仕様のデザイン・アニメーション適用）
     const itemEl = document.createElement('div');
     itemEl.id = `vending-item-${itemId}`;
-    itemEl.style = "display: flex; justify-content: space-between; padding: 5px; border-bottom: 1px solid #eee; font-size: 12px; align-items: center; cursor: default;";
+    itemEl.style.cssText = "display: flex; justify-content: space-between; align-items: center; padding: 6px 8px; border-bottom: 1px solid #f1f5f9; background: #ffffff; margin-bottom: 2px; cursor: default; transition: all 0.15s ease;";
     
+    itemEl.onmouseover = () => { itemEl.style.background = '#f8fafc'; };
+    itemEl.onmouseout = () => { itemEl.style.background = '#ffffff'; };
+
     itemEl.onmouseenter = () => { window.currentHoverSlot = item; };
     itemEl.onmouseleave = () => { window.currentHoverSlot = null; };
 
-    // HTML構造 (修正点: 価格部分に priceColor を適用)
+    // HTML構造 (ゴージャスリッチ仕様)
     itemEl.innerHTML = `
-        <div style="display: flex; align-items: center; pointer-events: none; flex: 1;">
-            <div style="width: 24px; height: 24px; margin-right: 8px; display: flex; align-items: center; justify-content: center; overflow: visible;">
+        <div style="display: flex; align-items: center; pointer-events: none; flex: 1; gap: 10px;">
+            <div style="width: 36px; height: 36px; min-width: 36px; background: radial-gradient(circle, #f8fafc 0%, #e2e8f0 100%); border: 1px solid #cbd5e1; display: flex; align-items: center; justify-content: center; border-radius: 6px; overflow: hidden; position: relative; box-shadow: inset 0 1px 2px rgba(255,255,255,0.8);">
                 ${finalIconPath ? `
                     <img src="${finalIconPath}" 
                          onerror="this.src='assets/items/default.png'" 
-                         style="max-width: 24px; max-height: 24px; image-rendering: pixelated; ${iconGlowStyle}">
+                         style="max-width: 28px; max-height: 28px; object-fit: contain; image-rendering: pixelated; ${iconGlowStyle}">
                 ` : `
-                    <div style="width: 16px; height: 16px; background: #ccc; border-radius: 2px;"></div>
+                    <div style="width: 16px; height: 16px; background: #cbd5e1; border-radius: 2px;"></div>
                 `}
+                ${(!isEquipment && (item.count || item.quantity)) ? `
+                    <span style="position: absolute; bottom: 1px; right: 1px; font-size: 8px; background: rgba(15,23,42,0.85); color: white; padding: 0 3px; border-radius: 3px; font-family: 'Segoe UI', Tahoma, sans-serif; font-weight: bold; line-height: 1.4;">
+                        ${item.count || item.quantity}
+                    </span>
+                ` : ''}
             </div>
-            <div style="display: flex; flex-direction: column;">
-                <span style="color: #333; font-weight: bold;">${displayName}</span>
-                <span style="color: #444; font-size: 10px;">価格: <span style="color: ${priceColor}; font-weight: bold;">${displayPrice}</span> メル</span>
+            <div style="display: flex; flex-direction: column; font-family: 'Segoe UI', Tahoma, sans-serif;">
+                <span style="color: #0f172a; font-weight: 700; font-size: 12px; letter-spacing: 0.2px;">${displayName}</span>
+                <span style="color: #64748b; font-size: 11px; margin-top: 1px;">価格: <span style="color: ${priceColor}; font-weight: 800;">${displayPrice}</span> <span style="font-size: 9px; color: #64748b;">メル</span></span>
             </div>
-            ${(!isEquipment && (item.count || item.quantity)) ? `<span style="color: #888; margin-left: 8px; font-size: 11px;">[${item.count || item.quantity}個]</span>` : ''}
         </div>
         <button onclick="removeItemFromVending('${itemId}')" 
-                style="font-size: 10px; color: red; border: none; background: none; cursor: pointer; padding: 2px 5px;">[削除]</button>
+                style="background: #fee2e2; border: 1px solid #fca5a5; color: #dc2626; padding: 3px 8px; cursor: pointer; border-radius: 4px; font-size: 10px; font-weight: bold; transition: all 0.15s; box-shadow: 0 1px 2px rgba(0,0,0,0.02);"
+                onmouseover="this.style.background='#ef4444'; this.style.color='#ffffff';"
+                onmouseout="this.style.background='#fee2e2'; this.style.color='#dc2626';">[削除]</button>
     `;
     
     listContainer.appendChild(itemEl);
