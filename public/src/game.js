@@ -93,6 +93,10 @@ class Player {
     this.dir = 1;
     this.jumping = true;
 
+    // 🌟 【追加】移動速度とジャンプ力の初期値（ステータスや装備で変動可能に）
+    this.speed = 5.0;       // デフォルトの移動速度
+    this.jumpPower = 10.0;  // デフォルトのジャンプ初速
+
     // ⚔️ 基本ステータス（サーバーと同期）
     this.hp = 100;
     this.maxHp = 100;
@@ -120,14 +124,19 @@ class Player {
 	this.isInvincible = false; // 最初は無敵ではありません
   }
 
-  // 移動のロジック
-  move(vx) {
-    // 🌟 追加：硬直中は移動不可
+  // 🌟 【修正】移動のロジック（this.speed を反映）
+  move(direction) { // 互換性のため引数を direction(-1 or 1) または vx に調整
     if (this.isStunned) return;
 
-    this.x += vx;
-    if (vx > 0) this.dir = 1;
-    if (vx < 0) this.dir = -1;
+    // 呼び出し側が速度のかかった値(vx)を渡しているか、方向(-1, 1)を渡しているかで分岐
+    // ここでは this.speed をベースに移動量を計算します
+    const moveVelocity = (typeof direction === 'number' && Math.abs(direction) === 1) 
+        ? direction * this.speed 
+        : direction; // 従来通り直接vxが渡ってきた場合への配慮
+
+    this.x += moveVelocity;
+    if (moveVelocity > 0) this.dir = 1;
+    if (moveVelocity < 0) this.dir = -1;
   }
   
   // 🌟 位置を一気に更新するメソッド
@@ -136,6 +145,15 @@ class Player {
     this.y += dy;
     if (dx > 0) this.dir = 1;
     if (dx < 0) this.dir = -1;
+  }
+
+  // 🌟 ジャンプを実行するメソッド（新しく追加すると便利です）
+  jump() {
+    if (this.climbing || this.isStunned || this.jumping) return;
+    
+    // 🌟 ここで jumpPower を上方向の初速として適用！
+    this.dy = -this.jumpPower;
+    this.jumping = true;
   }
 
   // 🌟 修正：敵の位置(enemyX)を受け取ってノックバック方向を決める
@@ -751,14 +769,17 @@ function handleMovementAndLadder(hero, ladders) {
         return; 
     }
 
+    // 🌟 プレイヤー独自の speed（未設定なら GAME_SETTINGS.WALK_SPEED をフォールバック）を用いる
+    const currentWalkSpeed = hero.speed !== undefined ? hero.speed : GAME_SETTINGS.WALK_SPEED;
+
     // 左右移動（ハシゴ中・伏せ中でない時）
     if (!hero.climbing && !hero.isDown) {
         if (keys['ArrowLeft']) {
-            hero.updatePosition(-GAME_SETTINGS.WALK_SPEED, 0);
-            hero.vx = -GAME_SETTINGS.WALK_SPEED;
+            hero.updatePosition(-currentWalkSpeed, 0);
+            hero.vx = -currentWalkSpeed;
         } else if (keys['ArrowRight']) {
-            hero.updatePosition(GAME_SETTINGS.WALK_SPEED, 0);
-            hero.vx = GAME_SETTINGS.WALK_SPEED;
+            hero.updatePosition(currentWalkSpeed, 0);
+            hero.vx = currentWalkSpeed;
         } else {
             hero.vx = 0;
         }
@@ -785,10 +806,11 @@ function handleMovementAndLadder(hero, ladders) {
         return isHorizontalClose && isVerticalAtTop;
     })();
 
-    // ハシゴの昇降処理
+    // ハシゴの昇降処理（Wキーを除外し、上下矢印キーのみで昇降）
     if ((isTouchingLadder || isAtLadderTop) && ladderJumpTimer === 0) {
-        if (keys['KeyW'] || keys['ArrowUp'] || keys['KeyS'] || keys['ArrowDown']) {
-            if (!hero.climbing && (keys['KeyS'] || keys['ArrowDown']) && isAtLadderTop) {
+        // 上下矢印キー（またはSキーによるてっぺんからの降り）の判定
+        if (keys['ArrowUp'] || keys['ArrowDown'] || keys['KeyS']) {
+            if (!hero.climbing && keys['KeyS'] && isAtLadderTop) {
                 hero.y += 15;
             }
             hero.x = l.x + 15 - 30; // ハシゴの中心に吸着
@@ -796,13 +818,15 @@ function handleMovementAndLadder(hero, ladders) {
             hero.dy = 0;
             hero.jumping = false;
 
-            if (keys['KeyW'] || keys['ArrowUp']) {
+            // 🌟 Wキーを外し、上矢印キー（ArrowUp）のときだけ上に移動
+            if (keys['ArrowUp']) {
                 hero.updatePosition(0, -GAME_SETTINGS.LADDER_SPEED);
-            } else if (keys['KeyS'] || keys['ArrowDown']) {
+            } else if (keys['ArrowDown']) {
                 hero.updatePosition(0, GAME_SETTINGS.LADDER_SPEED);
             }
         } else if (hero.climbing) {
             hero.dy = 0;
+            hero.updatePosition(0, 0); // 上下キーを離しているときはピタッと停止
         }
     } else {
         hero.climbing = false;
@@ -824,9 +848,11 @@ function handleActions(hero, items) {
     if (hero.is_vending) return; // 露店中はアクション（ジャンプ・攻撃・拾う）不可
 	
     // ==========================================
-    // E. ジャンプ (Cキー)
-    // ==========================================
+//   // E. ジャンプ (Cキー)
+// ==========================================
     if (keys['KeyC']) {
+        const currentJumpPower = hero.jumpPower !== undefined ? hero.jumpPower : GAME_SETTINGS.JUMP_POWER;
+
         if (hero.climbing) {
             // ハシゴからの飛び降りジャンプ
             if (!cKeyPressed && (keys['ArrowLeft'] || keys['ArrowRight'])) {
@@ -834,7 +860,9 @@ function handleActions(hero, items) {
                 ladderJumpTimer = 15;
                 if (keys['ArrowLeft']) { hero.x -= 25; hero.dir = -1; }
                 else { hero.x += 25; hero.dir = 1; }
-                hero.dy = GAME_SETTINGS.JUMP_POWER;
+                
+                // 🌟 マイナスをつけて上方向に力を加える！
+                hero.dy = -currentJumpPower;
                 hero.jumping = true;
                 hero.jumpFrame = 0;
                 hero.climbing = false;
@@ -844,7 +872,9 @@ function handleActions(hero, items) {
             // 地面からの通常のジャンプ
             if (typeof playJumpSound === 'function') playJumpSound();
             hero.y -= 5;
-            hero.dy = GAME_SETTINGS.JUMP_POWER;
+            
+            // 🌟 マイナスをつけて上方向に力を加える！
+            hero.dy = -currentJumpPower;
             hero.jumping = true;
             hero.jumpFrame = 0;
             cKeyPressed = true;
@@ -1288,6 +1318,22 @@ socket.on('player_update_godmode', (data) => {
     }
 });
 
+// サーバーからスピード変更の通知を受け取ったら、自分の hero.speed を書き換える
+socket.on('update_player_speed', (data) => {
+    if (typeof hero !== 'undefined' && hero) {
+        hero.speed = data.speed;
+        console.log(`✨ クライアント側：スピードが ${data.speed} に同期されました！`);
+    }
+});
+
+// サーバーからジャンプ力変更の通知を受け取る
+socket.on('update_player_jump', (data) => {
+    if (typeof hero !== 'undefined' && hero) {
+        hero.jumpPower = data.jumpPower;
+        console.log(`✨ クライアント側：ジャンプ力が ${data.jumpPower} に同期されました！`);
+    }
+});
+
 // ============================================================
 // :::ON_LOGIN_RESPONSE::: 🔑 ログイン認証応答・ゲーム開始・状態遷移
 // ============================================================
@@ -1479,6 +1525,11 @@ socket.on('login_data', (data) => {
         if (typeof players !== 'undefined' && players[socket.id]) {
             players[socket.id].isLinked = data.is_linked;
             players[socket.id].isOnline = data.is_online;
+			// 🌟 【追加】こちらも同様に保持させる場合
+            if (data.stats) {
+                players[socket.id].speed = data.stats.speed || 5.0;
+                players[socket.id].jumpPower = data.stats.jumpPower || 10.0;
+            }
             console.log("✅ players[socket.id] を同期しました:", players[socket.id].isLinked);
         }
 		
@@ -1490,6 +1541,10 @@ socket.on('login_data', (data) => {
             hero.x     = data.stats.x || 100;
             hero.y     = data.stats.y || 400;
             hero.jobId = data.stats.job_id || 0;
+            hero.atk   = data.stats.atk || 0;
+			// 🌟 【追加】サーバーから送られてきた移動速度とジャンプ力を hero に反映
+            hero.speed = data.stats.speed || 5.0;
+            hero.jumpPower = data.stats.jumpPower || 10.0;
         }
         hero.channel = data.channel || 1;
         if (typeof updateChannelUI === 'function') updateChannelUI(hero.channel);

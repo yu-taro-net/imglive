@@ -60,6 +60,8 @@ async function setupAudio() {
         menuup:         loadAudioFile(`${IMAGE_DOMAIN}sound_assets/MenuUp.mp3`),
         menudown:       loadAudioFile(`${IMAGE_DOMAIN}sound_assets/MenuDown.mp3`),
         // 2026-8-12更新
+        equip:       loadAudioFile(`${IMAGE_DOMAIN}sound_assets2/[s1_euqip]JRPG_UI_Chibi_Menu_Open_01v2.wav`),
+        // 2026-8-12更新
         levelup:        loadAudioFile(`${IMAGE_DOMAIN}sound_assets2/[s1_levelup]JRPG_UI_Chibi_System_Startup_01.wav`),
         // 2026-8-12更新
         hover:          loadAudioFile(`${IMAGE_DOMAIN}sound_assets2/[s1_hover]DM-CGS-19.wav`),
@@ -202,6 +204,10 @@ function playItemSound() {
 
 function playJumpSound() {
     playEffect(soundBuffers.jump, 0.3, 1.1);
+}
+
+function playEquipSound() {
+    playEffect(soundBuffers.equip, 0.5);
 }
 
 function playAttackSound() {
