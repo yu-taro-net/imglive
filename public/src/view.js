@@ -1417,7 +1417,7 @@ window.addEventListener('mouseup', () => {
 window.selectedPlayer = null;
 
 // ============================================================
-// :::CONTEXT_MENU_TARGETING::: 🖱️ 右クリックによるプレイヤーターゲット判定
+// :::CONTEXT_MENU_TARGETING::: 🖱️ 右クリックによるプレイヤーターゲット＆UI判定
 // ============================================================
 const stageCanvas = document.getElementById('stage');
 
@@ -1426,6 +1426,50 @@ if (stageCanvas) {
         e.preventDefault();
 
         const rect = stageCanvas.getBoundingClientRect();
+        
+        // ------------------------------------------------------------
+        // 🌟 【追加】UI(使用中アイテム)のクリック判定を先に行う
+        // ------------------------------------------------------------
+        if (typeof hero !== 'undefined' && hero && hero.activeItems && hero.activeItems.length > 0) {
+            // HUD判定用の座標計算 (クライアント座標からキャンバス内座標への変換)
+            // ※既存のキャラクター判定とは異なり、画面右上の固定位置を計算します
+            const hudCanvasX = ((e.clientX - rect.left) / rect.width) * VIEW_CONFIG.SCREEN_WIDTH; // 例: 800
+            const hudCanvasY = ((e.clientY - rect.top) / rect.height) * VIEW_CONFIG.SCREEN_HEIGHT; // 例: 600
+
+            const iconSize = 32;
+            const spacing = 6;
+            const rightMargin = 20;
+            const topY = 20;
+
+            let clickedActiveItemIndex = -1;
+
+            // 右上のHUDアイコンの並び順通りに逆算してヒット判定
+            hero.activeItems.forEach((item, index) => {
+                const iconX = VIEW_CONFIG.SCREEN_WIDTH - rightMargin - ((hero.activeItems.length - index) * (iconSize + spacing));
+                const iconY = topY;
+
+                // マウスがアイコンの矩形内にあるか
+                if (hudCanvasX >= iconX && hudCanvasX <= iconX + iconSize &&
+                    hudCanvasY >= iconY && hudCanvasY <= iconY + iconSize) {
+                    clickedActiveItemIndex = index;
+                }
+            });
+
+            // 💡 もしHUDのアイコン上で右クリックされていた場合は、削除処理をして終了する
+            if (clickedActiveItemIndex !== -1) {
+                console.log(`[UI] アクティブアイテムインデックス ${clickedActiveItemIndex} が右クリックで削除されました`);
+                
+                // サーバーへ削除を通知
+                socket.emit('remove_active_item', { index: clickedActiveItemIndex });
+                return; // 🛑 ここで処理を終了し、キャラクター判定には進まない
+            }
+        }
+        // ------------------------------------------------------------
+
+
+        // ------------------------------------------------------------
+        // 🔽 既存のプレイヤーターゲット判定処理
+        // ------------------------------------------------------------
         const canvasX = ((e.clientX - rect.left) / rect.width) * 800;
         const canvasY = ((e.clientY - rect.top) / rect.height) * 600;
 
@@ -1467,8 +1511,8 @@ if (stageCanvas) {
                     target: { textContent: foundPlayer.name || "自分" }
                 };
                 
-				//alert(targetId);
-				
+                //alert(targetId);
+                
                 handleRightClick(dummyEvent, targetId);
 
             } else {
@@ -1488,8 +1532,8 @@ if (stageCanvas) {
                         target: { textContent: data.wikiName || foundPlayer.name }
                     };
                     
-					//alert(targetId);
-					
+                    //alert(targetId);
+                    
                     handleRightClick(dummyEvent, targetId);
                 });
             }
@@ -3146,9 +3190,11 @@ function drawGame(hero, others, enemies, items, platforms, ladders, damageTexts,
 
     // 6. UI（最前面）の描画
     drawUIOverlay(hero);
+	
+	drawActiveItemHUD(hero);
     
     // 7. 特殊UI表示（チャンネル表示・マウス追従アイテム）
-    drawChannelHUD(hero);
+    //drawChannelHUD(hero);
 	
 	if (typeof drawOnlineList === 'function') {
         drawOnlineList(ctx);
@@ -3228,6 +3274,60 @@ function drawGame(hero, others, enemies, items, platforms, ladders, damageTexts,
         ctx.restore();
     }
 }
+
+// ============================================================
+// :::DRAW_ACTIVE_ITEM_HUD::: 🧪 複数使用中アイテムの並び描画（アイコン一覧版）
+// ============================================================
+function drawActiveItemHUD(hero) {
+    if (typeof hero === 'undefined' || !hero) return;
+
+    // 配列が存在しない、または空の場合は何もしない
+    const activeItems = hero.activeItems || (hero.activeItem ? [hero.activeItem] : []);
+    if (activeItems.length === 0) return;
+
+    ctx.save();
+
+    const iconSize = 32;       // アイコンのサイズ
+    const spacing = 6;         // アイコン同士の間隔
+    const rightMargin = 20;    // 画面右端からのマージン
+    const topY = 20;           // 描画するY座標
+
+    // 右端を基準にして、アイテムの数だけ左方向へ並べるループ
+    activeItems.forEach((item, index) => {
+        const itemKey = item.name;
+        if (!itemKey) return;
+
+        if (typeof sprites !== 'undefined' && sprites.items && sprites.items[itemKey]) {
+            const iconImg = sprites.items[itemKey];
+
+            if (iconImg.complete && iconImg.naturalWidth > 0) {
+                // 🌟 計算式：右端から、「アイコンサイズ＋間隔」をインデックス分だけ左にずらしていく
+                // 例: 1番目(index=0)は一番右、2番目(index=1)はその左隣…と並びます
+                const iconX = VIEW_CONFIG.SCREEN_WIDTH - rightMargin - ((activeItems.length - index) * (iconSize + spacing));
+                const iconY = topY;
+
+                // アイコンの背景・枠組み
+                ctx.fillStyle = "rgba(0, 0, 0, 0.6)";
+                ctx.fillRect(iconX, iconY, iconSize, iconSize);
+                ctx.strokeStyle = "#38bdf8";
+                ctx.lineWidth = 1;
+                ctx.strokeRect(iconX, iconY, iconSize, iconSize);
+
+                // アイコン画像の描画
+                ctx.drawImage(iconImg, iconX, iconY, iconSize, iconSize);
+            }
+        }
+    });
+
+    ctx.restore();
+}
+
+// サーバーから「使用中のアイテムが更新されたよ」という通知を受け取る
+socket.on('active_items_update', (items) => {
+    if (typeof hero !== 'undefined' && hero) {
+        hero.activeItems = items;
+    }
+});
 
 // ============================================================
 // :::DRAW_CHANNEL_HUD::: 📡 チャンネル表示（HUD）の描画（グロー装飾版）
@@ -4196,6 +4296,9 @@ function drawUIOverlay(hero) {
         const spacing = 8;
 
         hero.inventory.forEach((slot, index) => {
+            // 🌟 【修正ポイント1】表示しているのは10スロット分（index 0〜9）だけなので、それ以降は処理しない
+            if (index >= 10) return;
+
             if (!slot || !slot.type || slot.count <= 0) return;
             const x = startX + (index * (slotSize + spacing));
             const y = startY;

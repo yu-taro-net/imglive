@@ -2603,6 +2603,25 @@ socket.on('equipItem', async (data) => {
 });
 
 // ============================================================
+// :::REMOVE_ACTIVE_ITEM::: 🧪 使用中アイテムの手動解除処理
+// ============================================================
+socket.on('remove_active_item', (data) => {
+    const player = players[socket.id];
+    if (!player || !player.activeItems) return;
+
+    const targetIndex = parseInt(data.index);
+    
+    // 範囲内であれば配列から削除する
+    if (!isNaN(targetIndex) && targetIndex >= 0 && targetIndex < player.activeItems.length) {
+        const removed = player.activeItems.splice(targetIndex, 1);
+        console.log(`[Server] ${player.name || socket.id} がアクティブアイテムを解除しました:`, removed);
+
+        // クライアントへ最新の配列を通知
+        socket.emit('active_items_update', player.activeItems);
+    }
+});
+
+// ============================================================
 // :::CONSUME::: 🧪 消費アイテムの使用処理（DBカタログ連動型）
 // ============================================================
 socket.on('useConsumableItem', async (data) => {
@@ -2817,6 +2836,23 @@ socket.on('useConsumableItem', async (data) => {
                     console.log(`[Server] 消費アイテムを使用しました: ${catalogItem.display_name || requestedItemName}`);
                     break;
             }
+			
+			// 🌟 プレイヤー側で複数の使用中アイテムを管理する配列を初期化
+        if (!player.activeItems) {
+            player.activeItems = [];
+        }
+
+        // 新しく使用するアイテムデータ
+        const newItem = {
+            name: catalogItem.name,
+            displayName: catalogItem.display_name || catalogItem.name
+        };
+
+        // 配列に追加（上限数を設けたい場合はここでチェックできます。例: 最大5個までなど）
+        player.activeItems.push(newItem);
+        
+        // 従来の単体用プロパティも互換性のために残すか、配列に一本化します
+        player.activeItem = newItem; // 必要であれば最新のものを保持
 
             // 3. 個数（count または quantity）を減らす
             item.count = (item.count || item.quantity || 1) - 1;
@@ -2847,7 +2883,8 @@ socket.on('useConsumableItem', async (data) => {
 
         // 4. クライアントへ最新のインベントリを通知
         socket.emit('inventory_update', player.inventory);
-
+		socket.emit('active_items_update', player.activeItems);
+		
         if (typeof sendState === 'function') {
             sendState();
         }
@@ -4772,31 +4809,83 @@ if (text.startsWith('/gacha')) {
                 }
             } 
             // ⚔️ 装備品（剣・盾）の場合
-            else if (randomPick.category === 'sword' || randomPick.category === 'shield') {
-                const isSword = randomPick.category === 'sword';
-                
-                // ガチャ産としてのランダムステータスや初期値を付与
-                wonItem = {
-                    type: randomPick.category, // 'sword' または 'shield'
-                    name: randomPick.category,
-                    displayName: isSword ? "マニアックソード" : "トリシールド",
-                    imageName: isSword ? "sword" : "shield",
-                    count: 1,
-                    isEquipped: false,
-                    // 必要に応じて初期ステータスやランダム要素を追加
-                    atk: isSword ? 15 : 0,
-                    matk: 0,
-                    def: isSword ? 0 : 10,
-                    str: Math.floor(Math.random() * 3),
-                    dex: Math.floor(Math.random() * 3),
-                    int: 0,
-                    luk: 0,
-                    maxHp: 10,
-                    maxMp: 10,
-                    lv: 1,
-                    price: isSword ? 500 : 300
-                };
-            }
+else if (randomPick.category === 'sword' || randomPick.category === 'shield') {
+    const isSword = randomPick.category === 'sword';
+    
+    // カタログIDの決定（ドロップ処理と同様に 101 または 102）
+    const catalogId = isSword ? 101 : 102;
+    const catalogBase = (typeof ITEM_CATALOG !== 'undefined' && ITEM_CATALOG[catalogId]) 
+                        ? ITEM_CATALOG[catalogId] 
+                        : null;
+
+    // 個別性能鑑定
+    const stats = typeof identifyItem === 'function' ? identifyItem(randomPick.category) : {
+        qualityLabel: "",
+        itemColor: "#ffffff",
+        atk: 0, def: 0, matk: 0, str: 0, dex: 0, int: 0, luk: 0, maxHp: 0, maxMp: 0
+    };
+
+    // 🌟 先にステータスを変数として確定させる
+    const finalAtk = (stats.atk !== undefined) ? stats.atk : (catalogBase ? catalogBase.atk : (isSword ? 15 : 0));
+    const finalDef = (stats.def !== undefined) ? stats.def : (catalogBase ? catalogBase.def : (isSword ? 0 : 10));
+    const finalMatk = (stats.matk !== undefined) ? stats.matk : (catalogBase ? catalogBase.matk : 0);
+    const finalStr = (stats.str !== undefined) ? stats.str : (catalogBase ? catalogBase.str : Math.floor(Math.random() * 3));
+    const finalDex = (stats.dex !== undefined) ? stats.dex : (catalogBase ? catalogBase.dex : Math.floor(Math.random() * 3));
+    const finalInt = (stats.int !== undefined) ? stats.int : (catalogBase ? catalogBase.int : 0);
+    const finalLuk = (stats.luk !== undefined) ? stats.luk : (catalogBase ? catalogBase.luk : 0);
+    const finalMaxHp = (stats.maxHp !== undefined) ? stats.maxHp : (catalogBase ? catalogBase.maxHp : 10);
+    const finalMaxMp = (stats.maxMp !== undefined) ? stats.maxMp : (catalogBase ? catalogBase.maxMp : 10);
+
+    wonItem = {
+        type: randomPick.category, // 'sword' または 'shield'
+        name: (isSword ? "剣" : "盾") + (stats.qualityLabel || ""),
+        displayName: isSword ? "マニアックソード" : "トリシールド",
+        imageName: isSword ? "sword" : "shield",
+        count: 1,
+        isEquipped: false,
+        
+        lv: (catalogBase && catalogBase.lv !== undefined) ? catalogBase.lv : 50,
+        category: (catalogBase && catalogBase.category) ? catalogBase.category : (isSword ? "weapon2" : "shield"),
+        totalUpgrade: (catalogBase && catalogBase.totalUpgrade !== undefined) ? catalogBase.totalUpgrade : 7,
+        star: (catalogBase && catalogBase.star !== undefined) ? catalogBase.star : 0,
+        successCount: 0,
+        failCount: 0,
+        isTradeable: (catalogBase && catalogBase.isTradeable !== undefined) ? catalogBase.isTradeable : true,
+
+        // ステータスを反映
+        atk: finalAtk,
+        def: finalDef,
+        matk: finalMatk,
+        str: finalStr,
+        dex: finalDex,
+        int: finalInt,
+        luk: finalLuk,
+        maxHp: finalMaxHp,
+        maxMp: finalMaxMp,
+        
+        price: isSword ? 500 : 300,
+        
+        reqAll: (catalogBase && catalogBase.reqAll !== undefined) ? catalogBase.reqAll : ((catalogBase && catalogBase.lv) ? catalogBase.lv : 1),
+
+        // 🌟 カタログの初期合計値
+        totalFirstStats: (catalogBase && catalogBase.totalFirstStats !== undefined) 
+                           ? catalogBase.totalFirstStats 
+                           : 0,
+                           
+        // 🌟 現在の合計値
+        totalALLStats: (
+            finalAtk +
+            finalDef +
+            finalMatk +
+            finalStr +
+            finalDex +
+            finalInt +
+            finalLuk +
+            (finalMaxHp / 10) +
+            (finalMaxMp / 10)
+        )
+    };
+}
 
             if (!wonItem) return;
 
