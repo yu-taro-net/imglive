@@ -231,7 +231,7 @@ const activeLogins = {}; // 🌐 現在ログイン中のユーザーIDとsocket
 // 【重要】既存のログイン処理を切り出した関数
 async function performLogin(socket, user, token, channel, group, style_id) {
     try {
-        // 🔒 【追加】すでに同じユーザー（user.id）が別の場所でログインしていないかチェック
+        // 🔒 すでに同じユーザー（user.id）が別の場所でログインしていないかチェック
         const userId = user.id;
         if (activeLogins[userId]) {
             const existingSocketId = activeLogins[userId];
@@ -249,7 +249,7 @@ async function performLogin(socket, user, token, channel, group, style_id) {
         // 🟢 ログイン成功として、このユーザーIDと現在のソケットIDを紐づけて記録
         activeLogins[userId] = socket.id;
 
-        // 🔌 【重要】この接続が切断されたとき（タブを閉じた時など）にリストから削除する
+        // 🔌 この接続が切断されたとき（タブを閉じた時など）にリストから削除する
         socket.on('disconnect', () => {
             if (activeLogins[userId] === socket.id) {
                 delete activeLogins[userId];
@@ -269,35 +269,59 @@ async function performLogin(socket, user, token, channel, group, style_id) {
         const [statsResults] = await pool.query(statsSql, [user.id]);
 
         if (statsResults.length === 0) {
-            // 万が一失敗した場合は、登録したアクティブ状態も一応消しておく
             delete activeLogins[userId];
             socket.emit('login_response', { success: false, message: 'キャラクターデータの読み込みに失敗しました' });
             return;
         }
 
-        // 🌟 追加：ログインした瞬間の最新の連携状態をDBから取得
+        // 🌟 ログインした瞬間の最新の連携状態をDBから取得
         const [userStatusRows] = await pool.query('SELECT is_linked FROM users WHERE id = ?', [user.id]);
         const isLinked = userStatusRows[0] ? (userStatusRows[0].is_linked === 1) : false;
 
         const stats = statsResults[0];
         const finalStyleId = (stats.style_id !== null && stats.style_id !== undefined) ? stats.style_id : 1;
 
-        // インベントリロード (既存の関数を使用)
+        // インベントリロード
         const savedInventory = await loadUserInventory(user.id);
         const fixedInventory = Array(50).fill(null);
         
-        // 🌟 50スロット分（0〜49）をそのまま正確にコピーする
         savedInventory.forEach((item, index) => {
-            if (!item) return; // 🌟 null（空スロット）はスキップ！これでエラーが消えます
-            
+            if (!item) return;
             const sIdx = item.slot_index !== undefined ? item.slot_index : index;
-            if (sIdx >= 0 && sIdx < 50) { // 🌟 10枠制限を50枠に拡張！
+            if (sIdx >= 0 && sIdx < 50) {
                 fixedInventory[sIdx] = item;
             }
         });
 
-        // 🌟 【追加】データベースの player_atk_table から現在のレベルに対応する ATK を取得
-        let dbAtk = 13; // 取得できなかった場合のデフォルト値
+        // 🌟 装備中のステータス合計
+        let totalStr = 0;
+        let totalDex = 0;
+        let totalLuk = 0;
+        let totalWeaponAtk = 0;
+
+        fixedInventory.forEach((invItem) => {
+            if (invItem && invItem.isEquipped) {
+                totalStr += Number(invItem.str) || 0;
+                totalDex += Number(invItem.dex) || 0;
+                totalLuk += Number(invItem.luk) || 0;
+                totalWeaponAtk += Number(invItem.atk) || Number(invItem.power) || 0;
+            }
+        });
+
+        // 基礎値 ＋ 装備ボーナス
+        const baseStr = stats.str || 4;
+        const baseDex = stats.dex || 4;
+        const baseLuk = stats.luk || 4;
+
+        const finalStr = baseStr + totalStr;
+        const finalDex = baseDex + totalDex;
+        const finalLuk = baseLuk + totalLuk;
+
+        // 🌟 【デバッグ追加】DBから取れた生の stats.atk を確認
+        console.log(`🔍 [DEBUG LOGIN] user_id: ${user.id}, DBから取得した stats.atk の値:`, stats.atk);
+
+        // 🌟 データベースの player_atk_table から現在のレベルに対応する ATK を取得
+        let dbAtk = 13; // デフォルト値
         try {
             const [atkRows] = await pool.query(
                 'SELECT atk FROM player_atk_table WHERE level = ?', 
@@ -305,10 +329,32 @@ async function performLogin(socket, user, token, channel, group, style_id) {
             );
             if (atkRows && atkRows.length > 0) {
                 dbAtk = atkRows[0].atk;
+                console.log(`✅ [DEBUG LOGIN] player_atk_table から取得成功: level ${stats.level} -> atk ${dbAtk}`);
+            } else {
+                console.log(`⚠️ [DEBUG LOGIN] player_atk_table に level ${stats.level} が見つかりません`);
             }
         } catch (atkErr) {
             console.error('❌ ログイン時の ATK 取得に失敗しました:', atkErr);
         }
+
+        // 🌟 経験値テーブル（player_exp_table）から必要な経験値を取得（UIの%表示用）
+        let requiredExp = 100;
+        try {
+            const [expRows] = await pool.query(
+                'SELECT required_exp FROM player_exp_table WHERE level = ?', 
+                [stats.level]
+            );
+            if (expRows && expRows.length > 0) {
+                requiredExp = expRows[0].required_exp;
+            }
+        } catch (expErr) {
+            console.error('❌ ログイン時の required_exp 取得に失敗しました:', expErr);
+        }
+
+        const finalAtk = dbAtk + totalWeaponAtk;
+        
+        // 🌟 【デバッグ追加】最終決定された各ATKの数値をログ出力
+        console.log(`🎯 [DEBUG LOGIN] 最終計算結果 -> dbAtk(ベース): ${dbAtk}, totalWeaponAtk(武器): ${totalWeaponAtk}, finalAtk(合算): ${finalAtk}`);
 
         const selectedChannel = parseInt(channel) || 1;
         const roomName = `channel_${selectedChannel}`;
@@ -323,6 +369,7 @@ async function performLogin(socket, user, token, channel, group, style_id) {
             gold: Number(stats.gold || 0),
             level: stats.level,
             exp: stats.exp,
+            requiredExp: requiredExp, // 💡 追加：次のレベルに必要な経験値
             hp: Math.min(stats.hp, correctMaxHP),
             maxHp: correctMaxHP,
             mp: stats.mp,
@@ -333,17 +380,29 @@ async function performLogin(socket, user, token, channel, group, style_id) {
             job_id: stats.job_id,
             model_id: stats.model_id,
             style_id: finalStyleId,
-            str: stats.str || 4,
-            dex: stats.dex || 4,
-            luk: stats.luk || 4,
+            
+            // ステータス関連
+            baseStr: baseStr,
+            bonusStr: totalStr,
+            str: finalStr,
+
+            baseDex: baseDex,
+            bonusDex: totalDex,
+            dex: finalDex,
+
+            baseLuk: baseLuk,
+            bonusLuk: totalLuk,
+            luk: finalLuk,
+
             ap: stats.ap || 0,
             
-            // 🌟 【変更】固定値 555 ではなく、DBから取得したレベルごとの値を代入
-            atk: dbAtk,
-			// 🌟 【追加】移動速度とジャンプ力のデフォルト値を設定
-            // （将来的にDBや装備から補正をかけられるよう変数にしておくと便利です）
-            speed: 5.0,       // 移動速度の基準値
-            jumpPower: 15.0,   // ジャンプ力の基準値
+            // 攻撃力関連
+            baseAtk: dbAtk,
+            weaponAtk: totalWeaponAtk,
+            atk: finalAtk,
+
+            speed: 5.0,
+            jumpPower: 15.0,
             
             inventory: fixedInventory,
             is_vending: false
@@ -358,11 +417,12 @@ async function performLogin(socket, user, token, channel, group, style_id) {
             username: user.username,
             channel: selectedChannel,
             token: token,
-            // 🌟 追加：クライアント側で即時判定するためのステータスを同梱
             is_linked: isLinked,
             is_online: true,
             stats: {
                 level: stats.level,
+                exp: stats.exp,
+                requiredExp: requiredExp, // 💡 クライアント側で (〇〇%) を計算するためのプロパティ
                 model_id: stats.model_id,
                 style_id: finalStyleId,
                 hp: players[socket.id].hp,
@@ -374,21 +434,40 @@ async function performLogin(socket, user, token, channel, group, style_id) {
                 x: stats.pos_x,
                 y: stats.pos_y,
                 inventory: fixedInventory,
-                atk: players[socket.id].atk,
-				speed: players[socket.id].speed,
+                
+                // 各種ステータス
+                str: finalStr,
+                baseStr: baseStr,
+                bonusStr: totalStr,
+
+                dex: finalDex,
+                baseDex: baseDex,
+                bonusDex: totalDex,
+
+                luk: finalLuk,
+                baseLuk: baseLuk,
+                bonusLuk: totalLuk,
+
+                // 攻撃力
+                atk: finalAtk,
+                baseAtk: dbAtk,
+                weaponAtk: totalWeaponAtk,
+
+                speed: players[socket.id].speed,
                 jumpPower: players[socket.id].jumpPower
             },
             message: 'ログイン成功！'
         });
+        
+        console.log("【ログイン時インベントリ確認】4番目(index 3):", fixedInventory[3]);
 
         socket.emit('inventory_update', fixedInventory);
         socket.to(roomName).emit('player_joined', players[socket.id]);
         
-        socket.username = user.username; // 切断処理のためにusernameを保存
+        socket.username = user.username;
 
     } catch (err) {
         console.error("❌ performLogin処理エラー:", err);
-        // エラー時はアクティブ登録を解除
         if (user && user.id) delete activeLogins[user.id];
         socket.emit('login_response', { success: false, message: 'ログイン後のデータ読み込みに失敗しました' });
     }
@@ -710,81 +789,72 @@ socket.on('register', async (data) => {
         // ============================================================
 // :::SAVE::: 💾 ステータス保存 (Save Data) 処理
 // ============================================================
-socket.on('save_player_data', (data) => {
-    // 🌟 【デバッグ：受信データ全出力】 クライアントから届いた中身をすべて表示
-	// 2026-8-5停止
-    //console.log("--- 📥 [DEBUG: 受信データ詳細] ---");
-    //console.log(data);
-
+socket.on('save_player_data', async (data) => {
     // data には { userId, level, exp, gold, hp, maxHp, mp, maxMp, mapId, x, y, str, dex, luk, ap } が入っている想定
     const { userId, level, exp, gold, hp, maxHp, mp, maxMp, mapId, x, y, str, dex, luk, ap } = data;
 
     if (!userId) return;
 
-    // 🌟 修正ポイント：
-    // クライアントから送られた userId (文字列) をキーにするのではなく、
-    // 今まさに通信している socket.id を使ってメモリ(players)から本人を探します。
+    // クライアントから送られた userId ではなく、socket.id から本人を特定
     const player = players[socket.id]; 
 
-    // 🌟 【デバッグ：プレイヤー特定情報の出力】
-	// 2026-8-5停止
-	/*
-    console.log("--- 🔍 [DEBUG: 照合プレイヤー情報] ---");
-    if (player) {
-        console.table({
-            "Socket ID": socket.id,
-            "プレイヤー名": player.name,
-            "DB数値ID (dbId)": player.dbId || "⚠️未定義",
-            "受信したUserId": userId
-        });
-    } else {
-        console.warn(`[DEBUG:SAVE] players[${socket.id}] が見つかりません。保存を中止します。`);
-        return;
-    }
-	*/
-	
     if (!player || !player.dbId) {
         // ログインが完了していない場合は保存をスキップ
         return;
     }
 
-    // 固定の 10 ではなく、ログインしている本人の数値IDを代入
     const dbUserId = player.dbId; 
 
-    // 🌟 【デバッグ：SQLに送る最終値の一覧】
-    const saveParams = [level, exp, gold, hp, maxHp, mp, maxMp, mapId, x, y, str, dex, luk, ap, dbUserId];
-    // 2026-8-5停止
-	//console.log("--- 🚀 [DEBUG: SQL送信パラメータ] ---");
-    //console.log(saveParams);
+    // 🌟 【安全ガード】DBには必ず「素のステータス（ベース値）」を保存する
+    const saveStr = player.baseStr !== undefined ? player.baseStr : str;
+    const saveDex = player.baseDex !== undefined ? player.baseDex : dex;
+    const saveLuk = player.baseLuk !== undefined ? player.baseLuk : luk;
+    
+    // 🌟 【重要】セーブ時の最新レベルに対応する ATK を `player_atk_table` から確実に取得する
+    let saveAtk = 13;
+    try {
+        const [atkRows] = await pool.query(
+            'SELECT atk FROM player_atk_table WHERE level = ?', 
+            [level]
+        );
+        if (atkRows && atkRows.length > 0) {
+            saveAtk = atkRows[0].atk;
+        }
+    } catch (atkErr) {
+        console.error(`❌ [DB ERROR] レベル ${level} の ATK 取得に失敗しました:`, atkErr.message);
+        // 万が一テーブルからの取得に失敗した場合は、現在のメモリ上の値をフォールバックとして使う
+        saveAtk = player.baseAtk !== undefined ? player.baseAtk : 13;
+    }
 
-    // 🌟 UPDATE文の構造はそのまま踏襲
+    // プレイヤーオブジェクト側のベース攻撃力も最新に更新しておく
+    player.baseAtk = saveAtk;
+
+    // 🌟 SQLに送るパラメータの配列（最新の saveAtk を設定）
+    const saveParams = [level, exp, gold, hp, maxHp, mp, maxMp, mapId, x, y, saveStr, saveDex, saveLuk, saveAtk, ap, dbUserId];
+
     const sql = `
         UPDATE player_stats 
         SET level = ?, exp = ?, gold = ?, hp = ?, max_hp = ?, mp = ?, max_mp = ?, 
-            map_id = ?, pos_x = ?, pos_y = ?, str = ?, dex = ?, luk = ?, ap = ?
+            map_id = ?, pos_x = ?, pos_y = ?, str = ?, dex = ?, luk = ?, atk = ?, ap = ?
         WHERE user_id = ?
     `;
 
-    // 🌟 引数の順番を維持しつつ、最後の値を自動取得した dbUserId に差し替え
-    pool.query(sql, saveParams, (err, result) => {
-        if (err) {
-            // エラーログの出力形式も踏襲
-            if (typeof LOG !== 'undefined' && LOG.DB) {
-                LOG.DB(`セーブ失敗 (DB_ID: ${dbUserId}): ${err.message}`);
-            } else {
-                console.error(`[DB ERROR] セーブ失敗 (DB_ID: ${dbUserId}): ${err.message}`);
-            }
-            return;
-        }
+    try {
+        const [result] = await pool.query(sql, saveParams);
 
-        // 🌟 保存が成功したかどうかのログを出力
         if (result && result.affectedRows > 0) {
-            // 成功の確証が欲しい場合は、ここのコメントを外してください
-            console.log(`✅ [SAVE SUCCESS] ${player.name} (DB_ID: ${dbUserId}) の保存に成功しました`);
+			// 2026-8-27停止
+            //console.log(`✅ [SAVE SUCCESS] ${player.name} (DB_ID: ${dbUserId}) の保存に成功しました (Lv: ${level}, ATK: ${saveAtk})`);
         } else {
             console.warn(`⚠️ [SAVE WARNING] DB ID: ${dbUserId} が見つかりませんでした (affectedRows: 0)`);
         }
-    });
+    } catch (err) {
+        if (typeof LOG !== 'undefined' && LOG.DB) {
+            LOG.DB(`セーブ失敗 (DB_ID: ${dbUserId}): ${err.message}`);
+        } else {
+            console.error(`[DB ERROR] セーブ失敗 (DB_ID: ${dbUserId}): ${err.message}`);
+        }
+    }
 });
 
         // ============================================================
@@ -1474,8 +1544,8 @@ socket.on('buy_request', async (data) => {
         // 🌟 単価 × 個数 で計算
         const totalPrice = item.price * buyQty;
         if (p.gold < totalPrice) {
-			// 2026-8-9停止
-			//socket.emit('chat', { id: 'SYSTEM_LOG', name: '店主', text: `メルが足りないよ。` });
+            // 🌟 所持金不足時は購入音を鳴らさないようにクライアントへ失敗を通知
+            socket.emit('shop_purchase_failed', { reason: 'not_enough_gold' });
             return;
         }
 
@@ -1514,8 +1584,8 @@ socket.on('buy_request', async (data) => {
 
             // 🌟 上限を 10 から 50 に変更（バッグ対応）
             if (newSlotIndex >= 50) {
-				// 2026-8-9停止
-				//socket.emit('chat', { id: 'SYSTEM_LOG', name: '店主', text: `バッグがいっぱいだね。` });
+                // 🌟 バッグがいっぱい時も購入音を鳴らさないように失敗を通知
+                socket.emit('shop_purchase_failed', { reason: 'inventory_full' });
                 return;
             }
 
@@ -1598,6 +1668,9 @@ socket.on('buy_request', async (data) => {
             myItems: p.inventory,    
             gold: p.gold            
         });
+		
+		// 🌟 【追加】クライアントに「購入が成功したこと」を伝えるシグナルを送る
+		socket.emit('shop_purchase_success');
 
         console.log(`[SUCCESS] ${p.name} の購入処理完了 (${buyQty}個)。`);
             
@@ -1696,7 +1769,8 @@ socket.on('sell_request', async (data) => {
         
         const fixedInventory = Array(50).fill(null);
         fixedInventoryArray.forEach((item) => {
-            if (item.slot_index >= 0 && item.slot_index < 10) {
+            // 🌟 50スロット（0〜49）すべてを正しく反映するように修正
+            if (item.slot_index >= 0 && item.slot_index < 50) {
                 fixedInventory[item.slot_index] = item;
             }
         });
@@ -2514,16 +2588,25 @@ socket.on('equipItem', async (data) => {
 
         if (willEquip) {
             // 同じタイプ（例: 'sword' 同士）のアイテムがすでに装備されていたら強制的に外す
-            player.inventory.forEach((invItem, idx) => {
+            for (const [idx, invItem] of player.inventory.entries()) {
                 if (invItem && invItem.isEquipped && idx !== slotIndex) {
                     const invItemTypeStr = String(invItem.type || invItem.name || "").toLowerCase();
                     // 同じ種類（タイプ）の装備品を見つけたら外す
                     if (invItemTypeStr === itemTypeStr) {
                         invItem.isEquipped = false;
                         console.log(`[Equip Swap] 既に装備中の同種アイテム（スロット ${idx}: ${invItem.name}）を外しました。`);
+
+                        // 🌟 外された古い装備のデータベース側も 0 に更新する
+                        if (invItem.db_id) {
+                            await pool.query(
+                                'UPDATE user_inventory SET is_equipped = 0 WHERE id = ?',
+                                [invItem.db_id]
+                            );
+                            console.log(`[DB Sync] 外された古い装備（DB行ID: ${invItem.db_id}）の装備状態を 0 に更新しました。`);
+                        }
                     }
                 }
-            });
+            }
         }
 
         // 🌟 フラグを反転させる（装備する ⇄ 外す）
@@ -2543,6 +2626,9 @@ socket.on('equipItem', async (data) => {
         } catch (dbErr) {
             console.error('❌ 装備変更時の基礎ATK取得エラー:', dbErr);
         }
+
+        // 🌟 プレイヤーオブジェクトのベース攻撃力を更新して保持
+        player.baseAtk = baseAtk;
 
         // 🌟 インベントリ内で現在「装備中」のアイテムから、すべてのステータスボーナスを合計する
         let totalWeaponAtk = 0;
@@ -2567,8 +2653,6 @@ socket.on('equipItem', async (data) => {
                 totalLuk += itemLuk;
                 totalMaxHp += itemHp;
                 totalMaxMp += itemMp;
-
-                console.log(`[EquipDebug] スロット ${idx} (${invItem.displayName || invItem.name}) 装備中: ATK+${itemAtk}, STR+${itemStr}, DEX+${itemDex}, LUK+${itemLuk}`);
             }
         });
 
@@ -2585,6 +2669,15 @@ socket.on('equipItem', async (data) => {
 
         console.log(`[Stats Updated] 最終ATK: ${player.atk} (STR: ${player.str}, DEX: ${player.dex}, LUK: ${player.luk})`);
 
+        // 🌟 対象アイテム自体のデータベースの装備状態を更新する
+        if (item.db_id) {
+            await pool.query(
+                'UPDATE user_inventory SET is_equipped = ? WHERE id = ?',
+                [item.isEquipped ? 1 : 0, item.db_id]
+            );
+            console.log(`[DB Sync] スロット ${slotIndex} (DB行ID: ${item.db_id}) の装備状態を ${item.isEquipped ? 1 : 0} に更新しました。`);
+        }
+        
         // 🔄 クライアントへ最新のインベントリとステータスを送信
         socket.emit('inventory_update', player.inventory);
         
@@ -2609,14 +2702,51 @@ socket.on('remove_active_item', (data) => {
     const player = players[socket.id];
     if (!player || !player.activeItems) return;
 
-    const targetIndex = parseInt(data.index);
-    
-    // 範囲内であれば配列から削除する
-    if (!isNaN(targetIndex) && targetIndex >= 0 && targetIndex < player.activeItems.length) {
-        const removed = player.activeItems.splice(targetIndex, 1);
-        console.log(`[Server] ${player.name || socket.id} がアクティブアイテムを解除しました:`, removed);
+    let removedItemName = "";
 
-        // クライアントへ最新の配列を通知
+    // 💡 名前（name）が送られてきた場合は同名のものをすべて削除、indexの場合はsplice
+    if (data.name) {
+        removedItemName = (data.name || "").toLowerCase();
+        // 重複している同名アイテムも含めてすべてスッキリ削除
+        player.activeItems = player.activeItems.filter(item => (item.name || "").toLowerCase() !== removedItemName);
+    } else if (typeof data.index === 'number') {
+        const removed = player.activeItems.splice(data.index, 1)[0];
+        if (removed) {
+            removedItemName = (removed.name || "").toLowerCase();
+        }
+    }
+
+    if (removedItemName) {
+        // 🛡️ 1. clear（ゴッドモード）が解除された場合
+        if (removedItemName === 'clear') {
+            player.isInvincible = !player.isInvincible;
+            const status = player.isInvincible ? "ON" : "OFF";
+            if (typeof LOG !== 'undefined' && LOG.SUCCESS) {
+                LOG.SUCCESS(`🛡️ ゴッドモードを ${status} にしました`);
+            }
+            socket.emit('player_update_godmode', { isInvincible: player.isInvincible });
+        }
+
+        // 🚀⚡ 2. speed（スピード＆ジャンプアップ系）が解除された場合、両方を元に戻す
+        if (removedItemName === 'speed') {
+            const defaultSpeed = 5.0;   // お使いのデフォルト速度
+            const defaultJump = 15.0;   // お使いのデフォルトジャンプ力
+
+            player.speed = defaultSpeed;
+            player.jumpPower = defaultJump;
+
+            console.log(`🚀 スピードとジャンプルの効果が解除されました！`);
+
+            // それぞれクライアントへ通知
+            socket.emit('update_player_speed', { speed: defaultSpeed });
+            socket.emit('update_player_jump', { jumpPower: defaultJump });
+
+            if (typeof LOG !== 'undefined' && LOG.SUCCESS) {
+                LOG.SUCCESS(`⚡ スピード＆ジャンプアップの効果が切れました。`);
+            }
+        }
+
+        // 最後にプレイヤーの最新アクティブアイテム一覧をクライアントへ同期
         socket.emit('active_items_update', player.activeItems);
     }
 });
@@ -2788,9 +2918,9 @@ socket.on('useConsumableItem', async (data) => {
 				case 'clear':
     console.log(`[Server] プレイヤーが clear アイテムを使用しました。`);
 
-    // 🌟 ゴッドモードのON/OFFを反転
-    player.isInvincible = !player.isInvincible;
-    const status = player.isInvincible ? "ON" : "OFF";
+    // 🌟 何度使っても強制的にゴッドモードを ON (true) にする
+    player.isInvincible = true;
+    const status = "ON";
     
     // サーバーログへの出力
     if (typeof LOG !== 'undefined' && LOG.SUCCESS) {
@@ -2799,25 +2929,245 @@ socket.on('useConsumableItem', async (data) => {
         console.log(`🛡️ ゴッドモードを ${status} にしました`);
     }
     
-    // クライアントへ状態を通知（クライアント側でこのイベントを受け取る処理が必要です）
+    // クライアントへ状態を通知
     socket.emit('player_update_godmode', { isInvincible: player.isInvincible });
     
     break;
 				case 'treasure':
-                    console.log(`[Server] プレイヤーが 宝箱 を開封しました。`);
-                    break;
+    console.log(`[Server] プレイヤーが 宝箱 を開封しました。ガチャ処理開始...`);
+    
+    const usedSlotIndex = typeof slotIndex !== 'undefined' ? slotIndex : -1;
+
+    (async () => {
+        try {
+            const gachaPool = [
+                { id: 213, category: 'consume' }, // 経験値の書
+                { id: 214, category: 'consume' }, // レベルアップのカギ
+                { id: 215, category: 'consume' }, // 透明の薬
+                { id: 216, category: 'consume' }, // スピードアップの羽
+                { id: 217, category: 'consume' }, // まろやかミルクコーヒー
+                { id: 218, category: 'consume' }, // スライムの包み
+                { id: '101', category: 'sword' },   // マニアックソード（装備品）
+                { id: '102', category: 'shield' },  // トリシールド（装備品）
+            ];
+
+            const randomPick = gachaPool[Math.floor(Math.random() * gachaPool.length)];
+            let wonItem = null;
+            let isEquipment = false;
+
+            // 🍎 消費アイテムの場合
+            if (randomPick.category === 'consume') {
+                const [rows] = await pool.query('SELECT * FROM item_consume_catalog WHERE item_id = ?', [randomPick.id]);
+                if (rows.length > 0) {
+                    const item = rows[0];
+                    wonItem = {
+                        item_id: String(randomPick.id),
+                        name: item.name,
+                        type: item.name,
+                        displayName: item.display_name,
+                        imageName: item.image_name || item.name,
+                        count: 1
+                    };
+                }
+            } 
+            // ⚔️ 装備品の場合
+            else if (randomPick.category === 'sword' || randomPick.category === 'shield') {
+                isEquipment = true;
+                const isSword = randomPick.category === 'sword';
+                const catalogId = isSword ? 101 : 102;
+                const catalogBase = (typeof ITEM_CATALOG !== 'undefined' && ITEM_CATALOG[catalogId]) ? ITEM_CATALOG[catalogId] : null;
+
+                const stats = typeof identifyItem === 'function' ? identifyItem(randomPick.category) : {
+                    qualityLabel: "", itemColor: "#ffffff",
+                    atk: 0, def: 0, matk: 0, str: 0, dex: 0, int: 0, luk: 0, maxHp: 0, maxMp: 0
+                };
+
+                const finalAtk = (stats.atk !== undefined) ? stats.atk : (catalogBase ? catalogBase.atk : (isSword ? 15 : 0));
+                const finalDef = (stats.def !== undefined) ? stats.def : (catalogBase ? catalogBase.def : (isSword ? 0 : 10));
+                const finalMatk = (stats.matk !== undefined) ? stats.matk : (catalogBase ? catalogBase.matk : 0);
+                const finalStr = (stats.str !== undefined) ? stats.str : (catalogBase ? catalogBase.str : Math.floor(Math.random() * 3));
+                const finalDex = (stats.dex !== undefined) ? stats.dex : (catalogBase ? catalogBase.dex : Math.floor(Math.random() * 3));
+                const finalInt = (stats.int !== undefined) ? stats.int : (catalogBase ? catalogBase.int : 0);
+                const finalLuk = (stats.luk !== undefined) ? stats.luk : (catalogBase ? catalogBase.luk : 0);
+                const finalMaxHp = (stats.maxHp !== undefined) ? stats.maxHp : (catalogBase ? catalogBase.maxHp : 10);
+                const finalMaxMp = (stats.maxMp !== undefined) ? stats.maxMp : (catalogBase ? catalogBase.maxMp : 10);
+                
+                const sumStats = finalAtk + finalDef + finalMatk + finalStr + finalDex + finalInt + finalLuk + Math.floor(finalMaxHp / 10) + Math.floor(finalMaxMp / 10);
+
+                wonItem = {
+                    item_id: String(catalogId),
+                    type: isSword ? 'sword' : 'shield',
+                    name: isSword ? 'sword' : 'shield',
+                    displayName: isSword ? "マニアックソード" : "トリシールド",
+                    imageName: isSword ? "sword" : "shield",
+                    count: 1,
+                    isEquipped: 0,
+                    lv: (catalogBase && catalogBase.lv !== undefined) ? catalogBase.lv : 50,
+                    category: isSword ? 'sword' : 'shield',
+                    totalUpgrade: 7,
+                    star: 0,
+                    successCount: 0,
+                    failCount: 0,
+                    atk: finalAtk, def: finalDef, matk: finalMatk, 
+                    str: finalStr, dex: finalDex, int: finalInt, luk: finalLuk, 
+                    maxHp: finalMaxHp, maxMp: finalMaxMp,
+                    totalFirstStats: sumStats,
+                    totalALLStats: sumStats
+                };
+            }
+
+            if (!wonItem) return;
+            if (!player.inventory) player.inventory = {};
+            const targetDbId = player.dbId || player.id;
+
+            // ==========================================================
+            // 🌟 【超強力なスタック判定】
+            // 当たったアイテムのID (randomPick.id または wonItem.item_id) と
+            // インベントリの各スロットにあるIDをあらゆるプロパティ名で厳密に照合する
+            // ==========================================================
+            let existingStackSlot = -1;
+            if (!isEquipment) {
+                const targetIdStr = String(randomPick.id);
+
+                for (let i = 0; i < 50; i++) {
+                    const slotItem = player.inventory[i];
+                    if (i === usedSlotIndex) continue; // 開けた宝箱自身は除外
+
+                    if (slotItem && !slotItem.equipment_id && !slotItem.instanceId) {
+                        // どのプロパティ名でIDが入っていてもすべて拾えるように比較
+                        const slotItemIdStr = String(slotItem.item_id || slotItem.id || slotItem.catalog_id || '');
+                        
+                        if (slotItemIdStr === targetIdStr) {
+                            existingStackSlot = i;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            // 宝箱の消費処理
+            let isBoxSlotFreed = false;
+            if (usedSlotIndex !== -1 && player.inventory[usedSlotIndex]) {
+                const boxItem = player.inventory[usedSlotIndex];
+                if (boxItem.count && boxItem.count > 1) {
+                    boxItem.count -= 1; 
+                    await pool.query('UPDATE user_inventory SET quantity = quantity - 1 WHERE user_id = ? AND slot_index = ?', [targetDbId, usedSlotIndex]);
+                } else {
+                    player.inventory[usedSlotIndex] = null;
+                    isBoxSlotFreed = true; 
+                    await pool.query('DELETE FROM user_inventory WHERE user_id = ? AND slot_index = ?', [targetDbId, usedSlotIndex]);
+                }
+            }
+
+            let targetSlot = -1;
+
+            if (!isEquipment && existingStackSlot !== -1) {
+                // パターンA: 既存の山を発見したのでそこに合算！
+                targetSlot = existingStackSlot;
+                const slotItem = player.inventory[targetSlot];
+                slotItem.count = (Number(slotItem.count) || 1) + wonItem.count;
+
+                await pool.query('UPDATE user_inventory SET quantity = quantity + ? WHERE user_id = ? AND slot_index = ?', [wonItem.count, targetDbId, targetSlot]);
+
+            } else {
+                // パターンB: 新規配置
+                if (isBoxSlotFreed && usedSlotIndex !== -1) {
+                    targetSlot = usedSlotIndex; 
+                } else {
+                    for (let i = 0; i < 50; i++) {
+                        if (!player.inventory[i]) {
+                            targetSlot = i;
+                            break;
+                        }
+                    }
+                }
+
+                if (targetSlot !== -1) {
+                    if (isEquipment) {
+                        const [eqResult] = await pool.query(`
+                            INSERT INTO equipment_instances (
+                                player_id, item_id, name, display_name, image_name, category,
+                                lv, str, dex, \`int\`, luk, maxHp, maxMp, atk, matk, def,
+                                moveSpeed, jumpPower, atkSpeed, star, maxStar,
+                                totalUpgrade, successCount, failCount,
+                                totalFirstStats, totalALLStats
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        `, [
+                            targetDbId, wonItem.item_id, wonItem.name, wonItem.displayName, wonItem.imageName, wonItem.category,
+                            wonItem.lv || 0, wonItem.str || 0, wonItem.dex || 0, wonItem.int || 0, wonItem.luk || 0,
+                            wonItem.maxHp || 0, wonItem.maxMp || 0, wonItem.atk || 0, wonItem.matk || 0, wonItem.def || 0,
+                            0, 0, 1, 0, 7, wonItem.totalUpgrade || 7, 0, 0,
+                            wonItem.totalFirstStats, wonItem.totalALLStats
+                        ]);
+
+                        wonItem.equipment_id = eqResult.insertId;
+                        wonItem.slot_index = targetSlot;
+                        player.inventory[targetSlot] = wonItem;
+
+                        await pool.query(`
+                            INSERT INTO user_inventory (user_id, item_type, slot_index, item_id, quantity, is_equipped, equipment_id) 
+                            VALUES (?, ?, ?, ?, 1, 0, ?)
+                        `, [targetDbId, wonItem.type, targetSlot, wonItem.item_id, eqResult.insertId]);
+
+                    } else {
+                        wonItem.slot_index = targetSlot;
+                        player.inventory[targetSlot] = wonItem;
+
+                        await pool.query(`
+                            INSERT INTO user_inventory (user_id, item_type, slot_index, item_id, quantity, is_equipped) 
+                            VALUES (?, ?, ?, ?, ?, 0)
+                            ON DUPLICATE KEY UPDATE 
+                                quantity = quantity + VALUES(quantity),
+                                item_id = VALUES(item_id),
+                                item_type = VALUES(item_type)
+                        `, [targetDbId, wonItem.type, targetSlot, wonItem.item_id, wonItem.count]);
+                    }
+                }
+            }
+
+            if (targetSlot !== -1) {
+                console.log(`🎁 [Treasure Gacha] ${player.name || socket.id} が宝箱から「${wonItem.displayName}」を手に入れました！（スロット: ${targetSlot}）`);
+                
+                // 最新のインベントリ状態を綺麗に再読み込みして同期
+                const fixedInventoryArray = typeof loadUserInventory === 'function' ? await loadUserInventory(targetDbId) : null;
+                if (fixedInventoryArray) {
+                    const fixedInventory = Array(50).fill(null);
+                    fixedInventoryArray.forEach((invItem) => {
+                        if (invItem.slot_index >= 0 && invItem.slot_index < 50) {
+                            fixedInventory[invItem.slot_index] = invItem;
+                        }
+                    });
+                    player.inventory = fixedInventory;
+                }
+
+                socket.emit('inventory_update', player.inventory);
+                if (typeof LOG !== 'undefined' && LOG.SUCCESS) {
+                    LOG.SUCCESS(`🎁 宝箱を開けたら ${wonItem.displayName} が出てきた！`);
+                }
+            } else {
+                console.log(`⚠️ [Treasure Gacha] インベントリがいっぱいでアイテムを入手できませんでした。`);
+            }
+        } catch (err) {
+            console.error("❌ 宝箱ガチャ処理エラー:", err);
+        }
+    })();
+    break;
+					
 				case 'speed':
     console.log(`[Server] プレイヤーが speed アイテムを使用しました。`);
     
-    // 🌟 移動速度とジャンプ力をアップさせる数値（お好みで調整可能）
-    const speedBoost = 10.5;   // 例: 移動速度を 1.5倍（または加算）に
-    const jumpBoost = 10.2;    // 例: ジャンプ力をアップ
+    // 🌟 基準となるデフォルトの数値（環境に合わせて調整してください）
+    const defaultBaseSpeed = 1.0; 
+    const defaultBaseJump = 10.0;
+
+    // 🌟 アイテム使用時の固定の強化値（または倍率）
+    const boostSpeedValue = 10.0;   // 例: 常に速度「5.0」にする、あるいは基準値×倍率
+    const boostJumpValue = 20.0;   // 例: 常にジャンプ力「15.0」にする
 
     if (player) {
-        // 現在の値をベースにするか、直接上書きするか（ここでは分かりやすく一定値を加算・代入）
-        // ※もし元の値を持たせておき、あとで戻したい場合は元の値を保持する処理も入れられます
-        player.speed = (player.speed || 1.0) * speedBoost;
-        player.jumpPower = (player.jumpPower || 1.0) * jumpBoost;
+        // 現在の値に掛け算してインフレするのを防ぎ、固定値または基準値からの計算にする
+        player.speed = boostSpeedValue;
+        player.jumpPower = boostJumpValue;
 
         console.log(`🚀 移動速度を ${player.speed} に、🦘 ジャンプ力を ${player.jumpPower} に変更しました！`);
 
@@ -2890,7 +3240,7 @@ socket.on('useConsumableItem', async (data) => {
         }
 
         if (typeof debugChat === 'function') {
-            debugChat(`🧪 [ITEM] ${requestedItemName} を使用しました (残り個数: ${item.count || 0})`);
+            //debugChat(`🧪 [ITEM] ${requestedItemName} を使用しました (残り個数: ${item.count || 0})`);
         }
 
     } catch (e) {
@@ -4184,8 +4534,8 @@ function spawnDropItems(enemy, chId) {
                 // 🌟 ここで強制的に値を代入
                 lv: (catalogBase && catalogBase.lv !== undefined) ? catalogBase.lv : 50,
                 
-                category: (catalogBase && catalogBase.category) ? catalogBase.category : (type === 'sword' ? "weapon2" : (type === 'shield' ? "shield" : "")),
-                totalUpgrade: (catalogBase && catalogBase.totalUpgrade !== undefined) ? catalogBase.totalUpgrade : 7,
+				category: (catalogBase && catalogBase.category) ? catalogBase.category : (type === 'sword' ? "sword" : (type === 'shield' ? "shield" : "")),
+				totalUpgrade: (catalogBase && catalogBase.totalUpgrade !== undefined) ? catalogBase.totalUpgrade : 7,
                 star: (catalogBase && catalogBase.star !== undefined) ? catalogBase.star : 0,
                 successCount: 0,
                 failCount: 0,
@@ -4845,8 +5195,8 @@ else if (randomPick.category === 'sword' || randomPick.category === 'shield') {
         isEquipped: false,
         
         lv: (catalogBase && catalogBase.lv !== undefined) ? catalogBase.lv : 50,
-        category: (catalogBase && catalogBase.category) ? catalogBase.category : (isSword ? "weapon2" : "shield"),
-        totalUpgrade: (catalogBase && catalogBase.totalUpgrade !== undefined) ? catalogBase.totalUpgrade : 7,
+		category: (catalogBase && catalogBase.category) ? catalogBase.category : (isSword ? "sword" : "shield"),
+		totalUpgrade: (catalogBase && catalogBase.totalUpgrade !== undefined) ? catalogBase.totalUpgrade : 7,
         star: (catalogBase && catalogBase.star !== undefined) ? catalogBase.star : 0,
         successCount: 0,
         failCount: 0,
@@ -5171,25 +5521,30 @@ async function handleJoin(socket, name, channel) { // 🌟 async を追加
                           ? LEVEL_TABLE[currentLevel] 
                           : 100;
 
-    // 🌟 【データベースから ATK を取得する】
-    let dbAtk = 13; // 万が一取得できなかった場合のデフォルト値
-    try {
-        if (typeof connection !== 'undefined' && connection) {
-            // player_atk_table から level に一致する atk を取得するクエリ
-            // ※テーブルの列名が level と atk であると仮定しています
-            const [rows] = await connection.promise().query(
-                'SELECT atk FROM player_atk_table WHERE level = ?', 
-                [currentLevel]
-            );
-            if (rows && rows.length > 0) {
-                dbAtk = rows[0].atk;
+    // 🌟 【修正】すでに performLogin 等で読み込まれている atk があればそれを最優先で引き継ぐ！
+    let dbAtk = 13; // デフォルト値
+    if (existingData.baseAtk !== undefined && existingData.baseAtk !== null) {
+        dbAtk = existingData.baseAtk;
+    } else if (existingData.atk !== undefined && existingData.atk !== null) {
+        dbAtk = existingData.atk;
+    } else {
+        // 万が一どちらもない場合のみ、データベースから安全に取得する
+        try {
+            if (typeof pool !== 'undefined' && pool) {
+                const [rows] = await pool.query(
+                    'SELECT atk FROM player_atk_table WHERE level = ?', 
+                    [currentLevel]
+                );
+                if (rows && rows.length > 0) {
+                    dbAtk = rows[0].atk;
+                }
             }
+        } catch (dbErr) {
+            console.error('❌ データベースからの ATK 取得に失敗しました:', dbErr);
         }
-    } catch (dbErr) {
-        console.error('❌ データベースからの ATK 取得に失敗しました:', dbErr);
     }
 
-    // 🌟 プレイヤーデータの作成
+    // 🌟 プレイヤーデータの作成（既存の値を壊さないように引き継ぐ）
     players[socket.id] = {
         dbId: existingData.dbId || existingData.id || null,
         id: socket.id,
@@ -5198,7 +5553,7 @@ async function handleJoin(socket, name, channel) { // 🌟 async を追加
         
         x: (existingData.x !== undefined) ? existingData.x : 50,
         y: (existingData.y !== undefined) ? existingData.y : 500,
-        dir: 1,
+        dir: existingData.dir !== undefined ? existingData.dir : 1,
 
         gold: (existingData.gold !== undefined) ? existingData.gold : 0,
         score: (existingData.score !== undefined) ? existingData.score : 0,
@@ -5214,10 +5569,11 @@ async function handleJoin(socket, name, channel) { // 🌟 async を追加
         luk: existingData.luk || 4,
         ap: (existingData.ap !== undefined) ? existingData.ap : 0,
         
-        weaponAtk: existingData.weaponAtk || 10, 
+        weaponAtk: existingData.weaponAtk || 0, 
         
-        // 🌟 DBから取得した値をセット！
-        atk: dbAtk,
+        // 🌟 引き継いだ正しい ATK をセット！
+        atk: existingData.atk !== undefined ? existingData.atk : dbAtk,
+        baseAtk: dbAtk,
 
         w: SETTINGS.PLAYER.DEFAULT_W * (SETTINGS.PLAYER.SCALE || 1.0),
         h: SETTINGS.PLAYER.DEFAULT_H * (SETTINGS.PLAYER.SCALE || 1.0),

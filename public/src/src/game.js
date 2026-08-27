@@ -1180,8 +1180,8 @@ function renderTooltip() {
     
     tooltipCtx = tCanvas.getContext('2d');
     
-    const baseWidth = 1200;
-    const baseHeight = 690;
+    const baseWidth = 800;
+    const baseHeight = 600;
 
     // 🌟 拡張サイズの計算
     const extendedWidth = baseWidth + (sideMargin * 2);
@@ -1454,12 +1454,10 @@ socket.on('auth_response', (data) => {
 
 window.isGameLoopRunning = false; // ループが動いているかを管理するフラグ
 
-// ============================================================
 // :::ON_LOGIN_DATA::: 🚀 本番ログインデータ受信・ゲーム開始・状態遷移
-// ============================================================
 socket.on('login_data', (data) => {
 
-    // 💡 受信データ全体をログに出す
+	// 💡 受信データ全体をログに出す
     console.log("📥 [Debug] 受信した login_data:", data);
     
     // 💡 特定のキーが存在するか確認してログに出す
@@ -1515,66 +1513,38 @@ socket.on('login_data', (data) => {
     if (typeof hero !== 'undefined') {
         hero.name = userName;
         
-        // 🌟 サーバーから送られてきた連携・オンライン状態を即時反映
+        // 🌟 修正：サーバーから送られてきた連携・オンライン状態を即時反映
         hero.isLinked = data.is_linked;
         hero.isOnline = data.is_online;
+		
+		console.log("【ログイン処理】受け取ったデータ:", data);
+		console.log("【ログイン処理】更新後のhero:", hero);
         
-        console.log("【ログイン処理】受け取ったデータ:", data);
-        console.log("【ログイン処理】更新后的hero:", hero);
-        
+		// ★ここを追加！★
         // 描画ループが参照している players[socket.id] にも値をセットする
         if (typeof players !== 'undefined' && players[socket.id]) {
             players[socket.id].isLinked = data.is_linked;
             players[socket.id].isOnline = data.is_online;
-            
+			// 🌟 【追加】こちらも同様に保持させる場合
             if (data.stats) {
                 players[socket.id].speed = data.stats.speed || 5.0;
                 players[socket.id].jumpPower = data.stats.jumpPower || 10.0;
-                players[socket.id].atk = data.stats.atk || 13;
-                players[socket.id].baseAtk = data.stats.baseAtk || 13;
-                players[socket.id].weaponAtk = data.stats.weaponAtk || 0;
             }
             console.log("✅ players[socket.id] を同期しました:", players[socket.id].isLinked);
         }
-        
+		
         if (data.stats) {
             hero.level = data.stats.level || 1;
-            hero.exp   = data.stats.exp || 0;
-            hero.requiredExp = data.stats.requiredExp || 100; // 💡 【追加】次のレベルに必要な経験値
             hero.hp    = data.stats.hp || 100;
-            hero.maxHp = data.stats.max_hp || 100;
             hero.mp    = data.stats.mp || 50;
-            hero.maxMp = data.stats.max_mp || 50;
             hero.gold  = data.stats.gold || 0;
             hero.x     = data.stats.x || 100;
             hero.y     = data.stats.y || 400;
             hero.jobId = data.stats.job_id || 0;
-            
-            // 🌟 【追加】サーバーから送られてきた攻撃力の詳細を hero に反映
-            hero.atk = data.stats.atk || 13;
-            hero.baseAtk = data.stats.baseAtk || 13;
-            hero.weaponAtk = data.stats.weaponAtk || 0;
-
-            // 🌟 サーバーから送られてきた移動速度とジャンプ力を hero に反映
+            hero.atk   = data.stats.atk || 0;
+			// 🌟 【追加】サーバーから送られてきた移動速度とジャンプ力を hero に反映
             hero.speed = data.stats.speed || 5.0;
             hero.jumpPower = data.stats.jumpPower || 10.0;
-
-            // 🌟 ログイン時にデータベースから素のステータスを受け取る
-            // ※もし data.stats に baseStr があればそちらを優先、なければ str をベースにする
-            hero.baseStr = data.stats.baseStr !== undefined ? data.stats.baseStr : (data.stats.str || 4);
-            hero.baseDex = data.stats.baseDex !== undefined ? data.stats.baseDex : (data.stats.dex || 4);
-            hero.baseLuk = data.stats.baseLuk !== undefined ? data.stats.baseLuk : (data.stats.luk || 4);
-            hero.ap      = data.stats.ap !== undefined ? data.stats.ap : 0;
-
-            // 🌟 装備品のボーナスを再計算して `〇〇(〇+〇)` の形式に反映させる関数を呼び出す
-            if (typeof recalcPlayerStats === 'function') {
-                recalcPlayerStats();
-            } else {
-                // 万が一関数がなければベース値をそのままセット
-                hero.str = hero.baseStr;
-                hero.dex = hero.baseDex;
-                hero.luk = hero.baseLuk;
-            }
         }
         hero.channel = data.channel || 1;
         if (typeof updateChannelUI === 'function') updateChannelUI(hero.channel);
@@ -1596,7 +1566,7 @@ socket.on('login_data', (data) => {
         if (typeof audioCtx !== 'undefined' && audioCtx.state === 'suspended') audioCtx.resume();
         if (typeof playBGM === 'function') playBGM();
 
-        // すでにループが動いていなければ、1回だけ起動する
+        // 【ここを修正】すでにループが動いていなければ、1回だけ起動する
         if (typeof update === 'function' && !window.isGameLoopRunning) {
             window.isGameLoopRunning = true; // 「起動したぞ！」というフラグを立てる
             update(); // 初回起動
@@ -2012,6 +1982,7 @@ socket.on('state', (data) => {
 
             const newKey = newItem.equipment_id || newItem.instanceId;
             const oldItem = oldInventory.find(old => {
+                // ✨ 修正点1: 比較対象の old が存在しない場合はスキップ
                 if (!old) return false;
 
                 const oldKey = old.equipment_id || old.instanceId;
@@ -2020,6 +1991,7 @@ socket.on('state', (data) => {
                 return isIdMatch || isSlotMatch;
             });
 
+            // ✨ 修正点2: oldItem が見つかった場合（＝過去のデータに存在する場合）のみ詳細を復元
             if (oldItem) {
                 const isDataLost = (typeof newItem.totalALLStats === 'undefined' || newItem.totalALLStats === 0);
                 if (isDataLost && oldItem.totalALLStats > 0) {
@@ -2045,71 +2017,23 @@ socket.on('state', (data) => {
     // -------------------------------------------------------
     // 7. 最終同期（window.hero の更新）
     // -------------------------------------------------------
-    hero.inventory       = myHeroData.inventory || [];
-    hero.gold            = (myHeroData.gold !== undefined) ? myHeroData.gold : hero.gold;
-    hero.score           = myHeroData.score || 0;
-    hero.channel         = myHeroData.channel;
-    hero.level           = myHeroData.level;
-    hero.exp             = myHeroData.exp;
-    hero.maxExp          = myHeroData.maxExp || 100;
-    hero.requiredExp     = myHeroData.requiredExp || hero.requiredExp || 100; // 💡 追加：必要経験値の同期
-    hero.hp              = myHeroData.hp;
-    hero.maxHp           = myHeroData.maxHp || 100;
-
-    // 🌟 1. まずインベントリから「各種ステータスボーナス」を正確に集計する
-    let bonusStr = 0;
-    let bonusDex = 0;
-    let bonusLuk = 0;
-    let bonusInt = 0;
-    let totalWeaponAtk = 0; // 💡 追加：装備による武器攻撃力の集計
-
-    if (hero.inventory && Array.isArray(hero.inventory)) {
-        hero.inventory.forEach(item => {
-            if (item && item.isEquipped) {
-                bonusStr += item.str || 0;
-                bonusDex += item.dex || 0;
-                bonusLuk += item.luk || 0;
-                bonusInt += item.int || 0;
-                totalWeaponAtk += Number(item.atk) || Number(item.power) || 0; // 💡 武器攻撃力を加算
-            }
-        });
-    }
-
-    // 画面表示用のボーナス値にセット
-    hero.bonusStr = bonusStr;
-    hero.bonusDex = bonusDex;
-    hero.bonusLuk = bonusLuk;
-    hero.bonusInt = bonusInt;
-    hero.weaponAtk = totalWeaponAtk; // 💡 武器攻撃力ボーナスをセット
-
-    // 🌟 2. サーバーから届いた値（すでに装備込みの合計値になっている可能性が高い）を保持
-    const rawStr = (myHeroData.str !== undefined) ? myHeroData.str : (hero.str || 50);
-    const rawDex = (myHeroData.dex !== undefined) ? myHeroData.dex : (hero.dex || 0);
-    const rawLuk = (myHeroData.luk !== undefined) ? myHeroData.luk : (hero.luk || 0);
-    const rawInt = (myHeroData.int !== undefined) ? myHeroData.int : (hero.int || 0);
-    const rawAtk = (myHeroData.atk !== undefined) ? myHeroData.atk : (hero.atk || 13); // 💡 サーバからの合計ATK
-
-    // 🌟 3. 合計値はそのままサーバーの値を信頼し、ベース値（〇）を「合計 － ボーナス」で正しく逆算する
-    hero.str = rawStr;
-    hero.baseStr = Math.max(0, rawStr - bonusStr);
-
-    hero.dex = rawDex;
-    hero.baseDex = Math.max(0, rawDex - bonusDex);
-
-    hero.luk = rawLuk;
-    hero.baseLuk = Math.max(0, rawLuk - bonusLuk);
-
-    hero.int = rawInt;
-    hero.baseInt = Math.max(0, rawInt - bonusInt);
-
-    // 💡 攻撃力の逆算と反映
-    hero.atk = rawAtk;
-    hero.baseAtk = (myHeroData.baseAtk !== undefined) ? myHeroData.baseAtk : Math.max(13, rawAtk - totalWeaponAtk);
-
-    hero.ap              = (myHeroData.ap !== undefined) ? myHeroData.ap : 0;
+    // myHeroData の値を hero に反映
+    hero.inventory     = myHeroData.inventory || [];
+    hero.gold          = (myHeroData.gold !== undefined) ? myHeroData.gold : hero.gold; // 所持金同期を追加
+    hero.score         = myHeroData.score || 0;
+    hero.channel       = myHeroData.channel;
+    hero.level         = myHeroData.level;
+    hero.exp           = myHeroData.exp;
+    hero.maxExp         = myHeroData.maxExp || 100;
+    hero.hp            = myHeroData.hp;
+    hero.maxHp         = myHeroData.maxHp || 100;
+    hero.str           = myHeroData.str || 50;
+    hero.dex           = myHeroData.dex;
+    hero.luk           = myHeroData.luk;
+    hero.ap            = (myHeroData.ap !== undefined) ? myHeroData.ap : 0;
 
     // ✨ 🌟 露店状態と店名をここで最終確定
-    hero.is_vending      = !!myHeroData.is_vending; 
+    hero.is_vending    = !!myHeroData.is_vending; 
     hero.vending_title = myHeroData.vending_title || ""; 
 
     // グローバル変数全体を最新に
@@ -3204,100 +3128,90 @@ function sellItem(itemId, slotIndex, displayName, currentCount = 1, isEquipment 
 // ============================================================
 // :::BUY_ITEM::: 🛒 アイテム購入確認とリクエスト送信
 // ============================================================
+/**
+ * 役割：
+ * - 購入確認ダイアログの表示と商品名の表示
+ * - 装備品/一般品に応じた個数入力UIの制御（装備は個数固定、一般品は可変）
+ * - バリデーションチェック（不正な数量の除外）
+ * - サーバーへの購入リクエスト（socket.emit）の発行
+ */
 function buyItem(itemId, itemType, displayName) {
     console.log("1. buyItem関数が呼ばれました。ID:", itemId, "Type:", itemType);
 
     const overlay = document.getElementById('custom-confirm');
-    const message = document.getElementById('confirm-message');
+    const message = document.getElementById('confirm-message'); // メッセージ用要素
     const btnYes = document.getElementById('confirm-yes');
     const btnNo = document.getElementById('confirm-no');
     
+    // 🌟 追加：個数入力エリア(親)と入力欄(input)の取得
     const qtyArea = document.getElementById('confirm-quantity-area');
     const inputQty = document.getElementById('buy-quantity');
 
+    // メッセージをセット（アイテム名を表示する場合）
     if (message) {
         message.innerText = `${displayName} を購入しますか？`;
     }
 
+    // 🌟 修正ポイント：装備品判定による表示切り替え
     const isEquipment = (itemType === 'sword' || itemType === 'shield');
 
     if (isEquipment) {
+        // 装備品なら個数エリアを隠し、値は1に固定
         if (qtyArea) qtyArea.style.display = 'none';
         if (inputQty) {
             inputQty.value = "1";
             inputQty.max = 1;
         }
     } else {
+        // 消費・ETCなら個数エリアを表示し、入力可能にする
         if (qtyArea) qtyArea.style.display = 'block';
         if (inputQty) {
             inputQty.value = "1";
-            inputQty.max = 99;
+            inputQty.max = 99; // 最大購入数制限
             inputQty.focus();
         }
     }
 
+    // ダイアログを表示
     overlay.style.display = 'flex';
 
     // 「はい」ボタンの処理
     btnYes.onclick = () => {
+        // 🌟 装備品なら強制的に1、そうでなければ入力値を取得
         const quantity = isEquipment ? 1 : (inputQty ? parseInt(inputQty.value) : 1);
 
+        // 🌟 バリデーションチェック（装備品以外の場合）
         if (!isEquipment && (isNaN(quantity) || quantity <= 0)) {
             alert("購入する個数を正しく入力してください。");
             return;
         }
 
-        overlay.style.display = 'none'; // 確認ダイアログは一旦閉じる
+        overlay.style.display = 'none'; // 閉じる
         
         if (typeof socket === 'undefined') {
             console.error("エラー: socketが見つかりません");
             return;
         }
-
-        // ❌ ここにあった playBuySound() は削除します（買えるか分からないため）
+		
+		// 🛒 購入決定時の効果音を再生
+        if (typeof playBuySound === 'function') {
+            playBuySound();
+        }
 
         console.log(`2. サーバーへ購入リクエストを送ります... (ID: ${itemId}, 個数: ${quantity})`);
         
+        // 🌟 itemIdとquantityをサーバーへ送信
         socket.emit('buy_request', { 
             itemId: itemId,
             quantity: quantity 
         });
     };
 
+    // 「いいえ」ボタンの処理
     btnNo.onclick = () => {
         console.log("購入がキャンセルされました");
-        overlay.style.display = 'none';
+        overlay.style.display = 'none'; // 閉じる
     };
-}
-
-// ============================================================
-// :::SHOP_SOCKET_LISTENERS::: 🛒 ショップ関連のサーバー通信受信
-// ============================================================
-if (typeof socket !== 'undefined') {
-    // 🌟 購入が成功したときだけ効果音を鳴らす
-    socket.off('shop_purchase_success');
-    socket.on('shop_purchase_success', () => {
-        console.log("購入成功！効果音を鳴らします。");
-        if (typeof playBuySound === 'function') {
-            playBuySound(); // ここで初めて「ジャキーン！」等の購入音が鳴る
-        }
-    });
-
-    // 🌟 サーバーから「メル不足・バッグ一杯」などの購入失敗通知を受け取る
-    socket.off('shop_purchase_failed'); // 多重登録防止
-    socket.on('shop_purchase_failed', (data) => {
-        // メッセージの内容を分岐
-        let alertText = "アイテムを購入できませんでした。";
-        if (data.reason === 'not_enough_gold') {
-            alertText = "メルが足りないよ。";
-        } else if (data.reason === 'inventory_full') {
-            alertText = "バッグがいっぱいだね。";
-        }
-
-        // 昔のメイプル風のシステムダイアログ（alertや、専用の中央ポップアップ）を表示
-        // ※ もし専用のダイアログ関数があればそれに差し替えてもOKです
-        alert(alertText); 
-    });
 }
 
 // ============================================================
@@ -4741,18 +4655,16 @@ function saveGameData() {
         exp: hero.exp || 0,
         gold: hero.gold || 0,
         hp: hero.hp || 100,
-        maxHp: hero.maxHp || 100, // 最大HPを追加
+        maxHp: hero.maxHp || 100, // 🌟 追記：最大HPを追加
         mp: hero.mp || 50,
-        maxMp: hero.maxMp || 50,  // 最大MPを追加
+        maxMp: hero.maxMp || 50,  // 🌟 追記：最大MPを追加
         mapId: currentMapId,
         x: hero.x,
         y: hero.y,
-        // 🌟 装備ボーナスが混ざった最終値ではなく、「素のステータス」を保存用に送信する
-        str: hero.baseStr !== undefined ? hero.baseStr : (hero.str || 4),
-        dex: hero.baseDex !== undefined ? hero.baseDex : (hero.dex || 4),
-        luk: hero.baseLuk !== undefined ? hero.baseLuk : (hero.luk || 4),
-        // 🌟 【追加】データベースに保存するためのベース攻撃力（baseAtk）を送信
-        atk: hero.baseAtk !== undefined ? hero.baseAtk : 13,
+        // 🌟 追記：追加ステータス（STR, DEX, LUK, AP）を送信データに含める
+        str: hero.str || 4,
+        dex: hero.dex || 4,
+        luk: hero.luk || 4,
         ap: hero.ap || 0
     };
 

@@ -1417,7 +1417,7 @@ window.addEventListener('mouseup', () => {
 window.selectedPlayer = null;
 
 // ============================================================
-// :::CONTEXT_MENU_TARGETING::: 🖱️ 右クリックによるプレイヤーターゲット＆UI判定
+// :::CONTEXT_MENU_TARGETING::: 🖱️ 右クリックによるプレイヤーターゲット判定
 // ============================================================
 const stageCanvas = document.getElementById('stage');
 
@@ -1426,55 +1426,6 @@ if (stageCanvas) {
         e.preventDefault();
 
         const rect = stageCanvas.getBoundingClientRect();
-        
-        // ------------------------------------------------------------
-        // 🌟 【追加】UI(使用中アイテム)のクリック判定を先に行う
-        // ------------------------------------------------------------
-        if (typeof hero !== 'undefined' && hero && hero._renderActiveItems && hero._renderActiveItems.length > 0) {
-            // HUD判定用の座標計算 (クライアント座標からキャンバス内座標への変換)
-            const hudCanvasX = ((e.clientX - rect.left) / rect.width) * VIEW_CONFIG.SCREEN_WIDTH; 
-            const hudCanvasY = ((e.clientY - rect.top) / rect.height) * VIEW_CONFIG.SCREEN_HEIGHT; 
-
-            const iconSize = 32;
-            const spacing = 6;
-            const rightMargin = 20;
-            const topY = 20;
-
-            let clickedActiveItemIndex = -1;
-
-            // 🌟 画面上に綺麗に並んでいる `_renderActiveItems` をベースにヒット判定
-            hero._renderActiveItems.forEach((item, index) => {
-                const iconX = VIEW_CONFIG.SCREEN_WIDTH - rightMargin - ((hero._renderActiveItems.length - index) * (iconSize + spacing));
-                const iconY = topY;
-
-                // マウスがアイコンの矩形内にあるか
-                if (hudCanvasX >= iconX && hudCanvasX <= iconX + iconSize &&
-                    hudCanvasY >= iconY && hudCanvasY <= iconY + iconSize) {
-                    clickedActiveItemIndex = index;
-                }
-            });
-
-            // 💡 もしHUDのアイコン上で右クリックされていた場合は、削除処理をして終了する
-            if (clickedActiveItemIndex !== -1) {
-                const targetItem = hero._renderActiveItems[clickedActiveItemIndex];
-                if (targetItem) {
-                    console.log(`[UI] アクティブアイテム "${targetItem.name}" が右クリックで削除されました`);
-                    
-                    // 🛑 クライアント側で即座に同名のアイテムをすべてフィルターして画面から消す
-                    hero.activeItems = hero.activeItems.filter(item => item.name !== targetItem.name);
-                    
-                    // サーバーへ「名前」で削除を通知（これで何回重ねて使っていても1発で消えます）
-                    socket.emit('remove_active_item', { name: targetItem.name });
-                }
-                return; // 🛑 ここで処理を終了し、キャラクター判定には進まない
-            }
-        }
-        // ------------------------------------------------------------
-
-
-        // ------------------------------------------------------------
-        // 🔽 既存のプレイヤーターゲット判定処理
-        // ------------------------------------------------------------
         const canvasX = ((e.clientX - rect.left) / rect.width) * 800;
         const canvasY = ((e.clientY - rect.top) / rect.height) * 600;
 
@@ -1503,7 +1454,10 @@ if (stageCanvas) {
             console.log("【1. ターゲット特定】:", foundPlayer.name || "自分");
 
             // --- 自キャラかどうかで分岐処理 ---
+            //if (foundPlayer === hero) {
             if (false) {
+                // 自分ならサーバーを介さず即時処理（自キャラ専用メニュー用）
+                // 必要に応じて ID を "SELF" とするか、自身の名前を使用
                 const targetId = "SELF_" + (typeof myId !== 'undefined' ? myId : "player");
                 
                 const dummyEvent = {
@@ -1513,6 +1467,8 @@ if (stageCanvas) {
                     target: { textContent: foundPlayer.name || "自分" }
                 };
                 
+				//alert(targetId);
+				
                 handleRightClick(dummyEvent, targetId);
 
             } else {
@@ -1532,6 +1488,8 @@ if (stageCanvas) {
                         target: { textContent: data.wikiName || foundPlayer.name }
                     };
                     
+					//alert(targetId);
+					
                     handleRightClick(dummyEvent, targetId);
                 });
             }
@@ -3188,11 +3146,9 @@ function drawGame(hero, others, enemies, items, platforms, ladders, damageTexts,
 
     // 6. UI（最前面）の描画
     drawUIOverlay(hero);
-	
-	drawActiveItemHUD(hero);
     
     // 7. 特殊UI表示（チャンネル表示・マウス追従アイテム）
-    //drawChannelHUD(hero);
+    drawChannelHUD(hero);
 	
 	if (typeof drawOnlineList === 'function') {
         drawOnlineList(ctx);
@@ -3272,90 +3228,6 @@ function drawGame(hero, others, enemies, items, platforms, ladders, damageTexts,
         ctx.restore();
     }
 }
-
-// ============================================================
-// :::DRAW_ACTIVE_ITEM_HUD::: 🧪 複数使用中アイテムの並び描画（特定アイテム限定版）
-// ============================================================
-function drawActiveItemHUD(hero) {
-    if (typeof hero === 'undefined' || !hero) return;
-
-    const activeItems = hero.activeItems || (hero.activeItem ? [hero.activeItem] : []);
-    if (activeItems.length === 0) return;
-
-    ctx.save();
-
-    const iconSize = 32;       // アイコンのサイズ
-    const spacing = 6;         // アイコン同士の間隔
-    const rightMargin = 20;    // 画面右端からのマージン
-    const topY = 20;           // 描画するY座標
-
-    // 🌟 【特定アイテム限定のホワイトリスト】
-    // ここに登録されているアイテム名（item.name）だけがHUDに描画されます
-    const allowedActiveItems = [
-        'speed',
-        'clear'
-    ];
-
-    // 1. 描画対象のアイテムだけにフィルターをかける（存在しないものや許可されていないものを除外）
-    const filteredItems = activeItems.filter(item => {
-        const itemKey = item.name;
-        if (!itemKey) return false;
-        // ホワイトリストに含まれているかチェック
-        return allowedActiveItems.includes(itemKey);
-    });
-
-    // 2. 🌟 新しく使ったものが右側（末尾）に来るように重複を排除しつつ順序を維持する
-    const validItems = [];
-    for (let i = filteredItems.length - 1; i >= 0; i--) {
-        const item = filteredItems[i];
-        // すでに配列に同じ名前のアイテムがなければ追加
-        if (!validItems.some(existing => existing.name === item.name)) {
-            validItems.unshift(item); // 前に追加していくことで元の時系列順を復元
-        }
-    }
-
-    // 💡 画面上のクリック判定（右クリック削除）や他の場所から参照できるように、
-    // heroオブジェクト等に現在の表示用リストを一時保存しておきます
-    hero._renderActiveItems = validItems;
-
-    if (validItems.length === 0) {
-        ctx.restore();
-        return;
-    }
-
-    // フィルター＆重複排除済みの有効なアイテム数をもとに右端から並べる
-    validItems.forEach((item, index) => {
-        const itemKey = item.name;
-
-        if (typeof sprites !== 'undefined' && sprites.items && sprites.items[itemKey]) {
-            const iconImg = sprites.items[itemKey];
-
-            if (iconImg.complete && iconImg.naturalWidth > 0) {
-                const iconX = VIEW_CONFIG.SCREEN_WIDTH - rightMargin - ((validItems.length - index) * (iconSize + spacing));
-                const iconY = topY;
-
-                // アイコンの背景・枠組み
-                ctx.fillStyle = "rgba(0, 0, 0, 0.6)";
-                ctx.fillRect(iconX, iconY, iconSize, iconSize);
-                ctx.strokeStyle = "#38bdf8";
-                ctx.lineWidth = 1;
-                ctx.strokeRect(iconX, iconY, iconSize, iconSize);
-
-                // アイコン画像の描画
-                ctx.drawImage(iconImg, iconX, iconY, iconSize, iconSize);
-            }
-        }
-    });
-
-    ctx.restore();
-}
-
-// サーバーから「使用中のアイテムが更新されたよ」という通知を受け取る
-socket.on('active_items_update', (items) => {
-    if (typeof hero !== 'undefined' && hero) {
-        hero.activeItems = items;
-    }
-});
 
 // ============================================================
 // :::DRAW_CHANNEL_HUD::: 📡 チャンネル表示（HUD）の描画（グロー装飾版）
@@ -4285,21 +4157,37 @@ function drawGameWindows(hero) {
 // ============================================================
 // :::DRAW_UI_OVERLAY::: 🎨 UIレイヤー全体の総合レンダリング司令塔
 // ============================================================
+/**
+ * 役割：
+ * - UIの描画フロー管理：基本UI → 所持金 → インベントリ → ウィンドウ群 → ツールチップ
+ * - ホバー判定の集約：インベントリ等のアイテムホバー情報を一元管理(hoveredItemForTooltip)
+ * - レイヤー制御：メインキャンバス(ctx)でベースを描画し、最前面(tCtx)でツールチップを表示する2層構造の管理
+ * - 安全性確保：heroデータの存在チェックによるレンダリングエラーの防止
+ */
 function drawUIOverlay(hero) {
-    if (!hero) return;
+    if (!hero) return; // 🌟 heroが空っぽの時は何もしない
 
-    // 基本UIパーツの描画
+    // 1. 基本UIパーツの描画（背面Canvas: ctx）
     drawItemLogsUI();
     drawTopStatusUI(hero);
+
+    // 🌟 分離された所持金表示
     drawGoldUI(hero);
 
+    // ==========================================
+    // 🎒 インベントリグリッド（メインループ部分）
+    // ==========================================
+    // 🌟 接続が切れている場合は、ホバー判定をスキップするため null に固定
     if (window.isDisconnected) {
         window.hoveredItemForTooltip = null;
     } else {
+        // 🌟 接続中の時だけホバー判定を計算
         window.hoveredItemForTooltip = null;
     }
 
+    // インベントリの描画自体は接続状態に関わらず常に実行する
     if (hero && hero.inventory) {
+        // グリッド背景などは背面に描画
         drawInventoryGrid(ctx, hero.inventory);
 
         const startX = 20;
@@ -4307,26 +4195,28 @@ function drawUIOverlay(hero) {
         const slotSize = 40;
         const spacing = 8;
 
-        // 🛡️ インベントリの上に「開いているウィンドウ」が被っているか一発判定
-        const isAnyWindowCovering = !window.isDisconnected && isMouseOverAnyWindow(mouseX, mouseY);
-
         hero.inventory.forEach((slot, index) => {
             if (!slot || !slot.type || slot.count <= 0) return;
             const x = startX + (index * (slotSize + spacing));
             const y = startY;
 
+            // 🌟 【追加】スロットごとに装備中（isEquipped === true）なら [E] を描画！
             if (slot.isEquipped) {
                 ctx.save();
                 ctx.font = 'bold 12px sans-serif';
-                ctx.fillStyle = '#00ffcc';
+                ctx.fillStyle = '#00ffcc'; // 鮮やかなシアン色
                 ctx.textAlign = 'right';
                 ctx.textBaseline = 'top';
+                
+                // 各スロットの右上に [E] を表示
                 ctx.fillText('[E]', x + slotSize - 2, y + 2);
+                
                 ctx.restore();
             }
 
-            // 接続中で、かつ上にウィンドウが被っていない場合のみホバー判定を行う
-            if (!window.isDisconnected && !isAnyWindowCovering) {
+            // 🌟 接続中のみ詳細なホバー判定計算を行う
+            if (!window.isDisconnected) {
+                // マウスがアイテムの上にあるか判定
                 if (mouseX >= x && mouseX <= (x + slotSize) &&
                     mouseY >= y && mouseY <= (y + slotSize)) {
                     window.hoveredItemForTooltip = slot;
@@ -4335,11 +4225,15 @@ function drawUIOverlay(hero) {
         });
     }
 
-    // ウィンドウ群の描画
+    // 🌟 整理：重なり順を管理する配列に基づいてウィンドウ群を描画（背面Canvas）
     drawGameWindows(hero);
     
-    // ツールチップ描画の実行
+    // ==========================================
+    // ✨ ツールチップ描画の実行（最前面Canvas: tCtx）
+    // ==========================================
+    // 🌟 修正：切断時はツールチップを描画しないガードを追加
     if (!window.isDisconnected && typeof tCtx !== 'undefined') {
+        // 2. もしインベントリ（または今後実装するショップ）でアイテムを触っていたら描画
         if (window.hoveredItemForTooltip) {
             drawItemTooltip(tCtx, window.hoveredItemForTooltip, mouseX, mouseY, hero);
         }
@@ -4606,30 +4500,6 @@ function drawItemTooltip(ctx, slot, mouseX, mouseY, hero) {
 }
 
 // ============================================================
-// :::IS_MOUSE_OVER_ANY_WINDOW::: 🖱️ ウィンドウとの重なり判定（共通関数）
-// ============================================================
-function isMouseOverAnyWindow(mouseX, mouseY) {
-    if (typeof gameWindows === 'undefined') return false;
-
-    for (const [key, win] of Object.entries(gameWindows)) {
-        // ウィンドウが存在し、かつ開いている（isOpen === true）場合のみ判定
-        if (win && win.isOpen) {
-            const winX = win.x;
-            const winY = win.y;
-            const winW = win.w || 200;
-            const winH = win.h || 300;
-
-            // マウス座標がウィンドウの矩形内に入っているか
-            if (mouseX >= winX && mouseX <= winX + winW &&
-                mouseY >= winY && mouseY <= winY + winH) {
-                return true; // どのウィンドウであれ重なっていれば true
-            }
-        }
-    }
-    return false;
-}
-
-// ============================================================
 // ⚔️ 攻撃力およびステータス計算用ユーティリティ
 // ============================================================
 function calculateTotalAtk(hero) {
@@ -4646,29 +4516,13 @@ function calculateTotalAtk(hero) {
 function drawStatusWindow() {
     const win = gameWindows.status;
     
-    // 窓枠の描画（背景を上質なダークテーマ＆シャドウ調に）
-    ctx.save();
+    // 窓枠の描画
+    drawSimpleWindow("📊 Character Status", win.x, win.y, win.w, win.h);
     
-    // ウィンドウ全体の背景＆枠線
-    ctx.fillStyle = "rgba(15, 23, 42, 0.92)"; // ディープダークネイビー
-    ctx.fillRect(win.x, win.y, win.w, win.h);
-    
-    ctx.strokeStyle = "rgba(51, 65, 85, 0.8)"; // 上品なエッジライン
-    ctx.lineWidth = 1.5;
-    ctx.strokeRect(win.x, win.y, win.w, win.h);
-
-    // ヘッダー部分の背景装飾
-    ctx.fillStyle = "rgba(30, 41, 59, 0.9)";
-    ctx.fillRect(win.x + 1, win.y + 1, win.w - 2, 36);
-
-    // タイトルテキスト
-    ctx.font = "bold 12px 'Segoe UI', Tahoma, sans-serif";
-    ctx.fillStyle = "#f8fafc";
     ctx.textAlign = "left";
-    ctx.fillText("📊 Character Status", win.x + 12, win.y + 23);
 
     // --- 2カラム用のレイアウト設定 ---
-    const startY = win.y + 62;
+    const startY = win.y + 55;
     const gap = 20; // 行間
     const halfWidth = (win.w - 28) / 2;
     const leftX = win.x + 14;
@@ -4681,23 +4535,16 @@ function drawStatusWindow() {
         return b > 0 ? `${total} (${bs}+${b})` : total;
     };
 
-    // --- 経験値のパーセンテージ計算（小数点以下切り捨て） ---
-    const currentExp = hero.exp || 0;
-    const requiredExp = hero.requiredExp || hero.maxExp || 100; 
-    const expPercent = requiredExp > 0 
-        ? Math.floor(Math.min(100, Math.max(0, (currentExp / requiredExp) * 100))) 
-        : 0;
-
     // --- カラム1（左側：12項目）のデータ定義 ---
     const col1Labels = ["名前", "職業", "レベル", "ギルド", "HP", "MP", "経験値", "人気度", "STR", "DEX", "INT", "LUK"];
     const col1Values = [
         hero.name || "Adventurer",
         hero.job || "初心者",
-        hero.lv || hero.level || 1,
+        hero.lv || 1,
         hero.guild || "なし",
         `${hero.hp || 0} / ${hero.maxHp || 100}`,
         `${hero.mp || 0} / ${hero.maxMp || 100}`,
-        `${currentExp} (${expPercent}%)`,
+        hero.exp || 0,
         hero.fame || 0,
         formatStatWithBonus(hero.str, hero.baseStr, hero.bonusStr),
         formatStatWithBonus(hero.dex, hero.baseDex, hero.bonusDex),
@@ -4705,26 +4552,13 @@ function drawStatusWindow() {
         formatStatWithBonus(hero.luk, hero.baseLuk, hero.bonusLuk)
     ];
 
-    // --- カラム2（右側）：攻撃力を「攻撃力(内訳)」と「最小最大」の2行に分割 ---
-    const finalAtkVal = hero.atk || 13;
-    const baseAtkVal = hero.baseAtk !== undefined ? hero.baseAtk : 13;
-    const weaponAtkVal = hero.weaponAtk || 0;
-
-    // 1行目用：攻撃力の数値 ＋ 基礎+武器の内訳表示
-    const atkDetailStr = weaponAtkVal > 0 
-        ? `${finalAtkVal} (${baseAtkVal}+${weaponAtkVal})` 
-        : `${finalAtkVal}`;
-
-    // 2行目用：最小攻撃力 〜 最大攻撃力 のレンジ表示
-    const minAtkVal = hero.minAtk !== undefined ? hero.minAtk : Math.floor(finalAtkVal * 0.7);
-    const maxAtkVal = hero.maxAtk !== undefined ? hero.maxAtk : finalAtkVal;
-    const atkRangeStr = `${minAtkVal} 〜 ${maxAtkVal}`;
+    // --- カラム2（右側：9項目）のデータ定義 ---
+    const finalAtkVal = calculateTotalAtk(hero);
+    const displayAtkStr = hero.weaponAtk > 0 ? `${finalAtkVal} (${hero.baseAtk || (finalAtkVal - hero.weaponAtk)}+${hero.weaponAtk})` : finalAtkVal;
     
-    // ラベル構成：「攻撃力」と「ダメージレンジ」（お好みに応じて「攻撃範囲」などに変更も可能です）
-    const col2Labels = ["攻撃力", "ダメージ", "物理防御力", "魔力", "魔法防御力", "命中率", "回避率", "器用さ", "移動速度", "ジャンプ力"];
+    const col2Labels = ["攻撃力", "物理防御力", "魔力", "魔法防御力", "命中率", "回避率", "器用さ", "移動速度", "ジャンプ力"];
     const col2Values = [
-        atkDetailStr,
-        atkRangeStr,
+        displayAtkStr,
         hero.def || 0,
         hero.matk || 0,
         hero.mdef || 0,
@@ -4749,8 +4583,8 @@ function drawStatusWindow() {
         const currentY = startY + (gap * i);
 
         // ラベル名
-        ctx.font = "500 11px 'Segoe UI', Tahoma, sans-serif";
-        ctx.fillStyle = "#94a3b8"; // 洗練されたスレートグレー
+        ctx.font = "bold 11px 'Segoe UI', Tahoma, sans-serif";
+        ctx.fillStyle = "#64748b";
         ctx.textAlign = "left";
         ctx.fillText(label, leftX, currentY);
 
@@ -4758,17 +4592,20 @@ function drawStatusWindow() {
         const statKey = label.toLowerCase();
 
         if (isTargetStat) {
+            // ステータス値の描画位置（ボタンの左側に配置）
             ctx.font = "600 12px 'Segoe UI', Tahoma, sans-serif";
-            ctx.fillStyle = "#f1f5f9";
+            ctx.fillStyle = "#0f172a";
             ctx.textAlign = "right";
             
+            // 右側の境界付近からボタン分の幅（46px）を引いた位置に数値を右寄せ
             const valEndX = leftX + halfWidth - 52;
             ctx.fillText(col1Values[i], valEndX, currentY);
 
-            // 「+1」ボタンの座標
+            // 「+1」ボタンの正確な座標
             const btnW = 38;
             const btnH = 16;
             const btnX = leftX + halfWidth - 46;
+            // テキストのベースライン（currentY）に対して垂直中央に綺麗に収まるよう調整
             const btnY = currentY - 12; 
 
             const isHover = isStatusPriority && (mouseX >= btnX && mouseX <= btnX + btnW && mouseY >= btnY && mouseY <= btnY + btnH);
@@ -4783,30 +4620,30 @@ function drawStatusWindow() {
                 window.hoverFlags[statKey] = false;
             }
 
-            // ボタン描画（モダン・ダークアクセント）
-            ctx.fillStyle = isHover ? "#3b82f6" : "#1e293b"; // ホバー時は洗練されたブルー
-            ctx.strokeStyle = isHover ? "#60a5fa" : "#475569";
-            ctx.lineWidth = 1;
-            ctx.fillRect(btnX, btnY, btnW, btnH);
+            // ボタン描画
+            ctx.fillStyle = isHover ? "#444444" : "#222222";
+            ctx.strokeStyle = "#cbd5e1";
             ctx.strokeRect(btnX, btnY, btnW, btnH);
+            ctx.fillRect(btnX, btnY, btnW, btnH);
 
-            ctx.fillStyle = isHover ? "#ffffff" : "#cbd5e1";
+            ctx.fillStyle = isHover ? "#ffff00" : "#ffffff";
             ctx.font = "bold 10px 'Segoe UI', Tahoma, sans-serif";
             ctx.textAlign = "center";
             ctx.fillText("+1", btnX + (btnW / 2), btnY + 12);
-            ctx.textAlign = "left";
+            ctx.textAlign = "left"; // 戻す
 
         } else {
+            // 通常の項目
             ctx.font = "600 12px 'Segoe UI', Tahoma, sans-serif";
             ctx.textAlign = "right";
             const valX = leftX + halfWidth - 6;
 
             if (label === "HP") {
-                ctx.fillStyle = "#f87171"; // 明るく見やすいソフトレッド
+                ctx.fillStyle = "#dc2626";
             } else if (label === "MP") {
-                ctx.fillStyle = "#60a5fa"; // ソフトブルー
+                ctx.fillStyle = "#2563eb";
             } else {
-                ctx.fillStyle = "#f1f5f9"; // 基本のオフホワイト
+                ctx.fillStyle = "#0f172a";
             }
 
             ctx.fillText(col1Values[i], valX, currentY);
@@ -4817,57 +4654,40 @@ function drawStatusWindow() {
     col2Labels.forEach((label, i) => {
         const currentY = startY + (gap * i);
 
-        ctx.font = "500 11px 'Segoe UI', Tahoma, sans-serif";
-        ctx.fillStyle = "#94a3b8";
+        ctx.font = "bold 11px 'Segoe UI', Tahoma, sans-serif";
+        ctx.fillStyle = "#64748b";
         ctx.textAlign = "left";
         ctx.fillText(label, rightX, currentY);
 
-        // 文字列の長さに合わせてフォントサイズを微調整
-        if (label === "攻撃力") {
-            ctx.font = "600 11px 'Segoe UI', Tahoma, sans-serif";
-        } else if (label === "ダメージ") {
-            ctx.font = "600 11px 'Segoe UI', Tahoma, sans-serif";
-        } else {
-            ctx.font = "600 12px 'Segoe UI', Tahoma, sans-serif";
-        }
-
+        ctx.font = "600 12px 'Segoe UI', Tahoma, sans-serif";
         ctx.textAlign = "right";
         const valX = rightX + halfWidth - 6;
 
-        if (label === "攻撃力" || label === "ダメージ" || label === "魔力") {
-            ctx.fillStyle = "#34d399"; // エメラルドグリーン
+        if (label === "攻撃力" || label === "魔力") {
+            ctx.fillStyle = "#059669";
         } else if (label === "移動速度" || label === "ジャンプ力") {
-            ctx.fillStyle = "#60a5fa"; // スカイブルー
+            ctx.fillStyle = "#2563eb";
         } else {
-            ctx.fillStyle = "#f1f5f9";
+            ctx.fillStyle = "#0f172a";
         }
 
         ctx.fillText(col2Values[i], valX, currentY);
     });
 
     // --- 3. 左右カラムを分ける中央のセパレーター線 ---
-    ctx.strokeStyle = "rgba(51, 65, 85, 0.6)";
+    ctx.strokeStyle = "rgba(203, 213, 225, 0.6)";
     ctx.lineWidth = 1;
     ctx.beginPath();
     const dividerX = leftX + halfWidth + 4;
-    ctx.moveTo(dividerX, win.y + 45);
-    ctx.lineTo(dividerX, win.y + win.h - 25);
+    ctx.moveTo(dividerX, win.y + 40);
+    ctx.lineTo(dividerX, win.y + win.h - 14);
     ctx.stroke();
 
-    // --- 4. 利用可能AP（Available AP）の表示エリア ---
-    ctx.fillStyle = "rgba(30, 41, 59, 0.6)";
-    ctx.fillRect(win.x + 1, win.y + win.h - 32, win.w - 2, 31);
-
-    ctx.strokeStyle = "rgba(51, 65, 85, 0.8)";
-    ctx.beginPath();
-    ctx.moveTo(win.x, win.y + win.h - 32);
-    ctx.lineTo(win.x + win.w, win.y + win.h - 32);
-    ctx.stroke();
-
-    ctx.fillStyle = "#fbbf24"; // リッチゴールド
+    // --- 4. 利用可能AP（Available AP）の表示 ---
+    ctx.fillStyle = "#d97706";
     ctx.font = "bold 12px 'Segoe UI', Tahoma, sans-serif";
     ctx.textAlign = "left";
-    ctx.fillText(`Available AP: ${hero.ap || 0}`, win.x + 14, win.y + win.h - 12);
+    ctx.fillText(`Available AP: ${hero.ap || 0}`, win.x + 16, win.y + win.h - 16);
 
     ctx.restore();
 }
@@ -7120,8 +6940,6 @@ function drawBagGrid() {
     // 🌟 重複チェック用のSet（ETCアイテムなどの重複防止用）
     let alreadyDrawn = new Set();
 
-    ctx.save();
-
     // 0番目から50番目までループ
     for (let i = 0; i < maxTotalSlots; i++) {
         let item = bagSource[i];
@@ -7141,13 +6959,14 @@ function drawBagGrid() {
         // 🌟 マウスがこのスロットに乗っているか判定
         let isHovered = (!window.isDisconnected && mX >= x && mX <= x + slotSize && mY >= y && mY <= y + slotSize);
 
-        // 1. プロ風スロットの背景枠を描画（モダン・ダーク仕様）
-        ctx.fillStyle = isHovered ? "rgba(30, 41, 59, 0.95)" : "rgba(15, 23, 42, 0.9)"; // 上質なダークネイビー
+        // 1. プロ風スロットの背景枠を描画（ホバー時は少し明るく）
+        ctx.fillStyle = isHovered ? "#161622" : "#0c0c12"; // 窪んだ暗い背景
         ctx.fillRect(x, y, slotSize, slotSize);
         
-        ctx.strokeStyle = isHovered ? "#475569" : "rgba(51, 65, 85, 0.8)"; // 洗練されたボーダー
-        ctx.lineWidth = 1;
+        ctx.strokeStyle = isHovered ? "#4a4a66" : "#1a1a24"; // 左上のシャドウ
         ctx.strokeRect(x, y, slotSize, slotSize);
+        ctx.strokeStyle = isHovered ? "#7a7aa6" : "#38384a"; // 右下のハイライト感
+        ctx.strokeRect(x + 1, y + 1, slotSize - 2, slotSize - 2);
 
         // 2. アイテムがあれば中身を描画
         if (item && item.type) {
@@ -7171,7 +6990,7 @@ function drawBagGrid() {
 
                 if (!isDuplicateETC) {
                     // アイテム存在時のセル内ハイライト
-                    ctx.fillStyle = isHovered ? "rgba(51, 65, 85, 0.5)" : "rgba(30, 41, 59, 0.4)";
+                    ctx.fillStyle = "#1c1c2b";
                     ctx.fillRect(x + 2, y + 2, slotSize - 4, slotSize - 4);
 
                     // 🌟 画像の取得ロジック
@@ -7215,30 +7034,30 @@ function drawBagGrid() {
                             item.totalFirstStats !== undefined) {
                             
                             let bonus = item.totalALLStats - item.totalFirstStats;
-                            if (bonus >= 30) glowColor = "#f87171";      // 神級 (ソフトレッド)
-                            else if (bonus >= 25) glowColor = "#34d399"; // 超伝説 (エメラルド)
-                            else if (bonus >= 20) glowColor = "#fbbf24"; // 極上 (ゴールド)
-                            else if (bonus >= 15) glowColor = "#c084fc"; // 伝説 (パープル)
-                            else if (bonus >= 10) glowColor = "#60a5fa"; // 希少 (ブルー)
+                            if (bonus >= 30) glowColor = "#ff0000";      // 神級
+                            else if (bonus >= 25) glowColor = "#00ff00"; // 超伝説
+                            else if (bonus >= 20) glowColor = "#ffff00"; // 極上
+                            else if (bonus >= 15) glowColor = "#ff00ff"; // 伝説
+                            else if (bonus >= 10) glowColor = "#00ccff"; // 希少
                         }
 
                         ctx.save();
                         if (glowColor) {
-                            ctx.shadowBlur = 15; 
+                            ctx.shadowBlur = 20; 
                             ctx.shadowColor = glowColor;
                             ctx.shadowOffsetX = 0;
                             ctx.shadowOffsetY = 0;
                             ctx.drawImage(displayImg, imgX, imgY, imgW, imgH);
 
-                            ctx.shadowBlur = 4;
+                            ctx.shadowBlur = 5;
                             ctx.drawImage(displayImg, imgX, imgY, imgW, imgH);
                         } else {
                             ctx.drawImage(displayImg, imgX, imgY, imgW, imgH);
                         }
                         ctx.restore();
                     } else {
-                        ctx.fillStyle = "#f1f5f9";
-                        ctx.font = "10px 'Segoe UI', sans-serif";
+                        ctx.fillStyle = "#f0f0ff";
+                        ctx.font = "10px sans-serif";
                         let displayName = item.display_name || item.name || "品";
                         ctx.fillText(displayName.substring(0, 3), x + 4, y + 22);
                     }
@@ -7246,11 +7065,11 @@ function drawBagGrid() {
                     // 🌟 装備中（isEquipped === true）なら [E] を描画！
                     if (item.isEquipped) {
                         ctx.save();
-                        ctx.font = 'bold 11px "Segoe UI", sans-serif';
-                        ctx.fillStyle = '#34d399'; // 鮮やかなエメラルドグリーン
+                        ctx.font = 'bold 12px sans-serif';
+                        ctx.fillStyle = '#00ffcc'; // 鮮やかなシアン色
                         ctx.textAlign = 'right';
                         ctx.textBaseline = 'top';
-                        ctx.fillText('[E]', x + slotSize - 3, y + 3);
+                        ctx.fillText('[E]', x + slotSize - 2, y + 2);
                         ctx.restore();
                     }
 
@@ -7258,12 +7077,16 @@ function drawBagGrid() {
                     const isStackItem = (category === 'ETC' || category === 'USE');
                     if ((isStackItem && count >= 1) || count > 1) {
                         ctx.save();
-                        ctx.fillStyle = "#ffffff";
-                        ctx.strokeStyle = "#0f172a";
-                        ctx.lineWidth = 2.5;
+                        ctx.fillStyle = "white";
+                        ctx.strokeStyle = "black";
+                        ctx.lineWidth = 2;
                         
                         let countStr = String(count);
-                        ctx.font = countStr.length >= 3 ? "bold 10px 'Segoe UI', sans-serif" : "bold 12px 'Segoe UI', sans-serif";
+                        if (countStr.length >= 3) {
+                            ctx.font = "bold 11px Arial";
+                        } else {
+                            ctx.font = "bold 14px Arial";
+                        }
                         
                         ctx.textAlign = "right";
                         ctx.strokeText(count, x + slotSize - 3, y + slotSize - 3);
@@ -7289,10 +7112,9 @@ function drawBagGrid() {
     let scrollBarH = maxVisibleRows * (slotSize + spacing) - spacing; 
 
     // バーの背景（溝）
-    ctx.fillStyle = "rgba(15, 23, 42, 0.8)";
+    ctx.fillStyle = "#111116";
     ctx.fillRect(scrollBarX, scrollBarY, scrollBarW, scrollBarH);
-    ctx.strokeStyle = "rgba(51, 65, 85, 0.6)";
-    ctx.lineWidth = 1;
+    ctx.strokeStyle = "#333344";
     ctx.strokeRect(scrollBarX, scrollBarY, scrollBarW, scrollBarH);
 
     // ツマミ（ノブ）の大きさと位置を計算
@@ -7307,29 +7129,32 @@ function drawBagGrid() {
     }
 
     // ツマミの描画
-    ctx.fillStyle = "#475569";
+    ctx.fillStyle = "#5c5c7a";
     ctx.fillRect(scrollBarX + 1, knobY, scrollBarW - 2, knobH);
-    ctx.strokeStyle = "#64748b";
+    ctx.strokeStyle = "#8f8fb3";
     ctx.strokeRect(scrollBarX + 1, knobY, scrollBarW - 2, knobH);
 
     // ============================================================
-    // 💰 4. バッグインベントリ下部への所持金UI描画の統合（プロ風デザイン）
+    // 💰 4. バッグインベントリ下部への所持金UI描画の統合
     // ============================================================
     if (window.hero) {
-        const goldBarW = 215; 
-        const goldBarH = 28;  
+        ctx.save();
+
+        // スロットグリッドの一番下の行＋少しの余白を計算して配置
+        const goldBarW = 215; // インベントリの幅に合わせて調整可能
+        const goldBarH = 28;  // 少しスリム化して綺麗に収める
         const goldDrawX = bagX + 20;
-        const goldDrawY = startY + maxVisibleRows * (slotSize + spacing) + 8; 
+        const goldDrawY = startY + maxVisibleRows * (slotSize + spacing) + 8; // グリッドの真下
         const radius = 6;
 
-        // 背景枠（モダン・ダークグラデーション ＆ 角丸）
+        // 背景枠（グラデーション ＆ 角丸）
         const bgGrad = ctx.createLinearGradient(goldDrawX, goldDrawY, goldDrawX, goldDrawY + goldBarH);
-        bgGrad.addColorStop(0, "rgba(30, 41, 59, 0.95)"); 
-        bgGrad.addColorStop(1, "rgba(15, 23, 42, 0.95)");     
+        bgGrad.addColorStop(0, "rgba(40, 40, 40, 0.95)"); 
+        bgGrad.addColorStop(1, "rgba(10, 10, 10, 0.95)");     
         
         ctx.fillStyle = bgGrad;
-        ctx.strokeStyle = "rgba(51, 65, 85, 0.8)"; 
-        ctx.lineWidth = 1;
+        ctx.strokeStyle = "rgba(255, 215, 0, 0.7)"; 
+        ctx.lineWidth = 1.5;
 
         ctx.beginPath();
         ctx.moveTo(goldDrawX + radius, goldDrawY);
@@ -7349,55 +7174,53 @@ function drawBagGrid() {
         const iconX = goldDrawX + 16;
         const iconY = goldDrawY + goldBarH / 2;
         
-        ctx.shadowColor = "rgba(0, 0, 0, 0.4)";
-        ctx.shadowBlur = 4;
+        ctx.shadowColor = "rgba(0, 0, 0, 0.6)";
+        ctx.shadowBlur = 3;
         ctx.shadowOffsetY = 2;
 
         ctx.beginPath();
         ctx.arc(iconX, iconY, 8.5, 0, Math.PI * 2);
         const coinGrad = ctx.createRadialGradient(iconX - 2, iconY - 2, 1.5, iconX, iconY, 8.5);
-        coinGrad.addColorStop(0, "#fef08a"); // ソフトライトゴールド
-        coinGrad.addColorStop(1, "#fbbf24"); // リッチゴールド
+        coinGrad.addColorStop(0, "#fff7ad"); 
+        coinGrad.addColorStop(1, "#ffd700"); 
         ctx.fillStyle = coinGrad;
         ctx.fill();
         
         ctx.shadowBlur = 0;
         ctx.shadowOffsetY = 0;
 
-        ctx.strokeStyle = "#d97706";
+        ctx.strokeStyle = "#b8860b";
         ctx.lineWidth = 1;
         ctx.stroke();
 
         // "G" テキスト
-        ctx.fillStyle = "#78350f";
-        ctx.font = "bold 10px 'Segoe UI', sans-serif";
+        ctx.fillStyle = "#8b4513";
+        ctx.font = "bold 10px sans-serif";
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
         ctx.fillText("G", iconX, iconY);
 
         // 所持金テキスト（数値）
-        ctx.font = "bold 14px 'Segoe UI', sans-serif"; 
+        ctx.font = "bold 16px sans-serif"; 
         ctx.textAlign = "right";
         ctx.textBaseline = "middle";
         
         const goldVal = window.hero.gold || 0;
         const goldText = goldVal.toLocaleString() + " G"; 
         
-        ctx.strokeStyle = "#0f172a";
+        ctx.strokeStyle = "black";
         ctx.lineWidth = 3;
         ctx.strokeText(goldText, goldDrawX + goldBarW - 12, goldDrawY + goldBarH / 2);
         
         const textGrad = ctx.createLinearGradient(0, goldDrawY, 0, goldDrawY + goldBarH);
-        textGrad.addColorStop(0, "#fef08a");
-        textGrad.addColorStop(1, "#fbbf24");
+        textGrad.addColorStop(0, "#ffeaa0");
+        textGrad.addColorStop(1, "#ffd700");
         ctx.fillStyle = textGrad;
         
         ctx.fillText(goldText, goldDrawX + goldBarW - 12, goldDrawY + goldBarH / 2);
 
         ctx.restore();
     }
-
-    ctx.restore();
 }
 
 /**
@@ -7573,37 +7396,12 @@ function updateScrollByMouseY(my, scrollBarY, scrollBarH) {
     gameWindows.inventory.scrollY = Math.round(clickRatio * maxScrollRow);
 }
 
-// ============================================================
-// 🖱️ マウスホイールイベント（キャンバス内限定・完全共存版）
-// ============================================================
+/**
+ * 🖱️ マウスホイールイベント
+ */
 window.addEventListener('wheel', (event) => {
     if (!gameWindows || !gameWindows.inventory || !gameWindows.inventory.isOpen) return;
 
-    const targetElement = event.target;
-
-    // 1. ショップや図鑑などのHTMLウィンドウが開いていて、その上にある場合はそちらを優先
-    const shopOverlay = document.getElementById('shop-overlay');
-    const mzukanOverlay = document.getElementById('mzukan-overlay');
-    const zukanOverlay = document.getElementById('zukan-overlay');
-
-    const isShopOpen = shopOverlay && shopOverlay.style.display !== 'none';
-    const isMzukanOpen = mzukanOverlay && mzukanOverlay.style.display !== 'none';
-    const isZukanOpen = zukanOverlay && zukanOverlay.style.display !== 'none';
-
-    if (
-        (isShopOpen && targetElement.closest('#shop-overlay')) ||
-        (isMzukanOpen && targetElement.closest('#mzukan-overlay')) ||
-        (isZukanOpen && targetElement.closest('#zukan-overlay'))
-    ) {
-        return; // 他のHTMLウィンドウのスクロールを邪魔しない
-    }
-
-    // 2. 🌟 マウスがゲームのメインキャンバス（#stage）の外にある場合は何もしない（ブラウザ自体のスクロールを許可）
-    if (targetElement.id !== 'stage') {
-        return;
-    }
-
-    // --- ここから下は「ショップ等の外」かつ「#stageキャンバスの上」にマウスがある状態 ---
     event.preventDefault();
 
     gameWindows.inventory.scrollY = gameWindows.inventory.scrollY || 0;
@@ -7613,17 +7411,6 @@ window.addEventListener('wheel', (event) => {
         gameWindows.inventory.scrollY = Math.min(gameWindows.inventory.scrollY + 1, maxScrollRow);
     } else {
         gameWindows.inventory.scrollY = Math.max(gameWindows.inventory.scrollY - 1, 0);
-    }
-}, { passive: false });
-
-// ============================================================
-// ⌨️ キーボード全体でのブラウザスクロール防止
-// ============================================================
-window.addEventListener('keydown', (event) => {
-    // 上下キー（ArrowUp, ArrowDown）が押されたら、インベントリの有無に関わらずブラウザのスクロールを常に止める
-    if (['ArrowUp', 'ArrowDown', 'Space'].includes(event.code)) {
-        // ※もしフォーム入力中などで邪魔になる場合は除外できますが、通常ゲーム画面ならこれで完全に止まります
-        event.preventDefault();
     }
 }, { passive: false });
 
@@ -8340,7 +8127,7 @@ canvas.addEventListener('mousemove', (e) => {
         canvas.style.cursor = "default";
         return;
     }
-    
+	
     const rect = canvas.getBoundingClientRect();
     mouseX = e.clientX - rect.left;
     mouseY = e.clientY - rect.top;
@@ -8477,7 +8264,7 @@ canvas.addEventListener('mousemove', (e) => {
             const signX = p.x - signW / 2;
             const signY = p.y - 80;
 
-            if (mouseX >= signX &&mouseX <= signX + signW &&
+            if (mouseX >= signX && mouseX <= signX + signW &&
                 mouseY >= signY && mouseY <= signY + signH) {
                 canvas.style.cursor = "pointer";
                 foundVending = true;
@@ -8491,26 +8278,11 @@ canvas.addEventListener('mousemove', (e) => {
     // ------------------------------------------
     // 📦 10スロットインベントリ・アイテム判定
     // ------------------------------------------
-    
-    // 🌟 【追加】10スロットの上に、何らかのウィンドウが開いて重なっていないかチェック
-    let isAnyWindowCovering = false;
-    for (const win of Object.values(gameWindows)) {
-        if (win && win.isOpen) {
-            if (mouseX >= win.x && mouseX <= win.x + (win.w || 200) &&
-                mouseY >= win.y && mouseY <= win.y + (win.h || 300)) {
-                isAnyWindowCovering = true;
-                break;
-            }
-        }
-    }
-
     if (isDiscarding) {
         canvas.style.cursor = "default";
     } else if (selectedSlotIndex !== -1) {
         canvas.style.cursor = "grabbing";
-    } 
-    // 🌟 上にウィンドウが被っていない場合のみ10スロットの判定を実行
-    else if (!isAnyWindowCovering && mouseY >= 130 && mouseY <= 170) {
+    } else if (mouseY >= 130 && mouseY <= 170) {
         const hoverIndex = Math.floor((mouseX - 20) / 48);
         if (hoverIndex >= 0 && hoverIndex < 10 && inventoryVisualBuffer && inventoryVisualBuffer[hoverIndex]) {
             canvas.style.cursor = "grab";
