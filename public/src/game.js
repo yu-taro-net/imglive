@@ -512,6 +512,86 @@ function updatePlayerCombat() {
     hero.checkEnemyCollision(enemies);
 }
 
+// 1. 画像の事前読み込み
+const emotionImages = [];
+for (let i = 1; i <= 8; i++) {
+    const img = new Image();
+    const fileName = String(i).padStart(2, '0') + '.png';
+    img.src = `./emotion_assets/${fileName}`;
+    emotionImages[i] = img;
+}
+
+let isPickerInitialized = false;
+let selectedEmotionFile = null;
+
+// 2. ボタンを押したときの開閉処理（フェード対応版）
+function toggleEmotionPicker(event) {
+    if (event) event.stopPropagation();
+
+    const popup = document.getElementById('emotion-picker-popup');
+    if (!popup) {
+        console.error("エラー: 'emotion-picker-popup' が見つかりません。");
+        return;
+    }
+
+    // 初回のみサムネイルを生成
+    if (!isPickerInitialized) {
+        for (let i = 1; i <= 8; i++) {
+            const fileName = String(i).padStart(2, '0') + '.png';
+            const thumbImg = document.createElement('img');
+            thumbImg.src = `./emotion_assets/${fileName}`;
+            thumbImg.className = 'emotion-thumb';
+            thumbImg.alt = `表情 ${i}`;
+            
+            thumbImg.onclick = function() {
+                selectEmotion(i, fileName);
+            };
+            
+            popup.appendChild(thumbImg);
+        }
+        isPickerInitialized = true;
+    }
+
+    // 🌟 クラスの有無でフェードイン・フェードアウトを切り替え
+    if (popup.classList.contains('is-open')) {
+        popup.classList.remove('is-open');
+    } else {
+        popup.classList.add('is-open');
+    }
+}
+
+// 3. 画像を選んだときの処理
+function selectEmotion(emotionId, fileName) {
+    selectedEmotionFile = fileName;
+    
+    if (emotionId >= 1 && emotionId <= 8) {
+        if (typeof hero !== 'undefined') {
+            hero.emotionId = emotionId;
+            hero.emotionTimer = 180; // 180フレーム（約3秒）
+        }
+    }
+
+    console.log(`選択された表情: ${fileName} (ID: ${emotionId})`);
+    
+    // ポップアップを閉じる（クラスを外す）
+    const popup = document.getElementById('emotion-picker-popup');
+    if (popup) {
+        popup.classList.remove('is-open');
+    }
+}
+
+// 4. ポップアップ以外の場所をクリックしたら閉じる
+window.addEventListener('click', function(event) {
+    const popup = document.getElementById('emotion-picker-popup');
+    const btn = document.getElementById('emotion-btn');
+    
+    if (popup && popup.classList.contains('is-open')) {
+        if (!popup.contains(event.target) && !btn.contains(event.target)) {
+            popup.classList.remove('is-open');
+        }
+    }
+});
+
 // ============================================================
 // 🕹️ [SECTION 5: INPUT] 入力ハンドラ
 // 役割: キーボード(keydown/up)操作の監視と移動フラグの切り替え
@@ -568,13 +648,44 @@ chatIn.onkeydown = e => {
     // 2. エンターキーが押され、かつ入力欄が空でない場合に実行
     // 🌟 修正：.trim() !== '' を削除し、スペースのみでも送信可能にしました
     if (e.key === 'Enter' && chatIn.value !== '') {
+        const fullInputVal = chatIn.value; // 🌟 履歴保存用に現在の全入力を保持
+        const val = chatIn.value.trim();
+
+        // --- /emotion コマンドの処理部分 ---
+        if (val.startsWith('/emotion')) {
+            const args = val.split(' ');
+            const emotionId = parseInt(args[1], 10);
+
+            // 1〜8の有効な番号が指定されている場合
+            if (emotionId >= 1 && emotionId <= 8) {
+                if (typeof hero !== 'undefined') {
+                    hero.emotionId = emotionId;
+                    hero.emotionTimer = 180; // 🌟 追加：180フレーム（約3秒）表示するタイマー
+                }
+            } else if (args[1] === '0' || !args[1]) {
+                // /emotion 0 または /emotion のみの場合は非表示にリセット
+                if (typeof hero !== 'undefined') {
+                    hero.emotionId = null;
+                    hero.emotionTimer = 0; // 🌟 追加：タイマーもリセット
+                }
+            }
+
+            chatHistory.unshift(fullInputVal);
+            if (chatHistory.length > 20) chatHistory.pop();
+            historyIndex = -1;
+
+            chatIn.value = '';
+            chatIn.focus();
+            return;
+        }
+        // ------------------------------------------------------------------
+
         const chatMode = document.getElementById('chat-mode');
         const selectedValue = chatMode.value;
 
         let type = 'all';
         let targetName = '';
-        let fullInputVal = chatIn.value; // 🌟 履歴保存用に現在の全入力を保持
-        let val = chatIn.value;
+        let chatVal = chatIn.value;
 
         // --- 🌟 追加：発言を履歴に格納 ---
         chatHistory.unshift(fullInputVal); // 配列の先頭に追加
@@ -594,10 +705,10 @@ chatIn.onkeydown = e => {
             type = 'friend';
         } else if (selectedValue === 'whisper') {
             // 🌟 「内緒話(新規入力)...」が選ばれている場合
-            const parts = val.split(' ');
+            const parts = chatVal.split(' ');
             if (parts.length >= 2) {
                 targetName = parts[0];
-                val = parts.slice(1).join(' ');
+                chatVal = parts.slice(1).join(' ');
                 type = 'whisper';
             } else {
                 alert("「相手の名前 メッセージ」と入力してください");
@@ -618,7 +729,7 @@ chatIn.onkeydown = e => {
 
         // 3. サーバーへ送信
         socket.emit('chat', { 
-            text: val, 
+            text: chatVal, 
             type: type, 
             targetName: targetName 
         });
@@ -997,27 +1108,25 @@ startBtn.onclick = () => {
 // ==========================================
 
 // ============================================================
-// :::LOGIN_SYSTEM_INITIALIZER::: 🔐 ログイン機能の安全な初期化
+// :::LOGIN_SYSTEM_INITIALIZER::: 🔐 ログイン＆登録システムの初期化（安全誘導版）
 // ============================================================
 const initLoginSystem = () => {
-    // ボタンと入力欄をここで確実に取得
     const startBtn = document.getElementById('start-game-btn');
+    const registerBtn = document.getElementById('register-btn');
     const nameInput = document.getElementById('user-name-input');
     const passwordInput = document.getElementById('user-pass-input');
+    const loginError = document.getElementById('login-error');
 
-    // まだ要素が準備できていなければ0.1秒後に再試行（これが安定の秘訣です）
-    if (!startBtn || !nameInput || !passwordInput) {
+    if (!startBtn || !registerBtn || !nameInput || !passwordInput) {
         setTimeout(initLoginSystem, 100);
         return;
     }
 
-    // --- ここから下が「うまくいく」と分かっているあなたのコード ---
+    // --- 1. ログインボタンの処理 ---
     startBtn.onclick = () => {
         const userName = nameInput.value.trim();
         const password = passwordInput.value;
-        const loginError = document.getElementById('login-error');
 
-        // --- 1. 入力チェック ---
         if (!userName || !password) {
             if (loginError) {
                 loginError.innerText = "名前とパスワードを入力してください";
@@ -1028,16 +1137,13 @@ const initLoginSystem = () => {
             return;
         }
 
-        // --- 2. 正常な場合はスタイルをリセット ---
         nameInput.style.border = "1px solid #ccc";
         passwordInput.style.border = "1px solid #ccc";
         if (loginError) loginError.innerText = "";
 
-        // --- 3. フォーカスを外す ---
         nameInput.blur();
         passwordInput.blur();
         
-        // 🌟 サーバーへのログイン送信
         if (typeof socket !== 'undefined' && socket.connected) {
             socket.emit('login', { 
                 username: userName, 
@@ -1046,25 +1152,87 @@ const initLoginSystem = () => {
                 group: typeof selectedGroup !== 'undefined' ? selectedGroup : 0, 
                 charVar: typeof selectedCharVar !== 'undefined' ? selectedCharVar : 1
             });
-            console.log("🚀 認証リクエスト送信... 名前/メアド:", userName, "チャンネル:", selectedChannel);
+            console.log("🚀 認証リクエスト送信... 名前:", userName);
         }
     };
 
-    // 💡 ついでにショートカット（Enterキー）も有効化しておきます
-    passwordInput.onkeydown = (e) => {
+    // --- 2. 新規登録ボタンの処理 ---
+    registerBtn.onclick = () => {
+        const userName = nameInput.value.trim();
+        const password = passwordInput.value;
+
+        const isNameInvalid = userName.length < 2 || userName.length > 6;
+        const isPassInvalid = password.length < 4;
+
+        if (isNameInvalid || isPassInvalid) {
+            if (loginError) {
+                loginError.innerText = "名前は2〜6文字、パスワードは4文字以上で入力してください";
+                loginError.style.color = "#ff4444";
+            }
+            nameInput.style.border = isNameInvalid ? "2px solid #ff4444" : "1px solid #ccc";
+            passwordInput.style.border = isPassInvalid ? "2px solid #ff4444" : "1px solid #ccc";
+            return;
+        }
+
+        nameInput.style.border = "1px solid #ccc";
+        passwordInput.style.border = "1px solid #ccc";
+        if (loginError) loginError.innerText = "";
+
+        console.log("新規登録リクエスト送信:", userName);
+        socket.emit('register', { username: username, password: password });
+    };
+
+    // --- 3. サーバーからの新規登録レスポンス（データ保持・ボタン誘導型） ---
+    if (!window.hasRegisteredListener) {
+        window.hasRegisteredListener = true;
+        socket.on('register_response', (data) => {
+            if (!loginError) return;
+
+            loginError.innerText = data.message;
+            if (data.success) {
+                // ✅ 登録成功時は、名前とパスワードをそのまま保持したままにする！
+                loginError.style.color = "#00ffcc"; // 水色（成功）
+                loginError.innerText = "✨ 登録完了しました！下の「Login」ボタンを押してゲームを開始してください。";
+                
+                nameInput.style.border = "1px solid #ccc";
+                passwordInput.style.border = "1px solid #ccc";
+
+                // パスワードは消さずに残すことで、ユーザーがそのままログインボタンを押せるようにする
+                console.log("登録成功！入力内容を保持したままログイン待ち...");
+
+                // 💡 ログインボタンを目立たせて「次これ押してね」と伝える
+                if (startBtn) {
+                    const originalBorder = startBtn.style.border;
+                    const originalShadow = startBtn.style.boxShadow;
+                    
+                    startBtn.style.border = "2px solid #00ffcc";
+                    startBtn.style.boxShadow = "0 0 12px rgba(0, 255, 204, 0.6)";
+                    
+                    setTimeout(() => {
+                        startBtn.style.border = originalBorder;
+                        startBtn.style.boxShadow = originalShadow;
+                    }, 4000);
+                }
+
+            } else {
+                loginError.style.color = "#ff4444";
+                nameInput.style.border = "2px solid #ff4444";
+                passwordInput.style.border = "2px solid #ff4444";
+            }
+        });
+    }
+
+    // --- 4. Enterキー対応 ---
+    const handleEnter = (e) => {
         if (e.key === 'Enter') {
             e.preventDefault();
             startBtn.onclick();
         }
     };
-    nameInput.onkeydown = (e) => {
-        if (e.key === 'Enter') {
-            e.preventDefault();
-            startBtn.onclick();
-        }
-    };
+    passwordInput.onkeydown = handleEnter;
+    nameInput.onkeydown = handleEnter;
 
-    console.log("✅ ログインボタンの紐付けが完了しました");
+    console.log("✅ ログイン・登録システムの初期化が完了しました");
 };
 
 // 実行開始
@@ -1415,7 +1583,8 @@ function handleLoginSuccess(data) {
 
     // 5. ゲーム開始後の処理
     if (window.isGameStarted) {
-        socket.emit('join', { name: data.username, channel: hero.channel, group: hero.group, x: hero.x, y: hero.y });
+		// 2026-8-28停止
+        //socket.emit('join', { name: data.username, channel: hero.channel, group: hero.group, x: hero.x, y: hero.y });
         socket.emit('get_account_info');
 
         if (typeof audioCtx !== 'undefined' && audioCtx.state === 'suspended') audioCtx.resume();		
@@ -3334,7 +3503,7 @@ function update() {
         socket.emit('get_account_info');
         hasRequestedAccountInfo = true;
     }
-    
+	
     // 🌟 【追加】ここで常にオプション設定とheroを同期させる
     if (typeof hero !== 'undefined' && gameWindows.options) {
         //hero.isLinked = gameWindows.options.isLinked;
@@ -3388,6 +3557,9 @@ function update() {
         // 露店関連の同期
         is_vending: hero.is_vending,
         vending_title: hero.vending_title,
+        
+        // 🌟 追加：自分のエモーションIDをサーバー経由で他プレイヤーへ共有
+        emotionId: hero.emotionId || null,
         
         currentFrame: frame
     });
@@ -3562,51 +3734,57 @@ if (regBtn) {
 }
 
 // ============================================================
-// :::ON_REGISTER_RESPONSE::: 📝 サーバーからの登録結果処理
+// :::ON_REGISTER_RESPONSE::: 📝 サーバーからの登録結果処理（離脱防止・誘導強化版）
 // ============================================================
-/**
- * 役割：
- * - サーバーからの登録結果データ（success, message）を受信
- * - 成功時：成功メッセージ表示（水色）、入力欄リセット、名前欄へフォーカス
- * - 失敗時：エラーメッセージ表示（赤色）、入力欄の赤枠強調
- * - UI要素（login-errorなど）の有無に応じたフォールバック対応
- */
 socket.on('register_response', (data) => {
-    // 🌟 openDropForm と同じようにエラー表示用の要素を取得
     const loginError = document.getElementById('login-error');
     const passwordInput = document.getElementById('user-pass-input');
-    // 名前入力欄も枠線制御のために取得（変数名は環境に合わせて調整してください）
     const nameInput = document.getElementById('user-name-input') || document.querySelector('input[type="text"]');
+    
+    // 🌟 ログイン（またはスタート）ボタンを取得して案内用エフェクトの対象にする
+    const loginBtn = document.getElementById('start-game-btn');
 
-    // --- 🌟 既存の alert(data.message) を UI 更新に置き換え ---
     if (loginError) {
-        loginError.innerText = data.message;
-        
         if (data.success) {
-            // ✅ 登録成功時：文字色を成功カラー（水色）に変更
+            // ✅ 登録成功時：親切な案内メッセージとサクセスカラー（水色・エメラルド）
+            loginError.innerText = "✨ 登録完了！下の「Login」ボタンからゲームを始めてください。";
             loginError.style.color = "#00ffcc"; 
             
             // 枠線を通常に戻す
             if (nameInput) nameInput.style.border = "1px solid #ccc";
             if (passwordInput) passwordInput.style.border = "1px solid #ccc";
 
-            // --- 既存ロジック：成功した場合はパスワード欄を空にする ---
-            console.log("登録成功！そのままログインできます。");
             if (passwordInput) {
                 passwordInput.value = "";
-                // 次にログインしやすいよう名前にフォーカス
+                // パスワードを空にしたあと、名前入力をフォーカス
                 if (nameInput) nameInput.focus();
             }
+
+            // 🌟 【離脱防止の工夫】登録が終わったユーザーに「次に押すべきボタン」を視覚的に教える
+            if (loginBtn) {
+                const originalBorder = loginBtn.style.border;
+                const originalShadow = loginBtn.style.boxShadow;
+                
+                // ボタンを明るく光らせてアピール
+                loginBtn.style.border = "2px solid #00ffcc";
+                loginBtn.style.boxShadow = "0 0 12px rgba(0, 255, 204, 0.6)";
+                
+                // 数秒後に元に戻す
+                setTimeout(() => {
+                    loginBtn.style.border = originalBorder;
+                    loginBtn.style.boxShadow = originalShadow;
+                }, 4000);
+            }
+
         } else {
-            // ❌ 登録失敗時：文字色をエラーカラー（赤）に変更
+            // ❌ 登録失敗時：エラーメッセージ表示（赤）
+            loginError.innerText = data.message;
             loginError.style.color = "#ff4444";
             
-            // 失敗した項目の枠線を赤くして強調 (openDropForm 踏襲)
             if (nameInput) nameInput.style.border = "2px solid #ff4444";
             if (passwordInput) passwordInput.style.border = "2px solid #ff4444";
         }
     } else {
-        // 万が一要素がない場合のみ、フォールバックとして alert を残す
         alert(data.message);
     }
 });

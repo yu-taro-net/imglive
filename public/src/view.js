@@ -3619,6 +3619,39 @@ function drawEntities(hero, others, enemies, items, frame) {
             if (p.is_vending) {
                 drawVendingSign(p);
             }
+
+            // 他プレイヤーのエモーションアイコン描画（フェード対応版）
+            if (p.emotionId && typeof emotionImages !== 'undefined' && emotionImages[p.emotionId]) {
+                if (p.emotionTimer === undefined) p.emotionTimer = 180;
+                p.emotionTimer--;
+                
+                if (p.emotionTimer <= 0) {
+                    p.emotionId = null;
+                } else {
+                    const emotionImg = emotionImages[p.emotionId];
+                    const drawX = p.x + 36; 
+                    const drawY = p.y - 65; 
+                    
+                    // 🌟 フェードイン・フェードアウトの計算 (全体180フレーム、前後20フレームでフェード)
+                    const maxTimer = 180;
+                    const fadeDuration = 20;
+                    let alpha = 1.0;
+
+                    if (p.emotionTimer < fadeDuration) {
+                        alpha = p.emotionTimer / fadeDuration; // 消える時（フェードアウト）
+                    } else {
+                        const elapsed = maxTimer - p.emotionTimer;
+                        if (elapsed < fadeDuration) {
+                            alpha = elapsed / fadeDuration; // 出る時（フェードイン）
+                        }
+                    }
+
+                    ctx.save();
+                    ctx.globalAlpha = Math.max(0, Math.min(1, alpha));
+                    ctx.drawImage(emotionImg, drawX, drawY, 32, 32);
+                    ctx.restore();
+                }
+            }
         }
     }
 
@@ -3632,11 +3665,44 @@ function drawEntities(hero, others, enemies, items, frame) {
         drawVendingSign(hero);
     }
 
+    // 自分のエモーションアイコン描画（フェード対応版）
+    if (hero && hero.emotionId && typeof emotionImages !== 'undefined' && emotionImages[hero.emotionId]) {
+        if (hero.emotionTimer === undefined) hero.emotionTimer = 180;
+        hero.emotionTimer--;
+        
+        if (hero.emotionTimer <= 0) {
+            hero.emotionId = null;
+        } else {
+            const emotionImg = emotionImages[hero.emotionId];
+            const drawX = hero.x + 36; 
+            const drawY = hero.y - 65; 
+            
+            // 🌟 フェードイン・フェードアウトの計算 (全体180フレーム、前後20フレームでフェード)
+            const maxTimer = 180;
+            const fadeDuration = 20;
+            let alpha = 1.0;
+
+            if (hero.emotionTimer < fadeDuration) {
+                alpha = hero.emotionTimer / fadeDuration; // 消える時（フェードアウト）
+            } else {
+                const elapsed = maxTimer - hero.emotionTimer;
+                if (elapsed < fadeDuration) {
+                    alpha = elapsed / fadeDuration; // 出る時（フェードイン）
+                }
+            }
+
+            ctx.save();
+            ctx.globalAlpha = Math.max(0, Math.min(1, alpha));
+            ctx.drawImage(emotionImg, drawX, drawY, 32, 32);
+            ctx.restore();
+        }
+    }
+
     // -------------------------------------------------------
     // 4. アイテム（地面に落ちているもの）を描画
     // -------------------------------------------------------
     drawItems(items, frame);
-    
+	
     // -------------------------------------------------------
     // 5. レベルアップエフェクトの同期描画
     // -------------------------------------------------------

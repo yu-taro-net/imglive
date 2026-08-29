@@ -19,16 +19,17 @@
   <div class="login-card">
     <h2>Img Project</h2>
     
-    <p style="color:#888; font-size:12px; margin-left:0px; margin-bottom:5px;">NAME / PASSWORD</p>
-	<!--
-<input type="text" id="user-email-input" class="login-input" placeholder="EMAIL" maxlength="10">
--->
+    <!-- モードの切り替えや案内をわかりやすくするサブテキスト -->
+    <p id="form-mode-desc" style="color:#aaa; font-size:12px; margin:0 0 10px 0;">
+      アカウントをお持ちでない方は、名前とパスワードを入力して「新規登録」を押してください。
+    </p>
 
-<input type="text" id="user-name-input" class="login-input" placeholder="NAME" maxlength="10">
-
-<input type="password" id="user-pass-input" class="login-input" placeholder="****" autocomplete="new-password">
+    <p style="color:#888; font-size:12px; margin:0 0 5px 0;">NAME / PASSWORD</p>
     
-    <p style="color:#888; font-size:12px; margin-left:0px; margin-bottom:10px;">SELECT CHANNEL</p>
+    <input type="text" id="user-name-input" class="login-input" placeholder="NAME" maxlength="10">
+    <input type="password" id="user-pass-input" class="login-input" placeholder="****" autocomplete="new-password">
+    
+    <p style="color:#888; font-size:12px; margin:0 0 5px 0;">SELECT CHANNEL</p>
     <div class="ch-btn-grid">
       <button type="button" id="ch-btn-1" class="ch-btn active" onclick="selectChannel(1)">01</button>
       <button type="button" id="ch-btn-2" class="ch-btn" onclick="selectChannel(2)">02</button>
@@ -37,11 +38,14 @@
       <button type="button" id="ch-btn-5" class="ch-btn" onclick="selectChannel(5)">05</button>
     </div>
 
-    <div id="login-error" style="color:#ff4444; font-size:12px; margin-bottom:10px;"></div>
+    <!-- エラーメッセージや成功メッセージの表示領域 -->
+    <div id="login-error" style="font-size:12px; margin:8px 0; min-height:16px;"></div>
 
     <div class="btn-group">
-      <button id="start-game-btn" class="primary-btn">Login</button>
-      <button id="register-btn" class="primary-btn" style="color:#ff80ff; border-color:#ff80ff;">Register</button>
+      <!-- ログインボタン -->
+      <button id="start-game-btn" class="primary-btn">ログインして遊ぶ</button>
+      <!-- 新規登録ボタン -->
+      <button id="register-btn" class="primary-btn" style="color:#ff80ff; border-color:#ff80ff;">新規登録する</button>
     </div>
     
     <button onclick="joinAsGuest()" style="display:none; margin-top:20px; background:none; border:none; color:#666; cursor:pointer; text-decoration:underline;">ゲストで遊ぶ</button>

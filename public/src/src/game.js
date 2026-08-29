@@ -1180,8 +1180,8 @@ function renderTooltip() {
     
     tooltipCtx = tCanvas.getContext('2d');
     
-    const baseWidth = 800;
-    const baseHeight = 600;
+    const baseWidth = 1200;
+    const baseHeight = 800;
 
     // 🌟 拡張サイズの計算
     const extendedWidth = baseWidth + (sideMargin * 2);

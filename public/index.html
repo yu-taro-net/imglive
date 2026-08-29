@@ -74,15 +74,24 @@
 
 <!-- UI操作エリア -->
 <div id="ui-container">
-  <div class="chat-row">
+  <div class="chat-row" style="position: relative;">
     <select id="chat-mode" onchange="onChatModeChange()">
       <option value="all">全体</option>
       <option value="friend">友達</option>
       <option value="group">グループ</option>
       <option value="whisper">内緒話</option>
     </select>
+
+    <!-- 感情ボタン -->
+    <button id="emotion-btn" type="button" onclick="toggleEmotionPicker(event)" title="表情を選ぶ">
+        <img id="current-emotion-icon" src="emotion_assets/null.png" alt="表情" class="emotion-btn-icon">
+    </button>
+
+    <!-- 画像を選ぶためのポップアップメニュー (初期は display: none;) -->
+    <div id="emotion-picker-popup" class="emotion-popup"></div>
+
     <input type="text" id="chat-in" placeholder="メッセージを入力してEnter...">
-  </div>
+</div>
 
   <div id="msg-box"></div>
 
