@@ -365,27 +365,49 @@ let hero = new Player("name1", 1); // 初期値としてCh1をセット
 function setWhisperTarget(name) {
     // 自分自身の名前なら何もしない
     if (name === hero.name) return;
-	
-    const chatMode = document.getElementById('chat-mode');
+    
     const value = `whisper:${name}`;
+    const labelText = `内緒話：${name}`;
     
-    // すでにその人の選択肢があるか確認
-    let option = Array.from(chatMode.options).find(opt => opt.value === value);
-    
-    if (!option) {
-        // 新しい選択肢を作成
-        option = document.createElement('option');
-        option.value = value;
-        option.text = `内緒話：${name}`;
-        option.style.color = '#99ffff';
-        chatMode.add(option);
+    // 1. 隠しフィールドに値をセット
+    const hiddenInput = document.getElementById('chat-mode-value');
+    if (hiddenInput) {
+        hiddenInput.value = value;
     }
     
-    // その人を選択状態にする
-    chatMode.value = value;
+    // 2. 選択中の表示ラベルを更新
+    const label = document.getElementById('chat-mode-label');
+    if (label) {
+        label.textContent = labelText;
+    }
     
-    // 入力欄にフォーカス
-    document.getElementById('chat-in').focus();
+    // 3. ドロップダウンメニュー側にも、その人の選択肢がなければ動的に追加する
+    const optionsContainer = document.getElementById('chat-mode-options');
+    if (optionsContainer) {
+        // すでに同じ宛先の選択肢があるか探す
+        let targetOption = Array.from(optionsContainer.children).find(opt => opt.getAttribute('onclick') && opt.getAttribute('onclick').includes(value));
+        
+        if (!targetOption) {
+            // なければ新しく選択肢要素を作成して追加
+            targetOption = document.createElement('div');
+            targetOption.className = 'custom-option whisper-dynamic-option';
+            targetOption.textContent = labelText;
+            targetOption.style.color = '#99ffff'; // 内緒話用の色
+            
+            // クリックされたときの処理を設定
+            targetOption.onclick = function() {
+                selectChatMode(value, labelText);
+            };
+            
+            optionsContainer.appendChild(targetOption);
+        }
+    }
+    
+    // 4. 入力欄にフォーカス
+    const chatIn = document.getElementById('chat-in');
+    if (chatIn) {
+        chatIn.focus();
+    }
 }
 
 // ============================================================
@@ -517,7 +539,7 @@ const emotionImages = [];
 for (let i = 1; i <= 8; i++) {
     const img = new Image();
     const fileName = String(i).padStart(2, '0') + '.png';
-    img.src = `./emotion_assets/${fileName}`;
+    img.src = `${IMAGE_DOMAIN}emotion_assets/${fileName}`;
     emotionImages[i] = img;
 }
 
@@ -527,6 +549,14 @@ let selectedEmotionFile = null;
 // 2. ボタンを押したときの開閉処理（フェード対応版）
 function toggleEmotionPicker(event) {
     if (event) event.stopPropagation();
+
+    // 🌟 表情ボタンが押されたら、チャットモードのメニューを強制的に閉じる
+    const chatModeWrapper = document.getElementById('custom-chat-mode');
+    const options = document.getElementById('chat-mode-options');
+    if (options && options.classList.contains('is-open')) {
+        options.classList.remove('is-open');
+        if (chatModeWrapper) chatModeWrapper.classList.remove('is-active');
+    }
 
     const popup = document.getElementById('emotion-picker-popup');
     if (!popup) {
@@ -539,7 +569,7 @@ function toggleEmotionPicker(event) {
         for (let i = 1; i <= 8; i++) {
             const fileName = String(i).padStart(2, '0') + '.png';
             const thumbImg = document.createElement('img');
-            thumbImg.src = `./emotion_assets/${fileName}`;
+            thumbImg.src = `${IMAGE_DOMAIN}emotion_assets/${fileName}`;
             thumbImg.className = 'emotion-thumb';
             thumbImg.alt = `表情 ${i}`;
             
@@ -680,8 +710,8 @@ chatIn.onkeydown = e => {
         }
         // ------------------------------------------------------------------
 
-        const chatMode = document.getElementById('chat-mode');
-        const selectedValue = chatMode.value;
+        const hiddenInput = document.getElementById('chat-mode-value');
+        const selectedValue = hiddenInput ? hiddenInput.value : 'all';
 
         let type = 'all';
         let targetName = '';
@@ -744,24 +774,58 @@ chatIn.onkeydown = e => {
 // 💬 チャットモード変更処理 (オリジナルUI・深緑版)
 // ==========================================
 
-// ============================================================
-// :::ON_CHAT_MODE_CHANGE::: 💬 チャット送信先モード切替・UI更新処理
-// ============================================================
-/**
- * 役割：
- * - 選択したチャットモード（全体/グループ/内緒話など）の色をUIに適用
- * - 「内緒話 (新規入力)」選択時のオーバーレイ表示と入力制御
- */
-function onChatModeChange() {
-    const chatMode = document.getElementById('chat-mode');
-    if (!chatMode) return;
+// --- チャットモード・カスタムメニューの開閉（プロ風アニメーション連動） ---
+function toggleChatModeDropdown(event) {
+    if (event) event.stopPropagation();
 
-    // 選択されたオプションの色をプルダウン全体に反映
-    const selectedOption = chatMode.options[chatMode.selectedIndex];
-    chatMode.style.color = selectedOption.style.color;
+    // 感情ポップアップが開いていれば閉じる（競合防止）
+    const emotionPopup = document.getElementById('emotion-picker-popup');
+    if (emotionPopup) emotionPopup.classList.remove('is-open');
 
-    // 「内緒話 (新規入力)」が選ばれたら
-    if (chatMode.value === 'whisper') {
+    const wrapper = document.getElementById('custom-chat-mode');
+    const options = document.getElementById('chat-mode-options');
+    
+    if (options && wrapper) {
+        options.classList.toggle('is-open');
+        wrapper.classList.toggle('is-active', options.classList.contains('is-open'));
+    }
+}
+
+// --- チャットモードを選択したときの処理 ---
+function selectChatMode(value, labelText) {
+    // 隠しinputに値を保存（他のプログラムや通信処理との互換性用）
+    const hiddenInput = document.getElementById('chat-mode-value');
+    if (hiddenInput) {
+        hiddenInput.value = value;
+    }
+
+    // 表示ラベルを書き換える
+    const label = document.getElementById('chat-mode-label');
+    if (label) {
+        label.textContent = labelText;
+    }
+
+    // メニューを閉じて、▲アイコンを▼に戻す
+    const options = document.getElementById('chat-mode-options');
+    const wrapper = document.getElementById('custom-chat-mode');
+    
+    if (options) {
+        options.classList.remove('is-open');
+    }
+    if (wrapper) {
+        wrapper.classList.remove('is-active'); // 🌟 ここで矢印を▼に戻す
+    }
+
+    // モード変更時の固有処理（内緒話オーバーレイの起動など）を呼び出す
+    onChatModeChange(value);
+}
+
+// --- 💬 チャット送信先モード切替・UI更新処理 ---
+function onChatModeChange(value) {
+    const mode = value || (document.getElementById('chat-mode-value') ? document.getElementById('chat-mode-value').value : 'all');
+
+    // 「内緒話 (whisper)」が選ばれたらオーバーレイを表示
+    if (mode === 'whisper') {
         const overlay = document.getElementById('whisper-overlay');
         const input = document.getElementById('whisper-target-name');
         const error = document.getElementById('whisper-error');
@@ -776,6 +840,19 @@ function onChatModeChange() {
     }
 }
 
+// --- メニューを閉じるときにラッパーの状態もリセットする補助 ---
+window.addEventListener('click', function(event) {
+    const chatModeWrapper = document.getElementById('custom-chat-mode');
+    const options = document.getElementById('chat-mode-options');
+    
+    if (options && options.classList.contains('is-open')) {
+        if (!chatModeWrapper.contains(event.target)) {
+            options.classList.remove('is-open');
+            if (chatModeWrapper) chatModeWrapper.classList.remove('is-active');
+        }
+    }
+});
+
 // ============================================================
 // :::SUBMIT_WHISPER_NAME::: 💬 内緒話の相手確定・宛先設定処理
 // ============================================================
@@ -786,7 +863,8 @@ function onChatModeChange() {
  * - 宛先設定関数 `setWhisperTarget` の呼び出しとウィンドウのクローズ
  */
 function submitWhisperName() {
-    const chatMode = document.getElementById('chat-mode');
+    // ❌ 削除：const chatMode = document.getElementById('chat-mode'); （使われていないため削除）
+    
     const nameInput = document.getElementById('whisper-target-name');
     const errorDiv = document.getElementById('whisper-error');
     const name = nameInput.value.trim();
@@ -821,18 +899,22 @@ function submitWhisperName() {
  * 役割：
  * - 内緒話入力ウィンドウ（オーバーレイ）の非表示化
  * - 選択モードの「全体チャット(all)」への安全な復元
- * - UIカラーのデフォルト値（#60a5fa）へのリセット
  */
 function closeWhisperWindow() {
     const overlay = document.getElementById('whisper-overlay');
-    const chatMode = document.getElementById('chat-mode');
-
     if (overlay) overlay.style.display = 'none';
 
+    const hiddenInput = document.getElementById('chat-mode-value');
+    
     // 入力せずに閉じた場合、モードを「全体(all)」に戻す
-    if (chatMode && chatMode.value === 'whisper') {
-        chatMode.value = 'all';
-        chatMode.style.color = "#60a5fa"; 
+    if (hiddenInput && hiddenInput.value === 'whisper') {
+        hiddenInput.value = 'all'; // 隠しデータの値をリセット
+        
+        // UIの表示ラベルも「全体」に戻す
+        const label = document.getElementById('chat-mode-label');
+        if (label) {
+            label.textContent = '全体';
+        }
     }
 }
 
@@ -850,7 +932,7 @@ function handlePlayerInput(hero, items, ladders, chatIn) {
     if (document.activeElement === chatIn) return;
 
     // B. 基本状態の更新（伏せ判定）
-    hero.isDown = (!hero.climbing && !hero.jumping && (keys['KeyS'] || keys['ArrowDown']));
+    hero.isDown = (!hero.climbing && !hero.jumping && keys['ArrowDown']);
 
     // C & D. 移動とハシゴの処理
     handleMovementAndLadder(hero, ladders);
@@ -917,10 +999,12 @@ function handleMovementAndLadder(hero, ladders) {
         return isHorizontalClose && isVerticalAtTop;
     })();
 
-    // ハシゴの昇降処理（Wキーを除外し、上下矢印キーのみで昇降）
+    // 🪜 ハシゴの昇降処理（Wキーおよび通常のSキー入力を外し、上下矢印キーを基本にする）
     if ((isTouchingLadder || isAtLadderTop) && ladderJumpTimer === 0) {
-        // 上下矢印キー（またはSキーによるてっぺんからの降り）の判定
-        if (keys['ArrowUp'] || keys['ArrowDown'] || keys['KeyS']) {
+        // 🌟 キー条件から通常の KeyS を外し、ArrowUp / ArrowDown、もしくは「てっぺんでの KeyS」のみにする
+        const isTriggerKey = keys['ArrowUp'] || keys['ArrowDown'] || (keys['KeyS'] && isAtLadderTop);
+
+        if (isTriggerKey) {
             if (!hero.climbing && keys['KeyS'] && isAtLadderTop) {
                 hero.y += 15;
             }
@@ -929,10 +1013,9 @@ function handleMovementAndLadder(hero, ladders) {
             hero.dy = 0;
             hero.jumping = false;
 
-            // 🌟 Wキーを外し、上矢印キー（ArrowUp）のときだけ上に移動
             if (keys['ArrowUp']) {
                 hero.updatePosition(0, -GAME_SETTINGS.LADDER_SPEED);
-            } else if (keys['ArrowDown']) {
+            } else if (keys['ArrowDown'] || (keys['KeyS'] && isAtLadderTop)) {
                 hero.updatePosition(0, GAME_SETTINGS.LADDER_SPEED);
             }
         } else if (hero.climbing) {
@@ -1689,7 +1772,7 @@ socket.on('login_data', (data) => {
         hero.isOnline = data.is_online;
         
         console.log("【ログイン処理】受け取ったデータ:", data);
-        console.log("【ログイン処理】更新后的hero:", hero);
+        console.log("【ログイン処理】更新後のhero:", hero);
         
         // 描画ループが参照している players[socket.id] にも値をセットする
         if (typeof players !== 'undefined' && players[socket.id]) {
@@ -1712,8 +1795,17 @@ socket.on('login_data', (data) => {
             hero.requiredExp = data.stats.requiredExp || 100; // 💡 【追加】次のレベルに必要な経験値
             hero.hp    = data.stats.hp || 100;
             hero.maxHp = data.stats.max_hp || 100;
+            
+            // 🌟 【追加】サーバーから送られてきたHP/MPのベース値とボーナス値を hero に反映
+            hero.baseMaxHp = data.stats.baseMaxHp !== undefined ? data.stats.baseMaxHp : hero.maxHp;
+            hero.bonusMaxHp = data.stats.bonusMaxHp !== undefined ? data.stats.bonusMaxHp : 0;
+
             hero.mp    = data.stats.mp || 50;
             hero.maxMp = data.stats.max_mp || 50;
+
+            hero.baseMaxMp = data.stats.baseMaxMp !== undefined ? data.stats.baseMaxMp : hero.maxMp;
+            hero.bonusMaxMp = data.stats.bonusMaxMp !== undefined ? data.stats.bonusMaxMp : 0;
+
             hero.gold  = data.stats.gold || 0;
             hero.x     = data.stats.x || 100;
             hero.y     = data.stats.y || 400;
@@ -2223,14 +2315,15 @@ socket.on('state', (data) => {
     hero.maxExp          = myHeroData.maxExp || 100;
     hero.requiredExp     = myHeroData.requiredExp || hero.requiredExp || 100; // 💡 追加：必要経験値の同期
     hero.hp              = myHeroData.hp;
-    hero.maxHp           = myHeroData.maxHp || 100;
 
-    // 🌟 1. まずインベントリから「各種ステータスボーナス」を正確に集計する
+    // 🌟 1. まずインベントリから「各種ステータスボーナスおよびHP/MP装備ボーナス」を正確に集計する
     let bonusStr = 0;
     let bonusDex = 0;
     let bonusLuk = 0;
     let bonusInt = 0;
     let totalWeaponAtk = 0; // 💡 追加：装備による武器攻撃力の集計
+    let bonusMaxHp = 0;     // 🌟 追加：装備によるHPボーナスの集計
+    let bonusMaxMp = 0;     // 🌟 追加：装備によるMPボーナスの集計
 
     if (hero.inventory && Array.isArray(hero.inventory)) {
         hero.inventory.forEach(item => {
@@ -2240,6 +2333,8 @@ socket.on('state', (data) => {
                 bonusLuk += item.luk || 0;
                 bonusInt += item.int || 0;
                 totalWeaponAtk += Number(item.atk) || Number(item.power) || 0; // 💡 武器攻撃力を加算
+                bonusMaxHp += Number(item.maxHp) || Number(item.hp) || 0;     // 🌟 HPボーナスを加算
+                bonusMaxMp += Number(item.maxMp) || Number(item.mp) || 0;     // 🌟 MPボーナスを加算
             }
         });
     }
@@ -2250,15 +2345,19 @@ socket.on('state', (data) => {
     hero.bonusLuk = bonusLuk;
     hero.bonusInt = bonusInt;
     hero.weaponAtk = totalWeaponAtk; // 💡 武器攻撃力ボーナスをセット
+    hero.bonusMaxHp = bonusMaxHp;    // 🌟 HPボーナスをセット
+    hero.bonusMaxMp = bonusMaxMp;    // 🌟 MPボーナスをセット
 
-    // 🌟 2. サーバーから届いた値（すでに装備込みの合計値になっている可能性が高い）を保持
+    // 🌟 2. サーバーから届いた値（ベース値または合計値）を安全に保持
     const rawStr = (myHeroData.str !== undefined) ? myHeroData.str : (hero.str || 50);
     const rawDex = (myHeroData.dex !== undefined) ? myHeroData.dex : (hero.dex || 0);
     const rawLuk = (myHeroData.luk !== undefined) ? myHeroData.luk : (hero.luk || 0);
     const rawInt = (myHeroData.int !== undefined) ? myHeroData.int : (hero.int || 0);
     const rawAtk = (myHeroData.atk !== undefined) ? myHeroData.atk : (hero.atk || 13); // 💡 サーバからの合計ATK
+    const rawMaxHp = (myHeroData.maxHp !== undefined) ? myHeroData.maxHp : (myHeroData.max_hp !== undefined ? myHeroData.max_hp : (hero.maxHp || 100));
+    const rawMaxMp = (myHeroData.maxMp !== undefined) ? myHeroData.maxMp : (myHeroData.max_mp !== undefined ? myHeroData.max_mp : (hero.maxMp || 50));
 
-    // 🌟 3. 合計値はそのままサーバーの値を信頼し、ベース値（〇）を「合計 － ボーナス」で正しく逆算する
+    // 🌟 3. ステータスおよびHP/MPのベース値と合計値を正確に同期・逆算
     hero.str = rawStr;
     hero.baseStr = Math.max(0, rawStr - bonusStr);
 
@@ -2274,6 +2373,14 @@ socket.on('state', (data) => {
     // 💡 攻撃力の逆算と反映
     hero.atk = rawAtk;
     hero.baseAtk = (myHeroData.baseAtk !== undefined) ? myHeroData.baseAtk : Math.max(13, rawAtk - totalWeaponAtk);
+
+    // 💡 HP/MPのベース値と合計値の反映・逆算
+    // ※もしサーバーから届いた rawMaxHp がすでに装備込みの合計値であれば、そこから bonusMaxHp を引いてベース値を守る
+    hero.baseMaxHp = (myHeroData.baseMaxHp !== undefined) ? myHeroData.baseMaxHp : Math.max(10, rawMaxHp - bonusMaxHp);
+    hero.maxHp = hero.baseMaxHp + bonusMaxHp;
+
+    hero.baseMaxMp = (myHeroData.baseMaxMp !== undefined) ? myHeroData.baseMaxMp : Math.max(10, rawMaxMp - bonusMaxMp);
+    hero.maxMp = hero.baseMaxMp + bonusMaxMp;
 
     hero.ap              = (myHeroData.ap !== undefined) ? myHeroData.ap : 0;
 
@@ -4919,9 +5026,11 @@ function saveGameData() {
         exp: hero.exp || 0,
         gold: hero.gold || 0,
         hp: hero.hp || 100,
-        maxHp: hero.maxHp || 100, // 最大HPを追加
+        // 🌟 装備ボーナスが混ざった最終値ではなく、「素の最大HP（baseMaxHp）」を保存用に送信する
+        maxHp: hero.baseMaxHp !== undefined ? hero.baseMaxHp : (hero.maxHp || 100),
         mp: hero.mp || 50,
-        maxMp: hero.maxMp || 50,  // 最大MPを追加
+        // 🌟 装備ボーナスが混ざった最終値ではなく、「素の最大MP（baseMaxMp）」を保存用に送信する
+        maxMp: hero.baseMaxMp !== undefined ? hero.baseMaxMp : (hero.maxMp || 50),  
         mapId: currentMapId,
         x: hero.x,
         y: hero.y,
@@ -4929,7 +5038,7 @@ function saveGameData() {
         str: hero.baseStr !== undefined ? hero.baseStr : (hero.str || 4),
         dex: hero.baseDex !== undefined ? hero.baseDex : (hero.dex || 4),
         luk: hero.baseLuk !== undefined ? hero.baseLuk : (hero.luk || 4),
-        // 🌟 【追加】データベースに保存するためのベース攻撃力（baseAtk）を送信
+        // 🌟 データベースに保存するためのベース攻撃力（baseAtk）を送信
         atk: hero.baseAtk !== undefined ? hero.baseAtk : 13,
         ap: hero.ap || 0
     };

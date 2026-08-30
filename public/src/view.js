@@ -2637,66 +2637,75 @@ socket.on('updatePlayerList', (playerList) => {
 });
 
 // ============================================================
-// :::DRAW_ONLINE_LIST::: 👥 オンラインプレイヤー名簿の描画（昔のメイプル風）
+// :::DRAW_ONLINE_LIST::: 👥 オンラインプレイヤー名簿の描画（プロ風・メイプル風調和版）
 // ============================================================
 /**
  * 役割：
  * - プレイヤーリストが存在しない場合は描画をスキップ
- * - 動的な背景ボックスのサイズ計算と半透明背景・枠線の描画（昔のメイプル風）
+ * - 動的な背景ボックスのサイズ計算と、上質かつレトロな枠線・背景の描画
  * - タイトル（オンライン人数）と各プレイヤーの名前・チャンネル情報の配置
- * - 右寄せ・左寄せを使い分けた見やすいフォーマットでの描画
+ * - 右寄せ・左寄せを使い分けた見やすいフォーマットでの描画（座標完全維持）
  */
 function drawOnlineList(ctx) {
     if (!currentOnlinePlayers || currentOnlinePlayers.length === 0) return;
 
-    // 表示位置の設定（右上のCH.表示の下あたり）
+    // 表示位置の設定（元の座標を完全に維持）
     const startX = VIEW_CONFIG.SCREEN_WIDTH - 140; // 右端から140px
-    const startY = 80;                             // CH表示(通常30-50px)の下
+    const startY = 80;                             // CH表示の下あたり
     const lineHeight = 18;                         // 1行の高さ
     const bgWidth = 130;
     const bgHeight = (currentOnlinePlayers.length + 1) * lineHeight + 10;
 
+    const boxX = startX - 10;
+    const boxY = startY - 20;
+
     ctx.save();
 
-    // 1. カクカクした半透明背景ボックス（角丸なし、レトロな枠線つき）
-    ctx.fillStyle = "rgba(0, 0, 0, 0.7)"; // 昔の雰囲気に合わせて少し濃いめの半透明
-    ctx.strokeStyle = "#808080";          // クラシックなグレーの枠線
+    // 1. 上質なレトロモダン風の背景（微かなグラデーションで立体感をプラス）
+    const bgGrad = ctx.createLinearGradient(boxX, boxY, boxX, boxY + bgHeight);
+    bgGrad.addColorStop(0, "rgba(20, 20, 30, 0.85)");
+    bgGrad.addColorStop(1, "rgba(10, 10, 15, 0.90)");
+    
+    ctx.fillStyle = bgGrad;
+    ctx.fillRect(boxX, boxY, bgWidth, bgHeight);
+
+    // 2. エッジの効いた二重ボーダー風フレーム（クラシックかつシャープな演出）
+    ctx.strokeStyle = "#4a4a5a"; // 外枠のダークフレーム
     ctx.lineWidth = 1;
-    
-    // 角丸のパス描画を廃止し、四角形を直接描画して枠線を適用
-    ctx.fillRect(startX - 10, startY - 20, bgWidth, bgHeight);
-    ctx.strokeRect(startX - 10, startY - 20, bgWidth, bgHeight);
+    ctx.strokeRect(boxX, boxY, bgWidth, bgHeight);
 
-    // 2. タイトル "ONLINE (人数)" (初期メイプルのシステムカラー)
-    ctx.font = "bold 12px sans-serif";
+    ctx.strokeStyle = "#1a1a24"; // 内側のドロップシャドウ風ライン
+    ctx.strokeRect(boxX + 1, boxY + 1, bgWidth - 2, bgHeight - 2);
+
+    // 3. タイトル "ONLINE (人数)" (初期メイプルの雰囲気を残した洗練されたイエロー)
+    ctx.font = "bold 11px 'Segoe UI', sans-serif";
     ctx.textAlign = "right";
-    ctx.fillStyle = "#FFFF00"; // 昔のシステムログ風の黄色
+    ctx.fillStyle = "#FFD700"; // 高級感のあるゴールドイエロー
     
-    ctx.shadowColor = "rgba(0, 0, 0, 0.7)";
-    ctx.shadowBlur = 3;
+    ctx.shadowColor = "rgba(0, 0, 0, 0.9)";
+    ctx.shadowBlur = 4;
+    ctx.shadowOffsetX = 1;
+    ctx.shadowOffsetY = 1;
     ctx.fillText(`ONLINE (${currentOnlinePlayers.length})`, startX + 110, startY);
-    ctx.shadowBlur = 0;
 
-    // 3. 各プレイヤーの名前とチャンネル
-    ctx.font = "11px sans-serif";
+    // 4. 各プレイヤーの名前とチャンネル
+    ctx.font = "11px 'Segoe UI', sans-serif";
     currentOnlinePlayers.forEach((p, index) => {
         const y = startY + (index + 1) * lineHeight;
         
-        // 名前（白、すっきりとした初期風表示）
-        ctx.fillStyle = "white";
+        // 名前（視認性の高いクリアホワイト）
+        ctx.fillStyle = "#F0F0F5";
         ctx.textAlign = "right";
-        ctx.shadowColor = "rgba(0, 0, 0, 0.7)";
-        ctx.shadowBlur = 2;
+        ctx.shadowColor = "rgba(0, 0, 0, 0.9)";
+        ctx.shadowBlur = 3;
         ctx.fillText(`${p.name}`, startX + 110, y);
-        ctx.shadowBlur = 0;
 
-        // チャンネル番号（黄色を名前の左側に配置し、統一感を出す）
-        ctx.fillStyle = "#FFFF66";
+        // チャンネル番号（少し落ち着いたシアンまたはソフトイエローで洗練度アップ）
+        ctx.fillStyle = "#88DDFF"; // チャンネルが埋もれない上品な水色（または元の #FFEE66 でもOKです）
         ctx.textAlign = "left";
-        ctx.shadowColor = "rgba(0, 0, 0, 0.7)";
-        ctx.shadowBlur = 2;
+        ctx.shadowColor = "rgba(0, 0, 0, 0.9)";
+        ctx.shadowBlur = 3;
         ctx.fillText(`ch${p.channel}`, startX, y);
-        ctx.shadowBlur = 0;
     });
 
     ctx.restore();
@@ -3586,21 +3595,14 @@ function drawDebugLayer(hero, enemies, items, platforms) {
 // ============================================================
 // :::DRAW_ENTITIES::: 🏃 動体（エンティティ）の一括レンダリング
 // ============================================================
-/**
- * 役割：
- * - 描画スタックの管理：敵→他プレイヤー→自分→アイテム→エフェクトの順に重なりを制御
- * - 条件付きレンダリング：同一チャンネル内のプレイヤーのみを表示し、露店状態に応じて看板を付与
- * - レベルアップエフェクトの生存管理：生存期間(timer)によるフェードアウトと配列からの自動削除
- * - キャラクター中心座標の計算およびエフェクトの追従描画
- */
 function drawEntities(hero, others, enemies, items, frame) {
 
-	// デバッグ：配列の中に何体いるか確認
-	if (frame % 180 === 0) {
-		const activeEnemies = enemies.filter(e => e.alive);
-		console.log(`現在の敵の総数: ${enemies.length}, 生きている敵の数: ${activeEnemies.length}`);
-	}
-	
+    // デバッグ：配列の中に何体いるか確認
+    if (frame % 180 === 0) {
+        const activeEnemies = enemies.filter(e => e.alive);
+        console.log(`現在の敵の総数: ${enemies.length}, 生きている敵の数: ${activeEnemies.length}`);
+    }
+    
     // -------------------------------------------------------
     // 1. 敵（モンスター）を描画
     // -------------------------------------------------------
@@ -3620,38 +3622,8 @@ function drawEntities(hero, others, enemies, items, frame) {
                 drawVendingSign(p);
             }
 
-            // 他プレイヤーのエモーションアイコン描画（フェード対応版）
-            if (p.emotionId && typeof emotionImages !== 'undefined' && emotionImages[p.emotionId]) {
-                if (p.emotionTimer === undefined) p.emotionTimer = 180;
-                p.emotionTimer--;
-                
-                if (p.emotionTimer <= 0) {
-                    p.emotionId = null;
-                } else {
-                    const emotionImg = emotionImages[p.emotionId];
-                    const drawX = p.x + 36; 
-                    const drawY = p.y - 65; 
-                    
-                    // 🌟 フェードイン・フェードアウトの計算 (全体180フレーム、前後20フレームでフェード)
-                    const maxTimer = 180;
-                    const fadeDuration = 20;
-                    let alpha = 1.0;
-
-                    if (p.emotionTimer < fadeDuration) {
-                        alpha = p.emotionTimer / fadeDuration; // 消える時（フェードアウト）
-                    } else {
-                        const elapsed = maxTimer - p.emotionTimer;
-                        if (elapsed < fadeDuration) {
-                            alpha = elapsed / fadeDuration; // 出る時（フェードイン）
-                        }
-                    }
-
-                    ctx.save();
-                    ctx.globalAlpha = Math.max(0, Math.min(1, alpha));
-                    ctx.drawImage(emotionImg, drawX, drawY, 32, 32);
-                    ctx.restore();
-                }
-            }
+            // エモーション描画
+            drawEmotionIcon(ctx, p);
         }
     }
 
@@ -3665,44 +3637,14 @@ function drawEntities(hero, others, enemies, items, frame) {
         drawVendingSign(hero);
     }
 
-    // 自分のエモーションアイコン描画（フェード対応版）
-    if (hero && hero.emotionId && typeof emotionImages !== 'undefined' && emotionImages[hero.emotionId]) {
-        if (hero.emotionTimer === undefined) hero.emotionTimer = 180;
-        hero.emotionTimer--;
-        
-        if (hero.emotionTimer <= 0) {
-            hero.emotionId = null;
-        } else {
-            const emotionImg = emotionImages[hero.emotionId];
-            const drawX = hero.x + 36; 
-            const drawY = hero.y - 65; 
-            
-            // 🌟 フェードイン・フェードアウトの計算 (全体180フレーム、前後20フレームでフェード)
-            const maxTimer = 180;
-            const fadeDuration = 20;
-            let alpha = 1.0;
-
-            if (hero.emotionTimer < fadeDuration) {
-                alpha = hero.emotionTimer / fadeDuration; // 消える時（フェードアウト）
-            } else {
-                const elapsed = maxTimer - hero.emotionTimer;
-                if (elapsed < fadeDuration) {
-                    alpha = elapsed / fadeDuration; // 出る時（フェードイン）
-                }
-            }
-
-            ctx.save();
-            ctx.globalAlpha = Math.max(0, Math.min(1, alpha));
-            ctx.drawImage(emotionImg, drawX, drawY, 32, 32);
-            ctx.restore();
-        }
-    }
+    // エモーション描画
+    drawEmotionIcon(ctx, hero);
 
     // -------------------------------------------------------
     // 4. アイテム（地面に落ちているもの）を描画
     // -------------------------------------------------------
     drawItems(items, frame);
-	
+    
     // -------------------------------------------------------
     // 5. レベルアップエフェクトの同期描画
     // -------------------------------------------------------
@@ -3737,6 +3679,61 @@ function drawEntities(hero, others, enemies, items, frame) {
             levelUpEffects.splice(index, 1);
         }
     });
+}
+
+VIEW_CONFIG.emotion = {
+    offsetY: -65 // 💡 この数値を大きくすると下がり、小さくすると上がります（まずはここで一括調整）
+};
+
+// ============================================================
+// :::DRAW_EMOTION_ICON::: 😊 エモーションアイコンの共通描画
+// ============================================================
+function drawEmotionIcon(ctx, entity) {
+    if (!entity || !entity.emotionId || typeof emotionImages === 'undefined' || !emotionImages[entity.emotionId]) {
+        return;
+    }
+
+    if (entity.emotionTimer === undefined) entity.emotionTimer = 180;
+    entity.emotionTimer--;
+    
+    if (entity.emotionTimer <= 0) {
+        entity.emotionId = null;
+        return;
+    }
+
+    const emotionImg = emotionImages[entity.emotionId];
+    const drawX = entity.x + 36; 
+
+    // キャラクター本体の「描画用のY座標」を計算
+    const g = entity.model_id !== undefined ? entity.model_id : (entity.group || 0);
+    let footOffset = VIEW_CONFIG.player.visualOffset + (VIEW_CONFIG.groupOffsets[g] || 0);
+    if (entity.y > VIEW_CONFIG.groundThreshold) {
+        footOffset += VIEW_CONFIG.player.groundExtraOffset;
+    }
+    const spriteDrawY = entity.y + VIEW_CONFIG.player.hitboxH - VIEW_CONFIG.player.drawH + footOffset;
+
+    // 🌟 設定ファイル（VIEW_CONFIG）のオフセットを引くことで、理想の位置に調整
+    const emotionOffset = VIEW_CONFIG.emotion ? VIEW_CONFIG.emotion.offsetY : 15;
+    const drawY = spriteDrawY - emotionOffset;
+    
+    // フェードイン・フェードアウトの計算
+    const maxTimer = 180;
+    const fadeDuration = 20;
+    let alpha = 1.0;
+
+    if (entity.emotionTimer < fadeDuration) {
+        alpha = entity.emotionTimer / fadeDuration; // フェードアウト
+    } else {
+        const elapsed = maxTimer - entity.emotionTimer;
+        if (elapsed < fadeDuration) {
+            alpha = elapsed / fadeDuration; // フェードイン
+        }
+    }
+
+    ctx.save();
+    ctx.globalAlpha = Math.max(0, Math.min(1, alpha));
+    ctx.drawImage(emotionImg, drawX, drawY, 32, 32);
+    ctx.restore();
 }
 
 // ============================================================
@@ -4145,8 +4142,8 @@ function drawGoldUI(hero) {
 
     // --- 1. 座標とサイズの設定（バッグ等の下部に配置する基準） ---
     // ※インベントリ内に組み込む場合は drawBagGrid の中から bagX, bagY をベースに呼び出してください
-    const drawX = 25;
-    const drawY = 90; 
+    const drawX = 20;
+    const drawY = 95; 
     const barW = 185; // 10桁の数字がゆったり収まるように少し幅を拡張
     const barH = 30;
     const radius = 5; // すっきり見せるためのシャープな角丸
@@ -4383,11 +4380,37 @@ function drawUIOverlay(hero) {
 
             if (slot.isEquipped) {
                 ctx.save();
-                ctx.font = 'bold 12px sans-serif';
-                ctx.fillStyle = '#00ffcc';
-                ctx.textAlign = 'right';
-                ctx.textBaseline = 'top';
-                ctx.fillText('[E]', x + slotSize - 2, y + 2);
+                
+                // 🌟 プロ風ミニバッジのデザイン定数
+                const badgeW = 16;
+                const badgeH = 15;
+                const badgeX = x + slotSize - badgeW - 2; // スロットの右上
+                const badgeY = y + 2;
+                const radius = 3; // 角丸の半径
+
+                // 1. バッジの背景（半透明のダークカラーでアイコンとの視認性を確保）
+                ctx.fillStyle = 'rgba(10, 15, 25, 0.85)';
+                // 2. バッジの枠線（スタイリッシュなネオンシアン。ゴールドにしたい場合は '#ffd700' など）
+                ctx.strokeStyle = '#00ffcc'; 
+                ctx.lineWidth = 1;
+
+                // 角丸四角形の描画
+                ctx.beginPath();
+                if (ctx.roundRect) {
+                    ctx.roundRect(badgeX, badgeY, badgeW, badgeH, radius);
+                } else {
+                    ctx.rect(badgeX, badgeY, badgeW, badgeH); // フォールバック用
+                }
+                ctx.fill();
+                ctx.stroke();
+
+                // 3. 「E」文字の描画（中央寄せで美しく配置）
+                ctx.font = 'bold 10px sans-serif';
+                ctx.fillStyle = '#00ffcc'; // 文字色もシアンで統一
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.fillText('E', badgeX + badgeW / 2, badgeY + badgeH / 2 + 0.5);
+                
                 ctx.restore();
             }
 
@@ -6220,6 +6243,7 @@ function drawTopStatusUI(hero) {
     ctx.fillStyle = "#ffffff";
     ctx.font = "bold 20px Arial";
     ctx.textAlign = "left";
+    ctx.textBaseline = "alphabetic"; // 初期値にリセット
     ctx.fillText(`Lv.${hero.level || 1}`, x + 15, y + 30);
 
     // ==========================================
@@ -6310,13 +6334,14 @@ function drawTopStatusUI(hero) {
         ctx.stroke();
     }
     
-    // HPテキスト (視認性向上のためのシャドウ追加)
+    // HPテキスト (中央寄せ＆シャドウ追加)
     ctx.fillStyle = "#fff";
     ctx.font = "bold 12px Arial";
     ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
     ctx.shadowColor = "rgba(0, 0, 0, 0.7)";
     ctx.shadowBlur = 3;
-    ctx.fillText(`${Math.floor(hero.hp)} / ${hero.maxHp}`, hpBarX + barWidth/2, hpBarY + 14);
+    ctx.fillText(`${Math.floor(hero.hp)} / ${hero.maxHp}`, hpBarX + barWidth / 2, hpBarY + barHeight / 2);
     ctx.shadowBlur = 0; // シャドウリセット
 
     // ==========================================
@@ -6327,6 +6352,7 @@ function drawTopStatusUI(hero) {
     
     // EXP背景（角丸）
     ctx.textAlign = "left";
+    ctx.textBaseline = "alphabetic";
     ctx.fillStyle = "#222222";
     ctx.beginPath();
     ctx.moveTo(hpBarX + expRadius, expBarY);
@@ -6334,7 +6360,7 @@ function drawTopStatusUI(hero) {
     ctx.quadraticCurveTo(hpBarX + barWidth, expBarY, hpBarX + barWidth, expBarY + expRadius);
     ctx.quadraticCurveTo(hpBarX + barWidth, expBarY + expBarH, hpBarX + barWidth - expRadius, expBarY + expBarH);
     ctx.lineTo(hpBarX + expRadius, expBarY + expBarH);
-    ctx.quadraticCurveTo(hpBarX, expBarY + expBarH, hpBarX, expBarY + expBarH - hpRadius);
+    ctx.quadraticCurveTo(hpBarX, expBarY + expBarH, hpBarX, expBarY + expBarH - expRadius);
     ctx.lineTo(hpBarX, expBarY + expRadius);
     ctx.quadraticCurveTo(hpBarX, expBarY, hpBarX + expRadius, expBarY);
     ctx.closePath();
@@ -6351,16 +6377,16 @@ function drawTopStatusUI(hero) {
             ctx.lineTo(hpBarX + currentExpW, expBarY);
             ctx.lineTo(hpBarX + currentExpW, expBarY + expBarH);
             ctx.lineTo(hpBarX + expRadius, expBarY + expBarH);
-            ctx.quadraticCurveTo(hpBarX, expBarY + expBarH, hpBarX, expBarY + expBarH - hpRadius);
+            ctx.quadraticCurveTo(hpBarX, expBarY + expBarH, hpBarX, expBarY + expBarH - expRadius);
             ctx.lineTo(hpBarX, expBarY + expRadius);
             ctx.quadraticCurveTo(hpBarX, expBarY, hpBarX + expRadius, expBarY);
         } else {
             ctx.lineTo(hpBarX + currentExpW - expRadius, expBarY);
             ctx.quadraticCurveTo(hpBarX + currentExpW, expBarY, hpBarX + currentExpW, expBarY + expRadius);
-            ctx.lineTo(hpBarX + currentExpW, expBarY + expBarH - hpRadius);
+            ctx.lineTo(hpBarX + currentExpW, expBarY + expBarH - expRadius);
             ctx.quadraticCurveTo(hpBarX + currentExpW, expBarY + expBarH, hpBarX + currentExpW - expRadius, expBarY + expBarH);
             ctx.lineTo(hpBarX + expRadius, expBarY + expBarH);
-            ctx.quadraticCurveTo(hpBarX, expBarY + expBarH, hpBarX, expBarY + expBarH - hpRadius);
+            ctx.quadraticCurveTo(hpBarX, expBarY + expBarH, hpBarX, expBarY + expBarH - expRadius);
             ctx.lineTo(hpBarX, expBarY + expRadius);
             ctx.quadraticCurveTo(hpBarX, expBarY, hpBarX + expRadius, expBarY);
         }
@@ -6390,7 +6416,7 @@ function drawTopStatusUI(hero) {
     ctx.quadraticCurveTo(hpBarX + barWidth, expBarY, hpBarX + barWidth, expBarY + expRadius);
     ctx.quadraticCurveTo(hpBarX + barWidth, expBarY + expBarH, hpBarX + barWidth - expRadius, expBarY + expBarH);
     ctx.lineTo(hpBarX + expRadius, expBarY + expBarH);
-    ctx.quadraticCurveTo(hpBarX, expBarY + expBarH, hpBarX, expBarY + expBarH - hpRadius);
+    ctx.quadraticCurveTo(hpBarX, expBarY + expBarH, hpBarX, expBarY + expBarH - expRadius);
     ctx.lineTo(hpBarX, expBarY + expRadius);
     ctx.quadraticCurveTo(hpBarX, expBarY, hpBarX + expRadius, expBarY);
     ctx.closePath();
@@ -6413,12 +6439,14 @@ function drawTopStatusUI(hero) {
     ctx.font = "bold 10px Arial";
     ctx.shadowColor = "rgba(0, 0, 0, 0.7)";
     ctx.shadowBlur = 3;
-    ctx.fillText("EXP", hpBarX - 30, expBarY + 10);
+    ctx.fillText("EXP", hpBarX - 30, expBarY + 11);
 
-    // 🌟 修正済み：EXPテキスト表示（バーの中央・太字・シャドウ対応）
+    // 🌟 パーセント表示付きEXPテキスト（`textBaseline = "middle"` で上下中央に完璧に配置）
+    const expPercent = Math.min(100, (displayExp / nextMaxExp) * 100).toFixed(1);
     ctx.font = "bold 11px Arial";
     ctx.textAlign = "center";
-    ctx.fillText(`${Math.floor(displayExp)} / ${nextMaxExp}`, hpBarX + barWidth / 2, expBarY + 13);
+    ctx.textBaseline = "middle";
+    ctx.fillText(`${Math.floor(displayExp)} / ${nextMaxExp} (${expPercent}%)`, hpBarX + barWidth / 2, expBarY + expBarH / 2);
     ctx.shadowBlur = 0; // シャドウリセット
 
     ctx.restore();
@@ -7309,14 +7337,39 @@ function drawBagGrid() {
                         ctx.fillText(displayName.substring(0, 3), x + 4, y + 22);
                     }
 
-                    // 🌟 装備中（isEquipped === true）なら [E] を描画！
+                    // 🌟 装備中（isEquipped === true）ならプロ風の「E」ミニバッジを描画！
                     if (item.isEquipped) {
                         ctx.save();
-                        ctx.font = 'bold 11px "Segoe UI", sans-serif';
-                        ctx.fillStyle = '#34d399'; // 鮮やかなエメラルドグリーン
-                        ctx.textAlign = 'right';
-                        ctx.textBaseline = 'top';
-                        ctx.fillText('[E]', x + slotSize - 3, y + 3);
+                        
+                        const badgeW = 16;
+                        const badgeH = 15;
+                        const badgeX = x + slotSize - badgeW - 2; // スロットの右上
+                        const badgeY = y + 2;
+                        const radius = 3;
+
+                        // 1. バッジの背景（半透明のダークカラーでアイコンと被ってもハッキリ見える）
+                        ctx.fillStyle = 'rgba(10, 15, 25, 0.85)';
+                        // 2. バッジの枠線（エメラルドグリーン）
+                        ctx.strokeStyle = '#34d399'; 
+                        ctx.lineWidth = 1;
+
+                        // 角丸四角形の描画
+                        ctx.beginPath();
+                        if (ctx.roundRect) {
+                            ctx.roundRect(badgeX, badgeY, badgeW, badgeH, radius);
+                        } else {
+                            ctx.rect(badgeX, badgeY, badgeW, badgeH);
+                        }
+                        ctx.fill();
+                        ctx.stroke();
+
+                        // 3. 「E」文字の描画（中央寄せ）
+                        ctx.font = 'bold 10px "Segoe UI", sans-serif';
+                        ctx.fillStyle = '#34d399';
+                        ctx.textAlign = 'center';
+                        ctx.textBaseline = 'middle';
+                        ctx.fillText('E', badgeX + badgeW / 2, badgeY + badgeH / 2 + 0.5);
+                        
                         ctx.restore();
                     }
 
@@ -7385,7 +7438,7 @@ function drawBagGrid() {
         const goldBarW = 215; 
         const goldBarH = 28;  
         const goldDrawX = bagX + 20;
-        const goldDrawY = startY + maxVisibleRows * (slotSize + spacing) + 8; 
+        const goldDrawY = startY + maxVisibleRows * (slotSize + spacing) + 0; 
         const radius = 6;
 
         // 背景枠（モダン・ダークグラデーション ＆ 角丸）
@@ -8530,6 +8583,66 @@ canvas.addEventListener('mousemove', (e) => {
     if (foundWindow) return;
 
     // ------------------------------------------
+    // 🧪 右上のアクティブアイテムHUDのホバー判定 ＆ ツールチップ表示
+    // ------------------------------------------
+    let foundActiveItemHUD = false;
+    const tooltip = document.getElementById('item-tooltip');
+
+    if (tooltip && typeof hero !== 'undefined' && hero && hero._renderActiveItems && hero._renderActiveItems.length > 0) {
+        let isWindowCoveringHUD = false; 
+        for (const win of Object.values(gameWindows)) {
+            if (win && win.isOpen) {
+                if (win.x < VIEW_CONFIG.SCREEN_WIDTH - 20 && win.x + win.w > VIEW_CONFIG.SCREEN_WIDTH - 200 &&
+                    win.y < 80 && win.y + win.h > 0) {
+                    isWindowCoveringHUD = true;
+                    break;
+                }
+            }
+        }
+
+        if (!isWindowCoveringHUD) {
+            const iconSize = 32;
+            const spacing = 6;
+            const rightMargin = 20;
+            const topY = 20;
+
+            let hoveredItem = null;
+
+            hero._renderActiveItems.forEach((item, index) => {
+                const iconX = VIEW_CONFIG.SCREEN_WIDTH - rightMargin - ((hero._renderActiveItems.length - index) * (iconSize + spacing));
+                const iconY = topY;
+
+                if (mouseX >= iconX && mouseX <= iconX + iconSize &&
+                    mouseY >= iconY && mouseY <= iconY + iconSize) {
+                    hoveredItem = item;
+                }
+            });
+
+            if (hoveredItem) {
+                canvas.style.cursor = "pointer";
+                foundActiveItemHUD = true;
+
+                const itemNames = {
+                    'speed': 'スピードアップ (移動速度増加)',
+                    'clear': 'クリアエフェクト'
+                };
+                const displayName = itemNames[hoveredItem.name] || hoveredItem.name;
+
+                tooltip.innerText = displayName;
+                tooltip.style.display = 'block';
+                tooltip.style.left = (e.clientX + 12) + 'px';
+                tooltip.style.top = (e.clientY + 12) + 'px';
+            }
+        }
+    }
+
+    if (!foundActiveItemHUD && tooltip) {
+        tooltip.style.display = 'none';
+    }
+
+    if (foundActiveItemHUD) return;
+
+    // ------------------------------------------
     // 🏪 露店看板の判定
     // ------------------------------------------
     let foundVending = false;
@@ -8543,7 +8656,7 @@ canvas.addEventListener('mousemove', (e) => {
             const signX = p.x - signW / 2;
             const signY = p.y - 80;
 
-            if (mouseX >= signX &&mouseX <= signX + signW &&
+            if (mouseX >= signX && mouseX <= signX + signW &&
                 mouseY >= signY && mouseY <= signY + signH) {
                 canvas.style.cursor = "pointer";
                 foundVending = true;
@@ -8558,7 +8671,6 @@ canvas.addEventListener('mousemove', (e) => {
     // 📦 10スロットインベントリ・アイテム判定
     // ------------------------------------------
     
-    // 🌟 【追加】10スロットの上に、何らかのウィンドウが開いて重なっていないかチェック
     let isAnyWindowCovering = false;
     for (const win of Object.values(gameWindows)) {
         if (win && win.isOpen) {
@@ -8575,7 +8687,6 @@ canvas.addEventListener('mousemove', (e) => {
     } else if (selectedSlotIndex !== -1) {
         canvas.style.cursor = "grabbing";
     } 
-    // 🌟 上にウィンドウが被っていない場合のみ10スロットの判定を実行
     else if (!isAnyWindowCovering && mouseY >= 130 && mouseY <= 170) {
         const hoverIndex = Math.floor((mouseX - 20) / 48);
         if (hoverIndex >= 0 && hoverIndex < 10 && inventoryVisualBuffer && inventoryVisualBuffer[hoverIndex]) {

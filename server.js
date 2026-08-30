@@ -298,15 +298,25 @@ async function performLogin(socket, user, token, channel, group, style_id) {
         let totalDex = 0;
         let totalLuk = 0;
         let totalWeaponAtk = 0;
+        let totalMaxHp = 0; // 🌟 追加：装備によるHPボーナス集計用
+        let totalMaxMp = 0; // 🌟 追加：装備によるMPボーナス集計用
 
-        fixedInventory.forEach((invItem) => {
+        fixedInventory.forEach((invItem, idx) => {
             if (invItem && invItem.isEquipped) {
+                // 🔍 【デバッグ追加】装備品ごとの中身を正確に確認
+                console.log(`[DEBUG EQUIP CHECK] スロット${idx} (${invItem.name}): maxHp=${invItem.maxHp}, hp=${invItem.hp}`);
+
                 totalStr += Number(invItem.str) || 0;
                 totalDex += Number(invItem.dex) || 0;
                 totalLuk += Number(invItem.luk) || 0;
                 totalWeaponAtk += Number(invItem.atk) || Number(invItem.power) || 0;
+                totalMaxHp += Number(invItem.maxHp) || Number(invItem.hp) || 0; // 🌟 追加
+                totalMaxMp += Number(invItem.maxMp) || Number(invItem.mp) || 0; // 🌟 追加
             }
         });
+
+        // 🔍 【デバッグ追加】合算されたボーナス値の確認
+        console.log(`[DEBUG BONUS] 算出された totalMaxHp ボーナス:`, totalMaxHp);
 
         // 基礎値 ＋ 装備ボーナス
         const baseStr = stats.str || 4;
@@ -358,7 +368,18 @@ async function performLogin(socket, user, token, channel, group, style_id) {
 
         const selectedChannel = parseInt(channel) || 1;
         const roomName = `channel_${selectedChannel}`;
-        const correctMaxHP = MAX_HP_TABLE[stats.level] || stats.max_hp;
+        
+        // 🌟 修正：データベースに保存されている max_hp をベース値として取得する
+        // 🌟 データベースの列名揺れ（max_hp / maxhp）に完全対応し、確実にベース値を取得する
+        const baseMaxHp = Number(stats.max_hp !== undefined ? stats.max_hp : (stats.maxhp !== undefined ? stats.maxhp : 100));
+        const baseMaxMp = Number(stats.max_mp !== undefined ? stats.max_mp : (stats.maxmp !== undefined ? stats.maxmp : 50));
+        
+        // 🌟 基礎HP ＋ 現在装備しているアイテムの合計HPボーナスを足したものを最終最大HPにする
+        const finalMaxHp = baseMaxHp + totalMaxHp;
+        const finalMaxMp = baseMaxMp + totalMaxMp;
+
+        // 🔍 【デバッグ追加】最終HPがどう計算されたか確認
+        console.log(`[DEBUG HP CALC] DBのbaseMaxHp(${stats.max_hp}) + 装備bonus(${totalMaxHp}) = 最終予測maxHp(${finalMaxHp})`);
 
         // プレイヤーオブジェクト作成
         players[socket.id] = {
@@ -369,11 +390,18 @@ async function performLogin(socket, user, token, channel, group, style_id) {
             gold: Number(stats.gold || 0),
             level: stats.level,
             exp: stats.exp,
-            requiredExp: requiredExp, // 💡 追加：次のレベルに必要な経験値
-            hp: Math.min(stats.hp, correctMaxHP),
-            maxHp: correctMaxHP,
+            requiredExp: requiredExp, 
+            hp: Math.min(stats.hp, finalMaxHp),
+            
+            // 🌟 HP・MPのベースと最終値を保持
+            baseMaxHp: baseMaxHp,
+            bonusMaxHp: totalMaxHp,
+            maxHp: finalMaxHp,
+            baseMaxMp: baseMaxMp,
+            bonusMaxMp: totalMaxMp,
+            maxMp: finalMaxMp,
+
             mp: stats.mp,
-            maxMp: stats.max_mp,
             map_id: stats.map_id,
             x: stats.pos_x,
             y: stats.pos_y,
@@ -427,8 +455,12 @@ async function performLogin(socket, user, token, channel, group, style_id) {
                 style_id: finalStyleId,
                 hp: players[socket.id].hp,
                 max_hp: players[socket.id].maxHp,
+                baseMaxHp: baseMaxHp,     // 🌟 クライアント用に追加送信
+                bonusMaxHp: totalMaxHp,   // 🌟 クライアント用に追加送信
                 mp: stats.mp,
-                max_mp: stats.max_mp,
+                max_mp: players[socket.id].maxMp,
+                baseMaxMp: baseMaxMp,     // 🌟 クライアント用に追加送信
+                bonusMaxMp: totalMaxMp,   // 🌟 クライアント用に追加送信
                 gold: stats.gold,
                 map_id: stats.map_id,
                 x: stats.pos_x,
@@ -459,7 +491,8 @@ async function performLogin(socket, user, token, channel, group, style_id) {
             message: 'ログイン成功！'
         });
         
-        console.log("【ログイン時インベントリ確認】4番目(index 3):", fixedInventory[3]);
+		// 2026-8-30停止
+        //console.log("【ログイン時インベントリ確認】4番目(index 3):", fixedInventory[3]);
 
         socket.emit('inventory_update', fixedInventory);
         socket.to(roomName).emit('player_joined', players[socket.id]);
@@ -667,7 +700,11 @@ socket.on('join', data => {
             
             emitPlayerList();
 
-            debugChat(`👋 ${userName} さんが チャンネル ${channel} に参加しました（キャラID: ${p.group}）`);
+            // 🌟 【一番簡単な重複対策】この接続でまだログを出していなければ1回だけ出す
+            if (!socket.hasLoggedJoin) {
+                socket.hasLoggedJoin = true;
+                debugChat(`👋 ${userName} さんが チャンネル ${channel} に参加しました（キャラID: ${p.group}）`);
+            }
             //LOG.SYS(`[入室データ確認] ${JSON.stringify(p)}`);
         }
     } catch (e) {
@@ -810,6 +847,10 @@ socket.on('save_player_data', async (data) => {
     const saveDex = player.baseDex !== undefined ? player.baseDex : dex;
     const saveLuk = player.baseLuk !== undefined ? player.baseLuk : luk;
     
+    // 🌟 【安全ガード追加】HPとMPも装備ボーナスを含まない「ベース値」を確実に保存する
+    const saveMaxHp = player.baseMaxHp !== undefined ? player.baseMaxHp : maxHp;
+    const saveMaxMp = player.baseMaxMp !== undefined ? player.baseMaxMp : maxMp;
+    
     // 🌟 【重要】セーブ時の最新レベルに対応する ATK を `player_atk_table` から確実に取得する
     let saveAtk = 13;
     try {
@@ -829,8 +870,8 @@ socket.on('save_player_data', async (data) => {
     // プレイヤーオブジェクト側のベース攻撃力も最新に更新しておく
     player.baseAtk = saveAtk;
 
-    // 🌟 SQLに送るパラメータの配列（最新の saveAtk を設定）
-    const saveParams = [level, exp, gold, hp, maxHp, mp, maxMp, mapId, x, y, saveStr, saveDex, saveLuk, saveAtk, ap, dbUserId];
+    // 🌟 SQLに送るパラメータの配列（最新の saveMaxHp, saveMaxMp, saveAtk を設定）
+    const saveParams = [level, exp, gold, hp, saveMaxHp, mp, saveMaxMp, mapId, x, y, saveStr, saveDex, saveLuk, saveAtk, ap, dbUserId];
 
     const sql = `
         UPDATE player_stats 
@@ -2666,6 +2707,36 @@ socket.on('equipItem', async (data) => {
             }
         });
 
+        // 💡 基礎HP・MPのベース値
+        // 🌟 修正：ログイン時に設定された player.baseMaxHp を最優先で使い、
+        // もし未定義の場合は正しいベースである 240 を基準にする
+        // 💡 基礎HP・MPのベース値
+        // 🌟 修正：もし player.baseMaxHp が未定義なら、DBから直接ユーザーの max_hp を取得して復旧する
+        if (player.baseMaxHp === undefined) {
+            try {
+                const [statRows] = await pool.query('SELECT max_hp FROM player_stats WHERE user_id = ?', [player.dbId]);
+                if (statRows && statRows.length > 0) {
+                    player.baseMaxHp = Number(statRows[0].max_hp) || 111;
+                    console.log(`⚠️ [DB Recovery] player.baseMaxHp が消失していたため、DBから再取得しました: ${player.baseMaxHp}`);
+                } else {
+                    player.baseMaxHp = 111; // 万が一見つからない場合の最終フォールバック
+                }
+            } catch (dbErr) {
+                console.error('❌ 装備変更時のベースHP再取得エラー:', dbErr);
+                player.baseMaxHp = 111;
+            }
+        }
+        const baseMaxHp = player.baseMaxHp;
+        const baseMaxMp = player.baseMaxMp || 50;
+		
+        // ==========================================
+        // 🐛 デバッグログ：装備着脱時の値チェック（値が確定したあとに表示）
+        // ==========================================
+        console.log(`--- [DEBUG EQUIP] アイテム名: ${item.name}, 装着状態: ${item.isEquipped} ---`);
+        console.log(`算出された装備ボーナス HP (totalMaxHp): ${totalMaxHp}`);
+        console.log(`ログイン時のベース HP (player.baseMaxHp): ${player.baseMaxHp}`);
+        console.log(`計算される最終最大 HP (baseMaxHp + totalMaxHp): ${baseMaxHp + totalMaxHp}`);
+
         // 3. プレイヤーの最終ステータスを計算
         const baseStr = player.baseStr || 4;
         const baseDex = player.baseDex || 4;
@@ -2676,8 +2747,17 @@ socket.on('equipItem', async (data) => {
         player.str = baseStr + totalStr;
         player.dex = baseDex + totalDex;
         player.luk = baseLuk + totalLuk;
+        
+        // 🌟 HPとMPの最終値を算出してプレイヤーオブジェクトに格納
+        player.maxHp = baseMaxHp + totalMaxHp;
+        player.maxMp = baseMaxMp + totalMaxMp;
 
-        console.log(`[Stats Updated] 最終ATK: ${player.atk} (STR: ${player.str}, DEX: ${player.dex}, LUK: ${player.luk})`);
+        // 現在HPが新しい最大HPを超えていたら補正する
+        if (player.hp > player.maxHp) {
+            player.hp = player.maxHp;
+        }
+
+        console.log(`[Stats Updated] 最終ATK: ${player.atk}, 最大HP: ${player.maxHp} (STR: ${player.str}, DEX: ${player.dex}, LUK: ${player.luk})`);
 
         // 🌟 対象アイテム自体のデータベースの装備状態を更新する
         if (item.db_id) {
@@ -2697,7 +2777,9 @@ socket.on('equipItem', async (data) => {
             str: player.str, baseStr: baseStr, bonusStr: totalStr,
             dex: player.dex, baseDex: baseDex, bonusDex: totalDex,
             luk: player.luk, baseLuk: baseLuk, bonusLuk: totalLuk,
-            maxHp: player.maxHp
+            maxHp: player.maxHp, baseMaxHp: baseMaxHp, bonusMaxHp: totalMaxHp,
+            maxMp: player.maxMp, baseMaxMp: baseMaxMp, bonusMaxMp: totalMaxMp,
+            hp: player.hp
         });
 
     } catch (e) {
@@ -4403,7 +4485,8 @@ function addExperience(player, amount, socket) {
     let requiredExp = LEVEL_TABLE[player.level] || (player.level * 100);
     player.maxExp = requiredExp;
 
-    debugChat(`[EXP] ${player.name}: +${amount} (Total: ${player.exp} / Next: ${requiredExp})`);
+	// 2026-8-30停止
+    //debugChat(`[EXP] ${player.name}: +${amount} (Total: ${player.exp} / Next: ${requiredExp})`);
 
     // 3. レベルアップ判定（whileを使うと、一気に2レベル上がる場合にも対応できます）
     while (player.exp >= requiredExp) {

@@ -1113,3 +1113,196 @@ user-select: none;         /* これが標準！ */
     background: #334155;
     transform: scale(1.1);
 }
+
+/* --- 選択中のボタン部分（元の #chat-mode を完全踏襲） --- */
+.custom-select-trigger {
+  background: rgba(0,0,0,0.7);
+  color: #60a5fa;
+  border: 1px solid #60a5fa;
+  box-shadow: 0 0 8px rgba(96, 165, 250, 0.5);
+  border-radius: 4px;
+  padding: 5px;
+  cursor: pointer;
+  
+  /* 文字と矢印（▼）を横に並べるための最低限の記述 */
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 75px;
+  box-sizing: border-box;
+}
+
+/* 矢印のサイズ調整 */
+.custom-arrow {
+  font-size: 10px;
+}
+
+/* --- 展開されるポップアップメニュー --- */
+.custom-options {
+  position: absolute;
+  bottom: calc(100% + 4px);
+  left: 0;
+  min-width: 100%;
+  background: rgba(0, 0, 0, 0.9);
+  border: 1px solid #60a5fa;
+  border-radius: 4px;
+  box-shadow: 0 0 8px rgba(96, 165, 250, 0.5);
+  z-index: 9999;
+  
+  /* 開閉用（フェード） */
+  opacity: 0;
+  visibility: hidden;
+  transition: opacity 0.2s ease, visibility 0.2s ease;
+}
+
+.custom-options.is-open {
+  opacity: 1;
+  visibility: visible;
+}
+
+/* 個別の選択肢 */
+.custom-option {
+  padding: 5px 8px;
+  color: #60a5fa;
+  cursor: pointer;
+}
+
+.custom-option:hover {
+  background: rgba(96, 165, 250, 0.2);
+}
+
+/* ============================================================
+   💬 プロ風サイバー・カスタムチャットモードUI
+   ============================================================ */
+/* --- ラッパー側で高さをコントロール --- */
+.custom-select-wrapper {
+    position: relative;
+    user-select: none;
+    font-size: 13px;
+    font-family: inherit;
+    display: inline-block; /* インライン配置で他の要素と高さを合わせる */
+    vertical-align: middle;
+}
+
+/* --- 計算された43pxでスマートにフィットするトリガー --- */
+.custom-select-trigger {
+    background: rgba(0, 0, 0, 0.75);
+    color: #60a5fa;
+    border: 1px solid #60a5fa;
+    box-shadow: 0 0 8px rgba(96, 165, 250, 0.4), inset 0 0 4px rgba(96, 165, 250, 0.2);
+    border-radius: 4px;
+    
+    /* 🌟 計算式：
+       フォントサイズ(13px) × line-height(約1.2) ≒ 16px (文字が占める高さ)
+       上下パディング：12.5px × 2 ＝ 25px
+       上下ボーダー：1px × 2 ＝ 2px
+       合計：16px + 25px + 2px = 43px 
+    */
+    font-size: 13px;
+    line-height: 1.2;
+    padding: 12.5px 12px; 
+    border-width: 1px;
+    box-sizing: border-box;
+    
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    transition: all 0.25s ease;
+    min-width: 90px;
+}
+
+.custom-select-trigger:hover {
+    background: rgba(30, 41, 59, 0.85);
+    box-shadow: 0 0 12px rgba(96, 165, 250, 0.7), inset 0 0 6px rgba(96, 165, 250, 0.4);
+    border-color: #93c5fd;
+}
+
+/* 展開時の矢印アニメーション */
+.custom-arrow {
+    font-size: 9px;
+    color: #60a5fa;
+    transition: transform 0.25s ease;
+}
+
+/* 開いている時は矢印を上に向ける */
+.custom-select-wrapper.is-active .custom-arrow {
+    transform: rotate(180deg);
+}
+
+/* 展開されるドロップダウンメニュー */
+.custom-options {
+    position: absolute;
+    bottom: calc(100% + 6px);
+    left: 0;
+    min-width: 100%;
+    background: rgba(10, 15, 30, 0.95);
+    backdrop-filter: blur(4px);
+    border: 1px solid #60a5fa;
+    border-radius: 5px;
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.8), 0 0 10px rgba(96, 165, 250, 0.3);
+    z-index: 9999;
+    overflow: hidden;
+    
+    /* フェード＆スライドインのアニメーション */
+    opacity: 0;
+    visibility: hidden;
+    transform: translateY(6px);
+    transition: opacity 0.2s cubic-bezier(0.16, 1, 0.3, 1), 
+                transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), 
+                visibility 0.2s;
+}
+
+/* 開いた状態 */
+.custom-options.is-open {
+    opacity: 1;
+    visibility: visible;
+    transform: translateY(0);
+}
+
+/* 個別の選択肢アイテム */
+.custom-option {
+    padding: 7px 12px;
+    color: #93c5fd;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    white-space: nowrap;
+    border-bottom: 1px solid rgba(96, 165, 250, 0.1);
+}
+
+.custom-option:last-child {
+    border-bottom: none;
+}
+
+.custom-option:hover {
+    background: rgba(96, 165, 250, 0.2);
+    color: #ffffff;
+    padding-left: 15px; /* ホバー時にわずかに右へスライドするリッチな演出 */
+}
+
+/* チャットモード選択肢のコンテナ（初期状態：折りたたみ） */
+#chat-mode-options {
+    position: absolute;
+    bottom: 100%; /* トリガーの「上」を起点にする */
+    left: 0;
+    width: 100%;
+    overflow: hidden;
+    
+    /* 閉じた状態の設定 */
+    max-height: 0;
+    opacity: 0;
+    transform: translateY(10px); /* 閉じたときは少し下に引っ込めておく */
+    pointer-events: none;
+    transition: max-height 0.3s ease, opacity 0.3s ease, transform 0.3s ease;
+    z-index: 10;
+}
+
+/* 開いたとき（下から上へスライドイン） */
+#chat-mode-options.is-open {
+    max-height: 250px;           /* 中身が収まる十分な高さ */
+    opacity: 1;
+    transform: translateY(0);    /* 元の位置（トリガーの真上）にスライド */
+    pointer-events: auto;
+}

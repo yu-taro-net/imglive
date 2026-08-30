@@ -75,23 +75,31 @@
 <!-- UI操作エリア -->
 <div id="ui-container">
   <div class="chat-row" style="position: relative;">
-    <select id="chat-mode" onchange="onChatModeChange()">
-      <option value="all">全体</option>
-      <option value="friend">友達</option>
-      <option value="group">グループ</option>
-      <option value="whisper">内緒話</option>
-    </select>
-
-    <!-- 感情ボタン -->
+    
+    <!-- 1番目：感情ボタン ＆ ポップアップ -->
     <button id="emotion-btn" type="button" onclick="toggleEmotionPicker(event)" title="表情を選ぶ">
         <img id="current-emotion-icon" src="emotion_assets/null.png" alt="表情" class="emotion-btn-icon">
     </button>
-
-    <!-- 画像を選ぶためのポップアップメニュー (初期は display: none;) -->
     <div id="emotion-picker-popup" class="emotion-popup"></div>
 
+    <!-- 2番目：チャットモード選択UI -->
+    <div id="custom-chat-mode" class="custom-select-wrapper">
+        <div id="chat-mode-trigger" class="custom-select-trigger" onclick="toggleChatModeDropdown(event)">
+            <span id="chat-mode-label">全体</span>
+            <span class="custom-arrow">▼</span>
+        </div>
+        <div id="chat-mode-options" class="custom-options">
+            <div class="custom-option" onclick="selectChatMode('all', '全体')">全体</div>
+            <div class="custom-option" onclick="selectChatMode('friend', '友達')">友達</div>
+            <div class="custom-option" onclick="selectChatMode('group', 'グループ')">グループ</div>
+            <div class="custom-option" onclick="selectChatMode('whisper', '内緒話')">内緒話</div>
+        </div>
+    </div>
+    <input type="hidden" id="chat-mode-value" value="all">
+
+    <!-- 3番目：メッセージ入力欄 -->
     <input type="text" id="chat-in" placeholder="メッセージを入力してEnter...">
-</div>
+  </div>
 
   <div id="msg-box"></div>
 
@@ -103,6 +111,8 @@
     <button onclick="changeChannel(4)">CH.4</button>
     <button onclick="changeChannel(5)">CH.5</button>
   </div>
+</div>
+
 </div>
 
 <button id="logoutBtn" onclick="logout()">ログアウト</button>
