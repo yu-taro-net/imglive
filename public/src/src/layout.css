@@ -51,7 +51,7 @@ body {
 #chat-in {
   flex-grow: 1;
   padding: 12px;
-  border-radius: 5px;
+  border-radius: 8px;
   border: 1px solid #60a5fa;
   background: #1e293b;
   color: white;
@@ -61,97 +61,61 @@ body {
 }
 
 #msg-box {
-    height: 80px;
-    overflow-y: auto;
-    
-    /* 上質なダークグラデーション＋半透明で周囲に馴染ませる */
-    background: linear-gradient(135deg, rgba(30, 41, 59, 0.85), rgba(15, 23, 42, 0.9));
-    
-    padding: 10px 14px;
-    font-size: 13px;
-    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-    color: #f1f5f9;
-    line-height: 1.5;
-    
-    /* 角丸と左側のアクセントライン（ご希望のテイストを踏襲） */
-    border-radius: 8px;
-    border: 1px solid rgba(100, 116, 139, 0.4);
-    border-left: 4px solid #60a5fa;
-    
-    /* 立体感を生む二重のシャドウ（内側＋外側） */
-    box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.6), 0 4px 12px rgba(0, 0, 0, 0.4);
-}
-
-/* スクロールバーのデザインもMMO風にカスタム（お好みでどうぞ） */
-#msg-box::-webkit-scrollbar {
-    width: 6px;
-}
-#msg-box::-webkit-scrollbar-track {
-    background: rgba(15, 23, 42, 0.5);
-    border-radius: 4px;
-}
-#msg-box::-webkit-scrollbar-thumb {
-    background: rgba(100, 116, 139, 0.5);
-    border-radius: 4px;
-}
-#msg-box::-webkit-scrollbar-thumb:hover {
-    background: rgba(148, 163, 184, 0.8);
+  height: 80px;
+  overflow-y: auto;
+  background: rgba(30, 41, 59, 0.5);
+  padding: 10px;
+  font-size: 13px;
+  border-radius: 8px;
+  border-left: 4px solid #60a5fa;
+  box-shadow: inset 0 0 15px rgba(0,0,0,0.5);
 }
 
 .channel-box {
-    margin-top: 0; /* 上の余白をなくす */
-    /* インベントリやメッセージボックスと共通の上質なダークグラデーション */
-    background: linear-gradient(135deg, rgba(15, 23, 42, 0.9), rgba(10, 15, 25, 0.95));
-    border: 1px solid rgba(100, 116, 139, 0.5); /* 統一されたスレートグレーの枠線 */
-    border-radius: 8px;
-    padding: 12px 16px;
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.1);
-    display: flex;
-    align-items: center;
-    flex-wrap: wrap;
-    gap: 6px;
+  margin-top: 15px;
+  border-top: 2px solid #60a5fa;
+  box-shadow: 0 -5px 10px rgba(96, 165, 250, 0.2);
+  padding-top: 12px;
+  background-color: rgba(0, 0, 0, 0.4);
+  padding: 12px;
+  border-radius: 4px;
 }
 
 .channel-label {
-    font-size: 12px;
-    font-weight: 600;
-    color: #94a3b8; /* 落ち着いたトーンのラベルカラーで視認性アップ */
-    margin-right: 8px;
-    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-    letter-spacing: 0.5px;
+  font-size: 12px;
+  font-weight: bold;
+  color: #ffffff;
+  margin-right: 10px;
+  text-shadow: 0 0 8px rgba(255, 255, 255, 0.8), 1px 1px 2px rgba(0, 0, 0, 0.9);
 }
 
 .channel-box button {
-    /* 通常ボタン：ダーク系カプセル調 */
-    background: linear-gradient(180deg, rgba(30, 41, 59, 0.8), rgba(15, 23, 42, 0.9));
-    border: 1px solid rgba(100, 116, 139, 0.6);
-    color: #cbd5e1;
-    padding: 6px 14px;
-    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-    font-weight: 600;
-    font-size: 12px;
-    cursor: pointer;
-    border-radius: 5px;
-    transition: all 0.2s ease;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3);
+  background: #1a1a1a;
+  border: 2px solid #60a5fa;
+  box-shadow: 0 0 5px rgba(96, 165, 250, 0.5);
+  color: #ffffff;
+  padding: 6px 16px;
+  font-family: 'Courier New', monospace, sans-serif;
+  font-weight: bold;
+  font-size: 13px;
+  cursor: pointer;
+  margin-right: 6px;
+  transition: none;
 }
 
 .channel-box button:hover {
-    background: linear-gradient(180deg, rgba(51, 65, 85, 0.9), rgba(30, 41, 59, 0.95));
-    border-color: #38bdf8; /* ホバー時は爽やかなシアンで反応 */
-    color: #ffffff;
-    box-shadow: 0 0 8px rgba(56, 189, 248, 0.3);
-    transform: translateY(-1px);
+  background: #333333;
+  border-color: #a0a0a0;
+  color: white;
+  box-shadow: 0 0 15px rgba(255, 255, 255, 0.3);
 }
 
 .channel-box button.active {
-    /* アクティブボタン：インベントリの個数バッジなどと調和するリッチなアクセント */
-    background: linear-gradient(180deg, #38bdf8, #0284c7);
-    color: #ffffff;
-    font-weight: bold;
-    border: 1px solid #7dd3fc;
-    box-shadow: 0 0 12px rgba(56, 189, 248, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.3);
-    text-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+  background-color: #ffe066;
+  color: #000000;
+  font-weight: bold;
+  border: 2px solid #e6c229;
+  box-shadow: 0 0 15px rgba(255, 224, 102, 0.6), 2px 2px 0px rgba(0, 0, 0, 0.7);
 }
 
 /* --- Wikiメニューデザイン --- */
@@ -1148,258 +1112,4 @@ user-select: none;         /* これが標準！ */
     border-color: #60a5fa;
     background: #334155;
     transform: scale(1.1);
-}
-
-/* --- 選択中のボタン部分（元の #chat-mode を完全踏襲） --- */
-.custom-select-trigger {
-  background: rgba(0,0,0,0.7);
-  color: #60a5fa;
-  border: 1px solid #60a5fa;
-  box-shadow: 0 0 8px rgba(96, 165, 250, 0.5);
-  border-radius: 4px;
-  padding: 5px;
-  cursor: pointer;
-  
-  /* 文字と矢印（▼）を横に並べるための最低限の記述 */
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
-  min-width: 75px;
-  box-sizing: border-box;
-}
-
-/* 矢印のサイズ調整 */
-.custom-arrow {
-  font-size: 10px;
-}
-
-/* --- 展開されるポップアップメニュー --- */
-.custom-options {
-  position: absolute;
-  bottom: calc(100% + 4px);
-  left: 0;
-  min-width: 100%;
-  background: rgba(0, 0, 0, 0.9);
-  border: 1px solid #60a5fa;
-  border-radius: 4px;
-  box-shadow: 0 0 8px rgba(96, 165, 250, 0.5);
-  z-index: 9999;
-  
-  /* 開閉用（フェード） */
-  opacity: 0;
-  visibility: hidden;
-  transition: opacity 0.2s ease, visibility 0.2s ease;
-}
-
-.custom-options.is-open {
-  opacity: 1;
-  visibility: visible;
-}
-
-/* 個別の選択肢 */
-.custom-option {
-  padding: 5px 8px;
-  color: #60a5fa;
-  cursor: pointer;
-}
-
-.custom-option:hover {
-  background: rgba(96, 165, 250, 0.2);
-}
-
-/* ============================================================
-   💬 プロ風サイバー・カスタムチャットモードUI
-   ============================================================ */
-/* --- ラッパー側で高さをコントロール --- */
-.custom-select-wrapper {
-    position: relative;
-    user-select: none;
-    font-size: 13px;
-    font-family: inherit;
-    display: inline-block; /* インライン配置で他の要素と高さを合わせる */
-    vertical-align: middle;
-}
-
-/* --- 計算された43pxでスマートにフィットするトリガー --- */
-.custom-select-trigger {
-    background: rgba(0, 0, 0, 0.75);
-    color: #60a5fa;
-    border: 1px solid #60a5fa;
-    box-shadow: 0 0 8px rgba(96, 165, 250, 0.4), inset 0 0 4px rgba(96, 165, 250, 0.2);
-    border-radius: 4px;
-    
-    /* 🌟 計算式：
-       フォントサイズ(13px) × line-height(約1.2) ≒ 16px (文字が占める高さ)
-       上下パディング：12.5px × 2 ＝ 25px
-       上下ボーダー：1px × 2 ＝ 2px
-       合計：16px + 25px + 2px = 43px 
-    */
-    font-size: 13px;
-    line-height: 1.2;
-    padding: 12.5px 12px; 
-    border-width: 1px;
-    box-sizing: border-box;
-    
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: 12px;
-    transition: all 0.25s ease;
-    min-width: 90px;
-}
-
-.custom-select-trigger:hover {
-    background: rgba(30, 41, 59, 0.85);
-    box-shadow: 0 0 12px rgba(96, 165, 250, 0.7), inset 0 0 6px rgba(96, 165, 250, 0.4);
-    border-color: #93c5fd;
-}
-
-/* 展開時の矢印アニメーション */
-.custom-arrow {
-    font-size: 9px;
-    color: #60a5fa;
-    transition: transform 0.25s ease;
-}
-
-/* 開いている時は矢印を上に向ける */
-.custom-select-wrapper.is-active .custom-arrow {
-    transform: rotate(180deg);
-}
-
-/* 展開されるドロップダウンメニュー */
-.custom-options {
-    position: absolute;
-    bottom: calc(100% + 6px);
-    left: 0;
-    min-width: 100%;
-    background: rgba(10, 15, 30, 0.95);
-    backdrop-filter: blur(4px);
-    border: 1px solid #60a5fa;
-    border-radius: 5px;
-    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.8), 0 0 10px rgba(96, 165, 250, 0.3);
-    z-index: 9999;
-    overflow: hidden;
-    
-    /* フェード＆スライドインのアニメーション */
-    opacity: 0;
-    visibility: hidden;
-    transform: translateY(6px);
-    transition: opacity 0.2s cubic-bezier(0.16, 1, 0.3, 1), 
-                transform 0.2s cubic-bezier(0.16, 1, 0.3, 1), 
-                visibility 0.2s;
-}
-
-/* 開いた状態 */
-.custom-options.is-open {
-    opacity: 1;
-    visibility: visible;
-    transform: translateY(0);
-}
-
-/* 個別の選択肢アイテム */
-.custom-option {
-    padding: 7px 12px;
-    color: #93c5fd;
-    cursor: pointer;
-    transition: all 0.15s ease;
-    white-space: nowrap;
-    border-bottom: 1px solid rgba(96, 165, 250, 0.1);
-}
-
-.custom-option:last-child {
-    border-bottom: none;
-}
-
-.custom-option:hover {
-    background: rgba(96, 165, 250, 0.2);
-    color: #ffffff;
-    padding-left: 15px; /* ホバー時にわずかに右へスライドするリッチな演出 */
-}
-
-/* チャットモード選択肢のコンテナ（初期状態：折りたたみ） */
-#chat-mode-options {
-    position: absolute;
-    bottom: 100%; /* トリガーの「上」を起点にする */
-    left: 0;
-    width: 100%;
-    overflow: hidden;
-    
-    /* 閉じた状態の設定 */
-    max-height: 0;
-    opacity: 0;
-    transform: translateY(10px); /* 閉じたときは少し下に引っ込めておく */
-    pointer-events: none;
-    transition: max-height 0.3s ease, opacity 0.3s ease, transform 0.3s ease;
-    z-index: 10;
-}
-
-/* 開いたとき（下から上へスライドイン） */
-#chat-mode-options.is-open {
-    max-height: 250px;           /* 中身が収まる十分な高さ */
-    opacity: 1;
-    transform: translateY(0);    /* 元の位置（トリガーの真上）にスライド */
-    pointer-events: auto;
-}
-
-#logoutBtn {
-    /* 上質なダークレッドグラデーションを基調としたシステムボタン */
-    background: linear-gradient(180deg, rgba(51, 25, 30, 0.9), rgba(30, 15, 18, 0.95));
-    border: 1px solid rgba(225, 29, 72, 0.4); /* 落ち着いたレッド系のスレート枠線 */
-    color: #fda4af; /* 視認性の良いソフトなピンクレッド */
-    padding: 6px 14px;
-    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-    font-weight: 600;
-    font-size: 12px;
-    cursor: pointer;
-    border-radius: 5px;
-    transition: all 0.2s ease;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.05);
-}
-
-#logoutBtn:hover {
-    /* ホバー時は鮮やかなレッドで警告感とインタラクティブ性を演出 */
-    background: linear-gradient(180deg, rgba(159, 18, 57, 0.9), rgba(136, 19, 55, 0.95));
-    border-color: #fb7185;
-    color: #ffffff;
-    box-shadow: 0 0 10px rgba(244, 63, 94, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.2);
-    transform: translateY(-1px);
-}
-
-#logoutBtn:active {
-    /* クリック時の押し込み感 */
-    transform: translateY(0);
-    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
-}
-
-/* ============================================================
-   🌟 ポイントショップボタン専用スタイル
-   ============================================================ */
-#pointShopBtn {
-    /* 他のUI（チャンネルボタンや入力欄）と共通の上質なダークグラデーションベース */
-    background: linear-gradient(180deg, rgba(30, 41, 59, 0.8), rgba(15, 23, 42, 0.9));
-    border: 1px solid rgba(96, 165, 250, 0.5); /* ほのかなブルーのサイバー枠線 */
-    color: #60a5fa; /* テキストは鮮やかなブルー系で統一 */
-    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-    font-weight: 600;
-    font-size: 12px;
-    cursor: pointer;
-    border-radius: 5px;
-    transition: all 0.2s ease;
-    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3), inset 0 0 6px rgba(96, 165, 250, 0.15);
-}
-
-#pointShopBtn:hover {
-    /* ホバー時は明るいシアンの光彩でリッチに反応 */
-    background: linear-gradient(180deg, rgba(51, 65, 85, 0.9), rgba(30, 41, 59, 0.95));
-    border-color: #38bdf8;
-    color: #ffffff;
-    box-shadow: 0 0 10px rgba(56, 189, 248, 0.4), inset 0 0 8px rgba(56, 189, 248, 0.3);
-    transform: translateY(-1px);
-}
-
-#pointShopBtn:active {
-    transform: translateY(0);
-    box-shadow: none;
 }

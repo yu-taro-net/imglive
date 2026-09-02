@@ -72,10 +72,11 @@
 
 </div>
 
-<!-- UI操作エリア -->
+<!-- UI操作エリア全体 -->
 <div id="ui-container">
+  
+  <!-- チャット入力行（ここは通常通り上部に配置） -->
   <div class="chat-row" style="position: relative;">
-    
     <!-- 1番目：感情ボタン ＆ ポップアップ -->
     <button id="emotion-btn" type="button" onclick="toggleEmotionPicker(event)" title="表情を選ぶ">
         <img id="current-emotion-icon" src="emotion_assets/null.png" alt="表情" class="emotion-btn-icon">
@@ -101,21 +102,38 @@
     <input type="text" id="chat-in" placeholder="メッセージを入力してEnter...">
   </div>
 
-  <div id="msg-box"></div>
+  <!-- 🌟 メッセージボックスの右側にボタンを配置するエリア -->
+  <div style="display: flex; gap: 12px; align-items: stretch; margin-top: 0px;">
+    
+    <!-- 左側：メッセージボックス -->
+    <div id="msg-box" style="flex: 1; margin-top: 0;"></div>
 
-  <div class="channel-box">
-    <span class="channel-label">CH移動:</span>
-    <button onclick="changeChannel(1)" class="active">CH.1</button>
-    <button onclick="changeChannel(2)">CH.2</button>
-    <button onclick="changeChannel(3)">CH.3</button>
-    <button onclick="changeChannel(4)">CH.4</button>
-    <button onclick="changeChannel(5)">CH.5</button>
+    <!-- 右側：チャンネルボタン、ポイントショップ、ログアウト（縦並びコンパクト版） -->
+    <div style="display: flex; flex-direction: column; gap: 6px; width: auto; justify-content: space-between;">
+      
+      <!-- チャンネル移動ボタン -->
+      <div class="channel-box" style="margin-top: 0; padding: 4px 6px; display: flex; align-items: center; gap: 4px;">
+        <span class="channel-label" style="font-size: 11px;">CH移動:</span>
+        <button onclick="changeChannel(1)" class="active" style="padding: 2px 6px; font-size: 11px; height: 24px;">CH.1</button>
+        <button onclick="changeChannel(2)" style="padding: 2px 6px; font-size: 11px; height: 24px;">CH.2</button>
+        <button onclick="changeChannel(3)" style="padding: 2px 6px; font-size: 11px; height: 24px;">CH.3</button>
+        <button onclick="changeChannel(4)" style="padding: 2px 6px; font-size: 11px; height: 24px;">CH.4</button>
+        <button onclick="changeChannel(5)" style="padding: 2px 6px; font-size: 11px; height: 24px;">CH.5</button>
+      </div>
+
+      <!-- 右下グループ（ポイントショップ ＆ ログアウト） -->
+      <div style="display: flex; gap: 6px;">
+        <!-- ポイントショップボタン（ゴールド調や特別な色にしたい場合は背景色などを調整できます） -->
+        <button id="pointShopBtn" onclick="openPointShop()" style="flex: 1; height: 26px; min-height: unset; font-size: 11px; padding: 0 10px;">ポイントショップ</button>
+        
+        <!-- ログアウトボタン -->
+        <button id="logoutBtn" onclick="logout()" style="height: 26px; min-height: unset; font-size: 11px; padding: 0 10px;">ログアウト</button>
+      </div>
+
+    </div>
+
   </div>
 </div>
-
-</div>
-
-<button id="logoutBtn" onclick="logout()">ログアウト</button>
 
 <script>
     (function() {

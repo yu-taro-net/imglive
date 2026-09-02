@@ -3383,6 +3383,7 @@ async function loadItemCatalogFromDB() {
         const newEquipNames = {};
         const newConsumeNames = {};
         const newEtcNames = {};
+        const newCardNames = {}; // 🌟 モンスターカード名簿用の箱を追加
 
         // itemCategoriesを構築するための一時的な箱
         const newItemCategories = {};
@@ -3456,12 +3457,45 @@ async function loadItemCatalogFromDB() {
                 newItemDescriptions[row.name] = row.description || "特別な効果はないようだ。";
             }
         });
+        
+        // --- D. 🃏 モンスターカード (monster_card_catalog) の読み込み ---
+        const [cardResults] = await pool.query("SELECT * FROM monster_card_catalog");
+        console.log("🔍 DBから取得したカード一覧:", cardResults);
+
+        cardResults.forEach(row => {
+            console.log(`カード処理中 -> item_id: ${row.item_id}, monster_key: "${row.monster_key}", display_name: "${row.display_name}"`);
+
+            formattedCatalog[row.item_id] = {
+                ...row,
+                displayName: row.display_name || row.monster_key,
+                mainCategory: 'MONSTER_CARD',
+                isTradeable: true
+            };
+
+            if (row.monster_key && row.display_name) {
+                newCardNames[row.monster_key] = row.display_name;
+            }
+
+            if (row.monster_key) {
+                // 🌟 モンスターのキー（例: 'monster1'）から最初の文字を大文字にするなどしてフォルダ名に合わせる
+                // 例: 'monster1' -> 'Monster1'
+                const capitalizedKey = row.monster_key.charAt(0).toUpperCase() + row.monster_key.slice(1);
+
+                newItemCategories[row.monster_key] = "ETC";
+                // 🌟 ご指定のパス構造に動的に合わせる
+                newItemImages[row.monster_key] = `/char_assets_enemy/${capitalizedKey}/Idle/tile000.png`;
+                newItemDescriptions[row.monster_key] = row.description || "モンスターの生態が記された貴重なカード。";
+            }
+        });
 
         // 1. メモリ上のカタログと各名簿を更新
         ITEM_CATALOG = formattedCatalog;
         EQUIP_NAMES = newEquipNames;
         CONSUME_NAMES = newConsumeNames;
         ETC_NAMES = newEtcNames;
+        // 🌟 モンスターカードも含めて一元管理
+        ITEM_NAMES_CARD = newCardNames; 
+
         itemCategories = newItemCategories;
         ITEM_IMAGES = newItemImages;
         ITEM_DESCRIPTIONS = newItemDescriptions;
@@ -3469,7 +3503,8 @@ async function loadItemCatalogFromDB() {
         SERVER_ITEM_NAMES = {
             ...EQUIP_NAMES,
             ...CONSUME_NAMES,
-            ...ETC_NAMES
+            ...ETC_NAMES,
+            ...newCardNames // 🌟 ここでサーバー側の名前リストにもカードを合流！
         };
 
         // --- 🌟 ITEM_NAMES 形式を動的に生成 ---
@@ -3501,11 +3536,8 @@ async function loadItemCatalogFromDB() {
             "medal1":     { "type": "ETC", "name": "medal1", "display_name": "メダル1", "src": "item_assets/GoldOne_", "isAnimated": true },
             "money5":     { "type": "ETC", "name": "money5", "display_name": "金メダル1", "src": "item_assets/Gold_", "isAnimated": true },
             "money6":     { "type": "ETC", "name": "money6", "display_name": "銀メダル1", "src": "item_assets/Silver_", "isAnimated": true },
-            //"money7":     { "type": "ETC", "name": "money7", "display_name": "銅メダル1", "src": "item_assets/Bronze_", "isAnimated": true },
             "normal_gold":   { "type": "ETC", "name": "normal_gold", "display_name": "ふつうのお金", "src": "item_assets/GoldOne_", "isAnimated": true },
             "gold_heart": { "type": "ETC", "name": "gold_heart", "display_name": "ハートメダル(金)1", "src": "item_assets/GoldHeart_", "isAnimated": true },
-            //"money1":     { "type": "ETC", "name": "money1", "display_name": "10ゴールド1", "src": "item_assets/money1_", "isAnimated": true },
-            //"money3":     { "type": "ETC", "name": "money3", "display_name": "100ゴールド1", "src": "item_assets/money3_", "isAnimated": true },
         };
 
         // --- 🌟 📦 送信用に合体させる ---
@@ -3515,7 +3547,6 @@ async function loadItemCatalogFromDB() {
         if (typeof sprites !== 'undefined' && sprites.items) {
             Object.keys(ITEM_CONFIG).forEach(key => {
                 const data = ITEM_CONFIG[key];
-                // アニメーション用画像は別途ロード処理があるはずなので、既存でない場合のみ初期化
                 if (!sprites.items[key]) {
                     const img = new Image();
                     img.src = data.src;
@@ -3551,7 +3582,7 @@ async function loadItemCatalogFromDB() {
         if (ITEM_CATALOG[101]) {
             const itemName = ITEM_CATALOG[101].displayName;
             const stats = ITEM_CATALOG[101].totalFirstStats;
-			// 2026-8-5停止
+            // 2026-8-5停止
             //console.log(`ITEM_CATALOGの初期化完了: ${itemName}(ID:101) 合計=${stats}`);
         }
 
@@ -4519,6 +4550,56 @@ function addExperience(player, amount, socket) {
 
         console.log(`[LEVEL UP] ${player.name} が Lv.${player.level} になりました！ (MaxHP: ${player.maxHp})`);
         debugChat(`🎊${player.name}がレベル${player.level}に上がりました！最大HPが${player.maxHp}に増加し、体力が全回復しました！`);
+    }
+}
+
+// ============================================================
+// :::SPAWN_MONSTER_CARD_DROP::: 🃏 モンスターカードのドロップ処理
+// ============================================================
+function spawnMonsterCardDrop(enemy, chId) {
+    try {
+        if (!enemy || !chId || !droppedItems[chId]) return;
+
+        // --- 確率の判定 (例: 5% の確率でカードがドロップする) ---
+        const cardDropChance = 95.0; 
+        if (Math.random() * 100 > cardDropChance) return;
+
+        // モンスター名から対応するカードIDや名前、キーを決定
+        let cardId = 40001; 
+        let cardName = "Monster1カード";
+        let monsterKey = "Monster1"; // 🌟 ITEM_CONFIG に登録されている正確なキー
+
+        if (enemy.type && enemy.type.toLowerCase() === 'monster2') {
+            cardId = 40002;
+            cardName = "Monster2カード";
+            monsterKey = "Monster2";
+        }
+        // 必要に応じて他のモンスターもここに分岐を追加できます
+
+        const fixedSpawnY = enemy.y + (enemy.h || 32) - 50;
+        const centerX = enemy.x + (enemy.w || 32) / 2;
+
+        // カード用アイテムオブジェクトの組み立て
+        const newCardItem = {
+            id: Date.now() + Math.random(),
+            x: centerX,
+            y: fixedSpawnY,
+            vx: (Math.random() - 0.5) * 4,
+            vy: -4 - Math.random() * 2,
+            type: "monster1",          // 🌟 大文字の 'Monster1' ではなく、必ず小文字の 'monster1' にする！
+            cardId: cardId,          // 40001
+            name: cardName,          // "Monster1カード"
+            ch: chId,
+            landed: false,
+            phase: Math.random() * Math.PI * 2
+        };
+
+        // そのチャンネルのドロップリストに追加
+        droppedItems[chId].push(newCardItem);
+        console.log(`[Card Drop] ch:${chId} に ${cardName} (ID:${cardId}, Key:${monsterKey}) がドロップしました！`);
+
+    } catch (error) {
+        console.error("❌ spawnMonsterCardDropエラー:", error);
     }
 }
 
@@ -5836,6 +5917,10 @@ if (isFatalBlow) {
     socket.emit('exp_log', { amount: rewardExp }); 
     addExperience(p, rewardExp, socket);
     spawnDropItems(nearest, chId);
+	
+	// 🌟 【ここに追加！】モンスターカードのドロップ判定
+    spawnMonsterCardDrop(nearest, chId);
+	
     p.score = (Number(p.score) || 0) + 100;
 }
     }

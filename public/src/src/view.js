@@ -389,20 +389,6 @@ socket.on('init_item_config', (data) => {
 
     // 🌟 サーバーから届いたデータを代入。これで手書きリストと全く同じになります
     ITEM_CONFIG = data;
-	
-	// 🔍 ここを追加：ちゃんとアイテムごとの画像がブラウザ側で準備されるかチェック
-    console.log("🔍 受信した ITEM_CONFIG の中身:", ITEM_CONFIG);
-    if (typeof sprites !== 'undefined' && sprites.items) {
-        Object.keys(ITEM_CONFIG).forEach(key => {
-            const itemConf = ITEM_CONFIG[key];
-            if (!sprites.items[key] && itemConf.src) {
-                const img = new Image();
-                img.src = itemConf.src;
-                sprites.items[key] = img; // 配列にするか単体のImageにするかは既存のルールに合わせます
-                console.log(`🖼️ クライアント側でカード画像を手動ロード開始: ${key} -> ${itemConf.src}`);
-            }
-        });
-    }
 
     // 🌟 画像の読み込みも忘れずに実行！
     if (typeof loadItemImages === 'function') {
@@ -512,7 +498,7 @@ const gameWindows = {
 	
     // --- メインステータス・成長系 ---
     status:     new GameWindow("status", 50, 50, 350, 350),      // [S] ステータス
-    equipment:  new GameWindow("equipment", 360, 50, 166, 148),  // [E] 装備（コンパクト化に合わせてサイズ変更）
+    equipment:  new GameWindow("equipment", 360, 50, 280, 320),   // [E] 装備
     inventory:  new GameWindow("inventory", 520, 150, 260, 380),  // [I] インベントリ
     skill:      new GameWindow("skill", 480, 100, 280, 400),      // [K] スキル
     avatar:     new GameWindow("avatar", 380, 70, 280, 320),     // [A] アバター
@@ -523,7 +509,7 @@ const gameWindows = {
     worldmap:   new GameWindow("worldmap", 50, 50, 700, 500),    // [W] ワールドマップ
     minimap:    new GameWindow("minimap", 10, 10, 200, 180),     // [M] ミニマップ
     journal:    new GameWindow("journal", 150, 100, 400, 450),   // [J] 日記
-    book:       new GameWindow("book", 120, 80, 500, 400),       // [B] ブック
+    book:       new GameWindow("book", 120, 80, 500, 400),        // [B] ブック
     
     // --- ソーシャル・コミュニティ系 ---
     guild:      new GameWindow("guild", 200, 100, 400, 450),     // [G] ギルド
@@ -539,8 +525,7 @@ const gameWindows = {
     
     // --- 戦略的予約枠（未来の目玉用） ---
     reserved_d: new GameWindow("reserved_d", 100, 100, 300, 300), // [D] あえて開けておく
-    reserved_v: new GameWindow("reserved_v", 100, 100, 300, 300),  // [V] あえて開けておく
-    reserved_r: new GameWindow("reserved_r", 100, 100, 300, 300)  // [R] あえて開けておく
+    reserved_v: new GameWindow("reserved_v", 100, 100, 300, 300)  // [V] あえて開けておく
 };
 
 // --- 1. 全ウィンドウスタック（Z-Index管理） ---
@@ -1229,11 +1214,6 @@ window.addEventListener('keydown', (e) => {
  */
 window.addEventListener('keydown', (e) => {
 
-	// 🌟 追記：R/Tキーでの切り替えを完全に停止する
-    if (e.key === 'r' || e.key === 'R' || e.key === 't' || e.key === 'T') {
-        return;
-    }
-
 	// 🌟 追記：接続が切れていたら、キー入力を一切受け付けない
     if (window.isDisconnected) {
         return; 
@@ -1275,57 +1255,59 @@ window.addEventListener('keydown', (e) => {
 });
 
 // ============================================================
-// :::KEY_UI_CONTROLLER::: 🖥️ キー入力によるUI全ウィンドウ管理（キーコンフィグ対応版）
+// :::KEY_UI_CONTROLLER::: 🖥️ キー入力によるUI全ウィンドウ管理
 // ============================================================
+/**
+ * 役割：
+ * - ゲーム開始状態（isGameStarted）の確認による入力ガード
+ * - 入力欄（INPUT/TEXTAREA）フォーカス時の操作ブロック
+ * - キーマップ（keyMap）に基づいたウィンドウの開閉（isOpen反転）
+ * - 最前面表示のためのスタック管理（windowStackの更新）
+ * - 開閉時の効果音再生とデバッグ操作の受付
+ * - エスケープキーによる一括クローズ処理
+ */
 window.addEventListener('keydown', (e) => {
+
+	// 🌟 追記：接続が切れていたら、キー入力を一切受け付けない
     if (window.isDisconnected) {
         return; 
     }
     
+	// 🌟 ログイン前（window.isGameStartedが設定されていない、またはfalse）なら何もしない
     if (!window.isGameStarted) {
         return;
     }
-    
+	
+    // 1. ガード処理（入力フォームにフォーカスがある時は反応させない）
     if (document.activeElement.tagName === 'INPUT' || document.activeElement.tagName === 'TEXTAREA') return;
 
-    const key = e.key.toLowerCase();
+    const key = e.key.toLowerCase(); // 大文字小文字を気にせず判定できるように
 
-    // 🌟 キー変更待ち状態のとき（ここで新しいキーを記録する）
-    if (waitingForKeyChange) {
-        if (e.key && e.key !== 'Escape') {
-            const newKeyChar = e.key.toLowerCase();
-            currentKeyConfig[waitingForKeyChange].key = newKeyChar;
-            currentKeyConfig[waitingForKeyChange].keyName = e.key.toUpperCase();
-            
-            // keyMapを更新して即座に反映させる
-            updateKeyMapFromConfig();
-            
-            console.log(`Key changed for ${waitingForKeyChange} to ${e.key.toUpperCase()}`);
-        }
-        waitingForKeyChange = null;
-        e.preventDefault();
-        return;
-    }
-
-    // --- 🌟 2. 各ウィンドウの共通判定ロジック (元々の keyMap 参照を維持) ---
+    // --- 🌟 2. 各ウィンドウの共通判定ロジック (22個一括対応) ---
     const targetId = keyMap[key];
     if (targetId && gameWindows[targetId]) {
         const win = gameWindows[targetId];
 
+        // gameWindows内のisOpenを反転
         win.isOpen = !win.isOpen;
         
+        // 🌟 追加：Optionsウィンドウが開いた瞬間だけリクエストを送る
         if (targetId === 'options' && win.isOpen) {
             console.log("Optionsを開いたのでIDを要求します");
-            if (typeof socket !== 'undefined' && socket.emit) {
-                socket.emit('get_account_info'); 
-            }
+            socket.emit('get_account_info'); 
+			// 💡 【追加】Options画面を開いたときに、自分自身（hero）のオンライン状態も更新をかけるようサーバーにお願いする通信
+            //if (typeof myId !== 'undefined') {
+            //    socket.emit('request_online_refresh', { userId: myId });
+            //}
         }
         
+        // 🌟 開閉に関わらず、最後に触った(押した)方を最前面へ
         if (typeof windowStack !== 'undefined') {
             windowStack = windowStack.filter(v => v !== targetId);
             windowStack.push(targetId);
         }
         
+        // 🔊 音の再生
         if (win.isOpen) {
             if (typeof playMenuUpSound === 'function') playMenuUpSound();
         } else {
@@ -1333,14 +1315,37 @@ window.addEventListener('keydown', (e) => {
         }
         
         console.log(`${targetId} Window State:`, win.isOpen);
-        e.preventDefault(); // ウィンドウを開くときのブラウザスクロール等を防ぐ
     }
+
+    // --- 🌟 3. 特殊キー・デバッグキー判定 (既存ロジック踏襲) ---
+    
+    // デバッグ情報の表示切り替え (Dキーをデバッグ用として使う場合の例)
+    /*
+    if (key === 'd') {
+        if (typeof showDebugWindow !== 'undefined') {
+            showDebugWindow = !showDebugWindow;
+            console.log("Debug Window:", showDebugWindow);
+        }
+    }
+    */
+    
+    // 判定の可視化切り替え (Pキーをデバッグモード用として使う場合の例)
+    /*
+    if (key === 'p') {
+        if (typeof DEBUG_MODE !== 'undefined') {
+            DEBUG_MODE = !DEBUG_MODE;
+            console.log("Visual Debug Mode (P-Key):", DEBUG_MODE);
+        }
+    }
+    */
 
     // --- 🌟 4. エスケープ (全てのウィンドウを閉じる) ---
     if (e.key === 'Escape') {
+        // いずれかのウィンドウが開いているかチェック
         const anyOpen = Object.values(gameWindows).some(win => win.isOpen);
 
         if (anyOpen) {
+            // 全てのウィンドウを一括で閉じる
             Object.values(gameWindows).forEach(win => {
                 win.isOpen = false;
             });
@@ -2632,75 +2637,66 @@ socket.on('updatePlayerList', (playerList) => {
 });
 
 // ============================================================
-// :::DRAW_ONLINE_LIST::: 👥 オンラインプレイヤー名簿の描画（プロ風・メイプル風調和版）
+// :::DRAW_ONLINE_LIST::: 👥 オンラインプレイヤー名簿の描画（昔のメイプル風）
 // ============================================================
 /**
  * 役割：
  * - プレイヤーリストが存在しない場合は描画をスキップ
- * - 動的な背景ボックスのサイズ計算と、上質かつレトロな枠線・背景の描画
+ * - 動的な背景ボックスのサイズ計算と半透明背景・枠線の描画（昔のメイプル風）
  * - タイトル（オンライン人数）と各プレイヤーの名前・チャンネル情報の配置
- * - 右寄せ・左寄せを使い分けた見やすいフォーマットでの描画（座標完全維持）
+ * - 右寄せ・左寄せを使い分けた見やすいフォーマットでの描画
  */
 function drawOnlineList(ctx) {
     if (!currentOnlinePlayers || currentOnlinePlayers.length === 0) return;
 
-    // 表示位置の設定（元の座標を完全に維持）
+    // 表示位置の設定（右上のCH.表示の下あたり）
     const startX = VIEW_CONFIG.SCREEN_WIDTH - 140; // 右端から140px
-    const startY = 80;                             // CH表示の下あたり
+    const startY = 80;                             // CH表示(通常30-50px)の下
     const lineHeight = 18;                         // 1行の高さ
     const bgWidth = 130;
     const bgHeight = (currentOnlinePlayers.length + 1) * lineHeight + 10;
 
-    const boxX = startX - 10;
-    const boxY = startY - 20;
-
     ctx.save();
 
-    // 1. 上質なレトロモダン風の背景（微かなグラデーションで立体感をプラス）
-    const bgGrad = ctx.createLinearGradient(boxX, boxY, boxX, boxY + bgHeight);
-    bgGrad.addColorStop(0, "rgba(20, 20, 30, 0.85)");
-    bgGrad.addColorStop(1, "rgba(10, 10, 15, 0.90)");
-    
-    ctx.fillStyle = bgGrad;
-    ctx.fillRect(boxX, boxY, bgWidth, bgHeight);
-
-    // 2. エッジの効いた二重ボーダー風フレーム（クラシックかつシャープな演出）
-    ctx.strokeStyle = "#4a4a5a"; // 外枠のダークフレーム
+    // 1. カクカクした半透明背景ボックス（角丸なし、レトロな枠線つき）
+    ctx.fillStyle = "rgba(0, 0, 0, 0.7)"; // 昔の雰囲気に合わせて少し濃いめの半透明
+    ctx.strokeStyle = "#808080";          // クラシックなグレーの枠線
     ctx.lineWidth = 1;
-    ctx.strokeRect(boxX, boxY, bgWidth, bgHeight);
-
-    ctx.strokeStyle = "#1a1a24"; // 内側のドロップシャドウ風ライン
-    ctx.strokeRect(boxX + 1, boxY + 1, bgWidth - 2, bgHeight - 2);
-
-    // 3. タイトル "ONLINE (人数)" (初期メイプルの雰囲気を残した洗練されたイエロー)
-    ctx.font = "bold 11px 'Segoe UI', sans-serif";
-    ctx.textAlign = "right";
-    ctx.fillStyle = "#FFD700"; // 高級感のあるゴールドイエロー
     
-    ctx.shadowColor = "rgba(0, 0, 0, 0.9)";
-    ctx.shadowBlur = 4;
-    ctx.shadowOffsetX = 1;
-    ctx.shadowOffsetY = 1;
-    ctx.fillText(`ONLINE (${currentOnlinePlayers.length})`, startX + 110, startY);
+    // 角丸のパス描画を廃止し、四角形を直接描画して枠線を適用
+    ctx.fillRect(startX - 10, startY - 20, bgWidth, bgHeight);
+    ctx.strokeRect(startX - 10, startY - 20, bgWidth, bgHeight);
 
-    // 4. 各プレイヤーの名前とチャンネル
-    ctx.font = "11px 'Segoe UI', sans-serif";
+    // 2. タイトル "ONLINE (人数)" (初期メイプルのシステムカラー)
+    ctx.font = "bold 12px sans-serif";
+    ctx.textAlign = "right";
+    ctx.fillStyle = "#FFFF00"; // 昔のシステムログ風の黄色
+    
+    ctx.shadowColor = "rgba(0, 0, 0, 0.7)";
+    ctx.shadowBlur = 3;
+    ctx.fillText(`ONLINE (${currentOnlinePlayers.length})`, startX + 110, startY);
+    ctx.shadowBlur = 0;
+
+    // 3. 各プレイヤーの名前とチャンネル
+    ctx.font = "11px sans-serif";
     currentOnlinePlayers.forEach((p, index) => {
         const y = startY + (index + 1) * lineHeight;
         
-        // 名前（視認性の高いクリアホワイト）
-        ctx.fillStyle = "#F0F0F5";
+        // 名前（白、すっきりとした初期風表示）
+        ctx.fillStyle = "white";
         ctx.textAlign = "right";
-        ctx.shadowColor = "rgba(0, 0, 0, 0.9)";
-        ctx.shadowBlur = 3;
+        ctx.shadowColor = "rgba(0, 0, 0, 0.7)";
+        ctx.shadowBlur = 2;
         ctx.fillText(`${p.name}`, startX + 110, y);
+        ctx.shadowBlur = 0;
 
-        // チャンネル番号（少し落ち着いたシアンまたはソフトイエローで洗練度アップ）
-        ctx.fillStyle = "#88DDFF"; // チャンネルが埋もれない上品な水色（または元の #FFEE66 でもOKです）
+        // チャンネル番号（黄色を名前の左側に配置し、統一感を出す）
+        ctx.fillStyle = "#FFFF66";
         ctx.textAlign = "left";
-        ctx.shadowColor = "rgba(0, 0, 0, 0.9)";
-        ctx.shadowBlur = 3;
+        ctx.shadowColor = "rgba(0, 0, 0, 0.7)";
+        ctx.shadowBlur = 2;
         ctx.fillText(`ch${p.channel}`, startX, y);
+        ctx.shadowBlur = 0;
     });
 
     ctx.restore();
@@ -2965,45 +2961,6 @@ socket.on('inventory_update', (data) => {
         // 2. プレイヤー本体のデータも更新 (重要！)
         if (window.hero) {
             window.hero.inventory = newInventory;
-
-            // ==========================================
-            // 🛡️ 【追加】装備中のアイテムを検知して装備ウィンドウ用に振り分ける
-            // ==========================================
-            if (!window.hero.equipment) {
-                window.hero.equipment = {};
-            }
-
-            // 一旦すべてリセット
-            window.hero.equipment = {
-                pendant: null,
-                ring: null,
-                belt: null,
-                weapon: null,
-                shield: null,
-                cape: null
-            };
-
-            // インベントリから装備中（isEquipped または is_equipped === 1）のものを探してセット
-            newInventory.forEach(item => {
-                if (item && (item.isEquipped === true || item.is_equipped === 1)) {
-                    const itemType = String(item.type || "").toLowerCase();
-                    
-                    if (itemType === 'sword') {
-                        window.hero.equipment.weapon = item.type; // または item.name や item 自体
-                    } else if (itemType === 'shield') {
-                        window.hero.equipment.shield = item.type;
-                    } else if (itemType === 'pendant') {
-                        window.hero.equipment.pendant = item.type;
-                    } else if (itemType === 'belt') {
-                        window.hero.equipment.belt = item.type;
-                    } else if (itemType === 'ring') {
-                        window.hero.equipment.ring = item.type;
-                    } else if (itemType === 'cape') {
-                        window.hero.equipment.cape = item.type;
-                    }
-                }
-            });
-            console.log("🛡️ [Equip Sync] 装備ウィンドウ用のデータを同期しました:", window.hero.equipment);
         }
 
         // 3. もしインベントリ画面を開いているなら、再描画関数を呼ぶ
@@ -3629,14 +3586,21 @@ function drawDebugLayer(hero, enemies, items, platforms) {
 // ============================================================
 // :::DRAW_ENTITIES::: 🏃 動体（エンティティ）の一括レンダリング
 // ============================================================
+/**
+ * 役割：
+ * - 描画スタックの管理：敵→他プレイヤー→自分→アイテム→エフェクトの順に重なりを制御
+ * - 条件付きレンダリング：同一チャンネル内のプレイヤーのみを表示し、露店状態に応じて看板を付与
+ * - レベルアップエフェクトの生存管理：生存期間(timer)によるフェードアウトと配列からの自動削除
+ * - キャラクター中心座標の計算およびエフェクトの追従描画
+ */
 function drawEntities(hero, others, enemies, items, frame) {
 
-    // デバッグ：配列の中に何体いるか確認
-    if (frame % 180 === 0) {
-        const activeEnemies = enemies.filter(e => e.alive);
-        console.log(`現在の敵の総数: ${enemies.length}, 生きている敵の数: ${activeEnemies.length}`);
-    }
-    
+	// デバッグ：配列の中に何体いるか確認
+	if (frame % 180 === 0) {
+		const activeEnemies = enemies.filter(e => e.alive);
+		console.log(`現在の敵の総数: ${enemies.length}, 生きている敵の数: ${activeEnemies.length}`);
+	}
+	
     // -------------------------------------------------------
     // 1. 敵（モンスター）を描画
     // -------------------------------------------------------
@@ -3656,8 +3620,38 @@ function drawEntities(hero, others, enemies, items, frame) {
                 drawVendingSign(p);
             }
 
-            // エモーション描画
-            drawEmotionIcon(ctx, p);
+            // 他プレイヤーのエモーションアイコン描画（フェード対応版）
+            if (p.emotionId && typeof emotionImages !== 'undefined' && emotionImages[p.emotionId]) {
+                if (p.emotionTimer === undefined) p.emotionTimer = 180;
+                p.emotionTimer--;
+                
+                if (p.emotionTimer <= 0) {
+                    p.emotionId = null;
+                } else {
+                    const emotionImg = emotionImages[p.emotionId];
+                    const drawX = p.x + 36; 
+                    const drawY = p.y - 65; 
+                    
+                    // 🌟 フェードイン・フェードアウトの計算 (全体180フレーム、前後20フレームでフェード)
+                    const maxTimer = 180;
+                    const fadeDuration = 20;
+                    let alpha = 1.0;
+
+                    if (p.emotionTimer < fadeDuration) {
+                        alpha = p.emotionTimer / fadeDuration; // 消える時（フェードアウト）
+                    } else {
+                        const elapsed = maxTimer - p.emotionTimer;
+                        if (elapsed < fadeDuration) {
+                            alpha = elapsed / fadeDuration; // 出る時（フェードイン）
+                        }
+                    }
+
+                    ctx.save();
+                    ctx.globalAlpha = Math.max(0, Math.min(1, alpha));
+                    ctx.drawImage(emotionImg, drawX, drawY, 32, 32);
+                    ctx.restore();
+                }
+            }
         }
     }
 
@@ -3671,14 +3665,44 @@ function drawEntities(hero, others, enemies, items, frame) {
         drawVendingSign(hero);
     }
 
-    // エモーション描画
-    drawEmotionIcon(ctx, hero);
+    // 自分のエモーションアイコン描画（フェード対応版）
+    if (hero && hero.emotionId && typeof emotionImages !== 'undefined' && emotionImages[hero.emotionId]) {
+        if (hero.emotionTimer === undefined) hero.emotionTimer = 180;
+        hero.emotionTimer--;
+        
+        if (hero.emotionTimer <= 0) {
+            hero.emotionId = null;
+        } else {
+            const emotionImg = emotionImages[hero.emotionId];
+            const drawX = hero.x + 36; 
+            const drawY = hero.y - 65; 
+            
+            // 🌟 フェードイン・フェードアウトの計算 (全体180フレーム、前後20フレームでフェード)
+            const maxTimer = 180;
+            const fadeDuration = 20;
+            let alpha = 1.0;
+
+            if (hero.emotionTimer < fadeDuration) {
+                alpha = hero.emotionTimer / fadeDuration; // 消える時（フェードアウト）
+            } else {
+                const elapsed = maxTimer - hero.emotionTimer;
+                if (elapsed < fadeDuration) {
+                    alpha = elapsed / fadeDuration; // 出る時（フェードイン）
+                }
+            }
+
+            ctx.save();
+            ctx.globalAlpha = Math.max(0, Math.min(1, alpha));
+            ctx.drawImage(emotionImg, drawX, drawY, 32, 32);
+            ctx.restore();
+        }
+    }
 
     // -------------------------------------------------------
     // 4. アイテム（地面に落ちているもの）を描画
     // -------------------------------------------------------
     drawItems(items, frame);
-    
+	
     // -------------------------------------------------------
     // 5. レベルアップエフェクトの同期描画
     // -------------------------------------------------------
@@ -3713,61 +3737,6 @@ function drawEntities(hero, others, enemies, items, frame) {
             levelUpEffects.splice(index, 1);
         }
     });
-}
-
-VIEW_CONFIG.emotion = {
-    offsetY: -65 // 💡 この数値を大きくすると下がり、小さくすると上がります（まずはここで一括調整）
-};
-
-// ============================================================
-// :::DRAW_EMOTION_ICON::: 😊 エモーションアイコンの共通描画
-// ============================================================
-function drawEmotionIcon(ctx, entity) {
-    if (!entity || !entity.emotionId || typeof emotionImages === 'undefined' || !emotionImages[entity.emotionId]) {
-        return;
-    }
-
-    if (entity.emotionTimer === undefined) entity.emotionTimer = 180;
-    entity.emotionTimer--;
-    
-    if (entity.emotionTimer <= 0) {
-        entity.emotionId = null;
-        return;
-    }
-
-    const emotionImg = emotionImages[entity.emotionId];
-    const drawX = entity.x + 36; 
-
-    // キャラクター本体の「描画用のY座標」を計算
-    const g = entity.model_id !== undefined ? entity.model_id : (entity.group || 0);
-    let footOffset = VIEW_CONFIG.player.visualOffset + (VIEW_CONFIG.groupOffsets[g] || 0);
-    if (entity.y > VIEW_CONFIG.groundThreshold) {
-        footOffset += VIEW_CONFIG.player.groundExtraOffset;
-    }
-    const spriteDrawY = entity.y + VIEW_CONFIG.player.hitboxH - VIEW_CONFIG.player.drawH + footOffset;
-
-    // 🌟 設定ファイル（VIEW_CONFIG）のオフセットを引くことで、理想の位置に調整
-    const emotionOffset = VIEW_CONFIG.emotion ? VIEW_CONFIG.emotion.offsetY : 15;
-    const drawY = spriteDrawY - emotionOffset;
-    
-    // フェードイン・フェードアウトの計算
-    const maxTimer = 180;
-    const fadeDuration = 20;
-    let alpha = 1.0;
-
-    if (entity.emotionTimer < fadeDuration) {
-        alpha = entity.emotionTimer / fadeDuration; // フェードアウト
-    } else {
-        const elapsed = maxTimer - entity.emotionTimer;
-        if (elapsed < fadeDuration) {
-            alpha = elapsed / fadeDuration; // フェードイン
-        }
-    }
-
-    ctx.save();
-    ctx.globalAlpha = Math.max(0, Math.min(1, alpha));
-    ctx.drawImage(emotionImg, drawX, drawY, 32, 32);
-    ctx.restore();
 }
 
 // ============================================================
@@ -4176,8 +4145,8 @@ function drawGoldUI(hero) {
 
     // --- 1. 座標とサイズの設定（バッグ等の下部に配置する基準） ---
     // ※インベントリ内に組み込む場合は drawBagGrid の中から bagX, bagY をベースに呼び出してください
-    const drawX = 20;
-    const drawY = 95; 
+    const drawX = 25;
+    const drawY = 90; 
     const barW = 185; // 10桁の数字がゆったり収まるように少し幅を拡張
     const barH = 30;
     const radius = 5; // すっきり見せるためのシャープな角丸
@@ -4408,46 +4377,17 @@ function drawUIOverlay(hero) {
         const isAnyWindowCovering = !window.isDisconnected && isMouseOverAnyWindow(mouseX, mouseY);
 
         hero.inventory.forEach((slot, index) => {
-            // 🌟 【超重要】画面上のホットバーは最初の10スロット（0〜9）までなので、それ以降は絶対に処理しない！
-            if (index >= 10) return;
-
             if (!slot || !slot.type || slot.count <= 0) return;
             const x = startX + (index * (slotSize + spacing));
             const y = startY;
 
             if (slot.isEquipped) {
                 ctx.save();
-                
-                // 🌟 プロ風ミニバッジのデザイン定数
-                const badgeW = 16;
-                const badgeH = 15;
-                const badgeX = x + slotSize - badgeW - 2; // スロットの右上
-                const badgeY = y + 2;
-                const radius = 3; // 角丸の半径
-
-                // 1. バッジの背景（半透明のダークカラーでアイコンとの視認性を確保）
-                ctx.fillStyle = 'rgba(10, 15, 25, 0.85)';
-                // 2. バッジの枠線（スタイリッシュなネオンシアン。ゴールドにしたい場合は '#ffd700' など）
-                ctx.strokeStyle = '#00ffcc'; 
-                ctx.lineWidth = 1;
-
-                // 角丸四角形の描画
-                ctx.beginPath();
-                if (ctx.roundRect) {
-                    ctx.roundRect(badgeX, badgeY, badgeW, badgeH, radius);
-                } else {
-                    ctx.rect(badgeX, badgeY, badgeW, badgeH); // フォールバック用
-                }
-                ctx.fill();
-                ctx.stroke();
-
-                // 3. 「E」文字の描画（中央寄せで美しく配置）
-                ctx.font = 'bold 10px sans-serif';
-                ctx.fillStyle = '#00ffcc'; // 文字色もシアンで統一
-                ctx.textAlign = 'center';
-                ctx.textBaseline = 'middle';
-                ctx.fillText('E', badgeX + badgeW / 2, badgeY + badgeH / 2 + 0.5);
-                
+                ctx.font = 'bold 12px sans-serif';
+                ctx.fillStyle = '#00ffcc';
+                ctx.textAlign = 'right';
+                ctx.textBaseline = 'top';
+                ctx.fillText('[E]', x + slotSize - 2, y + 2);
                 ctx.restore();
             }
 
@@ -4460,40 +4400,6 @@ function drawUIOverlay(hero) {
             }
         });
     }
-	
-	// ----------------------------------------------------
-	// 🛡️ 【追加】装備ウィンドウのアイテムホバー判定（ステータス完全版）
-	// ----------------------------------------------------
-	const equipWin = typeof gameWindows !== 'undefined' ? (gameWindows["equip"] || gameWindows["equipment"]) : null;
-	if (!window.isDisconnected && equipWin && equipWin.isOpen && equipWin.slotHitAreas) {
-		// マウスが装備ウィンドウの範囲内にあるか軽く確認
-		if (mouseX >= equipWin.x && mouseX <= equipWin.x + equipWin.w &&
-			mouseY >= equipWin.y && mouseY <= equipWin.y + equipWin.h) {
-			
-			for (const slotArea of equipWin.slotHitAreas) {
-				if (mouseX >= slotArea.x && mouseX <= slotArea.x + slotArea.w &&
-					mouseY >= slotArea.y && mouseY <= slotArea.y + slotArea.h) {
-					
-					const heroEquips = (hero && hero.equipment) ? hero.equipment : {};
-					const equippedItemType = heroEquips[slotArea.slotType];
-					
-					if (equippedItemType) {
-						// 🌟 インベントリ（hero.inventory）の中から、この装備スロットに対応する「ステータス入り実体アイテム」を探す！
-						let fullItemData = null;
-						if (hero.inventory && Array.isArray(hero.inventory)) {
-							fullItemData = hero.inventory.find(invItem => 
-								invItem && invItem.isEquipped && (invItem.type === equippedItemType || invItem.slotType === slotArea.slotType)
-							);
-						}
-
-						// 見つかればその実体データを、なければ最低限のオブジェクトをセット
-						window.hoveredItemForTooltip = fullItemData || (typeof equippedItemType === 'object' ? equippedItemType : { type: equippedItemType, name: equippedItemType, count: 1 });
-					}
-					break;
-				}
-			}
-		}
-	}
 
     // ウィンドウ群の描画
     drawGameWindows(hero);
@@ -4507,13 +4413,21 @@ function drawUIOverlay(hero) {
 }
 
 // ============================================================
-// :::DRAW_ITEM_TOOLTIP::: 🎨 アイテム詳細情報のツールチップ表示 (装備・非装備完全分離・黄金比版)
+// :::DRAW_ITEM_TOOLTIP::: 🎨 アイテム詳細情報のツールチップ表示 (黄金解デザイン)
 // ============================================================
+/**
+ * 役割：
+ * - ツールチップボックスの動的サイズ計算および半透明背景の描画
+ * - アイテムランク（bonus）に基づく色の自動決定とglow演出
+ * - 画像キャッシュを活用したアイテムアイコンのレンダリング
+ * - 装備品の詳細ステータス（STR/DEX/etc）および強化回数の表示
+ * - 描画パイプラインの安全管理（save/restoreによる汚染防止）
+ */
 function drawItemTooltip(ctx, slot, mouseX, mouseY, hero) {
 
     if (!slot) return;
 
-    // 🛡️ 1. 現在のCanvas状態をすべて保存
+    // 🛡️ 1. 現在のCanvas状態（フォント、色、座標系）をすべて保存
     ctx.save();
 
     // 装備判定の拡張
@@ -4559,6 +4473,7 @@ function drawItemTooltip(ctx, slot, mouseX, mouseY, hero) {
         categoryName = catMap[slot.category] || (slot.type === 'sword' ? "片手剣" : "盾");
     }
 
+    // 🌟 拾った直後や簡易データで名前が「盾」「剣」になっている場合、カタログから正式名称を即座に解決
     let baseItemName = slot.displayName || slot.display_name;
     const genericNames = ['盾', '剣', 'sword', 'shield', 'アイテム'];
 
@@ -4590,15 +4505,15 @@ function drawItemTooltip(ctx, slot, mouseX, mouseY, hero) {
     if (isEquipment && totalALLStats !== undefined && totalFirstStats !== undefined) {
         const bonus = totalALLStats - totalFirstStats;
         let rankName = "";
-        if (bonus >= 30) { displayColor = "#ff4d4d"; rankName = "(神級)"; glowColor = displayColor; }
-        else if (bonus >= 25) { displayColor = "#4ade80"; rankName = "(超伝説)"; glowColor = displayColor; }
-        else if (bonus >= 20) { displayColor = "#facc15"; rankName = "(極上)"; glowColor = displayColor; }
-        else if (bonus >= 15) { displayColor = "#e879f9"; rankName = "(伝説)"; glowColor = displayColor; }
-        else if (bonus >= 10) { displayColor = "#38bdf8"; rankName = "(希少)"; glowColor = displayColor; }
-        else if (bonus >= 5) { displayColor = "#fb923c"; rankName = "(良品)"; }
+        if (bonus >= 30) { displayColor = "#ff3333"; rankName = "(神級)"; glowColor = displayColor; }
+        else if (bonus >= 25) { displayColor = "#33ff33"; rankName = "(超伝説)"; glowColor = displayColor; }
+        else if (bonus >= 20) { displayColor = "#ffff33"; rankName = "(極上)"; glowColor = displayColor; }
+        else if (bonus >= 15) { displayColor = "#ff33ff"; rankName = "(伝説)"; glowColor = displayColor; }
+        else if (bonus >= 10) { displayColor = "#33ccff"; rankName = "(希少)"; glowColor = displayColor; }
+        else if (bonus >= 5) { displayColor = "#ff9933"; rankName = "(良品)"; }
         else if (bonus >= 0) { displayColor = "#ffffff"; rankName = "(標準)"; }
-        else { displayColor = "#94a3b8"; rankName = "(粗悪)"; }
-        itemName = `${baseItemName} ${rankName}`;
+        else { displayColor = "#aaaaaa"; rankName = "(粗悪)"; }
+        itemName = `${baseItemName}${rankName}`;
     } else {
         if (slot.description) {
             statusText = slot.description;
@@ -4609,121 +4524,59 @@ function drawItemTooltip(ctx, slot, mouseX, mouseY, hero) {
         }
     }
 
-    // --- 📐 黄金比レイアウト定数 ---
-    let padding = 16;      
-    let iconSize = 48;     
-    let iconTextGap = 14;  
-    let lineHeight = 19;   
+    // --- 📐 黄金比を意識した洗練されたレイアウト計算 ---
+    const padding = 14;      // 上下左右の余白を少しゆったり持たせる
+    const iconSize = 42;     // アイコンサイズ
+    const iconTextGap = 16;  // アイコンとテキストの間隔
+    const lineHeight = 18;   // 行間を少し広げて視認性アップ
     
-    let activeStats = isEquipment ? statKeys.filter(k => {
-        let val = parseInt(slot[k]);
+    const activeStats = isEquipment ? statKeys.filter(k => {
+        const val = parseInt(slot[k]);
         return !isNaN(val) && val !== 0; 
     }) : [];
 
     ctx.font = 'bold 14px sans-serif';
-    let nameWidth = ctx.measureText(itemName).width;
+    const nameWidth = ctx.measureText(itemName).width;
     ctx.font = '12px sans-serif';
-    let statusWidth = ctx.measureText(statusText).width;
+    const statusWidth = ctx.measureText(statusText).width;
 
-    let boxWidth = padding + iconSize + iconTextGap + Math.max(nameWidth, statusWidth, 210) + padding;
-    if (boxWidth < 280) boxWidth = 280;
+    // 黄金比率（1:1.618）を意識した最低横幅（250px）
+    let boxWidth = padding + iconSize + iconTextGap + Math.max(nameWidth, statusWidth, 190) + padding;
+    if (boxWidth < 255) boxWidth = 255;
 
-    // --- ↕️ 厳密な高さの積み上げ計算（非装備時は無駄な高さをカット） ---
-    let currentHeight = padding;
-
-    if (isEquipment) {
-        // 星（存在する場合）
-        let starHeight = (starCount > 0) ? 18 : 0;
-        currentHeight += starHeight;
-
-        // ヘッダー部
-        currentHeight += iconSize;
-        currentHeight += 12;
-
-        // REQブロック
-        let reqLinesCount = 1; // LEV
-        if (totalFirstStats !== undefined) reqLinesCount++;
-        if (totalALLStats !== undefined) reqLinesCount++;
-        if (totalALLStats !== undefined && totalFirstStats !== undefined) reqLinesCount++;
-        currentHeight += (reqLinesCount * 17 + 8);
-
-        // アクティブステータスブロック
-        currentHeight += (activeStats.length * lineHeight + 12);
-
-        // アップグレード回数ブロック
-        currentHeight += 22;
-    } else {
-        // ★ETC・消費アイテム等の場合：アイコンの高さ、またはテキストの大きさに合わせてコンパクトに決定
-        let contentBlockHeight = Math.max(iconSize, 40); // 最低限アイコンが入る高さ
-        currentHeight += contentBlockHeight;
-    }
-
-    let boxHeight = currentHeight + padding;
+    const reqLines = isEquipment ? (1 + (totalFirstStats !== undefined ? 1 : 0) + (totalALLStats !== undefined ? 1 : 0) + 1) : 0;
+    let boxHeight = isEquipment ? 125 + (activeStats.length * lineHeight) + (reqLines * 13) : 70;
 
     let popupX = mouseX + 16;
     let popupY = mouseY + 16;
 
-    // --- 🖼️ ウィンドウ背景の描画 ---
-    ctx.save();
-    let bgGrad = ctx.createLinearGradient(popupX, popupY, popupX, popupY + boxHeight);
-    bgGrad.addColorStop(0, "rgba(20, 25, 35, 0.98)"); 
-    bgGrad.addColorStop(1, "rgba(10, 13, 18, 0.98)"); 
-    ctx.fillStyle = bgGrad;
-
+    // --- 🖼️ 描画開始（上質なシャドウ＆フレーム） ---
+    ctx.fillStyle = 'rgba(12, 12, 14, 0.96)'; // 深みのあるプレミアムブラック
     ctx.beginPath();
     if (typeof ctx.roundRect === 'function') { 
-        ctx.roundRect(popupX, popupY, boxWidth, boxHeight, 8); 
+        ctx.roundRect(popupX, popupY, boxWidth, boxHeight, 7); // 角丸を7pxにしてモダンに
     } else { 
         ctx.rect(popupX, popupY, boxWidth, boxHeight); 
     }
     ctx.fill();
 
-    // エッジの美しい枠線
+    // 繊細で美しいボーダーライン
     ctx.strokeStyle = 'rgba(255, 255, 255, 0.22)';
     ctx.lineWidth = 1;
     ctx.stroke();
-    ctx.restore();
 
-    // レンダリングカーソルの初期化
-    let cursorY = popupY + padding;
-
-    // 🌟 スター描画（装備品のみ）
     if (isEquipment && starCount > 0) {
-        ctx.font = '12px sans-serif';
-        ctx.fillStyle = '#facc15';
+        ctx.font = '13px sans-serif';
+        ctx.fillStyle = '#ffdd00';
         ctx.textAlign = 'center';
-        ctx.fillText("★".repeat(starCount), popupX + boxWidth / 2, cursorY);
-        cursorY += 18;
+        ctx.fillText("★".repeat(starCount), popupX + boxWidth / 2, popupY + 10);
     }
 
-    let iconSlotX = popupX + padding;
-    let iconSlotY = cursorY;
-    let textStartX = iconSlotX + iconSize + iconTextGap;
-    let rightValueX = popupX + boxWidth - padding;
+    const contentTop = (isEquipment && starCount > 0) ? popupY + 28 : popupY + padding;
+    const textStartX = popupX + padding + iconSize + iconTextGap;
+    const rightValueX = popupX + boxWidth - padding;
 
-    // ==========================================
-    // 🌟 アイコン下地スロット
-    // ==========================================
-    ctx.save();
-    let slotGrad = ctx.createLinearGradient(iconSlotX, iconSlotY, iconSlotX, iconSlotY + iconSize);
-    slotGrad.addColorStop(0, "rgba(30, 38, 52, 0.95)");
-    slotGrad.addColorStop(1, "rgba(15, 20, 28, 0.95)");
-    ctx.fillStyle = slotGrad;
-    ctx.strokeStyle = "rgba(255, 255, 255, 0.25)";
-    ctx.lineWidth = 1;
-
-    if (typeof ctx.roundRect === 'function') {
-        ctx.beginPath();
-        ctx.roundRect(iconSlotX, iconSlotY, iconSize, iconSize, 6);
-        ctx.fill();
-        ctx.stroke();
-    } else {
-        ctx.fillRect(iconSlotX, iconSlotY, iconSize, iconSize);
-        ctx.strokeRect(iconSlotX, iconSlotY, iconSize, iconSize);
-    }
-    ctx.restore();
-
-    // --- アイコン画像の描画 ---
+    // --- アイコン描画ロジック ---
     let itemImg = slot.img || ((typeof itemImages !== 'undefined') ? itemImages[slot.type] : null);
 
     if (!itemImg && slot.iconUrl) {
@@ -4731,7 +4584,7 @@ function drawItemTooltip(ctx, slot, mouseX, mouseY, hero) {
         if (window.itemImageCache[slot.iconUrl]) {
             itemImg = window.itemImageCache[slot.iconUrl];
         } else {
-            let img = new Image();
+            const img = new Image();
             img.src = slot.iconUrl;
             window.itemImageCache[slot.iconUrl] = img;
             itemImg = img;
@@ -4740,107 +4593,78 @@ function drawItemTooltip(ctx, slot, mouseX, mouseY, hero) {
 
     if (itemImg && itemImg.complete && itemImg.naturalWidth !== 0) {
         ctx.save();
-        ctx.shadowBlur = 6;
-        ctx.shadowColor = "rgba(255, 255, 255, 0.3)";
         if (glowColor) {
-            ctx.shadowBlur = 14;
+            ctx.shadowBlur = 12;
             ctx.shadowColor = glowColor;
         }
-        let margin = 4;
-        ctx.drawImage(itemImg, iconSlotX + margin, iconSlotY + margin, iconSize - (margin * 2), iconSize - (margin * 2));
+        ctx.drawImage(itemImg, popupX + padding, contentTop, iconSize, iconSize);
         ctx.restore();
     }
 
-    // --- テキスト描画分岐 ---
-    ctx.textBaseline = 'top';
-    ctx.font = 'bold 14px sans-serif';
+    // テキスト描画（アイテム名）
+    ctx.font = 'bold 15px sans-serif';
     ctx.fillStyle = displayColor;
     ctx.textAlign = 'left';
-    ctx.fillText(itemName, textStartX, iconSlotY + 2);
+    ctx.textBaseline = 'top';
+    ctx.fillText(itemName, textStartX, contentTop);
 
     if (isEquipment) {
-        // 装備品の場合の分類名
         ctx.font = '11px sans-serif';
-        ctx.fillStyle = '#94a3b8';
-        ctx.fillText(`分類 : ${categoryName}`, textStartX, iconSlotY + 24);
+        ctx.fillStyle = '#999999';
+        ctx.fillText(`装備分類 : ${categoryName}`, textStartX, contentTop + 22);
 
-        cursorY += iconSize + 12;
+        let currentReqY = contentTop + 38;
+        const heroLevel = hero ? (hero.level || 0) : 0;
+        ctx.font = 'bold 10px sans-serif';
 
-        let heroLevel = hero ? (hero.level || 0) : 0;
-        ctx.font = 'bold 11px sans-serif';
-
-        // REQ LEV
         ctx.textAlign = 'left';
-        ctx.fillStyle = (heroLevel < reqLevel) ? '#f87171' : '#fbbf24';
-        ctx.fillText("・REQ LEV", textStartX, cursorY);
+        ctx.fillStyle = (heroLevel < reqLevel) ? '#ff4444' : '#ffcc00';
+        ctx.fillText("・REQ LEV", textStartX, currentReqY);
         ctx.textAlign = 'right';
-        ctx.fillText(reqLevel, rightValueX, cursorY);
-        cursorY += 17;
+        ctx.fillText(reqLevel, rightValueX, currentReqY);
+        currentReqY += 13;
 
-        // REQ First
         if (totalFirstStats !== undefined) {
-            ctx.textAlign = 'left'; ctx.fillStyle = '#cbd5e1';
-            ctx.fillText("・REQ First", textStartX, cursorY);
-            ctx.textAlign = 'right'; ctx.fillText(Math.floor(totalFirstStats), rightValueX, cursorY);
-            cursorY += 17;
+            ctx.textAlign = 'left'; ctx.fillStyle = '#dddddd';
+            ctx.fillText("・REQ First", textStartX, currentReqY);
+            ctx.textAlign = 'right'; ctx.fillText(Math.floor(totalFirstStats), rightValueX, currentReqY);
+            currentReqY += 13;
         }
-        // REQ ALL
         if (totalALLStats !== undefined) {
-            ctx.textAlign = 'left'; ctx.fillStyle = '#cbd5e1';
-            ctx.fillText("・REQ ALL", textStartX, cursorY);
-            ctx.textAlign = 'right'; ctx.fillText(Math.floor(totalALLStats), rightValueX, cursorY);
-            cursorY += 17;
+            ctx.textAlign = 'left'; ctx.fillStyle = '#dddddd';
+            ctx.fillText("・REQ ALL", textStartX, currentReqY);
+            ctx.textAlign = 'right'; ctx.fillText(Math.floor(totalALLStats), rightValueX, currentReqY);
+            currentReqY += 13;
         }
-        // BONUS
         if (totalALLStats !== undefined && totalFirstStats !== undefined) {
-            let bonus = totalALLStats - totalFirstStats;
+            const bonus = totalALLStats - totalFirstStats;
             ctx.textAlign = 'left'; ctx.fillStyle = displayColor;
-            ctx.fillText("・BONUS", textStartX, cursorY);
-            ctx.textAlign = 'right'; ctx.fillText((bonus >= 0 ? "+" : "") + Math.round(bonus * 10) / 10, rightValueX, cursorY);
-            cursorY += 17;
+            ctx.fillText("・BONUS", textStartX, currentReqY);
+            ctx.textAlign = 'right'; ctx.fillText((bonus >= 0 ? "+" : "") + Math.round(bonus * 10) / 10, rightValueX, currentReqY);
+            currentReqY += 14;
         }
 
-        cursorY += 2;
-
-        // 微小な区切り線
-        ctx.save();
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.12)';
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.moveTo(iconSlotX, cursorY);
-        ctx.lineTo(rightValueX, cursorY);
-        ctx.stroke();
-        ctx.restore();
-
-        cursorY += 10;
-
-        // アクティブステータス
+        let currentY = currentReqY + 6;
         ctx.font = '12px sans-serif';
         activeStats.forEach(key => {
-            let labelMap = { str: "STR", dex: "DEX", int: "INT", luk: "LUK", maxHp: "最大HP", maxMp: "最大MP", atk: "攻撃力", matk: "魔力", def: "防御力" };
-            ctx.textAlign = 'left'; ctx.fillStyle = '#f8fafc';
-            ctx.fillText(labelMap[key] || key.toUpperCase(), iconSlotX, cursorY);
+            const labelMap = { str: "STR", dex: "DEX", int: "INT", luk: "LUK", maxHp: "最大HP", maxMp: "最大MP", atk: "攻撃力", matk: "魔力", def: "防御力" };
+            ctx.textAlign = 'left'; ctx.fillStyle = '#ffffff';
+            ctx.fillText(labelMap[key] || key.toUpperCase(), textStartX, currentY);
             ctx.textAlign = 'right';
-            ctx.fillStyle = '#38bdf8';
-            ctx.fillText(`+${slot[key]}`, rightValueX, cursorY);
-            cursorY += lineHeight;
+            ctx.fillStyle = '#00ffcc'; // ステータス数値を少しアクセントカラーに
+            ctx.fillText(`+${slot[key]}`, rightValueX, currentY);
+            currentY += lineHeight;
         });
 
-        cursorY += 4;
-
-        // アップグレード可能回数
-        let total = slot.totalUpgrade || 7;
-        let used = (slot.successCount || 0) + (slot.failCount || 0);
-        ctx.textAlign = 'left'; 
-        ctx.font = 'bold 11px sans-serif'; 
-        ctx.fillStyle = '#facc15';
-        ctx.fillText(`アップグレード可能回数 : ${total - used}`, iconSlotX, cursorY);
-
+        const total = slot.totalUpgrade || 7;
+        const used = (slot.successCount || 0) + (slot.failCount || 0);
+        ctx.textAlign = 'left'; ctx.font = '11px sans-serif'; ctx.fillStyle = '#ffcc00';
+        ctx.fillText(`アップグレード可能回数 : ${total - used}`, textStartX, currentY + 8);
     } else {
-        // ★ETC・消費アイテム等の場合：説明文を綺麗に配置
+        ctx.textAlign = 'left';
         ctx.font = '12px sans-serif';
-        ctx.fillStyle = '#cbd5e1';
-        ctx.fillText(statusText, textStartX, iconSlotY + 24);
+        ctx.fillStyle = '#eeeeee';
+        ctx.fillText(statusText, textStartX, contentTop + 32);
     }
 
     // 🛡️ 2. 元の状態に復元
@@ -5426,9 +5250,22 @@ window.badgeImg.src = '//imglive.net/badge.png';
 // ============================================================
 // :::DRAW_PLAYER_UI::: 🏷️ キャラクター頭上UI（HPバー・名前）の表示
 // ============================================================
+/**
+ * 役割：
+ * - HPバーのレンダリング：他プレイヤーのみ対象、HP残量に応じた動的カラーリング
+ * - 名前表示：背景の半透明処理による視認性確保、画面外への突き抜け防止処理
+ * - レイアウト制御：地面と空中で表示座標を柔軟に切り替え（VIEW_CONFIG）
+ * - 描画最適化：テキスト幅に基づく背景帯の動的サイズ決定
+ */
 function drawPlayerUI(ctx, p, isMe, pW, frame) {
 
-    // 💡 自分(isMe)なら hero を、他人なら p を参照するステータス判定
+	// 💡 修正：ここで isMe の値そのものを確認します
+    if (p.id === hero.id) {
+        //console.log(`🎨 描画中... [ID:${p.id}] 判定結果: isMe=${isMe}`);
+    }
+
+    // 💡 修正：自分(isMe)なら hero を、他人なら p を参照するステータス判定を作成
+    // hero はサーバー通信で上書きされないため、常に正しい値を保持しています
     const currentLinked = isMe ? (typeof hero !== 'undefined' && hero.isLinked) : (p.isLinked || false);
     const currentOnline = isMe ? (typeof hero !== 'undefined' && hero.isOnline) : (p.isOnline || false);
 
@@ -5447,6 +5284,7 @@ function drawPlayerUI(ctx, p, isMe, pW, frame) {
         const barY = currentBaseY - currentDrawH - (p.jumpY || 0) - 25;
         
         const hpRate = Math.max(0, Math.min(1, p.hp / 100));
+        
         let hpColor = (hpRate <= 0.2) ? "#ff0000" : (hpRate <= 0.5 ? "#ffff00" : "#00ff00");
         
         ctx.fillStyle = "black";
@@ -5459,19 +5297,21 @@ function drawPlayerUI(ctx, p, isMe, pW, frame) {
     // --- 2. プレイヤー名とバッジ画像の描画 (自分も他人も表示) ---
     const rawName = p.name || "Player";
     
-    // フォントの設定
+    // フォントの設定（幅計算のため先に適用）
     ctx.font = `bold ${VIEW_CONFIG.playerName.fontSize} Arial`;
     
+    // 画像のサイズ（16x16）
     const imgW = 16;
     const imgH = 16;
     
+    // 💡 修正：p.isLinked の代わりに currentLinked を使用
     const badgeW = currentLinked ? (imgW + 4) : 0;
     const nameWidth = ctx.measureText(rawName).width;
     
-    // 背景帯の合計幅
+    // 背景帯の合計幅（名前の幅 ＋ バッジの幅 ＋ パディング）
     const totalW = nameWidth + badgeW + VIEW_CONFIG.playerName.paddingW;
     
-    // 名本のベース位置を計算
+    // 名前の表示高さを計算
     let nameY = p.y + ((p.y > VIEW_CONFIG.groundThreshold) 
         ? VIEW_CONFIG.playerName.offsetY_ground 
         : VIEW_CONFIG.playerName.offsetY_air);
@@ -5480,11 +5320,11 @@ function drawPlayerUI(ctx, p, isMe, pW, frame) {
         nameY = VIEW_CONFIG.playerName.safeMargin;
     }
     
-    // --- 3. 角丸の背景を描画（高さを22pxに少し広げ、位置を調整） ---
+    // --- 3. 角丸の背景を描画 ---
     const bgX = p.x + pW / 2 - totalW / 2;
-    const bgH = 22; // 高さを少し持たせてはみ出しを防ぐ
-    const bgY = nameY - 12; // 基準位置に対して背景を上下中央に配置
+    const bgY = nameY - 15;
     const bgW = totalW;
+    const bgH = 20;
     const radius = 4; // 角の丸み
 
     ctx.fillStyle = "rgba(0, 0, 0, 0.5)";
@@ -5504,27 +5344,26 @@ function drawPlayerUI(ctx, p, isMe, pW, frame) {
     // --- 4. バッジ画像と名前テキストの描画 ---
     let currentX = p.x + pW / 2 - totalW / 2 + (VIEW_CONFIG.playerName.paddingW / 2);
     
-    // 🔤 垂直基準を "middle"（中央揃え）にすることで、背景の縦中央に完全に合わせる
-    ctx.textBaseline = "middle";
-
-    // 背景の縦中央座標を計算
-    const centerY = bgY + (bgH / 2);
+    // 💡 ここにデバッグログを追加
+	/*
+    if (isMe) {
+    console.log("DEBUG: Object.keysに含まれるか:", Object.keys(hero).includes('isLinked'));
+    console.log("DEBUG: プロパティの詳細:", Object.getOwnPropertyDescriptor(hero, 'isLinked'));
+    console.log("DEBUG: ブラケット記法でアクセス:", hero['isLinked']);
+}
+	*/
 
     if (currentLinked && window.badgeImg && (window.badgeImg.complete || window.isBadgeLoaded)) {
-        // バッジも背景の中央に配置（画像サイズ16x16なので中心から-8px）
-        ctx.drawImage(window.badgeImg, currentX, centerY - (imgH / 2), imgW, imgH);
-        currentX += imgW + 4; 
-    }
+		// console.log("🔥 バッジ描画を実行中！"); 
+		ctx.drawImage(window.badgeImg, currentX, nameY - 14, imgW, imgH);
+		currentX += imgW + 4; 
+	}
     
     // --- 5. 名前のテキスト描画 ---
+    // 💡 修正：p.isOnline の代わりに currentOnline を使用
     ctx.fillStyle = currentOnline ? "#ffd700" : "#ffffff";
     ctx.textAlign = "left"; 
-    // 文字も背景の完全な縦中央（centerY）に配置
-	// 調整2026-9-2
-    ctx.fillText(rawName, currentX, centerY - 1);
-    
-    // 他の描画に影響を与えないようベースラインをデフォルトに戻す
-    ctx.textBaseline = "alphabetic";
+    ctx.fillText(rawName, currentX, nameY);
 }
 
 // モンスターの数を保持する変数（ファイルの先頭付近で安全に初期化）
@@ -6174,12 +6013,21 @@ function drawChatBubbles(hero, others) {
 }
 
 // ============================================================
-// :::DRAW_PICKUP_EFFECTS::: 💎 アイテム収集時の吸い込みエフェクト（カード対応版）
+// :::DRAW_PICKUP_EFFECTS::: 💎 アイテム収集時の吸い込みエフェクト
 // ============================================================
+/**
+ * 役割：
+ * - 演出ライフサイクル：タイマー監視によるエフェクトの生存管理(Filter)
+ * - 軌道計算：ベジェ曲線(Quadratic Curve)を用いたアイテムの吸い込み移動
+ * - 視覚演出：レアリティに基づく「二重グロー」の動的描画
+ * - パフォーマンス制御：デバイスピクセル比(DPR)の正規化とキャッシュ画像のスムージング管理
+ */
 function drawPickupEffects(hero, others) {
     pickingUpEffects.forEach((eff) => {
+        // 🌟 25 -> VIEW_CONFIG.pickupEffect.duration
         const maxTime = VIEW_CONFIG.pickupEffect.duration;
         
+        // 🌟 【デバッグ行】エフェクト開始時(timerが最大値の時)だけ色を表示
         if (eff.timer === maxTime) {
             console.log(`[EffectStart] Drawing with Color: ${eff.effectColor}, Type: ${eff.type}`);
         }
@@ -6188,113 +6036,65 @@ function drawPickupEffects(hero, others) {
 
         ctx.save();
         
+        // 🌟 座標リセット時にも DPR を考慮する
         const dpr = window.devicePixelRatio || 1;
         ctx.setTransform(dpr, 0, 0, dpr, 0, 0); 
 
         let target = (eff.targetPlayerId === socket.id) ? hero : others[eff.targetPlayerId];
         if (!target) target = hero;
 
+        // 軌道の計算
         const tx = target.x + 20;
         const ty = target.y;
         
+        // 🌟 50 -> VIEW_CONFIG.pickupEffect.arcHeight
         const midY = Math.min(target.y + 5, ty) - VIEW_CONFIG.pickupEffect.arcHeight;
         const dx = (1 - t) * (1 - t) * eff.startX + 2 * (1 - t) * t * ((eff.startX + tx) / 2) + t * t * tx;
         const dy = (1 - t) * (1 - t) * (target.y + 5) + 2 * (1 - t) * t * midY + t * t * ty;
 
+        // 全体の透明度
         const alpha = Math.max(0, 1 - t);
         ctx.globalAlpha = alpha;
         ctx.translate(dx, dy);
 
-        const category = typeof itemCategories !== 'undefined' ? itemCategories[eff.type] : "ETC";
+        // 🌟 カテゴリー判定：EQUIP かつ、特定の除外色（白・灰・橙）ではない場合のみ発光
+        const category = itemCategories[eff.type];
+        // #ffffff (標準), #aaaaaa (粗悪), #ff9900 (良品) はグロー対象外とする
         const isExcludedColor = (eff.effectColor === '#ffffff' || eff.effectColor === '#aaaaaa' || eff.effectColor === '#ff9900');
         const showColorEffect = (category === "EQUIP") && eff.effectColor && !isExcludedColor;
 
+        // アイテム画像の描画品質を保つ
         ctx.imageSmoothingEnabled = true;
 
-        // 🌟 【完全防御】未登録のアイテムでも絶対にエラーにさせない安全ガード
-        const rawConfig = typeof ITEM_CONFIG !== 'undefined' ? ITEM_CONFIG[eff.type] : null;
-        const config = rawConfig || { name: eff.type, isAnimated: false };
-        
-        let img = null;
-        const spriteName = config.name || eff.type;
-        if (typeof sprites !== 'undefined' && sprites.items && sprites.items[spriteName]) {
-            const itemSprite = sprites.items[spriteName];
-            img = config.isAnimated && Array.isArray(itemSprite) ? itemSprite[0] : itemSprite;
-        }
+        const config = ITEM_CONFIG[eff.type] || ITEM_CONFIG["money1"];
+        const img = config.isAnimated ? sprites.items[eff.type][0] : sprites.items[eff.type];
 
-        const isImageSafe = img && 
-                            img.complete && 
-                            typeof img.naturalWidth === 'number' && 
-                            img.naturalWidth > 0 && 
-                            img.naturalHeight > 0;
-
-        if (isImageSafe) {
-            // 🌟 モンスターカードかどうかの判定（フィールド側と統一）
-            const isMonsterCard = eff.cardId || (eff.type && eff.type.toLowerCase().startsWith('monster'));
-
-            if (isMonsterCard) {
-                // --- 🃏 吸い込み中のモンスターカード専用レンダリング ---
-                const effectSize = VIEW_CONFIG.pickupEffect.size; // 通常のエフェクトサイズを基準にする
-                const cardW = effectSize * 0.75;
-                const cardH = effectSize * 0.95;
-
-                const cardX = -cardW / 2;
-                const cardY = -cardH / 2;
-
-                // 1. カード背景（フィールド側とお揃いの温かみのあるアイボリー＆ブラウン系）
-                const cardGrad = ctx.createLinearGradient(cardX, cardY, cardX, cardY + cardH);
-                cardGrad.addColorStop(0.0, "#fffaf0"); 
-                cardGrad.addColorStop(1.0, "#e8dccc"); 
-
-                ctx.fillStyle = cardGrad;
-                ctx.fillRect(cardX, cardY, cardW, cardH);
-
-                // 2. 内部のモンスター画像を大きく描画
-                const innerSize = cardW * 1.35; 
-                ctx.drawImage(img, -innerSize / 2, -innerSize / 2 - 2, innerSize, innerSize);
-
-                // 3. 上部のヘッダー帯
-                const headerH = cardH * 0.18;
-                ctx.fillStyle = "#b89778"; 
-                ctx.fillRect(cardX, cardY, cardW, headerH);
-
-                // 4. 外枠のフレーム
-                ctx.strokeStyle = "#8c6747"; 
-                ctx.lineWidth = 1.5;
-                ctx.strokeRect(cardX, cardY, cardW, cardH);
-
-                // 内側のハイライト線
-                ctx.strokeStyle = "rgba(255, 255, 255, 0.6)";
-                ctx.lineWidth = 0.8;
-                ctx.strokeRect(cardX + 1.5, cardY + 1.5, cardW - 3, cardH - 3);
-
+        if (img && img.complete) {
+            const nw = img.naturalWidth;
+            const nh = img.naturalHeight;
+            
+            // 🌟 30 -> VIEW_CONFIG.pickupEffect.size (サイズは固定)
+            const targetHeight = VIEW_CONFIG.pickupEffect.size; 
+            const targetWidth = targetHeight * (nw / nh);
+            
+            // 🌟 修正ポイント：条件に一致したレアアイテムのみ、インベントリと同期した「二重グロー」を実行
+            if (showColorEffect) {
+                ctx.save();
+                // 1回目：広範囲の強い光 (Blur: 20)
+                ctx.shadowBlur = 20;
+                ctx.shadowColor = eff.effectColor;
+                ctx.shadowOffsetX = 0;
+                ctx.shadowOffsetY = 0;
+                ctx.drawImage(img, -targetWidth / 2, -targetHeight / 2, targetWidth, targetHeight);
+                
+                // 2回目：芯の強い光 (Blur: 5)
+                ctx.shadowBlur = 5;
+                ctx.drawImage(img, -targetWidth / 2, -targetHeight / 2, targetWidth, targetHeight);
+                ctx.restore();
             } else {
-                // --- 通常アイテムの吸い込み描画 ---
-                const nw = img.naturalWidth;
-                const nh = img.naturalHeight;
-                
-                const targetHeight = VIEW_CONFIG.pickupEffect.size; 
-                const targetWidth = targetHeight * (nw / nh);
-                
-                if (showColorEffect) {
-                    ctx.save();
-                    ctx.shadowBlur = 20;
-                    ctx.shadowColor = eff.effectColor;
-                    ctx.shadowOffsetX = 0;
-                    ctx.shadowOffsetY = 0;
-                    ctx.drawImage(img, -targetWidth / 2, -targetHeight / 2, targetWidth, targetHeight);
-                    
-                    ctx.shadowBlur = 5;
-                    ctx.drawImage(img, -targetWidth / 2, -targetHeight / 2, targetWidth, targetHeight);
-                    ctx.restore();
-                } else {
-                    ctx.drawImage(img, -targetWidth / 2, -targetHeight / 2, targetWidth, targetHeight);
-                }
+                // 通常アイテム、および除外されたランクの装備品（グローなし）
+                ctx.drawImage(img, -targetWidth / 2, -targetHeight / 2, targetWidth, targetHeight);
             }
-        } else {
-            // 💡 画像未ロード時の安全フォールバック（金色の四角形）
-            ctx.fillStyle = "#ffd700";
-            ctx.fillRect(-8, -8, 16, 16);
         }
 
         ctx.imageSmoothingEnabled = false;
@@ -6355,6 +6155,13 @@ function drawItemLogsUI() {
 // ============================================================
 // :::DRAW_TOP_STATUS_UI::: 📊 プレイヤー・ステータスUIのレンダリング
 // ============================================================
+/**
+ * 役割：
+ * - 状態管理（補間）：現在のHP/EXP値を目標値へ向けて滑らかに移動させるアニメーション計算
+ * - レイアウト描画：背景パネル、レベル表記、HPバー、EXPバーの配置（角丸カプセル・リッチ装飾対応）
+ * - データ同期：サーバーから受け取った hero.maxExp や hero.maxHp を分母として正確に描画
+ * - フィードバック演出：HP低下時の色変化（グリーン→レッド）と数値のテキストレンダリング
+ */
 function drawTopStatusUI(hero) {
     if (!hero) return;
 
@@ -6368,6 +6175,7 @@ function drawTopStatusUI(hero) {
     }
 
     // 🌟 2. なめらか表示の計算処理（EXP）
+    // displayExp が未定義なら現在の hero.exp で初期化
     if (typeof displayExp === 'undefined') displayExp = hero.exp;
     const expDiff = (hero.exp || 0) - displayExp;
     if (Math.abs(expDiff) > 0.1) {
@@ -6376,6 +6184,8 @@ function drawTopStatusUI(hero) {
         displayExp = hero.exp;
     }
 
+    // 🌟 3. 最大経験値の取得（テーブルは削除し、hero.maxExp を参照）
+    // サーバー側で LEVEL_TABLE に基づいて計算された値がここに入ります。
     const nextMaxExp = hero.maxExp || 200;
 
     // 配置設定
@@ -6386,14 +6196,17 @@ function drawTopStatusUI(hero) {
     const panelW = barWidth + 80;
     const panelH = 70;
 
-    // 🌟 角丸の半径（ちょっぴり丸めるための数値：3px）
-    const cornerRadius = 3;
+    // カプセル型生成のための半径計算
+    const hpRadius = barHeight / 2;
+    const expBarH = barHeight - 4;
+    const expRadius = expBarH / 2;
 
     ctx.save();
 
     // 1. 背景パネル
     ctx.fillStyle = "rgba(0, 0, 0, 0.6)";
     ctx.beginPath();
+    // ブラウザ互換性を考慮し、roundRectが使えない場合は通常の矩形
     if (ctx.roundRect) {
         ctx.roundRect(x, y, panelW, panelH, 10);
     } else {
@@ -6407,49 +6220,58 @@ function drawTopStatusUI(hero) {
     ctx.fillStyle = "#ffffff";
     ctx.font = "bold 20px Arial";
     ctx.textAlign = "left";
-    ctx.textBaseline = "alphabetic";
     ctx.fillText(`Lv.${hero.level || 1}`, x + 15, y + 30);
 
     // ==========================================
-    // 3. HPバー
+    // 3. HPバー (displayHpを使用してなめらかに、リッチ装飾角丸カプセル対応)
     // ==========================================
     const hpRate = Math.max(0, displayHp / (hero.maxHp || 100));
     const hpBarX = x + 70;
     const hpBarY = y + 15;
     
-    // HPバー背景
+    // HPバー背景（角丸）
     ctx.fillStyle = "#222222";
     ctx.beginPath();
-    if (ctx.roundRect) {
-        ctx.roundRect(hpBarX, hpBarY, barWidth, barHeight, cornerRadius);
-    } else {
-        ctx.rect(hpBarX, hpBarY, barWidth, barHeight);
-    }
+    ctx.moveTo(hpBarX + hpRadius, hpBarY);
+    ctx.lineTo(hpBarX + barWidth - hpRadius, hpBarY);
+    ctx.quadraticCurveTo(hpBarX + barWidth, hpBarY, hpBarX + barWidth, hpBarY + hpRadius);
+    ctx.quadraticCurveTo(hpBarX + barWidth, hpBarY + barHeight, hpBarX + barWidth - hpRadius, hpBarY + barHeight);
+    ctx.lineTo(hpBarX + hpRadius, hpBarY + barHeight);
+    ctx.quadraticCurveTo(hpBarX, hpBarY + barHeight, hpBarX, hpBarY + barHeight - hpRadius);
+    ctx.quadraticCurveTo(hpBarX, hpBarY, hpBarX + hpRadius, hpBarY);
+    ctx.closePath();
     ctx.fill();
     
-    // HPバー中身
+    // バーの色判定 ＆ HPバー中身（角丸）
     const currentHpW = Math.max(0, barWidth * hpRate);
     if (currentHpW > 0) {
         ctx.fillStyle = hpRate > 0.3 ? "#2ecc71" : "#e74c3c";
         ctx.beginPath();
-        if (ctx.roundRect) {
-            // 中身の幅が角丸の直径より小さい場合の保険としてMath.maxを使用
-            ctx.roundRect(hpBarX, hpBarY, Math.max(cornerRadius, currentHpW), barHeight, cornerRadius);
+        ctx.moveTo(hpBarX + hpRadius, hpBarY);
+        
+        if (currentHpW < hpRadius * 2) {
+            ctx.lineTo(hpBarX + currentHpW, hpBarY);
+            ctx.lineTo(hpBarX + currentHpW, hpBarY + barHeight);
+            ctx.lineTo(hpBarX + hpRadius, hpBarY + barHeight);
+            ctx.quadraticCurveTo(hpBarX, hpBarY + barHeight, hpBarX, hpBarY + barHeight - hpRadius);
+            ctx.lineTo(hpBarX, hpBarY + hpRadius);
+            ctx.quadraticCurveTo(hpBarX, hpBarY, hpBarX + hpRadius, hpBarY);
         } else {
-            ctx.rect(hpBarX, hpBarY, currentHpW, barHeight);
+            ctx.lineTo(hpBarX + currentHpW - hpRadius, hpBarY);
+            ctx.quadraticCurveTo(hpBarX + currentHpW, hpBarY, hpBarX + currentHpW, hpBarY + hpRadius);
+            ctx.lineTo(hpBarX + currentHpW, hpBarY + barHeight - hpRadius);
+            ctx.quadraticCurveTo(hpBarX + currentHpW, hpBarY + barHeight, hpBarX + currentHpW - hpRadius, hpBarY + barHeight);
+            ctx.lineTo(hpBarX + hpRadius, hpBarY + barHeight);
+            ctx.quadraticCurveTo(hpBarX, hpBarY + barHeight, hpBarX, hpBarY + barHeight - hpRadius);
+            ctx.lineTo(hpBarX, hpBarY + hpRadius);
+            ctx.quadraticCurveTo(hpBarX, hpBarY, hpBarX + hpRadius, hpBarY);
         }
+        ctx.closePath();
         ctx.fill();
 
-        // 光沢ハイライト
+        // 🌟 リッチ装飾：光沢ハイライト（上半分に半透明の帯を重ねて立体感を演出）
         ctx.save();
-        ctx.beginPath();
-        if (ctx.roundRect) {
-            ctx.roundRect(hpBarX, hpBarY, Math.max(cornerRadius, currentHpW), barHeight, cornerRadius);
-        } else {
-            ctx.rect(hpBarX, hpBarY, currentHpW, barHeight);
-        }
-        ctx.clip();
-        
+        ctx.clip(); // 中身の形状に切り抜きをかける
         ctx.fillStyle = "rgba(255, 255, 255, 0.25)";
         ctx.beginPath();
         ctx.moveTo(hpBarX, hpBarY);
@@ -6461,18 +6283,22 @@ function drawTopStatusUI(hero) {
         ctx.restore();
     }
     
-    // HPバー枠線
+    // 🌟 リッチ装飾：バーのフチに枠線（ストローク）をかける
     ctx.strokeStyle = "rgba(255, 255, 255, 0.4)";
     ctx.lineWidth = 1.5;
     ctx.beginPath();
-    if (ctx.roundRect) {
-        ctx.roundRect(hpBarX, hpBarY, barWidth, barHeight, cornerRadius);
-    } else {
-        ctx.rect(hpBarX, hpBarY, barWidth, barHeight);
-    }
+    ctx.moveTo(hpBarX + hpRadius, hpBarY);
+    ctx.lineTo(hpBarX + barWidth - hpRadius, hpBarY);
+    ctx.quadraticCurveTo(hpBarX + barWidth, hpBarY, hpBarX + barWidth, hpBarY + hpRadius);
+    ctx.quadraticCurveTo(hpBarX + barWidth, hpBarY + barHeight, hpBarX + barWidth - hpRadius, hpBarY + barHeight);
+    ctx.lineTo(hpBarX + hpRadius, hpBarY + barHeight);
+    ctx.quadraticCurveTo(hpBarX, hpBarY + barHeight, hpBarX, hpBarY + barHeight - hpRadius);
+    ctx.lineTo(hpBarX, hpBarY + hpRadius);
+    ctx.quadraticCurveTo(hpBarX, hpBarY, hpBarX + hpRadius, hpBarY);
+    ctx.closePath();
     ctx.stroke();
 
-    // 10分割目盛り
+    // 🌟 📏 HPバー下半分のみに10分割目盛りを描画（Y座標の中央からバー底辺まで）
     ctx.strokeStyle = "rgba(0, 0, 0, 0.4)";
     ctx.lineWidth = 1;
     const hpTickStart = hpBarY + (barHeight / 2);
@@ -6484,57 +6310,66 @@ function drawTopStatusUI(hero) {
         ctx.stroke();
     }
     
-    // HPテキスト
+    // HPテキスト (視認性向上のためのシャドウ追加)
     ctx.fillStyle = "#fff";
     ctx.font = "bold 12px Arial";
     ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
     ctx.shadowColor = "rgba(0, 0, 0, 0.7)";
     ctx.shadowBlur = 3;
-    ctx.fillText(`${Math.floor(hero.hp)} / ${hero.maxHp}`, hpBarX + barWidth / 2, hpBarY + barHeight / 2);
-    ctx.shadowBlur = 0;
+    ctx.fillText(`${Math.floor(hero.hp)} / ${hero.maxHp}`, hpBarX + barWidth/2, hpBarY + 14);
+    ctx.shadowBlur = 0; // シャドウリセット
 
     // ==========================================
-    // 4. EXPバー
+    // 4. EXPバー (hero.maxExp を分母に使用、角丸カプセル・リッチ装飾対応)
     // ==========================================
     const expRate = Math.min(1, displayExp / nextMaxExp); 
-    const expBarH = barHeight - 4;
     const expBarY = y + 40;
     
-    // EXP背景
+    // EXP背景（角丸）
     ctx.textAlign = "left";
-    ctx.textBaseline = "alphabetic";
     ctx.fillStyle = "#222222";
     ctx.beginPath();
-    if (ctx.roundRect) {
-        ctx.roundRect(hpBarX, expBarY, barWidth, expBarH, cornerRadius);
-    } else {
-        ctx.rect(hpBarX, expBarY, barWidth, expBarH);
-    }
+    ctx.moveTo(hpBarX + expRadius, expBarY);
+    ctx.lineTo(hpBarX + barWidth - expRadius, expBarY);
+    ctx.quadraticCurveTo(hpBarX + barWidth, expBarY, hpBarX + barWidth, expBarY + expRadius);
+    ctx.quadraticCurveTo(hpBarX + barWidth, expBarY + expBarH, hpBarX + barWidth - expRadius, expBarY + expBarH);
+    ctx.lineTo(hpBarX + expRadius, expBarY + expBarH);
+    ctx.quadraticCurveTo(hpBarX, expBarY + expBarH, hpBarX, expBarY + expBarH - hpRadius);
+    ctx.lineTo(hpBarX, expBarY + expRadius);
+    ctx.quadraticCurveTo(hpBarX, expBarY, hpBarX + expRadius, expBarY);
+    ctx.closePath();
     ctx.fill();
     
-    // EXP中身
+    // EXP中身（角丸）
     const currentExpW = Math.max(0, barWidth * expRate);
     if (currentExpW > 0) {
         ctx.fillStyle = "#f1c40f"; 
         ctx.beginPath();
-        if (ctx.roundRect) {
-            ctx.roundRect(hpBarX, expBarY, Math.max(cornerRadius, currentExpW), expBarH, cornerRadius);
+        ctx.moveTo(hpBarX + expRadius, expBarY);
+        
+        if (currentExpW < expRadius * 2) {
+            ctx.lineTo(hpBarX + currentExpW, expBarY);
+            ctx.lineTo(hpBarX + currentExpW, expBarY + expBarH);
+            ctx.lineTo(hpBarX + expRadius, expBarY + expBarH);
+            ctx.quadraticCurveTo(hpBarX, expBarY + expBarH, hpBarX, expBarY + expBarH - hpRadius);
+            ctx.lineTo(hpBarX, expBarY + expRadius);
+            ctx.quadraticCurveTo(hpBarX, expBarY, hpBarX + expRadius, expBarY);
         } else {
-            ctx.rect(hpBarX, expBarY, currentExpW, expBarH);
+            ctx.lineTo(hpBarX + currentExpW - expRadius, expBarY);
+            ctx.quadraticCurveTo(hpBarX + currentExpW, expBarY, hpBarX + currentExpW, expBarY + expRadius);
+            ctx.lineTo(hpBarX + currentExpW, expBarY + expBarH - hpRadius);
+            ctx.quadraticCurveTo(hpBarX + currentExpW, expBarY + expBarH, hpBarX + currentExpW - expRadius, expBarY + expBarH);
+            ctx.lineTo(hpBarX + expRadius, expBarY + expBarH);
+            ctx.quadraticCurveTo(hpBarX, expBarY + expBarH, hpBarX, expBarY + expBarH - hpRadius);
+            ctx.lineTo(hpBarX, expBarY + expRadius);
+            ctx.quadraticCurveTo(hpBarX, expBarY, hpBarX + expRadius, expBarY);
         }
+        ctx.closePath();
         ctx.fill();
 
-        // 光沢ハイライト
+        // 🌟 光沢ハイライト（EXPバー）
         ctx.save();
-        ctx.beginPath();
-        if (ctx.roundRect) {
-            ctx.roundRect(hpBarX, expBarY, Math.max(cornerRadius, currentExpW), expBarH, cornerRadius);
-        } else {
-            ctx.rect(hpBarX, expBarY, currentExpW, expBarH);
-        }
         ctx.clip();
-        
         ctx.fillStyle = "rgba(255, 255, 255, 0.3)";
         ctx.beginPath();
         ctx.moveTo(hpBarX, expBarY);
@@ -6550,14 +6385,18 @@ function drawTopStatusUI(hero) {
     ctx.strokeStyle = "rgba(255, 255, 255, 0.4)";
     ctx.lineWidth = 1.5;
     ctx.beginPath();
-    if (ctx.roundRect) {
-        ctx.roundRect(hpBarX, expBarY, barWidth, expBarH, cornerRadius);
-    } else {
-        ctx.rect(hpBarX, expBarY, barWidth, expBarH);
-    }
+    ctx.moveTo(hpBarX + expRadius, expBarY);
+    ctx.lineTo(hpBarX + barWidth - expRadius, expBarY);
+    ctx.quadraticCurveTo(hpBarX + barWidth, expBarY, hpBarX + barWidth, expBarY + expRadius);
+    ctx.quadraticCurveTo(hpBarX + barWidth, expBarY + expBarH, hpBarX + barWidth - expRadius, expBarY + expBarH);
+    ctx.lineTo(hpBarX + expRadius, expBarY + expBarH);
+    ctx.quadraticCurveTo(hpBarX, expBarY + expBarH, hpBarX, expBarY + expBarH - hpRadius);
+    ctx.lineTo(hpBarX, expBarY + expRadius);
+    ctx.quadraticCurveTo(hpBarX, expBarY, hpBarX + expRadius, expBarY);
+    ctx.closePath();
     ctx.stroke();
 
-    // 10分割目盛り
+    // 🌟 📏 EXPバー下半分のみに10分割目盛りを描画
     ctx.strokeStyle = "rgba(0, 0, 0, 0.4)";
     ctx.lineWidth = 1;
     const expTickStart = expBarY + (expBarH / 2);
@@ -6569,20 +6408,18 @@ function drawTopStatusUI(hero) {
         ctx.stroke();
     }
     
-    // EXPラベル
+    // EXPラベル (シャドウ追加で視認性アップ)
     ctx.fillStyle = "#fff";
     ctx.font = "bold 10px Arial";
     ctx.shadowColor = "rgba(0, 0, 0, 0.7)";
     ctx.shadowBlur = 3;
-    ctx.fillText("EXP", hpBarX - 30, expBarY + 11);
+    ctx.fillText("EXP", hpBarX - 30, expBarY + 10);
 
-    // EXPテキスト
-    const expPercent = Math.min(100, (displayExp / nextMaxExp) * 100).toFixed(1);
+    // 🌟 修正済み：EXPテキスト表示（バーの中央・太字・シャドウ対応）
     ctx.font = "bold 11px Arial";
     ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillText(`${Math.floor(displayExp)} / ${nextMaxExp} (${expPercent}%)`, hpBarX + barWidth / 2, expBarY + expBarH / 2);
-    ctx.shadowBlur = 0;
+    ctx.fillText(`${Math.floor(displayExp)} / ${nextMaxExp}`, hpBarX + barWidth / 2, expBarY + 13);
+    ctx.shadowBlur = 0; // シャドウリセット
 
     ctx.restore();
 }
@@ -6762,304 +6599,58 @@ function drawExpAndDebug(hero) {
 */
 
 // ============================================================
-// :::DRAW_CHAT_BUBBLE::: 💬 キャラクター頭上の吹き出しレンダリング（位置完全同期版）
+// :::DRAW_CHAT_BUBBLE::: 💬 キャラクター頭上の吹き出しレンダリング
 // ============================================================
 /**
  * 役割：
- * - 動的レイアウト：テキスト幅に応じた流体的な横幅算出
- * - 座標の厳密化：地面・足場の判定（groundExtraOffset）をキャラクター描画と完全に同期
- * - 視覚効果：ドロップシャドウによる背景からの浮遊感と、シャープな枠線
+ * - 動的レイアウト：テキスト幅(measureText)に基づいた吹き出しの横幅算出
+ * - 描画ロジック：
+ * 1. 背景（roundRect）：可読性を高める半透明の白パネル
+ * 2. しっぽ（三角形）：キャラクターとメッセージを繋ぐ視覚的なガイド
+ * 3. テキスト（fillText）：中央揃えによる配置
+ * - 設定統合：VIEW_CONFIG を介したオフセット管理
  */
 function drawChatBubble(p, text) {
     ctx.save();
-    
-    // 1. フォント設定とメトリクス取得
-    const fontSize = VIEW_CONFIG.chat.fontSize || 12;
-    ctx.font = `500 ${fontSize}px 'Segoe UI', sans-serif`;
+    ctx.font = `${VIEW_CONFIG.chat.fontSize} sans-serif`;
     const textWidth = ctx.measureText(text).width;
-
-    const paddingX = 14;
-    const bw = textWidth + (paddingX * 2);
-    const bh = 26;
-
-    // 🌟 2. エモーション描画と同様の「キャラクターの正確な足元・描画Y座標」を計算
-    const g = p.model_id !== undefined ? p.model_id : (p.group || 0);
-    let footOffset = VIEW_CONFIG.player.visualOffset + (VIEW_CONFIG.groupOffsets[g] || 0);
-    if (p.y > VIEW_CONFIG.groundThreshold) {
-        footOffset += VIEW_CONFIG.player.groundExtraOffset;
-    }
-    // キャラクターの頭頂部（あるいはスプライトの上の基準位置）を算出
-    const spriteDrawY = p.y + VIEW_CONFIG.player.hitboxH - VIEW_CONFIG.player.drawH + footOffset;
-
-    // 3. 吹き出しの位置決定（configのオフセット量を適用）
-    const chatOffsetY = VIEW_CONFIG.chat.offsetY || 65; // 設定値がなければデフォルト65等
+    const bw = textWidth + VIEW_CONFIG.chat.padding;
+    const bh = 25;
     const bx = p.x + 20 - bw / 2;
-    const by = spriteDrawY + 70 - bh; // 頭上からさらにオフセット分上に配置
+    const by = p.y + VIEW_CONFIG.chat.offsetY; // 👈 設定を参照！
 
-    // 4. 視覚的レイヤー（ドロップシャドウで背景マップから文字を切り離す）
-    ctx.shadowColor = "rgba(0, 0, 0, 0.25)";
-    ctx.shadowBlur = 8;
-    ctx.shadowOffsetX = 0;
-    ctx.shadowOffsetY = 3;
-
-    // 5. 背景パネルと上質な極細の枠線
-    ctx.fillStyle = "rgba(255, 255, 255, 0.96)";
-    ctx.strokeStyle = "rgba(0, 0, 0, 0.15)";
-    ctx.lineWidth = 1;
-
+    // 1. 背景
+    ctx.fillStyle = "rgba(255, 255, 255, 0.9)";
     ctx.beginPath();
-    ctx.roundRect(bx, by, bw, bh, 6);
-    ctx.fill();
-    ctx.stroke();
-
-    // 6. 以降の描画（しっぽ・文字）にはシャドウを継承させない
-    ctx.shadowColor = "transparent";
-    ctx.shadowBlur = 0;
-    ctx.shadowOffsetY = 0;
-
-    // 7. しっぽ（キャラクターと吹き出しを繋ぐポインター）
-    const tailWidth = 8;
-    const tailHeight = 5;
-    const centerX = bx + bw / 2;
-    
-    ctx.fillStyle = "rgba(255, 255, 255, 0.96)";
-    ctx.beginPath();
-    ctx.moveTo(centerX - tailWidth / 2, by + bh);
-    ctx.lineTo(centerX + tailWidth / 2, by + bh);
-    ctx.lineTo(centerX, by + bh + tailHeight);
-    ctx.closePath();
+    ctx.roundRect(bx, by, bw, bh, 5);
     ctx.fill();
 
-    // 8. テキスト描画（垂直・水平ともに完全な中央揃え）
-    ctx.fillStyle = "#222222";
+    // 2. しっぽ
+    ctx.beginPath();
+    ctx.moveTo(bx + bw / 2 - 5, by + bh);
+    ctx.lineTo(bx + bw / 2 + 5, by + bh);
+    ctx.lineTo(bx + bw / 2, by + bh + 5);
+    ctx.fill();
+
+    // 3. 文字
+    ctx.fillStyle = "black";
     ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    
-    ctx.fillText(text, centerX, by + bh / 2);
-
+    ctx.fillText(text, bx + bw / 2, by + 17);
     ctx.restore();
 }
 
 // ============================================================
-// :::LOAD_CATALOG::: 🗄️ DB読み込み・カタログ成形・ステータス計算
+// :::DRAW_ITEMS::: 💎 フィールド上のドロップアイテム描画
 // ============================================================
-async function loadItemCatalogFromDB() {
-    try {
-        const formattedCatalog = {};
-        
-        // 各カテゴリの名簿を構築するための一時的な箱
-        const newEquipNames = {};
-        const newConsumeNames = {};
-        const newEtcNames = {};
-        const newCardNames = {}; // 🌟 モンスターカード名簿用の箱
-
-        // itemCategoriesを構築するための一時的な箱
-        const newItemCategories = {};
-
-        // 画像パス構築のための一時的な箱
-        const newItemImages = {};
-
-        // 解説文構築のための一時的な箱
-        const newItemDescriptions = {};
-
-        // --- A. 🛡️ 装備品 (item_equip_catalog) の読み込み ---
-        const [equipResults] = await pool.query("SELECT * FROM item_equip_catalog");
-        equipResults.forEach(row => {
-            formattedCatalog[row.item_id] = {
-                ...row,
-                displayName: row.display_name || row.name,
-                mainCategory: 'EQUIP', 
-                isTradeable: Boolean(row.isTradeable),
-                int: row.int 
-            };
-
-            if (row.name && row.display_name) {
-                newEquipNames[row.name] = row.display_name;
-            }
-
-            if (row.name) {
-                newItemCategories[row.name] = "EQUIP";
-                newItemImages[row.name] = row.image_name ? `/item_assets/${row.image_name}.png` : `/item_assets/${row.name}.png`;
-                newItemDescriptions[row.name] = row.description || "特別な効果はないようだ。";
-            }
-        });
-
-        // --- B. 💊 消費アイテム (item_consume_catalog) の読み込み ---
-        const [consumeResults] = await pool.query("SELECT * FROM item_consume_catalog");
-        consumeResults.forEach(row => {
-            formattedCatalog[row.item_id] = {
-                ...row,
-                displayName: row.display_name || row.name,
-                mainCategory: 'CONSUME',
-                isTradeable: row.isTradeable !== undefined ? Boolean(row.isTradeable) : true
-            };
-
-            if (row.name && row.display_name) {
-                newConsumeNames[row.name] = row.display_name;
-            }
-
-            if (row.name) {
-                newItemCategories[row.name] = "USE";
-                newItemImages[row.name] = row.image_name ? `/item_assets/${row.image_name}.png` : `/item_assets/${row.name}.png`;
-                newItemDescriptions[row.name] = row.description || "特別な効果はないようだ。";
-            }
-        });
-
-        // --- C. 🍁 ETCアイテム (item_etc_catalog) の読み込み ---
-        const [etcResults] = await pool.query("SELECT * FROM item_etc_catalog");
-        etcResults.forEach(row => {
-            formattedCatalog[row.item_id] = {
-                ...row,
-                displayName: row.display_name || row.name,
-                mainCategory: 'ETC',
-                isTradeable: row.isTradeable !== undefined ? Boolean(row.isTradeable) : true
-            };
-
-            if (row.name && row.display_name) {
-                newEtcNames[row.name] = row.display_name;
-            }
-
-            if (row.name) {
-                newItemCategories[row.name] = "ETC";
-                newItemImages[row.name] = row.image_name ? `/item_assets/${row.image_name}.png` : `/item_assets/${row.name}.png`;
-                newItemDescriptions[row.name] = row.description || "特別な効果はないようだ。";
-            }
-        });
-        
-        // --- D. 🃏 モンスターカード (monster_card_catalog) の読み込み ---
-        const [cardResults] = await pool.query("SELECT * FROM monster_card_catalog");
-        console.log("🔍 DBから取得したカード一覧:", cardResults);
-
-        cardResults.forEach(row => {
-            formattedCatalog[row.item_id] = {
-                ...row,
-                displayName: row.display_name || row.monster_key,
-                mainCategory: 'MONSTER_CARD',
-                isTradeable: true
-            };
-
-            if (row.monster_key && row.display_name) {
-                newCardNames[row.monster_key] = row.display_name;
-            }
-
-            if (row.monster_key) {
-                // 🌟 モンスターのキー（例: 'monster1' -> 'Monster1'）に変換してご指定のパスを組み立て
-                const capitalizedKey = row.monster_key.charAt(0).toUpperCase() + row.monster_key.slice(1);
-
-                newItemCategories[row.monster_key] = "ETC";
-                newItemImages[row.monster_key] = `/char_assets_enemy/${capitalizedKey}/Idle/tile000.png`;
-                newItemDescriptions[row.monster_key] = row.description || "モンスターの生態が記された貴重なカード。";
-            }
-        });
-
-        // 1. メモリ上のカタログと各名簿を更新
-        ITEM_CATALOG = formattedCatalog;
-        EQUIP_NAMES = newEquipNames;
-        CONSUME_NAMES = newConsumeNames;
-        ETC_NAMES = newEtcNames;
-        ITEM_NAMES_CARD = newCardNames; 
-
-        itemCategories = newItemCategories;
-        ITEM_IMAGES = newItemImages;
-        ITEM_DESCRIPTIONS = newItemDescriptions;
-
-        SERVER_ITEM_NAMES = {
-            ...EQUIP_NAMES,
-            ...CONSUME_NAMES,
-            ...ETC_NAMES,
-            ...newCardNames
-        };
-
-        // --- 🌟 ITEM_NAMES 形式を動的に生成 ---
-        const nextItemNames = {};
-        Object.entries(SERVER_ITEM_NAMES).forEach(([key, disp]) => {
-            nextItemNames[key] = {
-                disp: disp,
-                type: itemCategories[key] || "ETC"
-            };
-        });
-        ITEM_NAMES = nextItemNames;
-
-        // --- 🌟 STATIC_ITEMS 形式を動的に生成（isAnimated: false） ---
-        STATIC_ITEMS = Object.fromEntries(
-            Object.entries(ITEM_NAMES).map(([key, info]) => [
-                key,
-                {
-                    type: info.type,
-                    name: key,
-                    display_name: info.disp,
-                    src: ITEM_IMAGES[key], 
-                    isAnimated: false
-                }
-            ])
-        );
-
-        // --- 🌟 🎬 アニメーション項目の定義 ---
-        const ANIMATED_ITEMS = {
-            "medal1":     { "type": "ETC", "name": "medal1", "display_name": "メダル1", "src": "item_assets/GoldOne_", "isAnimated": true },
-            "money5":     { "type": "ETC", "name": "money5", "display_name": "金メダル1", "src": "item_assets/Gold_", "isAnimated": true },
-            "money6":     { "type": "ETC", "name": "money6", "display_name": "銀メダル1", "src": "item_assets/Silver_", "isAnimated": true },
-            "normal_gold":   { "type": "ETC", "name": "normal_gold", "display_name": "ふつうのお金", "src": "item_assets/GoldOne_", "isAnimated": true },
-            "gold_heart": { "type": "ETC", "name": "gold_heart", "display_name": "ハートメダル(金)1", "src": "item_assets/GoldHeart_", "isAnimated": true },
-        };
-
-        // --- 🌟 📦 送信用に合体させる ---
-        ITEM_CONFIG = { ...ANIMATED_ITEMS, ...STATIC_ITEMS };
-
-        // --- 🛡️ 描画側 (sprites.items) への流し込み（修正版） ---
-        if (typeof sprites !== 'undefined' && sprites.items) {
-            Object.keys(ITEM_CONFIG).forEach(key => {
-                const data = ITEM_CONFIG[key];
-                if (!sprites.items[key]) {
-                    const img = new Image();
-                    img.src = data.src;
-                    
-                    if (data.isAnimated) {
-                        // アニメーションアイテムは従来通り配列として保持
-                        sprites.items[key] = [img]; 
-                    } else {
-                        // 🌟 通常アイテム・モンスターカードは「単体 Image オブジェクト」として登録！
-                        sprites.items[key] = img; 
-                    }
-                }
-            });
-        }
-
-        // 2. 合計ステータスの計算を実行
-        const targetKeys = ['str', 'dex', 'int', 'luk', 'maxHp', 'maxMp', 'atk', 'matk', 'def'];
-
-        Object.keys(ITEM_CATALOG).forEach(id => {
-            const item = ITEM_CATALOG[id];
-            
-            if (item.mainCategory === 'EQUIP') {
-                const sum = targetKeys.reduce((acc, key) => {
-                    let val = (item[key] || 0);
-                    if (key === 'maxHp' || key === 'maxMp') {
-                        val = val / 10;
-                    }
-                    return acc + val;
-                }, 0);
-                
-                item.totalFirstStats = sum;
-            } else {
-                item.totalFirstStats = 0;
-            }
-        });
-
-        console.log("✅ ITEM_CATALOG, ITEM_NAMES, STATIC_ITEMS, ITEM_CONFIG の同期が完了しました");
-        console.log(`現在の画像パス登録数: ${Object.keys(ITEM_IMAGES).length}件`);
-        console.log(`現在の設定(ITEM_CONFIG)登録数: ${Object.keys(ITEM_CONFIG).length}件`);
-        
-    } catch (err) {
-        console.error("❌ アイテムカタログの取得に失敗:", err);
-        throw err;
-    }
-}
-
-
-// ============================================================
-// :::DRAW_ITEMS::: 💎 フィールド上のドロップアイテム描画 (明るいカード風版)
-// ============================================================
+/**
+ * 役割：
+ * - アニメーション：Sine波による浮遊演出とアイテム固有の回転管理
+ * - 描画パイプライン：
+ * 1. 安全確認(isImageSafe)：画像ロード完了チェックによるクラッシュ防止
+ * 2. レアリティ判定：ステータスボーナスに基づいた発光色の決定
+ * 3. レンダリング：二重グロー(shadowBlur)を用いた豪華なエフェクト
+ * - セーフティ：画像未ロード時のフォールバック（金色の矩形描画）
+ */
 function drawItems(items, frame) {
     if (!items || !Array.isArray(items)) return;
 
@@ -7067,11 +6658,6 @@ function drawItems(items, frame) {
         if (item.isPickedUp) return; 
 
         ctx.save();
-        
-        // 🔍 【最強デバッグ行】アイテムが描画される直前の全情報を暴く
-        const rawCfg = ITEM_CONFIG[item.type];
-        const sp = sprites.items && sprites.items[item.type];
-        console.log(`[DEBUG ITEM] type:"${item.type}" | name:"${item.name}" | Config有:${!!rawCfg} | Sprite有:${!!sp} | 完了:${sp ? sp.complete : false} | 幅:${sp ? sp.naturalWidth : 'N/A'}`);
 
         // 1. 浮遊アニメーション
         const offset = item.id || (item.x + item.y);
@@ -7096,20 +6682,12 @@ function drawItems(items, frame) {
             ctx.rotate(0);
         }
 
-        // 🌟 【完全防御】ITEM_CONFIGに登録がなくても絶対にエラーにさせない
-        const rawConfig = ITEM_CONFIG[item.type];
-        const config = rawConfig || { 
-            name: item.type, 
-            display_name: item.name || "不明なアイテム", 
-            src: "", 
-            isAnimated: false 
-        };
-
+        const config = ITEM_CONFIG[item.type] || ITEM_CONFIG["money1"]; 
         let img = null;
-        if (typeof sprites !== 'undefined' && sprites.items && config.name && sprites.items[config.name]) {
-            img = config.isAnimated && Array.isArray(sprites.items[config.name])
-                    ? sprites.items[config.name][Math.floor((frame + (offset * 10)) / 10) % 10] 
-                    : sprites.items[config.name];
+        if (typeof sprites !== 'undefined' && sprites.items && sprites.items[config.name]) {
+            img = config.isAnimated 
+                  ? sprites.items[config.name][Math.floor((frame + (offset * 10)) / 10) % 10] 
+                  : sprites.items[config.name];
         }
 
         // 🌟 【修正】一時的なロード中や404確定前の壊れた状態(broken)を完全に遮断する安全ガード
@@ -7120,105 +6698,58 @@ function drawItems(items, frame) {
                             img.naturalHeight > 0;
 
         if (isImageSafe) {
-            // 🌟 モンスターカードかどうかの判定
-            const isMonsterCard = item.cardId || (item.type && item.type.toLowerCase().startsWith('monster'));
-
-            if (isMonsterCard) {
-                // --- 🃏 明るいアイボリー＆ブラウン系のカード風レンダリング ---
-                ctx.imageSmoothingEnabled = true;
-
-                const cardW = drawSize * 0.75;
-                const cardH = drawSize * 0.95;
-
-                const cardX = -cardW / 2;
-                const cardY = -cardH / 2;
-
-                // 1. カード背景（温かみのある白・アイボリー系のグラデーション）
-                const cardGrad = ctx.createLinearGradient(cardX, cardY, cardX, cardY + cardH);
-                cardGrad.addColorStop(0.0, "#fffaf0"); // 上部は明るいホワイトアイボリー
-                cardGrad.addColorStop(1.0, "#e8dccc"); // 下部は優しいベージュ・ブラウン
-
-                ctx.fillStyle = cardGrad;
-                ctx.fillRect(cardX, cardY, cardW, cardH);
-
-                // 2. モンスター画像を限界まで大きく描画
-                const innerSize = cardW * 1.35; 
-                ctx.drawImage(img, -innerSize / 2, -innerSize / 2 - 2, innerSize, innerSize);
-
-                // 3. 上部のヘッダー帯（落ち着いたキャメルブラウンの帯）
-                const headerH = cardH * 0.18;
-                ctx.fillStyle = "#b89778"; 
-                ctx.fillRect(cardX, cardY, cardW, headerH);
-
-                // 4. 外枠のフレーム（引き締まりつつ優しいブラウンの枠線）
-                ctx.strokeStyle = "#8c6747"; 
-                ctx.lineWidth = 1.5;
-                ctx.strokeRect(cardX, cardY, cardW, cardH);
-
-                // 内側の細いハイライト線
-                ctx.strokeStyle = "rgba(255, 255, 255, 0.6)";
-                ctx.lineWidth = 0.8;
-                ctx.strokeRect(cardX + 1.5, cardY + 1.5, cardW - 3, cardH - 3);
-
-                ctx.imageSmoothingEnabled = false;
-            } else {
-                // --- 通常アイテムの描画処理 ---
-                const targetHeight = drawSize;
-                const targetWidth = targetHeight * (img.naturalWidth / img.naturalHeight);
+            const targetHeight = drawSize;
+            const targetWidth = targetHeight * (img.naturalWidth / img.naturalHeight);
+            
+            // --- 🌟 B. レア度に応じたグローカラーの判定 ---
+            let glowColor = null;
+            if ((item.type === 'sword' || item.type === 'shield') && 
+                item.totalALLStats !== undefined && 
+                item.totalFirstStats !== undefined) {
                 
-                let glowColor = null;
-                if ((item.type === 'sword' || item.type === 'shield') && 
-                    item.totalALLStats !== undefined && 
-                    item.totalFirstStats !== undefined) {
-                    
-                    const bonus = item.totalALLStats - item.totalFirstStats;
-                    
-                    if (bonus >= 30) {
-                        glowColor = "#ff0000"; 
-                    } else if (bonus >= 25) {
-                        glowColor = "#00ff00"; 
-                    } else if (bonus >= 20) {
-                        glowColor = "#ffff00"; 
-                    } else if (bonus >= 15) {
-                        glowColor = "#ff00ff"; 
-                    } else if (bonus >= 10) {
-                        glowColor = "#00ccff"; 
-                    }
+                const bonus = item.totalALLStats - item.totalFirstStats;
+                
+                // 10(青)以上のみグロー用の色を割り当てる
+                if (bonus >= 30) {
+                    glowColor = "#ff0000"; // 赤（神級）
+                } else if (bonus >= 25) {
+                    glowColor = "#00ff00"; // 緑（超伝説）
+                } else if (bonus >= 20) {
+                    glowColor = "#ffff00"; // 黄（極上）
+                } else if (bonus >= 15) {
+                    glowColor = "#ff00ff"; // 紫（伝説）
+                } else if (bonus >= 10) {
+                    glowColor = "#00ccff"; // 青（希少）
                 }
-
-                ctx.imageSmoothingEnabled = true;
-
-                if (glowColor) {
-                    ctx.save();
-                    ctx.shadowBlur = 20; 
-                    ctx.shadowColor = glowColor;
-                    ctx.shadowOffsetX = 0;
-                    ctx.shadowOffsetY = 0;
-                    ctx.drawImage(img, -targetWidth / 2, -targetHeight / 2, targetWidth, targetHeight);
-                    
-                    ctx.shadowBlur = 5;
-                    ctx.drawImage(img, -targetWidth / 2, -targetHeight / 2, targetWidth, targetHeight);
-                    ctx.restore();
-                } else {
-                    ctx.drawImage(img, -targetWidth / 2, -targetHeight / 2, targetWidth, targetHeight);
-                }
-
-                ctx.imageSmoothingEnabled = false;
             }
+
+            // --- 描画実行 ---
+            ctx.imageSmoothingEnabled = true;
+
+            if (glowColor) {
+                // 🌟 修正ポイント：二重描画で発光を強化
+                // 1回目：広範囲の柔らかな光
+                ctx.save();
+                ctx.shadowBlur = 20; 
+                ctx.shadowColor = glowColor;
+                ctx.shadowOffsetX = 0;
+                ctx.shadowOffsetY = 0;
+                ctx.drawImage(img, -targetWidth / 2, -targetHeight / 2, targetWidth, targetHeight);
+                
+                // 2回目：芯の強い光（重ね描き）
+                ctx.shadowBlur = 5;
+                ctx.drawImage(img, -targetWidth / 2, -targetHeight / 2, targetWidth, targetHeight);
+                ctx.restore();
+            } else {
+                // 通常アイテム（グローなし）
+                // 🛑 3重の防壁(isImageSafe)を通過した画像のみがここを走るため、エラーは100%発生しなくなります
+                ctx.drawImage(img, -targetWidth / 2, -targetHeight / 2, targetWidth, targetHeight);
+            }
+
+            ctx.imageSmoothingEnabled = false;
         } else {
-            // 💡 フォールバック（黄色い四角）
-            if (item.type && (item.type.toLowerCase().includes('monster') || item.cardId)) {
-                console.warn(`⚠️ [Item Fallback Debug] アイテム '${item.type}' (名前: ${item.name}) が黄色い四角で描画されました。`, {
-                    configExists: !!rawConfig,
-                    configSrc: config.src,
-                    imgExists: !!img,
-                    imgComplete: img ? img.complete : 'N/A',
-                    imgSrc: img ? img.src : 'N/A',
-                    naturalWidth: img ? img.naturalWidth : 'N/A',
-                    naturalHeight: img ? img.naturalHeight : 'N/A'
-                });
-            }
-
+            // 💡 読み込みが未完了、または404エラー等で画像が壊れている場合のセーフティ(ゲーム停止防止)
+            // メイプルストーリーのメルやアイテムドロップの雰囲気を損なわないよう、小さな可愛い金色の矩形を代用描画します
             ctx.fillStyle = "#ffd700";
             ctx.fillRect(-8, -8, 16, 16);
         }
@@ -7228,8 +6759,15 @@ function drawItems(items, frame) {
 }
 
 // ============================================================
-// :::DRAW_INVENTORY_GRID::: 🎒 インベントリグリッドの描画管理（視認性＆質感向上版）
+// :::DRAW_INVENTORY_GRID::: 🎒 インベントリグリッドの描画管理
 // ============================================================
+/**
+ * 役割：
+ * - グリッド描画：インベントリスロット（背景・枠）の生成
+ * - 画像管理：itemImages または config.src からの動的な画像読み込みと安全確認
+ * - 演出管理：アイテムの統計値に基づいたレア度判定と、二重グロー効果(shadowBlur)による強調
+ * - 個数表示：ETC/USEアイテムのスタック数テキスト描画（縁取り付き）
+ */
 function drawInventoryGrid(ctx, inventory) {
     if (!ctx || !inventory) return;
 
@@ -7245,35 +6783,12 @@ function drawInventoryGrid(ctx, inventory) {
         const x = startX + (slotSize + padding) * i;
         const y = startY;
 
-        // ==========================================
-        // 🌟 1. スロット背景＆枠の描画（視認性向上のリッチ装飾）
-        // ==========================================
-        ctx.save();
-        
-        // スロット背景（真っ黒ではなく、少し青みのある上質なダークカラーに変更して視認性をアップ）
-        ctx.fillStyle = "rgba(20, 25, 35, 0.75)";
-        ctx.strokeStyle = "rgba(255, 255, 255, 0.5)";
-        ctx.lineWidth = 1.5;
-
-        if (ctx.roundRect) {
-            ctx.beginPath();
-            ctx.roundRect(x, y, slotSize, slotSize, 4); // ちょっぴり角丸にして今風に
-            ctx.fill();
-            ctx.stroke();
-        } else {
-            ctx.fillRect(x, y, slotSize, slotSize);
-            ctx.strokeRect(x, y, slotSize, slotSize);
-        }
-
-        // スロット内側のインナーシャドウ（上部に薄いハイライトを添えて立体感を演出）
-        ctx.strokeStyle = "rgba(255, 255, 255, 0.15)";
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.moveTo(x + 3, y + 2);
-        ctx.lineTo(x + slotSize - 3, y + 2);
-        ctx.stroke();
-
-        ctx.restore();
+        // 枠の描画（背景スロット）
+        ctx.strokeStyle = "rgba(255, 255, 255, 0.8)";
+        ctx.lineWidth = 2;
+        ctx.fillStyle = "rgba(0, 0, 0, 0.4)";
+        ctx.fillRect(x, y, slotSize, slotSize);
+        ctx.strokeRect(x, y, slotSize, slotSize);
 
         const itemData = inventory[i];
         
@@ -7296,7 +6811,7 @@ function drawInventoryGrid(ctx, inventory) {
 
             const config = ITEM_CONFIG[type];
             if (config) {
-                // 🌟 最優先で imglive.net 固定でロード済みの itemImages から直接画像を取得
+                // 🌟 【修正】最優先で imglive.net 固定でロード済みの itemImages から直接画像を取得
                 let displayImg = null;
                 if (typeof itemImages !== 'undefined' && itemImages[type]) {
                     displayImg = itemImages[type];
@@ -7304,14 +6819,15 @@ function drawInventoryGrid(ctx, inventory) {
                     displayImg = config.isAnimated ? (config.images ? config.images[0] : null) : config.image;
                 }
 
-                // フォールバック（予備ルート）
+                // フォールバック（予備ルート）：もしロード済みになく、srcから動的生成する場合
                 if (!displayImg && config.src) {
                     if (!config._tempImg) {
                         config._tempImg = new Image();
-                        config._tempImg.crossOrigin = "anonymous";
+                        config._tempImg.crossOrigin = "anonymous"; // 🌟 CORS・グロー効果エラー対策
                         
                         let baseSrc = config.src;
                         if (typeof IMAGE_DOMAIN !== 'undefined' && IMAGE_DOMAIN !== "") {
+                            // スラッシュの重複を防ぐクリーニング
                             if (baseSrc.startsWith('/') && IMAGE_DOMAIN.endsWith('/')) {
                                 baseSrc = baseSrc.substring(1);
                             }
@@ -7322,7 +6838,7 @@ function drawInventoryGrid(ctx, inventory) {
                     displayImg = config._tempImg;
                 }
 
-                // 描画実行
+                // 描画実行（安全ガードを含める）
                 if (displayImg && displayImg.complete && typeof displayImg.naturalWidth === 'number' && displayImg.naturalWidth > 0) {
                     const m = 5;
                     const imgX = x + m;
@@ -7347,70 +6863,35 @@ function drawInventoryGrid(ctx, inventory) {
                     }
 
                     ctx.save();
-                    // 🌟 アイテムに対して強烈なグロー（発光）を適用
+                    // 🌟 画像に対して強烈なグロー（発光）を適用
                     if (glowColor) {
+                        // 【強化描画 1回目】広範囲に光を拡散させる
                         ctx.shadowBlur = 20; 
                         ctx.shadowColor = glowColor;
                         ctx.shadowOffsetX = 0;
                         ctx.shadowOffsetY = 0;
                         ctx.drawImage(displayImg, imgX, imgY, imgW, imgH);
 
+                        // 【強化描画 2回目】中心の色を濃く、さらに発光を重ねる
                         ctx.shadowBlur = 5;
                         ctx.drawImage(displayImg, imgX, imgY, imgW, imgH);
                     } else {
-                        // 通常アイテムでもわずかに影を落として背景から浮かせる
-                        ctx.shadowBlur = 3;
-                        ctx.shadowColor = "rgba(0, 0, 0, 0.8)";
+                        // 通常アイテム
                         ctx.drawImage(displayImg, imgX, imgY, imgW, imgH);
                     }
                     ctx.restore();
                     
-                    // 🌟 個数表示（プロのMMO風カプセルバッジ仕様）
+                    // 個数表示
                     const isStackItem = (category === 'ETC' || category === 'USE');
                     if ((isStackItem && count >= 1) || count > 1) {
-                        ctx.save();
-                        
-                        let countStr = String(count);
-                        let fontSize = countStr.length >= 4 ? 9 : (countStr.length === 3 ? 10 : 11);
-                        ctx.font = `bold ${fontSize}px 'Segoe UI', sans-serif`;
+                        ctx.save(); 
+                        ctx.fillStyle = "white";
+                        ctx.strokeStyle = "black";
+                        ctx.lineWidth = 2;
+                        ctx.font = "bold 14px Arial";
                         ctx.textAlign = "right";
-                        ctx.textBaseline = "middle";
-
-                        let metrics = ctx.measureText(countStr);
-                        let badgeTextW = metrics.width;
-                        let padX = 5;
-                        let badgeW = Math.max(18, badgeTextW + padX * 2);
-                        let badgeH = 15;
-                        
-                        let badgeX = (x + slotSize) - badgeW - 2;
-                        let badgeY = (y + slotSize) - badgeH - 2;
-                        let radius = 3.5;
-
-                        // バッジの背景
-                        ctx.shadowColor = "rgba(0, 0, 0, 0.4)";
-                        ctx.shadowBlur = 3;
-                        ctx.shadowOffsetY = 1;
-
-                        ctx.fillStyle = "rgba(10, 15, 25, 0.85)";
-                        ctx.strokeStyle = "rgba(100, 116, 139, 0.6)";
-                        ctx.lineWidth = 1;
-
-                        ctx.beginPath();
-                        if (ctx.roundRect) {
-                            ctx.roundRect(badgeX, badgeY, badgeW, badgeH, radius);
-                        } else {
-                            ctx.rect(badgeX, badgeY, badgeW, badgeH);
-                        }
-                        ctx.fill();
-                        ctx.stroke();
-
-                        ctx.shadowBlur = 0;
-                        ctx.shadowOffsetY = 0;
-
-                        // 数値テキスト描画
-                        ctx.fillStyle = "#ffffff";
-                        ctx.fillText(countStr, badgeX + badgeW - padX, badgeY + badgeH / 2 + 0.5);
-
+                        ctx.strokeText(count, x + slotSize - 3, y + slotSize - 3);
+                        ctx.fillText(count, x + slotSize - 3, y + slotSize - 3);
                         ctx.restore();
                     }
                 }
@@ -7666,7 +7147,7 @@ function drawBagTabs() {
 }
 
 /**
- * 🎒 バッグ専用：アイテムグリッドを描画する関数（スクロール対応・30スロット＆質感向上プロ風デザイン・所持金UI統合版）
+ * 🎒 バッグ専用：アイテムグリッドを描画する関数（スクロール対応・30スロット＆プロ風デザイン・画像＆ツールチップ完全連動版 ＋ 所持金UI統合）
  */
 function drawBagGrid() {
     if (typeof ctx === 'undefined') return;
@@ -7723,38 +7204,16 @@ function drawBagGrid() {
         let x = startX + col * (slotSize + spacing);
         let y = startY + row * (slotSize + spacing);
 
-        // 🌟 マウスがこのスロットに乗っているか判定（ツールチップ用などに保持）
+        // 🌟 マウスがこのスロットに乗っているか判定
         let isHovered = (!window.isDisconnected && mX >= x && mX <= x + slotSize && mY >= y && mY <= y + slotSize);
 
-        // ==========================================
-        // 🌟 1. スロット背景＆枠の描画（常にオンマウス状態の色に固定）
-        // ==========================================
-        ctx.save();
+        // 1. プロ風スロットの背景枠を描画（モダン・ダーク仕様）
+        ctx.fillStyle = isHovered ? "rgba(30, 41, 59, 0.95)" : "rgba(15, 23, 42, 0.9)"; // 上質なダークネイビー
+        ctx.fillRect(x, y, slotSize, slotSize);
         
-        // 常にオンマウス時と同じ明るめのカラーを採用
-        ctx.fillStyle = "rgba(30, 38, 52, 0.9)";
-        ctx.strokeStyle = "rgba(255, 255, 255, 0.8)";
-        ctx.lineWidth = 1.5;
-
-        if (ctx.roundRect) {
-            ctx.beginPath();
-            ctx.roundRect(x, y, slotSize, slotSize, 4); // 角丸で今風に
-            ctx.fill();
-            ctx.stroke();
-        } else {
-            ctx.fillRect(x, y, slotSize, slotSize);
-            ctx.strokeRect(x, y, slotSize, slotSize);
-        }
-
-        // スロット内側のインナーシャドウ（上部に薄いハイライトを添えて立体感を演出）
-        ctx.strokeStyle = "rgba(255, 255, 255, 0.15)";
+        ctx.strokeStyle = isHovered ? "#475569" : "rgba(51, 65, 85, 0.8)"; // 洗練されたボーダー
         ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.moveTo(x + 3, y + 2);
-        ctx.lineTo(x + slotSize - 3, y + 2);
-        ctx.stroke();
-
-        ctx.restore();
+        ctx.strokeRect(x, y, slotSize, slotSize);
 
         // 2. アイテムがあれば中身を描画
         if (item && item.type) {
@@ -7777,6 +7236,10 @@ function drawBagGrid() {
                 }
 
                 if (!isDuplicateETC) {
+                    // アイテム存在時のセル内ハイライト
+                    ctx.fillStyle = isHovered ? "rgba(51, 65, 85, 0.5)" : "rgba(30, 41, 59, 0.4)";
+                    ctx.fillRect(x + 2, y + 2, slotSize - 4, slotSize - 4);
+
                     // 🌟 画像の取得ロジック
                     let displayImg = null;
                     if (item.image) {
@@ -7804,8 +7267,8 @@ function drawBagGrid() {
                         }
                     }
 
-                    // 画像の描画（リッチなグロー効果対応）
-                    if (displayImg && displayImg.complete && typeof displayImg.naturalWidth === 'number' && displayImg.naturalWidth > 0) {
+                    // 画像の描画（グロー効果対応）
+                    if (displayImg && typeof displayImg.naturalWidth === 'number' && displayImg.naturalWidth > 0) {
                         let m = 5;
                         let imgX = x + m;
                         let imgY = y + m;
@@ -7818,27 +7281,24 @@ function drawBagGrid() {
                             item.totalFirstStats !== undefined) {
                             
                             let bonus = item.totalALLStats - item.totalFirstStats;
-                            if (bonus >= 30) glowColor = "#ff0000";      // 神級
-                            else if (bonus >= 25) glowColor = "#00ff00"; // 超伝説
-                            else if (bonus >= 20) glowColor = "#ffff00"; // 極上
-                            else if (bonus >= 15) glowColor = "#ff00ff"; // 伝説
-                            else if (bonus >= 10) glowColor = "#00ccff"; // 希少
+                            if (bonus >= 30) glowColor = "#f87171";      // 神級 (ソフトレッド)
+                            else if (bonus >= 25) glowColor = "#34d399"; // 超伝説 (エメラルド)
+                            else if (bonus >= 20) glowColor = "#fbbf24"; // 極上 (ゴールド)
+                            else if (bonus >= 15) glowColor = "#c084fc"; // 伝説 (パープル)
+                            else if (bonus >= 10) glowColor = "#60a5fa"; // 希少 (ブルー)
                         }
 
                         ctx.save();
                         if (glowColor) {
-                            ctx.shadowBlur = 20; 
+                            ctx.shadowBlur = 15; 
                             ctx.shadowColor = glowColor;
                             ctx.shadowOffsetX = 0;
                             ctx.shadowOffsetY = 0;
                             ctx.drawImage(displayImg, imgX, imgY, imgW, imgH);
 
-                            ctx.shadowBlur = 5;
+                            ctx.shadowBlur = 4;
                             ctx.drawImage(displayImg, imgX, imgY, imgW, imgH);
                         } else {
-                            // 通常アイテムでもわずかに影を落として背景から浮かせる
-                            ctx.shadowBlur = 3;
-                            ctx.shadowColor = "rgba(0, 0, 0, 0.8)";
                             ctx.drawImage(displayImg, imgX, imgY, imgW, imgH);
                         }
                         ctx.restore();
@@ -7849,82 +7309,31 @@ function drawBagGrid() {
                         ctx.fillText(displayName.substring(0, 3), x + 4, y + 22);
                     }
 
-                    // 🌟 装備中（isEquipped === true）ならプロ風の「E」ミニバッジを描画！
+                    // 🌟 装備中（isEquipped === true）なら [E] を描画！
                     if (item.isEquipped) {
                         ctx.save();
-                        
-                        const badgeW = 16;
-                        const badgeH = 15;
-                        const badgeX = x + slotSize - badgeW - 2;
-                        const badgeY = y + 2;
-                        const radius = 3;
-
-                        ctx.fillStyle = 'rgba(10, 15, 25, 0.85)';
-                        ctx.strokeStyle = '#34d399'; 
-                        ctx.lineWidth = 1;
-
-                        ctx.beginPath();
-                        if (ctx.roundRect) {
-                            ctx.roundRect(badgeX, badgeY, badgeW, badgeH, radius);
-                        } else {
-                            ctx.rect(badgeX, badgeY, badgeW, badgeH);
-                        }
-                        ctx.fill();
-                        ctx.stroke();
-
-                        ctx.font = 'bold 10px "Segoe UI", sans-serif';
-                        ctx.fillStyle = '#34d399';
-                        ctx.textAlign = 'center';
-                        ctx.textBaseline = 'middle';
-                        ctx.fillText('E', badgeX + badgeW / 2, badgeY + badgeH / 2 + 0.5);
-                        
+                        ctx.font = 'bold 11px "Segoe UI", sans-serif';
+                        ctx.fillStyle = '#34d399'; // 鮮やかなエメラルドグリーン
+                        ctx.textAlign = 'right';
+                        ctx.textBaseline = 'top';
+                        ctx.fillText('[E]', x + slotSize - 3, y + 3);
                         ctx.restore();
                     }
 
-                    // 個数表示（プロのMMO風カプセルバッジ仕様）
+                    // 個数表示
                     const isStackItem = (category === 'ETC' || category === 'USE');
                     if ((isStackItem && count >= 1) || count > 1) {
                         ctx.save();
+                        ctx.fillStyle = "#ffffff";
+                        ctx.strokeStyle = "#0f172a";
+                        ctx.lineWidth = 2.5;
                         
                         let countStr = String(count);
-                        let fontSize = countStr.length >= 4 ? 9 : (countStr.length === 3 ? 10 : 11);
-                        ctx.font = `bold ${fontSize}px 'Segoe UI', sans-serif`;
-                        ctx.textAlign = "right";
-                        ctx.textBaseline = "middle";
-
-                        let metrics = ctx.measureText(countStr);
-                        let badgeTextW = metrics.width;
-                        let padX = 5;
-                        let badgeW = Math.max(18, badgeTextW + padX * 2);
-                        let badgeH = 15;
+                        ctx.font = countStr.length >= 3 ? "bold 10px 'Segoe UI', sans-serif" : "bold 12px 'Segoe UI', sans-serif";
                         
-                        let badgeX = (x + slotSize) - badgeW - 2;
-                        let badgeY = (y + slotSize) - badgeH - 2;
-                        let radius = 3.5;
-
-                        ctx.shadowColor = "rgba(0, 0, 0, 0.4)";
-                        ctx.shadowBlur = 3;
-                        ctx.shadowOffsetY = 1;
-
-                        ctx.fillStyle = "rgba(10, 15, 25, 0.85)";
-                        ctx.strokeStyle = "rgba(100, 116, 139, 0.6)";
-                        ctx.lineWidth = 1;
-
-                        ctx.beginPath();
-                        if (ctx.roundRect) {
-                            ctx.roundRect(badgeX, badgeY, badgeW, badgeH, radius);
-                        } else {
-                            ctx.rect(badgeX, badgeY, badgeW, badgeH);
-                        }
-                        ctx.fill();
-                        ctx.stroke();
-
-                        ctx.shadowBlur = 0;
-                        ctx.shadowOffsetY = 0;
-
-                        ctx.fillStyle = "#ffffff";
-                        ctx.fillText(countStr, badgeX + badgeW - padX, badgeY + badgeH / 2 + 0.5);
-
+                        ctx.textAlign = "right";
+                        ctx.strokeText(count, x + slotSize - 3, y + slotSize - 3);
+                        ctx.fillText(count, x + slotSize - 3, y + slotSize - 3);
                         ctx.restore();
                     }
 
@@ -7945,12 +7354,14 @@ function drawBagGrid() {
     let scrollBarW = 8;
     let scrollBarH = maxVisibleRows * (slotSize + spacing) - spacing; 
 
+    // バーの背景（溝）
     ctx.fillStyle = "rgba(15, 23, 42, 0.8)";
     ctx.fillRect(scrollBarX, scrollBarY, scrollBarW, scrollBarH);
     ctx.strokeStyle = "rgba(51, 65, 85, 0.6)";
     ctx.lineWidth = 1;
     ctx.strokeRect(scrollBarX, scrollBarY, scrollBarW, scrollBarH);
 
+    // ツマミ（ノブ）の大きさと位置を計算
     let maxScrollRow = 4; 
     let knobH = Math.max(20, scrollBarH / (maxScrollRow + 1)); 
     let availableMove = scrollBarH - knobH; 
@@ -7961,6 +7372,7 @@ function drawBagGrid() {
         knobY += scrollRatio * availableMove;
     }
 
+    // ツマミの描画
     ctx.fillStyle = "#475569";
     ctx.fillRect(scrollBarX + 1, knobY, scrollBarW - 2, knobH);
     ctx.strokeStyle = "#64748b";
@@ -7973,12 +7385,13 @@ function drawBagGrid() {
         const goldBarW = 215; 
         const goldBarH = 28;  
         const goldDrawX = bagX + 20;
-        const goldDrawY = startY + maxVisibleRows * (slotSize + spacing) + 0; 
+        const goldDrawY = startY + maxVisibleRows * (slotSize + spacing) + 8; 
         const radius = 6;
 
+        // 背景枠（モダン・ダークグラデーション ＆ 角丸）
         const bgGrad = ctx.createLinearGradient(goldDrawX, goldDrawY, goldDrawX, goldDrawY + goldBarH);
         bgGrad.addColorStop(0, "rgba(30, 41, 59, 0.95)"); 
-        bgGrad.addColorStop(1, "rgba(15, 23, 42, 0.95)");    
+        bgGrad.addColorStop(1, "rgba(15, 23, 42, 0.95)");     
         
         ctx.fillStyle = bgGrad;
         ctx.strokeStyle = "rgba(51, 65, 85, 0.8)"; 
@@ -7998,6 +7411,7 @@ function drawBagGrid() {
         ctx.fill();
         ctx.stroke();
 
+        // 立体感のあるコインアイコン
         const iconX = goldDrawX + 16;
         const iconY = goldDrawY + goldBarH / 2;
         
@@ -8008,8 +7422,8 @@ function drawBagGrid() {
         ctx.beginPath();
         ctx.arc(iconX, iconY, 8.5, 0, Math.PI * 2);
         const coinGrad = ctx.createRadialGradient(iconX - 2, iconY - 2, 1.5, iconX, iconY, 8.5);
-        coinGrad.addColorStop(0, "#fef08a");
-        coinGrad.addColorStop(1, "#fbbf24");
+        coinGrad.addColorStop(0, "#fef08a"); // ソフトライトゴールド
+        coinGrad.addColorStop(1, "#fbbf24"); // リッチゴールド
         ctx.fillStyle = coinGrad;
         ctx.fill();
         
@@ -8020,12 +7434,14 @@ function drawBagGrid() {
         ctx.lineWidth = 1;
         ctx.stroke();
 
+        // "G" テキスト
         ctx.fillStyle = "#78350f";
         ctx.font = "bold 10px 'Segoe UI', sans-serif";
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
         ctx.fillText("G", iconX, iconY);
 
+        // 所持金テキスト（数値）
         ctx.font = "bold 14px 'Segoe UI', sans-serif"; 
         ctx.textAlign = "right";
         ctx.textBaseline = "middle";
@@ -8441,262 +7857,18 @@ function drawStatusWindow() {
 */
 
 // ============================================================
-// :::DRAW_EQUIPMENT_WINDOW::: 🛡️ 装備ウィンドウの描画管理（マウス追尾ポップアップ版）
+// :::DRAW_EQUIPMENT_WINDOW::: 🛡️ 装備ウィンドウの描画管理
 // ============================================================
-const EQUIPMENT_SLOTS = [
-    // 上段：メイン装備（剣・盾・マント）
-    { x: 14,  y: 44,  type: 'weapon',  label: '剣', name: '武器' },
-    { x: 62,  y: 44,  type: 'shield',  label: '盾', name: '盾' },
-    { x: 110, y: 44,  type: 'cape',    label: 'マ', name: 'マント' },
-    
-    // 下段：アクセサリー系（ペンダント・指輪・帯）
-    { x: 14,  y: 92,  type: 'pendant', label: 'ペ', name: 'ペンダント' },
-    { x: 62,  y: 92,  type: 'ring',    label: '指', name: '指輪' },
-    { x: 110, y: 92,  type: 'belt',    label: '帯', name: 'ベルト' }
-];
-
+/**
+ * 役割：
+ * - 開閉状態の判定：win.isOpen に基づき、描画の要否を判断
+ * - UI構築：装備ウィンドウのタイトルと外枠を `drawSimpleWindow` へ委譲
+ * - シンプルな橋渡し：司令塔である drawWindows と UI描画の橋渡し役
+ */
 function drawEquipmentWindow() {
     const win = gameWindows.equipment;
     if (!win.isOpen) return;
-
-    const targetCtx = typeof ctx !== 'undefined' ? ctx : (window.ctx || null);
-    if (!targetCtx) return;
-
-    const slotSize = 42;
-
-    // ウィンドウサイズ（幅 166px、高さ 148px）
-    if (!win.w) win.w = 166;
-    if (!win.h) win.h = 148;
-
-    // 1. メインウィンドウ背景
-    targetCtx.save();
-    let winGrad = targetCtx.createLinearGradient(win.x, win.y, win.x, win.y + win.h);
-    winGrad.addColorStop(0, "rgba(18, 24, 38, 0.95)");
-    winGrad.addColorStop(1, "rgba(10, 13, 20, 0.95)");
-    targetCtx.fillStyle = winGrad;
-    
-    if (targetCtx.roundRect) {
-        targetCtx.beginPath();
-        targetCtx.roundRect(win.x, win.y, win.w, win.h, 8);
-        targetCtx.fill();
-    } else {
-        targetCtx.fillRect(win.x, win.y, win.w, win.h);
-    }
-
-    targetCtx.strokeStyle = "rgba(255, 255, 255, 0.18)";
-    targetCtx.lineWidth = 1;
-    if (targetCtx.roundRect) {
-        targetCtx.beginPath();
-        targetCtx.roundRect(win.x, win.y, win.w, win.h, 8);
-        targetCtx.stroke();
-    } else {
-        targetCtx.strokeRect(win.x, win.y, win.w, win.h);
-    }
-    targetCtx.restore();
-
-    // ヘッダー部
-    const headerH = 28;
-    targetCtx.fillStyle = "rgba(30, 40, 60, 0.6)";
-    targetCtx.fillRect(win.x + 1, win.y + 1, win.w - 2, headerH);
-
-    targetCtx.fillStyle = "#f8fafc";
-    targetCtx.font = "bold 12px 'Segoe UI', sans-serif";
-    targetCtx.textAlign = "left";
-    targetCtx.textBaseline = "middle";
-    targetCtx.fillText("🛡️ EQUIPMENT", win.x + 12, win.y + headerH / 2);
-
-    // 閉じるボタン [X]
-    const closeBtnX = win.x + win.w - 22;
-    const closeBtnY = win.y + 5;
-    const closeBtnW = 18;
-    const closeBtnH = 18;
-    
-    targetCtx.fillStyle = win.isMouseOverClose(mouseX, mouseY) ? "#ef4444" : "rgba(255,255,255,0.1)";
-    if (targetCtx.roundRect) {
-        targetCtx.beginPath();
-        targetCtx.roundRect(closeBtnX, closeBtnY, closeBtnW, closeBtnH, 4);
-        targetCtx.fill();
-    } else {
-        targetCtx.fillRect(closeBtnX, closeBtnY, closeBtnW, closeBtnH);
-    }
-
-    targetCtx.fillStyle = "#ffffff";
-    targetCtx.font = "bold 10px sans-serif";
-    targetCtx.textAlign = "center";
-    targetCtx.textBaseline = "middle";
-    targetCtx.fillText("✕", closeBtnX + closeBtnW/2, closeBtnY + closeBtnH/2);
-
-    win.closeButtonArea = { x: closeBtnX, y: closeBtnY, w: closeBtnW, h: closeBtnH };
-
-    // ------------------------------------------------
-    // 2. スロット配置エリアのインナーパネル
-    // ------------------------------------------------
-    targetCtx.save();
-    targetCtx.translate(win.x, win.y);
-
-    targetCtx.fillStyle = "rgba(8, 11, 16, 0.6)";
-    targetCtx.strokeStyle = "rgba(255, 255, 255, 0.08)";
-    targetCtx.lineWidth = 1;
-    if (targetCtx.roundRect) {
-        targetCtx.beginPath();
-        targetCtx.roundRect(10, 38, win.w - 20, 98, 6);
-        targetCtx.fill();
-        targetCtx.stroke();
-    }
-
-    const heroEquips = (hero && hero.equipment) ? hero.equipment : {};
-    const hitAreas = [];
-
-    // ホバーされた未装備スロットのテキストを保持
-    let hoveredSlotName = null;
-
-    // レア度カラー算出関数
-    function getEquipGlowColor(item) {
-        if (!item) return null;
-        const statKeys = ['str', 'dex', 'int', 'luk', 'maxHp', 'maxMp', 'atk', 'matk', 'def'];
-        let totalFirst = item.totalFirstStats;
-        let totalAll = item.totalALLStats;
-
-        if (totalFirst === undefined && typeof ITEM_CATALOG !== 'undefined') {
-            const catItem = ITEM_CATALOG[item.id || item.item_id];
-            if (catItem) {
-                totalFirst = statKeys.reduce((acc, k) => acc + (Number(catItem[k]) || 0), 0);
-            }
-        }
-        if (totalAll === undefined) {
-            totalAll = statKeys.reduce((acc, k) => acc + (Number(item[k]) || 0), 0);
-        }
-
-        if (totalAll !== undefined && totalFirst !== undefined) {
-            const bonus = totalAll - totalFirst;
-            if (bonus >= 30) return "#ff4d4d";
-            if (bonus >= 25) return "#4ade80";
-            if (bonus >= 20) return "#facc15";
-            if (bonus >= 15) return "#e879f9";
-            if (bonus >= 10) return "#38bdf8";
-        }
-        return null;
-    }
-
-    EQUIPMENT_SLOTS.forEach(slot => {
-        const { x, y, type, label, name } = slot;
-
-        targetCtx.fillStyle = "rgba(20, 27, 40, 0.7)";
-        targetCtx.strokeStyle = "rgba(255, 255, 255, 0.2)";
-        targetCtx.lineWidth = 1;
-        
-        const isHover = mouseX >= win.x + x && mouseX <= win.x + x + slotSize &&
-                        mouseY >= win.y + y && mouseY <= win.y + y + slotSize;
-        
-        if (isHover) {
-            targetCtx.fillStyle = "rgba(255, 255, 255, 0.15)";
-            targetCtx.strokeStyle = "#fbbf24";
-            if (!heroEquips[type]) {
-                hoveredSlotName = name;
-            }
-        }
-
-        if (targetCtx.roundRect) {
-            targetCtx.beginPath();
-            targetCtx.roundRect(x, y, slotSize, slotSize, 5);
-            targetCtx.fill();
-            targetCtx.stroke();
-        } else {
-            targetCtx.fillRect(x, y, slotSize, slotSize);
-            targetCtx.strokeRect(x, y, slotSize, slotSize);
-        }
-
-        const itemType = heroEquips[type];
-        if (!itemType) {
-            targetCtx.fillStyle = "rgba(255, 255, 255, 0.35)";
-            targetCtx.font = "10px 'Segoe UI', sans-serif";
-            targetCtx.textAlign = "center";
-            targetCtx.textBaseline = "middle";
-            targetCtx.fillText(label, x + slotSize/2, y + slotSize/2);
-        } else {
-            let equippedItemData = null;
-            if (hero.inventory && Array.isArray(hero.inventory)) {
-                equippedItemData = hero.inventory.find(inv => 
-                    inv && inv.isEquipped && (inv.type === itemType || inv.slotType === type)
-                );
-            }
-
-            let img = (typeof itemImages !== 'undefined') ? itemImages[itemType] : null;
-
-            if (img && img.complete && img.naturalWidth > 0) {
-                const padding = 4;
-                const imgW = slotSize - padding * 2;
-                const imgH = slotSize - padding * 2;
-                
-                const glowCol = getEquipGlowColor(equippedItemData);
-
-                targetCtx.save();
-                if (glowCol) {
-                    targetCtx.shadowBlur = 10;
-                    targetCtx.shadowColor = glowCol;
-                    targetCtx.strokeStyle = glowCol;
-                    targetCtx.lineWidth = 2;
-                    if (targetCtx.roundRect) {
-                        targetCtx.beginPath();
-                        targetCtx.roundRect(x + 2, y + 2, slotSize - 4, slotSize - 4, 4);
-                        targetCtx.stroke();
-                    }
-                } else {
-                    targetCtx.shadowBlur = 3;
-                    targetCtx.shadowColor = "rgba(0,0,0,0.4)";
-                }
-
-                targetCtx.drawImage(img, x + padding, y + padding, imgW, imgH);
-                targetCtx.restore();
-            }
-        }
-
-        hitAreas.push({
-            type: 'equipmentSlot',
-            slotType: type,
-            x: win.x + x,
-            y: win.y + y,
-            w: slotSize,
-            h: slotSize
-        });
-    });
-
-    targetCtx.restore(); // 一度ウィンドウ内の平行移動を解除
-
-    // 3. マウスカーソル追尾型ポップアップの描画（ウィンドウ外にもはみ出せるよう全体座標で計算）
-    if (hoveredSlotName && typeof mouseX !== 'undefined' && typeof mouseY !== 'undefined') {
-        targetCtx.save();
-        targetCtx.font = "11px 'Segoe UI', sans-serif";
-        const textMetrics = targetCtx.measureText(hoveredSlotName);
-        const boxW = textMetrics.width + 12;
-        const boxH = 20;
-        
-        // カーソルの右下（少しオフセットした位置）に追尾
-        const boxX = mouseX + 12;
-        const boxY = mouseY + 12;
-
-        targetCtx.fillStyle = "rgba(12, 17, 28, 0.92)";
-        targetCtx.strokeStyle = "rgba(255, 255, 255, 0.25)";
-        targetCtx.lineWidth = 1;
-        
-        if (targetCtx.roundRect) {
-            targetCtx.beginPath();
-            targetCtx.roundRect(boxX, boxY, boxW, boxH, 4);
-            targetCtx.fill();
-            targetCtx.stroke();
-        } else {
-            targetCtx.fillRect(boxX, boxY, boxW, boxH);
-            targetCtx.strokeRect(boxX, boxY, boxW, boxH);
-        }
-
-        targetCtx.fillStyle = "#f8fafc";
-        targetCtx.textAlign = "center";
-        targetCtx.textBaseline = "middle";
-        targetCtx.fillText(hoveredSlotName, boxX + boxW / 2, boxY + boxH / 2);
-        targetCtx.restore();
-    }
-
-    win.slotHitAreas = hitAreas;
+    drawSimpleWindow("🛡️ Equipment", win.x, win.y, win.w, win.h);
 }
 
 /*
@@ -8733,89 +7905,10 @@ function drawQuestWindow() {
     drawSimpleWindow("❓ Quest", win.x, win.y, win.w, win.h);
 }
 
-// マップボタンの当たり判定やクリック処理用（必要に応じて別ファイルやイベントで参照してください）
-let worldMapButtons = [];
-
 function drawWorldMapWindow() {
     const win = gameWindows.worldmap;
     if (!win.isOpen) return;
-
-    // 1. ウィンドウ本体の描画
-    drawSimpleWindow("🗺️ World Map - エリア選択", win.x, win.y, win.w, win.h);
-
-    // 2. 12マップ分のグリッド設定 (4列 × 3行)
-    const cols = 4;
-    const rows = 3;
-    const startX = win.x + 35;
-    const startY = win.y + 65;
-    const btnWidth = 140;
-    const btnHeight = 92;
-    const gapX = 18;
-    const gapY = 16;
-
-    // クリック判定用に配列をリセット
-    worldMapButtons = [];
-
-    // マウス座標（グローバル変数 mouseX, mouseY がある前提。無い場合は適宜修正してください）
-    const mx = typeof mouseX !== 'undefined' ? mouseX : -1;
-    const my = typeof mouseY !== 'undefined' ? mouseY : -1;
-
-    ctx.save();
-    for (let i = 0; i < 12; i++) {
-        const col = i % cols;
-        const row = Math.floor(i / cols);
-        const bx = startX + col * (btnWidth + gapX);
-        const by = startY + row * (btnHeight + gapY);
-
-        // ホバー判定
-        const isHovered = mx >= bx && mx <= bx + btnWidth && my >= by && my <= by + btnHeight;
-
-        // ボタン情報を保持（クリック時のマップ移動などに使えます）
-        worldMapButtons.push({ mapId: i + 1, x: bx, y: by, w: btnWidth, h: btnHeight });
-
-        // 🌟 マップカードの背景グラデーション
-        const grad = ctx.createLinearGradient(bx, by, bx, by + btnHeight);
-        if (isHovered) {
-            grad.addColorStop(0, 'rgba(51, 65, 85, 0.95)');
-            grad.addColorStop(1, 'rgba(30, 41, 59, 0.95)');
-            ctx.strokeStyle = '#38bdf8'; // ホバー時はシアンに光る
-            ctx.lineWidth = 2;
-            ctx.shadowColor = 'rgba(56, 189, 248, 0.5)';
-            ctx.shadowBlur = 10;
-        } else {
-            grad.addColorStop(0, 'rgba(30, 41, 59, 0.85)');
-            grad.addColorStop(1, 'rgba(15, 23, 42, 0.95)');
-            ctx.strokeStyle = 'rgba(96, 165, 250, 0.3)';
-            ctx.lineWidth = 1;
-            ctx.shadowBlur = 0;
-        }
-
-        // カード本体の描画（角丸）
-        ctx.fillStyle = grad;
-        ctx.beginPath();
-        if (ctx.roundRect) {
-            ctx.roundRect(bx, by, btnWidth, btnHeight, 8);
-        } else {
-            ctx.rect(bx, by, btnWidth, btnHeight); // roundRect非対応ブラウザ用フォールバック
-        }
-        ctx.fill();
-        ctx.stroke();
-
-        ctx.shadowBlur = 0; // 影をリセット
-
-        // マップ名テキスト
-        ctx.fillStyle = isHovered ? '#ffffff' : '#93c5fd';
-        ctx.font = 'bold 15px sans-serif';
-        ctx.textAlign = 'center';
-        ctx.textBaseline = 'middle';
-        ctx.fillText(`マップ ${i + 1}`, bx + btnWidth / 2, by + btnHeight / 2 - 8);
-
-        // サブテキスト（難易度やステータス感の演出用）
-        ctx.fillStyle = '#64748b';
-        ctx.font = '11px sans-serif';
-        ctx.fillText(`Area 0${i + 1}`, bx + btnWidth / 2, by + btnHeight / 2 + 16);
-    }
-    ctx.restore();
+    drawSimpleWindow("🗺️ World Map", win.x, win.y, win.w, win.h);
 }
 
 function drawMiniMapWindow() {
@@ -8874,284 +7967,37 @@ function drawEventWindow() {
     drawSimpleWindow("🎁 Event", win.x, win.y, win.w, win.h);
 }
 
-// ============================================================
-// :::KEY_CONFIG_DATA::: ⌨️ キーコンフィグのデータと初期キーマップの定義
-// ============================================================
-let currentKeyConfig = {
-    status:      { label: 'ステータス',     key: 's', keyName: 'S' },
-    equipment:   { label: '装備',         key: 'e', keyName: 'E' },
-    inventory:   { label: 'インベントリ',   key: 'i', keyName: 'I' },
-    skill:       { label: 'スキル',       key: 'k', keyName: 'K' },
-    avatar:      { label: 'アバター',     key: 'a', keyName: 'A' },
-    upgrade:     { label: 'アップグレード', key: 'u', keyName: 'U' },
-    quest:       { label: 'クエスト',     key: 'q', keyName: 'Q' },
-    worldmap:    { label: 'ワールドマップ', key: 'w', keyName: 'W' },
-    minimap:     { label: 'ミニマップ',   key: 'm', keyName: 'M' },
-    journal:     { label: '日記',         key: 'j', keyName: 'J' },
-    book:        { label: 'ブック',       key: 'b', keyName: 'B' },
-    guild:       { label: 'ギルド',       key: 'g', keyName: 'G' },
-    friend:      { label: 'フレンドリスト', key: 'f', keyName: 'F' },
-    party:       { label: 'パーティ',     key: 'p', keyName: 'P' },
-    trade:       { label: 'トレード',     key: 't', keyName: 'T' },
-    log:         { label: 'ログ',         key: 'l', keyName: 'L' },
-    event:       { label: 'イベント',     key: 'n', keyName: 'N' },
-    options:     { label: 'オプション',   key: 'o', keyName: 'O' },
-    help:        { label: 'ヘルプ',       key: 'h', keyName: 'H' },
-    extra:       { label: 'エクストラ',   key: 'x', keyName: 'X' }
-};
-
-let waitingForKeyChange = null; 
-let isKeyConfigOpen = false;
-let optionsHitAreas = [];
-
-// 💡 確実に安全に keyMap を初期化・更新する関数
-function updateKeyMapFromConfig() {
-    // window.keyMap が未定義なら確実にオブジェクトとして生成
-    if (typeof window.keyMap !== 'object' || window.keyMap === null) {
-        window.keyMap = {};
-    } else {
-        // 既存のプロパティをクリア
-        for (const k in window.keyMap) {
-            delete window.keyMap[k];
-        }
-    }
-
-    // 再マッピング
-    for (const [actionKey, config] of Object.entries(currentKeyConfig)) {
-        if (config && config.key) {
-            window.keyMap[config.key.toLowerCase()] = actionKey;
-        }
-    }
-}
-
-// グローバルスコープにも keyMap を紐付け
-if (typeof window.keyMap === 'undefined') {
-    window.keyMap = {};
-}
-
-// 初回起動時にマッピングを作成
-updateKeyMapFromConfig();
-
-
-// ============================================================
-// :::DRAW_OPTIONS_WINDOW::: ⚙️ オプション画面（キーコンフィグ対応版）
-// ============================================================
 function drawOptionsWindow() {
     const win = gameWindows.options;
     if (!win.isOpen) return;
 
-    const targetCtx = typeof ctx !== 'undefined' ? ctx : (window.ctx || null);
-    if (!targetCtx) return;
+    // 🌟 1. 描画設定を保存
+    ctx.save();
 
-    targetCtx.save();
+    // 2. ウィンドウの枠を描画
     drawSimpleWindow("⚙️ Options", win.x, win.y, win.w, win.h);
-    optionsHitAreas = [];
 
-    // --- 【サブ画面：キーコンフィグ設定画面】 ---
-    if (isKeyConfigOpen) {
-        targetCtx.textAlign = "left";
-        targetCtx.textBaseline = "top";
-        targetCtx.font = "12px 'MS PGothic', sans-serif";
-
-        let startY = win.y + 35;
-        const startX = win.x + 15;
-
-        targetCtx.fillStyle = "#fbbf24";
-        targetCtx.fillText("【 キーコンフィグ設定 】", startX, startY);
-        startY += 20;
-
-        if (waitingForKeyChange) {
-            targetCtx.fillStyle = "#ef4444";
-            targetCtx.fillText("変更するキーを押してください...", startX, startY);
-        } else {
-            targetCtx.fillStyle = "#94a3b8";
-            targetCtx.fillText("変更したい項目をクリックしてね", startX, startY);
-        }
-        startY += 18;
-
-        for (const [actionKey, config] of Object.entries(currentKeyConfig)) {
-            targetCtx.fillStyle = "rgba(30, 41, 59, 0.6)";
-            targetCtx.strokeStyle = "rgba(255, 255, 255, 0.15)";
-            targetCtx.lineWidth = 1;
-            
-            const rowX = startX;
-            const rowY = startY;
-            const rowW = win.w - 30;
-            const rowH = 20;
-
-            if (targetCtx.roundRect) {
-                targetCtx.beginPath();
-                targetCtx.roundRect(rowX, rowY, rowW, rowH, 2);
-                targetCtx.fill();
-                targetCtx.stroke();
-            } else {
-                targetCtx.fillRect(rowX, rowY, rowW, rowH);
-                targetCtx.strokeRect(rowX, rowY, rowW, rowH);
-            }
-
-            targetCtx.fillStyle = "#ffffff";
-            targetCtx.fillText(config.label, rowX + 6, rowY + 3);
-
-            const keyBoxW = 40;
-            const keyBoxH = 14;
-            const keyBoxX = rowX + rowW - keyBoxW - 5;
-            const keyBoxY = rowY + 3;
-
-            targetCtx.fillStyle = (waitingForKeyChange === actionKey) ? "#ef4444" : "rgba(15, 23, 42, 0.8)";
-            targetCtx.strokeStyle = "#38bdf8";
-            targetCtx.strokeRect(keyBoxX, keyBoxY, keyBoxW, keyBoxH);
-            targetCtx.fillRect(keyBoxX, keyBoxY, keyBoxW, keyBoxH);
-
-            targetCtx.fillStyle = "#f8fafc";
-            targetCtx.textAlign = "center";
-            targetCtx.fillText(config.keyName, keyBoxX + keyBoxW / 2, keyBoxY + 1);
-            targetCtx.textAlign = "left";
-
-            optionsHitAreas.push({
-                type: 'keyConfigItem',
-                action: actionKey,
-                x: rowX, y: rowY, w: rowW, h: rowH
-            });
-
-            startY += 21;
-        }
-
-        const backBtnX = win.x + 15;
-        const backBtnY = win.y + win.h - 28;
-        const backBtnW = 60;
-        const backBtnH = 20;
-
-        targetCtx.fillStyle = "rgba(71, 85, 105, 0.8)";
-        targetCtx.fillRect(backBtnX, backBtnY, backBtnW, backBtnH);
-        targetCtx.fillStyle = "#ffffff";
-        targetCtx.textAlign = "center";
-        targetCtx.fillText("◀ 戻る", backBtnX + backBtnW / 2, backBtnY + 3);
-
-        optionsHitAreas.push({
-            type: 'backToOptions',
-            x: backBtnX, y: backBtnY, w: backBtnW, h: backBtnH
-        });
-
-        targetCtx.restore();
-        return;
-    }
-
-    // --- 【通常オプション画面】 ---
-    targetCtx.textAlign = "left";
-    targetCtx.textBaseline = "top";
-    targetCtx.font = "14px 'MS PGothic', sans-serif";
-    targetCtx.fillStyle = "#ffffff";
+    // 3. この関数内だけのフォントや色を設定
+    ctx.textAlign = "left";
+    ctx.textBaseline = "top";
+    ctx.font = "14px 'MS PGothic', sans-serif";
+    ctx.fillStyle = "#ffffff";
 
     const textX = win.x + 20;
     const textY = win.y + 50;
     const wikiIdText = `Wiki連携キー: ${win.wikiId || "読み込み中..."}`;
 
-    targetCtx.fillStyle = "rgba(0, 0, 0, 0.5)";
-    targetCtx.fillText(wikiIdText, textX + 1, textY + 1);
-    targetCtx.fillStyle = "#ffffff";
-    targetCtx.fillText(wikiIdText, textX, textY);
+    // 文字の描画
+    ctx.fillStyle = "rgba(0, 0, 0, 0.5)";
+    ctx.fillText(wikiIdText, textX + 1, textY + 1);
+    ctx.fillStyle = "#ffffff";
+    ctx.fillText(wikiIdText, textX, textY);
     
-    targetCtx.fillStyle = "#f9d448";
-    targetCtx.fillText("[コピー]", textX + 180, textY);
+    ctx.fillStyle = "#f9d448";
+    ctx.fillText("[コピー]", textX + 180, textY);
 
-    optionsHitAreas.push({
-        type: 'copyWikiId',
-        x: textX + 180, y: textY, w: 50, h: 20
-    });
-
-    const cfgBtnX = win.x + 20;
-    const cfgBtnY = win.y + 90;
-    const cfgBtnW = win.w - 40;
-    const cfgBtnH = 30;
-
-    targetCtx.fillStyle = "rgba(30, 41, 59, 0.9)";
-    targetCtx.strokeStyle = "rgba(255, 255, 255, 0.2)";
-    targetCtx.lineWidth = 1;
-    if (targetCtx.roundRect) {
-        targetCtx.beginPath();
-        targetCtx.roundRect(cfgBtnX, cfgBtnY, cfgBtnW, cfgBtnH, 5);
-        targetCtx.fill();
-        targetCtx.stroke();
-    } else {
-        targetCtx.fillRect(cfgBtnX, cfgBtnY, cfgBtnW, cfgBtnH);
-        targetCtx.strokeRect(cfgBtnX, cfgBtnY, cfgBtnW, cfgBtnH);
-    }
-
-    targetCtx.fillStyle = "#38bdf8";
-    targetCtx.textAlign = "center";
-    targetCtx.fillText("⌨️ キーボードコンフィグ設定", cfgBtnX + cfgBtnW / 2, cfgBtnY + 7);
-
-    optionsHitAreas.push({
-        type: 'openKeyConfig',
-        x: cfgBtnX, y: cfgBtnY, w: cfgBtnW, h: cfgBtnH
-    });
-
-    targetCtx.restore();
-}
-
-
-// ============================================================
-// :::OPTIONS_CLICK_HANDLER::: 🖱️ オプション画面のクリック処理
-// ============================================================
-function handleOptionsClick(clickX, clickY) {
-    const win = gameWindows.options;
-    if (!win.isOpen) return false;
-
-    for (const area of optionsHitAreas) {
-        if (clickX >= area.x && clickX <= area.x + area.w &&
-            clickY >= area.y && clickY <= area.y + area.h) {
-            
-            if (area.type === 'openKeyConfig') {
-                isKeyConfigOpen = true;
-                return true;
-            } else if (area.type === 'backToOptions') {
-                isKeyConfigOpen = false;
-                waitingForKeyChange = null;
-                return true;
-            } else if (area.type === 'keyConfigItem') {
-                waitingForKeyChange = area.action;
-                return true;
-            } else if (area.type === 'copyWikiId') {
-                if (win.wikiId && navigator.clipboard) {
-                    navigator.clipboard.writeText(win.wikiId);
-                }
-                return true;
-            }
-        }
-    }
-    return false;
-}
-
-// ============================================================
-// :::OPTIONS_CLICK_HANDLER::: 🖱️ オプション画面のクリック処理
-// ============================================================
-function handleOptionsClick(clickX, clickY) {
-    const win = gameWindows.options;
-    if (!win.isOpen) return false;
-
-    for (const area of optionsHitAreas) {
-        if (clickX >= area.x && clickX <= area.x + area.w &&
-            clickY >= area.y && clickY <= area.y + area.h) {
-            
-            if (area.type === 'openKeyConfig') {
-                isKeyConfigOpen = true;
-                return true;
-            } else if (area.type === 'backToOptions') {
-                isKeyConfigOpen = false;
-                waitingForKeyChange = null;
-                return true;
-            } else if (area.type === 'keyConfigItem') {
-                waitingForKeyChange = area.action;
-                return true;
-            } else if (area.type === 'copyWikiId') {
-                if (win.wikiId && navigator.clipboard) {
-                    navigator.clipboard.writeText(win.wikiId);
-                }
-                return true;
-            }
-        }
-    }
-    return false;
+    // 🌟 4. 描画設定を元に戻す（これで他のUIへの影響が消えます）
+    ctx.restore();
 }
 
 function drawHelpWindow() {
@@ -9552,7 +8398,7 @@ const gameWindows = {
 // 分解する
 // ============================================================
 // ============================================================
-// :::MOUSE_MOVE_HANDLER::: 🖱️ マウス移動とインタラクション判定（バッグ＆装備対応版）
+// :::MOUSE_MOVE_HANDLER::: 🖱️ マウス移動とインタラクション判定（バッグ対応版）
 // ============================================================
 canvas.addEventListener('mousemove', (e) => {
 
@@ -9659,49 +8505,7 @@ canvas.addEventListener('mousemove', (e) => {
         }
     }
 
-    // 1.5. 次に装備ウィンドウ（equipment）の装備スロット上にあるかチェック
-    const equipWin = gameWindows["equipment"];
-    let isOverEquipItem = false;
-    
-    if (equipWin && equipWin.isOpen) {
-        if (mouseX >= equipWin.x && mouseX <= equipWin.x + equipWin.w && 
-            mouseY >= equipWin.y && mouseY <= equipWin.y + equipWin.h) {
-            
-            // 閉じるボタンやヘッダーに重なっていないか確認
-            if (equipWin.isMouseOverClose(mouseX, mouseY)) {
-                canvas.style.cursor = "pointer";
-                return;
-            }
-            if (equipWin.isMouseOverHeader(mouseX, mouseY)) {
-                canvas.style.cursor = "move";
-                return;
-            }
-
-            // 🌟 描画関数が作ってくれた `slotHitAreas` を利用して厳密に判定！
-            if (equipWin.slotHitAreas && Array.isArray(equipWin.slotHitAreas)) {
-                for (const slotArea of equipWin.slotHitAreas) {
-                    if (mouseX >= slotArea.x && mouseX <= slotArea.x + slotArea.w &&
-                        mouseY >= slotArea.y && mouseY <= slotArea.y + slotArea.h) {
-                        
-                        const heroEquips = (hero && hero.equipment) ? hero.equipment : {};
-                        const itemType = heroEquips[slotArea.slotType];
-                        
-                        if (itemType) {
-                            isOverEquipItem = true;
-                        }
-                        break;
-                    }
-                }
-            }
-
-            if (isOverEquipItem) {
-                canvas.style.cursor = "pointer";
-                return;
-            }
-        }
-    }
-
-    // 2. その他のウィンドウ（ステータスなど）の判定
+    // 2. その他のウィンドウ（ステータスや装備など）の判定
     const winList = Object.values(gameWindows).reverse();
     for (const win of winList) {
         if (win.isOpen) {
@@ -9726,66 +8530,6 @@ canvas.addEventListener('mousemove', (e) => {
     if (foundWindow) return;
 
     // ------------------------------------------
-    // 🧪 右上のアクティブアイテムHUDのホバー判定 ＆ ツールチップ表示
-    // ------------------------------------------
-    let foundActiveItemHUD = false;
-    const tooltip = document.getElementById('item-tooltip');
-
-    if (tooltip && typeof hero !== 'undefined' && hero && hero._renderActiveItems && hero._renderActiveItems.length > 0) {
-        let isWindowCoveringHUD = false; 
-        for (const win of Object.values(gameWindows)) {
-            if (win && win.isOpen) {
-                if (win.x < VIEW_CONFIG.SCREEN_WIDTH - 20 && win.x + win.w > VIEW_CONFIG.SCREEN_WIDTH - 200 &&
-                    win.y < 80 && win.y + win.h > 0) {
-                    isWindowCoveringHUD = true;
-                    break;
-                }
-            }
-        }
-
-        if (!isWindowCoveringHUD) {
-            const iconSize = 32;
-            const spacing = 6;
-            const rightMargin = 20;
-            const topY = 20;
-
-            let hoveredItem = null;
-
-            hero._renderActiveItems.forEach((item, index) => {
-                const iconX = VIEW_CONFIG.SCREEN_WIDTH - rightMargin - ((hero._renderActiveItems.length - index) * (iconSize + spacing));
-                const iconY = topY;
-
-                if (mouseX >= iconX && mouseX <= iconX + iconSize &&
-                    mouseY >= iconY && mouseY <= iconY + iconSize) {
-                    hoveredItem = item;
-                }
-            });
-
-            if (hoveredItem) {
-                canvas.style.cursor = "pointer";
-                foundActiveItemHUD = true;
-
-                const itemNames = {
-                    'speed': 'スピードアップ (移動速度増加)',
-                    'clear': 'クリアエフェクト'
-                };
-                const displayName = itemNames[hoveredItem.name] || hoveredItem.name;
-
-                tooltip.innerText = displayName;
-                tooltip.style.display = 'block';
-                tooltip.style.left = (e.clientX + 12) + 'px';
-                tooltip.style.top = (e.clientY + 12) + 'px';
-            }
-        }
-    }
-
-    if (!foundActiveItemHUD && tooltip) {
-        tooltip.style.display = 'none';
-    }
-
-    if (foundActiveItemHUD) return;
-
-    // ------------------------------------------
     // 🏪 露店看板の判定
     // ------------------------------------------
     let foundVending = false;
@@ -9799,7 +8543,7 @@ canvas.addEventListener('mousemove', (e) => {
             const signX = p.x - signW / 2;
             const signY = p.y - 80;
 
-            if (mouseX >= signX && mouseX <= signX + signW &&
+            if (mouseX >= signX &&mouseX <= signX + signW &&
                 mouseY >= signY && mouseY <= signY + signH) {
                 canvas.style.cursor = "pointer";
                 foundVending = true;
@@ -9813,6 +8557,8 @@ canvas.addEventListener('mousemove', (e) => {
     // ------------------------------------------
     // 📦 10スロットインベントリ・アイテム判定
     // ------------------------------------------
+    
+    // 🌟 【追加】10スロットの上に、何らかのウィンドウが開いて重なっていないかチェック
     let isAnyWindowCovering = false;
     for (const win of Object.values(gameWindows)) {
         if (win && win.isOpen) {
@@ -9829,6 +8575,7 @@ canvas.addEventListener('mousemove', (e) => {
     } else if (selectedSlotIndex !== -1) {
         canvas.style.cursor = "grabbing";
     } 
+    // 🌟 上にウィンドウが被っていない場合のみ10スロットの判定を実行
     else if (!isAnyWindowCovering && mouseY >= 130 && mouseY <= 170) {
         const hoverIndex = Math.floor((mouseX - 20) / 48);
         if (hoverIndex >= 0 && hoverIndex < 10 && inventoryVisualBuffer && inventoryVisualBuffer[hoverIndex]) {
