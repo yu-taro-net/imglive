@@ -108,7 +108,7 @@
     <!-- 左側：メッセージボックス -->
     <div id="msg-box" style="flex: 1; margin-top: 0;"></div>
 
-    <!-- 右側：チャンネルボタン、ポイントショップ、ログアウト（縦並びコンパクト版） -->
+    <!-- 右側：チャンネルボタン、ポイントショップ、コレクションブック、ログアウト -->
     <div style="display: flex; flex-direction: column; gap: 6px; width: auto; justify-content: space-between;">
       
       <!-- チャンネル移動ボタン -->
@@ -121,13 +121,16 @@
         <button onclick="changeChannel(5)" style="padding: 2px 6px; font-size: 11px; height: 24px;">CH.5</button>
       </div>
 
-      <!-- 右下グループ（ポイントショップ ＆ ログアウト） -->
+      <!-- 右下グループ（ポイントショップ ＆ コレクションブック ＆ ログアウト） -->
       <div style="display: flex; gap: 6px;">
-        <!-- ポイントショップボタン（ゴールド調や特別な色にしたい場合は背景色などを調整できます） -->
-        <button id="pointShopBtn" onclick="openPointShop()" style="flex: 1; height: 26px; min-height: unset; font-size: 11px; padding: 0 10px;">ポイントショップ</button>
+        <!-- ポイントショップボタン -->
+        <button id="pointShopBtn" onclick="openPointShop()" style="flex: 1; height: 26px; min-height: unset; font-size: 11px; padding: 0 8px;">ポイントショップ</button>
+        
+        <!-- 🌟 コレクションブックボタン追加 -->
+        <button id="collectionBookBtn" onclick="toggleBookWindow()" style="height: 26px; min-height: unset; font-size: 11px; padding: 0 8px;">📖 図鑑</button>
         
         <!-- ログアウトボタン -->
-        <button id="logoutBtn" onclick="logout()" style="height: 26px; min-height: unset; font-size: 11px; padding: 0 10px;">ログアウト</button>
+        <button id="logoutBtn" onclick="logout()" style="height: 26px; min-height: unset; font-size: 11px; padding: 0 8px;">ログアウト</button>
       </div>
 
     </div>

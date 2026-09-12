@@ -292,6 +292,42 @@ async function performLogin(socket, user, token, channel, group, style_id) {
                 fixedInventory[sIdx] = item;
             }
         });
+		
+		// 🌟 【追加①】ここで図鑑データをロードする！
+        // 🌟 【修正版】ログイン時の図鑑データロード処理
+let playerCardCollection = {};
+try {
+    const [cardRows] = await pool.query(
+        'SELECT monster_id, card_rank, count, unlocked, is_favorite, kill_count, bonus_claimed, first_acquired_time, last_acquired_time FROM player_monster_cards WHERE user_id = ?', 
+        [userId]
+    );
+    
+    cardRows.forEach(row => {
+        const monsterKey = row.monster_id.toLowerCase();
+        const rank = row.card_rank; // 1〜6のランク
+
+        // モンスターごとのオブジェクトがなければ作成
+        if (!playerCardCollection[monsterKey]) {
+            playerCardCollection[monsterKey] = {};
+        }
+
+        // 🌟 ランクごとにデータを格納する（ネスト構造）
+        playerCardCollection[monsterKey][rank] = {
+            count: row.count,
+            unlocked: row.unlocked === 1,
+            cardRank: rank, // 念のため保持
+            isFavorite: row.is_favorite === 1,
+            killCount: row.kill_count,
+            bonusClaimed: row.bonus_claimed === 1,
+            firstAcquiredTime: row.first_acquired_time,
+            lastAcquiredTime: row.last_acquired_time
+        };
+    });
+    
+    console.log(`[Card Load] ユーザー ID:${userId} のカード図鑑をロード完了。取得レコード数: ${cardRows.length}`);
+} catch (cardErr) {
+    console.error('❌ ログイン時の図鑑データロードに失敗しました:', cardErr);
+}
 
         // 🌟 装備中のステータス合計
         let totalStr = 0;
@@ -433,7 +469,8 @@ async function performLogin(socket, user, token, channel, group, style_id) {
             jumpPower: 15.0,
             
             inventory: fixedInventory,
-            is_vending: false
+			cardCollection: playerCardCollection, // 🌟 【追加②】プレイヤーのデータに持たせる
+			is_vending: false
         };
 
         socket.join(roomName);
@@ -495,6 +532,10 @@ async function performLogin(socket, user, token, channel, group, style_id) {
         //console.log("【ログイン時インベントリ確認】4番目(index 3):", fixedInventory[3]);
 
         socket.emit('inventory_update', fixedInventory);
+		
+		// 🌟 【追加③】クライアントへ最新の図鑑データを送信！
+        socket.emit('card_collection_update', players[socket.id].cardCollection);
+		
         socket.to(roomName).emit('player_joined', players[socket.id]);
         
         socket.username = user.username;
@@ -3483,7 +3524,7 @@ async function loadItemCatalogFromDB() {
 
                 newItemCategories[row.monster_key] = "ETC";
                 // 🌟 ご指定のパス構造に動的に合わせる
-                newItemImages[row.monster_key] = `/char_assets_enemy/${capitalizedKey}/Idle/tile000.png`;
+                newItemImages[row.monster_key] = `/card_assets/${capitalizedKey}.png`;
                 newItemDescriptions[row.monster_key] = row.description || "モンスターの生態が記された貴重なカード。";
             }
         });
@@ -4554,53 +4595,73 @@ function addExperience(player, amount, socket) {
 }
 
 // ============================================================
-// :::SPAWN_MONSTER_CARD_DROP::: 🃏 モンスターカードのドロップ処理
+// :::SPAWN_MONSTER_CARD_DROP::: 🃏 モンスターカードのドロップ処理（完全動的対応版）
 // ============================================================
 function spawnMonsterCardDrop(enemy, chId) {
     try {
         if (!enemy || !chId || !droppedItems[chId]) return;
 
-        // --- 確率の判定 (例: 5% の確率でカードがドロップする) ---
+        // --- 確率の判定 (例: 5.0 = 5%) ---
         const cardDropChance = 95.0; 
         if (Math.random() * 100 > cardDropChance) return;
 
-        // モンスター名から対応するカードIDや名前、キーを決定
-        let cardId = 40001; 
-        let cardName = "Monster1カード";
-        let monsterKey = "Monster1"; // 🌟 ITEM_CONFIG に登録されている正確なキー
+        // 🌟 敵のタイプや名前から、自動で動的にキーと名称を生成する
+        // 例: enemy.type が "GreenSlime" なら、monsterKey は "greenslime" になる
+        let rawType = enemy.type || enemy.monsterKey || enemy.name || 'monster1';
+        let monsterKey = String(rawType).toLowerCase().replace(/\s+/g, ''); // スペースや大文字を正規化
 
-        if (enemy.type && enemy.type.toLowerCase() === 'monster2') {
-            cardId = 40002;
-            cardName = "Monster2カード";
-            monsterKey = "Monster2";
+        // もし "monster1" のような形式ではなく名前そのもの（例: "slime" など）の場合、
+        // データベースや図鑑で扱いやすいように "slimeカード" のような名前に整える
+        let baseCardName = enemy.displayName || enemy.name || monsterKey;
+        // 末尾に「カード」という文字がすでに入っていなければ綺麗につける
+        if (!baseCardName.includes('カード')) {
+            baseCardName += 'カード';
         }
-        // 必要に応じて他のモンスターもここに分岐を追加できます
+
+        // 仮のカードID（ID管理が必要な場合は適当なハッシュや連番、またはenemy.id等から生成）
+        let cardId = enemy.cardId || (40000 + Math.abs(hashCode(monsterKey)) % 1000);
+
+        // 🌟 1〜6のランクを等確率で決定
+        const cardRank = Math.floor(Math.random() * 6) + 1;
+        const rankNames = { 1: 'ブロンズ', 2: 'シルバー', 3: 'ゴールド', 4: 'プラチナ', 5: 'ダイヤモンド', 6: '虹' };
+        
+        const finalCardName = `${baseCardName} (${rankNames[cardRank]})`;
 
         const fixedSpawnY = enemy.y + (enemy.h || 32) - 50;
         const centerX = enemy.x + (enemy.w || 32) / 2;
 
-        // カード用アイテムオブジェクトの組み立て
         const newCardItem = {
             id: Date.now() + Math.random(),
             x: centerX,
             y: fixedSpawnY,
             vx: (Math.random() - 0.5) * 4,
             vy: -4 - Math.random() * 2,
-            type: "monster1",          // 🌟 大文字の 'Monster1' ではなく、必ず小文字の 'monster1' にする！
-            cardId: cardId,          // 40001
-            name: cardName,          // "Monster1カード"
+            type: monsterKey,          
+            cardId: cardId,          
+            name: finalCardName,       
+            cardRank: cardRank,         // どのランクのカードか
+            monsterKey: monsterKey,     // DB保存用のキー
             ch: chId,
             landed: false,
             phase: Math.random() * Math.PI * 2
         };
 
-        // そのチャンネルのドロップリストに追加
         droppedItems[chId].push(newCardItem);
-        console.log(`[Card Drop] ch:${chId} に ${cardName} (ID:${cardId}, Key:${monsterKey}) がドロップしました！`);
+        console.log(`[Card Drop] ch:${chId} に ${finalCardName} (ランク:${cardRank}) がドロップしました！`);
 
     } catch (error) {
         console.error("❌ spawnMonsterCardDropエラー:", error);
     }
+}
+
+// 補助関数：文字列から安定した数値IDを生成するハッシュ関数（カードID自動生成用）
+function hashCode(str) {
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+        hash = (hash << 5) - hash + str.charCodeAt(i);
+        hash |= 0;
+    }
+    return Math.abs(hash);
 }
 
 // ============================================================
@@ -5927,7 +5988,7 @@ if (isFatalBlow) {
 }
 
 // ============================================================
-// :::HANDLE_PICKUP::: 📦 アイテム収集・スタック処理・DB永続化
+// :::HANDLE_PICKUP::: 📦 アイテム収集・スタック処理・DB永続化（ID＆カラム名 完全自動適応版）
 // ============================================================
 async function handlePickup(socket) {
     try {
@@ -5953,7 +6014,6 @@ async function handlePickup(socket) {
         const candidates = currentItems.filter(it => {
             if (it.isPickedUp) return false;
 
-            // 距離判定
             let dx = Math.abs(player.x - it.x);
             let dy = Math.abs(player.y - it.y);
 
@@ -5973,6 +6033,16 @@ async function handlePickup(socket) {
         let targetItem = null;
 
         for (const item of candidates) {
+            const isMonsterCard = item.type && (
+                item.type.toLowerCase().startsWith('monster') || 
+                item.isCard === true
+            );
+
+            if (isMonsterCard) {
+                targetItem = item;
+                break;
+            }
+
             const isInventoryItem = inventoryTypes.has(item.type);
 
             if (isInventoryItem) {
@@ -5981,13 +6051,11 @@ async function handlePickup(socket) {
                 let canPickupThis = false;
                 const category = itemCategories[item.type];
 
-                // スタック可能かチェック
                 if (category === 'ETC' || category === 'USE') {
                     const stackIndex = player.inventory.findIndex(slot => slot && slot.type === item.type);
                     if (stackIndex !== -1) canPickupThis = true;
                 }
 
-                // 空きスロットがあるかチェック
                 if (!canPickupThis) {
                     const emptySlotIndex = player.inventory.findIndex(slot => 
                         slot === null || slot === undefined || (typeof slot === 'object' && Object.keys(slot).length === 0)
@@ -6026,6 +6094,127 @@ async function handlePickup(socket) {
             const removedItem = currentItems.splice(idx, 1)[0];
             if (!removedItem) return;
 
+            // ============================================================
+            // 🌟 モンスターカード専用の処理（完全防御型セーフガード）
+            // ============================================================
+            const isMonsterCard = removedItem.type && (
+                removedItem.type.toLowerCase().startsWith('monster') || 
+                removedItem.isCard === true
+            );
+
+            if (isMonsterCard) {
+                // 🌟 プレイヤーが持っていそうなIDプロパティを総当たりで探索して特定する（undefined対策）
+                const dbUserId = player.db_id || player.userId || player.id_in_db || (typeof player.id === 'number' ? player.id : 39);
+
+                // 🌟 【自動復元セーフガード】
+                if (!player.cardCollection || typeof player.cardCollection !== 'object' || Object.keys(player.cardCollection).length === 0) {
+                    console.log(`⚠️ [Card Guard] プレイヤー ${player.name || socket.id} (DB_ID: ${dbUserId}) の cardCollection が消失しているため、DBから再ロードします。`);
+                    player.cardCollection = {};
+                    try {
+                        // 🌟 カラム名エラーを絶対に起こさないよう 'SELECT *' で全取得し、JS側で柔軟にマッピングする
+                        const [rows] = await pool.query(
+                            'SELECT * FROM player_monster_cards WHERE user_id = ?',
+                            [dbUserId]
+                        );
+                        for (const row of rows) {
+                            // どんなカラム名で保存されていても対応できるようにフォールバック
+                            const mKey = row.monster_key || row.monster_name || row.monster_id || row.monster;
+                            const rank = row.card_rank || row.rank;
+
+                            if (!mKey || !rank) continue;
+
+                            if (!player.cardCollection[mKey]) {
+                                player.cardCollection[mKey] = {};
+                            }
+                            player.cardCollection[mKey][rank] = {
+                                count: row.count || 1,
+                                unlocked: Boolean(row.unlocked !== undefined ? row.unlocked : true),
+                                firstAcquiredTime: row.first_acquired_time || row.created_at || Date.now()
+                            };
+                        }
+                        console.log(`✨ [Card Guard] DBからの動的再ロード完了: 取得レコード数: ${rows.length}`);
+                    } catch (err) {
+                        console.error("❌ カード自動復元DBエラー:", err);
+                    }
+                }
+
+                const monsterKey = removedItem.monsterKey || removedItem.type.toLowerCase();
+
+                // 🌟 1〜6のランクを等確率で決定
+                const cardRank = removedItem.cardRank || (Math.floor(Math.random() * 6) + 1);
+                
+                const rankNames = { 1: 'ブロンズ', 2: 'シルバー', 3: 'ゴールド', 4: 'プラチナ', 5: 'ダイヤモンド', 6: '虹' };
+                const rankName = rankNames[cardRank];
+
+                if (!player.cardCollection[monsterKey]) {
+                    player.cardCollection[monsterKey] = {};
+                }
+                if (!player.cardCollection[monsterKey][cardRank]) {
+                    player.cardCollection[monsterKey][cardRank] = {
+                        count: 0,
+                        unlocked: true,
+                        firstAcquiredTime: Date.now()
+                    };
+                }
+                player.cardCollection[monsterKey][cardRank].count = (player.cardCollection[monsterKey][cardRank].count || 0) + 1;
+                player.cardCollection[monsterKey][cardRank].unlocked = true;
+                
+                // データベースへ保存する処理
+                if (typeof saveMonsterCardToDB === 'function') {
+                    await saveMonsterCardToDB(player, monsterKey, cardRank);
+                } else {
+                    const nowTime = Date.now();
+                    await pool.query(`
+                        INSERT INTO player_monster_cards 
+                        (user_id, monster_key, card_rank, count, unlocked, first_acquired_time, last_acquired_time) 
+                        VALUES (?, ?, ?, 1, 1, ?, ?)
+                        ON DUPLICATE KEY UPDATE 
+                        count = count + 1, 
+                        last_acquired_time = VALUES(last_acquired_time)
+                    `, [dbUserId, monsterKey, cardRank, nowTime, nowTime]).catch(err => {
+                        console.error("❌ カードDB保存エラー:", err);
+                    });
+                }
+
+                const totalRankCount = player.cardCollection[monsterKey][cardRank].count;
+                console.log(`[Card Pickup] 🃏 ${player.name || socket.id} が ${monsterKey} の 【${rankName}】 を取得！ (当該ランク所持数: ${totalRankCount})`);
+
+                if (typeof lastPickedItems !== 'undefined') {
+                    lastPickedItems.push({
+                        type: removedItem.type,
+                        x: (removedItem.x && removedItem.x !== 0) ? removedItem.x : player.x,
+                        y: (removedItem.y && removedItem.y !== 0) ? removedItem.y : player.y,
+                        pickerId: socket.id,
+                        totalALLStats: removedItem.totalALLStats || 0,
+                        totalFirstStats: removedItem.totalFirstStats || 0,
+                        ch: chId,
+                        // 🌟 【ここを追加】ここでカードのランクとIDをエフェクト側に引き渡す！
+                        cardRank: cardRank,
+                        cardId: removedItem.cardId || true
+                    });
+                }
+
+                socket.emit('play_item_sound');
+                socket.emit('card_collection_update', player.cardCollection);
+                socket.emit('chat', {
+                    id: 'SYSTEM_LOG',
+                    name: '🃏 図鑑',
+                    text: `[${new Date().toLocaleTimeString('ja-JP', { timeZone: 'Asia/Tokyo', hour: '2-digit', minute: '2-digit' })}] ${removedItem.name || 'モンスターカード'} [${rankName}] をMonster Bookに登録しました！（累計: ${totalRankCount}枚）`
+                });
+				
+				// 🌟 【新規追加】画面上のフローティングログ等で使える専用ログイベントを送信
+                socket.emit('card_pickup_log', {
+                    monsterName: removedItem.name || 'モンスターカード',
+                    rankName: rankName,
+                    cardRank: cardRank,
+                    count: totalRankCount
+                });
+
+                if (typeof sendState === 'function') sendState();
+                return;
+            }
+            // ============================================================
+
             // 金額・メダルの処理
             if (removedItem.type === 'medal1' || removedItem.goldValue) {
                 const baseAmount = removedItem.goldValue || 10;
@@ -6042,7 +6231,6 @@ async function handlePickup(socket) {
                 io.to(`channel_${chId}`).emit('player_update', player);
             }
 
-            // エフェクト同期
             if (typeof lastPickedItems !== 'undefined') {
                 lastPickedItems.push({
                     type: removedItem.type,
@@ -6081,7 +6269,6 @@ async function handlePickup(socket) {
                     console.error("⚠️ カタログからの価格・名称取得エラー:", dbErr);
                 }
 
-                // スタック処理
                 const category = itemCategories[removedItem.type];
                 if (category === 'ETC' || category === 'USE') {
                     const stackIndex = player.inventory.findIndex(slot => slot && slot.type === removedItem.type);
@@ -6097,7 +6284,6 @@ async function handlePickup(socket) {
                     }
                 }
 
-                // 新規格納（重複を排除し1つにまとめました）
                 if (!stacked) {
                     let emptySlotIndex = player.inventory.findIndex(slot => 
                         slot === null || slot === undefined || (typeof slot === 'object' && Object.keys(slot).length === 0)
@@ -6108,10 +6294,10 @@ async function handlePickup(socket) {
                             ...removedItem,
                             item_id: reqItemId, 
                             instanceId: removedItem.instanceId || null,
-                            type: removedItem.type,          // 👈 判定用の英語タイプ（'pouch', 'sweets' 等）を死守
-                            name: removedItem.type,          // 👈 使用時のチェック用に英語名（またはアイテムの内部名）を保持
-                            display_name: correctName,       // 👈 表示名（日本語）は綺麗に表示させる
-                            price: correctPrice,             // 👈 正しい売値
+                            type: removedItem.type,          
+                            name: removedItem.type,          
+                            display_name: correctName,      
+                            price: correctPrice,            
                             count: actualCount,
                             atk: (removedItem.atk !== undefined) ? removedItem.atk : ((removedItem.type === 'sword') ? 10 : 0), 
                             def: (removedItem.def !== undefined) ? removedItem.def : ((removedItem.type === 'shield') ? 5 : 0)
@@ -6120,7 +6306,6 @@ async function handlePickup(socket) {
                         saveInventoryToDB(player, player.inventory[emptySlotIndex], emptySlotIndex);
                         socket.emit('item_pickup_log', { amount: actualCount, itemName: correctName });
 
-                        // 🌟 11スロット目以降（バッグ）に格納された場合のログ通知
                         if (emptySlotIndex >= 10) {
                             console.log(`[DEBUG] ${correctName} がバッグ（スロット ${emptySlotIndex}）に移動しました！`);
                             socket.emit('chat', {
@@ -6140,6 +6325,95 @@ async function handlePickup(socket) {
         }
     } catch (error) {
         console.error("❌ handlePickup Error:", error);
+    }
+}
+
+// 🃏 カードの取得・所持数をデータベースに保存（UPSERT）する関数（ランク対応版）
+async function saveMonsterCardToDB(playerOrUserId, monsterKey, cardRank) {
+    try {
+        let userId = null;
+
+        if (typeof playerOrUserId === 'object' && playerOrUserId !== null) {
+            userId = playerOrUserId.dbId || playerOrUserId.db_id;
+        } else if (typeof playerOrUserId === 'number') {
+            userId = playerOrUserId;
+        } else if (typeof playerOrUserId === 'string') {
+            if (/^\d+$/.test(playerOrUserId)) {
+                userId = parseInt(playerOrUserId, 10);
+            } else if (typeof players !== 'undefined' && players[playerOrUserId]) {
+                const p = players[playerOrUserId];
+                userId = p.dbId || p.db_id;
+            }
+        }
+
+        if (!userId && typeof players !== 'undefined') {
+            for (const socketId in players) {
+                const p = players[socketId];
+                if (socketId === playerOrUserId || p.id === playerOrUserId) {
+                    userId = p.dbId || p.db_id;
+                    break;
+                }
+            }
+        }
+
+        if (!userId || typeof userId !== 'number' || isNaN(userId)) {
+            console.error("❌ カードDB保存エラー: 有効な数値のuser_idを特定できませんでした。渡された値:", playerOrUserId);
+            return;
+        }
+
+        const now = Date.now();
+        
+        // 🌟 card_rank を含めて INSERT / UPDATE するクエリ
+        const query = `
+            INSERT INTO player_monster_cards 
+            (user_id, monster_id, card_rank, count, unlocked, first_acquired_time, last_acquired_time) 
+            VALUES (?, ?, ?, 1, 1, ?, ?)
+            ON DUPLICATE KEY UPDATE 
+            count = count + 1, 
+            last_acquired_time = VALUES(last_acquired_time)
+        `;
+        
+        await pool.query(query, [userId, monsterKey, cardRank, now, now]);
+        console.log(`[DB] ユーザー ${userId} のカード (${monsterKey} / ランク:${cardRank}) をデータベースに保存/更新しました。`);
+    } catch (error) {
+        console.error("❌ カードのDB保存エラー:", error);
+    }
+}
+
+// 📦 プレイヤーデータのロード処理内
+async function loadPlayerCardCollection(player, dbUserId) {
+    try {
+        // 1. DBから該当ユーザーのカード一覧を一括取得
+        const [rows] = await pool.query(
+            `SELECT monster_id, card_rank, count, unlocked, first_acquired_time, last_acquired_time 
+             FROM player_monster_cards 
+             WHERE user_id = ?`,
+            [dbUserId]
+        );
+
+        // 2. メモリ用の構造に再構築
+        player.cardCollection = {};
+
+        for (const row of rows) {
+            const monsterKey = row.monster_id;
+            const rank = row.card_rank;
+
+            if (!player.cardCollection[monsterKey]) {
+                player.cardCollection[monsterKey] = {};
+            }
+
+            player.cardCollection[monsterKey][rank] = {
+                count: row.count,
+                unlocked: Boolean(row.unlocked),
+                firstAcquiredTime: row.first_acquired_time,
+                lastAcquiredTime: row.last_acquired_time
+            };
+        }
+
+        console.log(`[Card Load] ユーザー ID:${dbUserId} のカード図鑑をロードしました（種類数: ${Object.keys(player.cardCollection).length}）`);
+    } catch (error) {
+        console.error("❌ カード図鑑のロードエラー:", error);
+        player.cardCollection = {};
     }
 }
 

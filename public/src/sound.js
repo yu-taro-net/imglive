@@ -90,7 +90,9 @@ async function setupAudio() {
         monster2Die:    loadAudioFile(`${IMAGE_DOMAIN}sound_assets2/[xs1_monster_die]SharkEat.wav`),      // monster2も同じで良ければ同じファイル
         // 2026-8-12更新
         monster3Die:    loadAudioFile(`${IMAGE_DOMAIN}sound_assets2/[xs1_monster_die]SharkEat.wav`),  // ボス用の豪華な音
-        bgm:            loadAudioFile(`${IMAGE_DOMAIN}sound_assets/Floral_Life.mp3`)
+        // 2026-9-5更新
+		//bgm:            loadAudioFile(`${IMAGE_DOMAIN}sound_assets/Floral_Life.mp3`)
+        bgm:            loadAudioFile(`${IMAGE_DOMAIN}sound_assets/RestNPeace.mp3`)
     };
 
     // すべての結果を soundBuffers に格納

@@ -1403,3 +1403,61 @@ user-select: none;         /* これが標準！ */
     transform: translateY(0);
     box-shadow: none;
 }
+
+/* Wikiニュースフィードのスクロール設定 */
+#wiki-news-feed {
+    max-height: 540px;         /* 溢れ始める高さを指定 */
+    overflow-y: auto;          /* 縦方向に溢れたらスクロールバーを表示 */
+    overflow-x: hidden;        /* 横スクロールを防ぐ */
+    padding-right: 5px;        /* スクロールバーとコンテンツの間の余白 */
+}
+
+/* 🌟 ダークテイストなスクロールバーのカスタマイズ（任意） */
+#wiki-news-feed::-webkit-scrollbar {
+    width: 6px;                /* スクロールバーの太さ */
+}
+
+#wiki-news-feed::-webkit-scrollbar-track {
+    background: rgba(15, 23, 42, 0.6); /* レールの背景色 */
+    border-radius: 3px;
+}
+
+#wiki-news-feed::-webkit-scrollbar-thumb {
+    background: rgba(96, 165, 250, 0.4); /* つまみの色 */
+    border-radius: 3px;
+}
+
+#wiki-news-feed::-webkit-scrollbar-thumb:hover {
+    background: #38bdf8;       /* ホバー時に明るく光る */
+}
+
+/* ============================================================
+    🌟 コレクションブック（図鑑）ボタン専用スタイル
+    ============================================================ */
+#collectionBookBtn {
+    /* 本やカードのコレクションをイメージさせる上質なアンバー（ゴールド）グラデーション */
+    background: linear-gradient(180deg, rgba(69, 45, 20, 0.9), rgba(41, 24, 10, 0.95));
+    border: 1px solid rgba(245, 158, 11, 0.4); /* 落ち着いたアンバー系の枠線 */
+    color: #fde047; /* 視認性の良いソフトなゴールドイエロー */
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    font-weight: 600;
+    font-size: 12px;
+    cursor: pointer;
+    border-radius: 5px;
+    transition: all 0.2s ease;
+    box-shadow: 0 2px 4px rgba(0, 0, 0, 0.3), inset 0 0 6px rgba(245, 158, 11, 0.15);
+}
+
+#collectionBookBtn:hover {
+    /* ホバー時は明るいゴールドの光彩でリッチに反応 */
+    background: linear-gradient(180deg, rgba(120, 75, 30, 0.9), rgba(80, 48, 16, 0.95));
+    border-color: #fbbf24;
+    color: #ffffff;
+    box-shadow: 0 0 10px rgba(251, 191, 36, 0.4), inset 0 0 8px rgba(251, 191, 36, 0.3);
+    transform: translateY(-1px);
+}
+
+#collectionBookBtn:active {
+    transform: translateY(0);
+    box-shadow: none;
+}

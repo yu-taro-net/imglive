@@ -3696,7 +3696,8 @@ function update() {
 		
 		// 🌟 デバッグ用：何が判定されているかコンソールに出してみる
         if (typeof hoveredEquipItem !== 'undefined') {
-            console.log("hoveredEquipItem:", hoveredEquipItem);
+			// 停止 2026-9-5停止
+            //console.log("hoveredEquipItem:", hoveredEquipItem);
         }
 
         if (activeItem && typeof drawItemTooltip === 'function') {

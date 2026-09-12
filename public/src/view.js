@@ -523,7 +523,7 @@ const gameWindows = {
     worldmap:   new GameWindow("worldmap", 50, 50, 700, 500),    // [W] ワールドマップ
     minimap:    new GameWindow("minimap", 10, 10, 200, 180),     // [M] ミニマップ
     journal:    new GameWindow("journal", 150, 100, 400, 450),   // [J] 日記
-    book:       new GameWindow("book", 120, 80, 500, 400),       // [B] ブック
+    book:       new GameWindow("book", 120, 80, 360, 500),       // [B] ブック
     
     // --- ソーシャル・コミュニティ系 ---
     guild:      new GameWindow("guild", 200, 100, 400, 450),     // [G] ギルド
@@ -2329,7 +2329,10 @@ function handleServerEvents(data) {
                 : picked.y,
             targetPlayerId: picked.pickerId,
             // 🌟 決定した詳細ランク色をエフェクト情報に追加
-            effectColor: bonusColor 
+            effectColor: bonusColor,
+            // 🌟 【ここを追加】モンスターカードのランクとIDを確実にエフェクトへ引き継ぐ
+            cardId: picked.cardId,
+            cardRank: picked.cardRank !== undefined ? picked.cardRank : picked.rank
         });
 
         // ② アイテム取得ログ（省略・維持）
@@ -3167,6 +3170,36 @@ socket.on('item_pickup_log', (data) => {
     }
 });
 
+// ============================================================
+// :::SOCKET_CARD_PICKUP_LOG::: 🃏 カード取得専用ログの受信と管理
+// ============================================================
+socket.on('card_pickup_log', (data) => {
+    console.log("カードログ受信成功:", data);
+
+    // ランクに応じたカラーやテキストの装飾（お好みで調整できます）
+    let rankColor = '#ffeb3b'; // デフォルト金色
+    if (data.cardRank === 6) rankColor = '#ff00ff'; // 虹色っぽく
+    else if (data.cardRank === 5) rankColor = '#38bdf8'; // ダイヤモンド（スカイブルー）
+    else if (data.cardRank === 4) rankColor = '#e2e8f0'; // プラチナ
+
+    let logMsg = `🃏 ${data.monsterName} [${data.rankName}] を入手！（累計: ${data.count}枚）`;
+
+    if (typeof itemLogs !== 'undefined') {
+        itemLogs.push({
+            text: logMsg,
+            timer: 600,            // 少し長めに表示させても映えます
+            color: rankColor       // レア度に応じたカラー
+        });
+
+        // ログが溜まりすぎないように調整（最大5件）
+        if (itemLogs.length > 5) {
+            itemLogs.shift();
+        }
+        
+        console.log("カードログを箱に入れました。現在の数:", itemLogs.length);
+    }
+});
+
 // クライアント側：サーバーからの返事を受け取って表示を更新する
 socket.on('account_info_response', (data) => {
     console.log("【受信成功】サーバーからデータが届いた:", data);
@@ -3233,6 +3266,10 @@ function drawGame(hero, others, enemies, items, platforms, ladders, damageTexts,
     drawUIOverlay(hero);
 	
 	drawActiveItemHUD(hero);
+	
+	// 🌟 【HP・経験値バーの高さ（例: 24px）と外枠を完全統一してすぐ右に配置】
+    // ※「バーの右端のX座標」「バーのY座標」「バーの高さ」を合わせて指定します
+    drawBarMatchedAnalogClock(ctx, 310, 20, 72);
     
     // 7. 特殊UI表示（チャンネル表示・マウス追従アイテム）
     //drawChannelHUD(hero);
@@ -4507,26 +4544,29 @@ function drawUIOverlay(hero) {
 }
 
 // ============================================================
-// :::DRAW_ITEM_TOOLTIP::: 🎨 アイテム詳細情報のツールチップ表示 (装備・非装備完全分離・黄金比版)
+// :::DRAW_ITEM_TOOLTIP::: 🎨 アイテム詳細情報のツールチップ表示 (REQ関係＋中央揃え・リッチ版)
 // ============================================================
 function drawItemTooltip(ctx, slot, mouseX, mouseY, hero) {
 
     if (!slot) return;
 
-    // 🛡️ 1. 現在のCanvas状態をすべて保存
+    // 🛡️ 1. 현재のCanvas状態をすべて保存
     ctx.save();
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
 
     // 装備判定の拡張
     const isEquipment = (
         slot.type === 'sword' || 
         slot.type === 'shield' || 
-        ['sword', 'shield'].includes(slot.item_type)
+        slot.type === 'cape' || 
+        ['sword', 'shield', 'cape', 'helmet', 'armor', 'gloves', 'shoes'].includes(slot.item_type)
     );
     
     // --- 🌟 動的ステータス計算ロジック ---
     let totalFirstStats = slot.totalFirstStats;
     let totalALLStats = slot.totalALLStats;
-    const statKeys = ['str', 'dex', 'int', 'luk', 'maxHp', 'maxMp', 'atk', 'matk', 'def'];
+    const statKeys = ['str', 'dex', 'int', 'luk', 'maxHp', 'maxMp', 'atk', 'matk', 'def', 'pdef', 'mdef'];
 
     if (isEquipment) {
         if (totalFirstStats === undefined && typeof ITEM_CATALOG !== 'undefined') {
@@ -4553,22 +4593,33 @@ function drawItemTooltip(ctx, slot, mouseX, mouseY, hero) {
     let starCount = (slot.star !== undefined) ? parseInt(slot.star) : 0;
     let successCount = (slot.successCount !== undefined) ? parseInt(slot.successCount) : 0;
     
-    let categoryName = "";
+    // 分類名の解決
+    let categoryName = "装備";
     if (isEquipment) {
-        const catMap = { "weapon1": "武器", "shield1": "盾", "armor1": "防具" };
-        categoryName = catMap[slot.category] || (slot.type === 'sword' ? "片手剣" : "盾");
+        const catMap = { 
+            "weapon1": "武器", "shield1": "盾", "armor1": "防具", 
+            "cape": "マント", "helmet": "兜", "gloves": "手袋", "shoes": "靴" 
+        };
+        categoryName = catMap[slot.category] || catMap[slot.item_type] || slot.categoryName || (slot.type === 'sword' ? "片手剣" : (slot.type === 'cape' ? "マント" : "装備"));
+    } else {
+        const itemCat = (typeof itemCategories !== 'undefined') ? itemCategories[slot.type] : slot.category;
+        if (itemCat === 'ETC') categoryName = "ETC";
+        else if (itemCat === 'USE') categoryName = "消費アイテム";
+        else categoryName = "アイテム";
     }
 
     let baseItemName = slot.displayName || slot.display_name;
-    const genericNames = ['盾', '剣', 'sword', 'shield', 'アイテム'];
+    const genericNames = ['盾', '剣', 'マント', 'sword', 'shield', 'cape', 'アイテム'];
 
     if (!baseItemName || genericNames.includes(baseItemName)) {
         const catalogId = slot.item_id || slot.itemId || slot.id;
         if (typeof ITEM_CATALOG !== 'undefined' && catalogId && ITEM_CATALOG[catalogId]) {
             baseItemName = ITEM_CATALOG[catalogId].display_name || ITEM_CATALOG[catalogId].name;
-        } else if (slot.type === 'sword' || slot.name === 'sword') {
+        } else if (slot.type === 'cape') {
+            baseItemName = "イデタチのマント";
+        } else if (slot.type === 'sword') {
             baseItemName = "マニアックソード";
-        } else if (slot.type === 'shield' || slot.name === 'shield') {
+        } else if (slot.type === 'shield') {
             baseItemName = "トリシールド";
         } else {
             baseItemName = slot.name || "アイテム";
@@ -4582,23 +4633,19 @@ function drawItemTooltip(ctx, slot, mouseX, mouseY, hero) {
     }
 
     let itemName = baseItemName;
-        
     let statusText = "";
     let displayColor = "#ffffff";
     let glowColor = null;
 
     if (isEquipment && totalALLStats !== undefined && totalFirstStats !== undefined) {
         const bonus = totalALLStats - totalFirstStats;
-        let rankName = "";
-        if (bonus >= 30) { displayColor = "#ff4d4d"; rankName = "(神級)"; glowColor = displayColor; }
-        else if (bonus >= 25) { displayColor = "#4ade80"; rankName = "(超伝説)"; glowColor = displayColor; }
-        else if (bonus >= 20) { displayColor = "#facc15"; rankName = "(極上)"; glowColor = displayColor; }
-        else if (bonus >= 15) { displayColor = "#e879f9"; rankName = "(伝説)"; glowColor = displayColor; }
-        else if (bonus >= 10) { displayColor = "#38bdf8"; rankName = "(希少)"; glowColor = displayColor; }
-        else if (bonus >= 5) { displayColor = "#fb923c"; rankName = "(良品)"; }
-        else if (bonus >= 0) { displayColor = "#ffffff"; rankName = "(標準)"; }
-        else { displayColor = "#94a3b8"; rankName = "(粗悪)"; }
-        itemName = `${baseItemName} ${rankName}`;
+        if (bonus >= 30) { displayColor = "#ff0000"; glowColor = displayColor; }
+        else if (bonus >= 25) { displayColor = "#00ff00"; glowColor = displayColor; }
+        else if (bonus >= 20) { displayColor = "#ffff00"; glowColor = displayColor; }
+        else if (bonus >= 15) { displayColor = "#ff00ff"; glowColor = displayColor; }
+        else if (bonus >= 10) { displayColor = "#00ccff"; glowColor = displayColor; }
+        else if (bonus >= 5) { displayColor = "#fb923c"; }
+        else { displayColor = "#ffffff"; }
     } else {
         if (slot.description) {
             statusText = slot.description;
@@ -4609,53 +4656,46 @@ function drawItemTooltip(ctx, slot, mouseX, mouseY, hero) {
         }
     }
 
-    // --- 📐 黄金比レイアウト定数 ---
-    let padding = 16;      
-    let iconSize = 48;     
-    let iconTextGap = 14;  
-    let lineHeight = 19;   
-    
     let activeStats = isEquipment ? statKeys.filter(k => {
         let val = parseInt(slot[k]);
         return !isNaN(val) && val !== 0; 
     }) : [];
 
-    ctx.font = 'bold 14px sans-serif';
-    let nameWidth = ctx.measureText(itemName).width;
-    ctx.font = '12px sans-serif';
-    let statusWidth = ctx.measureText(statusText).width;
+    // --- 📐 レイアウト定数 ---
+    let padding = 16;      
+    let iconSize = 48;     
+    let lineHeight = 20;   
+    let boxWidth = 270;    
 
-    let boxWidth = padding + iconSize + iconTextGap + Math.max(nameWidth, statusWidth, 210) + padding;
-    if (boxWidth < 280) boxWidth = 280;
-
-    // --- ↕️ 厳密な高さの積み上げ計算（非装備時は無駄な高さをカット） ---
+    // --- ↕️ 高さの積み上げ計算 ---
     let currentHeight = padding;
 
     if (isEquipment) {
-        // 星（存在する場合）
-        let starHeight = (starCount > 0) ? 18 : 0;
-        currentHeight += starHeight;
-
-        // ヘッダー部
-        currentHeight += iconSize;
-        currentHeight += 12;
-
-        // REQブロック
-        let reqLinesCount = 1; // LEV
+        if (starCount > 0) currentHeight += 16; 
+        currentHeight += iconSize;             
+        currentHeight += 12;                   
+        currentHeight += 22;                   
+        currentHeight += 18;                   
+        currentHeight += 10;                   
+        
+        // REQ系行数 (REQ LEV, REQ First, REQ ALL, BONUS)
+        let reqLinesCount = 1; 
         if (totalFirstStats !== undefined) reqLinesCount++;
         if (totalALLStats !== undefined) reqLinesCount++;
         if (totalALLStats !== undefined && totalFirstStats !== undefined) reqLinesCount++;
-        currentHeight += (reqLinesCount * 17 + 8);
+        currentHeight += (reqLinesCount * lineHeight + 10);
 
-        // アクティブステータスブロック
-        currentHeight += (activeStats.length * lineHeight + 12);
-
-        // アップグレード回数ブロック
-        currentHeight += 22;
+        currentHeight += 10;                   
+        // ステータス行数
+        currentHeight += (activeStats.length * lineHeight);
+        
+        currentHeight += 10;                   
+        currentHeight += 20;                   
     } else {
-        // ★ETC・消費アイテム等の場合：アイコンの高さ、またはテキストの大きさに合わせてコンパクトに決定
-        let contentBlockHeight = Math.max(iconSize, 40); // 最低限アイコンが入る高さ
-        currentHeight += contentBlockHeight;
+        currentHeight += iconSize;
+        currentHeight += 12;
+        currentHeight += 22;
+        currentHeight += 20; 
     }
 
     let boxHeight = currentHeight + padding;
@@ -4663,11 +4703,14 @@ function drawItemTooltip(ctx, slot, mouseX, mouseY, hero) {
     let popupX = mouseX + 16;
     let popupY = mouseY + 16;
 
+    if (popupX + boxWidth > window.innerWidth) popupX = mouseX - boxWidth - 16;
+    if (popupY + boxHeight > window.innerHeight) popupY = window.innerHeight - boxHeight - 10;
+
     // --- 🖼️ ウィンドウ背景の描画 ---
     ctx.save();
     let bgGrad = ctx.createLinearGradient(popupX, popupY, popupX, popupY + boxHeight);
-    bgGrad.addColorStop(0, "rgba(20, 25, 35, 0.98)"); 
-    bgGrad.addColorStop(1, "rgba(10, 13, 18, 0.98)"); 
+    bgGrad.addColorStop(0, "rgba(15, 20, 30, 0.96)"); 
+    bgGrad.addColorStop(1, "rgba(8, 11, 16, 0.98)"); 
     ctx.fillStyle = bgGrad;
 
     ctx.beginPath();
@@ -4678,38 +4721,36 @@ function drawItemTooltip(ctx, slot, mouseX, mouseY, hero) {
     }
     ctx.fill();
 
-    // エッジの美しい枠線
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.22)';
-    ctx.lineWidth = 1;
+    ctx.strokeStyle = 'rgba(100, 150, 255, 0.35)';
+    ctx.lineWidth = 1.5;
+    ctx.shadowBlur = 12;
+    ctx.shadowColor = "rgba(0, 0, 0, 0.6)";
     ctx.stroke();
     ctx.restore();
 
-    // レンダリングカーソルの初期化
     let cursorY = popupY + padding;
+    let centerX = popupX + boxWidth / 2;
 
-    // 🌟 スター描画（装備品のみ）
+    // 🌟 スター描画
     if (isEquipment && starCount > 0) {
         ctx.font = '12px sans-serif';
         ctx.fillStyle = '#facc15';
         ctx.textAlign = 'center';
-        ctx.fillText("★".repeat(starCount), popupX + boxWidth / 2, cursorY);
-        cursorY += 18;
+        ctx.textBaseline = 'top';
+        ctx.fillText("★".repeat(starCount), centerX, cursorY);
+        cursorY += 16;
     }
 
-    let iconSlotX = popupX + padding;
+    // --- アイコンスロット ---
+    let iconSlotX = centerX - (iconSize / 2);
     let iconSlotY = cursorY;
-    let textStartX = iconSlotX + iconSize + iconTextGap;
-    let rightValueX = popupX + boxWidth - padding;
 
-    // ==========================================
-    // 🌟 アイコン下地スロット
-    // ==========================================
     ctx.save();
     let slotGrad = ctx.createLinearGradient(iconSlotX, iconSlotY, iconSlotX, iconSlotY + iconSize);
-    slotGrad.addColorStop(0, "rgba(30, 38, 52, 0.95)");
-    slotGrad.addColorStop(1, "rgba(15, 20, 28, 0.95)");
+    slotGrad.addColorStop(0, "rgba(25, 32, 44, 0.95)");
+    slotGrad.addColorStop(1, "rgba(10, 14, 20, 0.95)");
     ctx.fillStyle = slotGrad;
-    ctx.strokeStyle = "rgba(255, 255, 255, 0.25)";
+    ctx.strokeStyle = "rgba(100, 116, 139, 0.5)";
     ctx.lineWidth = 1;
 
     if (typeof ctx.roundRect === 'function') {
@@ -4723,124 +4764,152 @@ function drawItemTooltip(ctx, slot, mouseX, mouseY, hero) {
     }
     ctx.restore();
 
-    // --- アイコン画像の描画 ---
+    // アイコン画像描画
     let itemImg = slot.img || ((typeof itemImages !== 'undefined') ? itemImages[slot.type] : null);
-
     if (!itemImg && slot.iconUrl) {
         if (!window.itemImageCache) window.itemImageCache = {};
         if (window.itemImageCache[slot.iconUrl]) {
             itemImg = window.itemImageCache[slot.iconUrl];
         } else {
             let img = new Image();
+            img.crossOrigin = "anonymous";
             img.src = slot.iconUrl;
             window.itemImageCache[slot.iconUrl] = img;
             itemImg = img;
         }
     }
 
-    if (itemImg && itemImg.complete && itemImg.naturalWidth !== 0) {
+    if (itemImg && itemImg.complete && typeof itemImg.naturalWidth === 'number' && itemImg.naturalWidth > 0) {
+        let margin = 5;
+        let imgX = iconSlotX + margin, imgY = iconSlotY + margin;
+        let imgW = iconSize - (margin * 2), imgH = iconSize - (margin * 2);
+
         ctx.save();
-        ctx.shadowBlur = 6;
-        ctx.shadowColor = "rgba(255, 255, 255, 0.3)";
         if (glowColor) {
-            ctx.shadowBlur = 14;
-            ctx.shadowColor = glowColor;
+            ctx.shadowBlur = 20; ctx.shadowColor = glowColor;
+            ctx.drawImage(itemImg, imgX, imgY, imgW, imgH);
+        } else {
+            ctx.shadowBlur = 8; ctx.shadowColor = "rgba(255, 255, 255, 0.95)";
+            ctx.drawImage(itemImg, imgX, imgY, imgW, imgH);
         }
-        let margin = 4;
-        ctx.drawImage(itemImg, iconSlotX + margin, iconSlotY + margin, iconSize - (margin * 2), iconSize - (margin * 2));
         ctx.restore();
     }
 
-    // --- テキスト描画分岐 ---
+    cursorY += iconSize + 12;
+
+    // --- アイテム名 ---
     ctx.textBaseline = 'top';
     ctx.font = 'bold 14px sans-serif';
     ctx.fillStyle = displayColor;
-    ctx.textAlign = 'left';
-    ctx.fillText(itemName, textStartX, iconSlotY + 2);
+    ctx.textAlign = 'center';
+    ctx.fillText(itemName, centerX, cursorY);
+    cursorY += 22;
 
     if (isEquipment) {
-        // 装備品の場合の分類名
+        // --- 装備の分類 ---
         ctx.font = '11px sans-serif';
         ctx.fillStyle = '#94a3b8';
-        ctx.fillText(`分類 : ${categoryName}`, textStartX, iconSlotY + 24);
+        ctx.fillText(`装備の分類：${categoryName}`, centerX, cursorY);
+        cursorY += 18;
 
-        cursorY += iconSize + 12;
-
-        let heroLevel = hero ? (hero.level || 0) : 0;
-        ctx.font = 'bold 11px sans-serif';
-
-        // REQ LEV
-        ctx.textAlign = 'left';
-        ctx.fillStyle = (heroLevel < reqLevel) ? '#f87171' : '#fbbf24';
-        ctx.fillText("・REQ LEV", textStartX, cursorY);
-        ctx.textAlign = 'right';
-        ctx.fillText(reqLevel, rightValueX, cursorY);
-        cursorY += 17;
-
-        // REQ First
-        if (totalFirstStats !== undefined) {
-            ctx.textAlign = 'left'; ctx.fillStyle = '#cbd5e1';
-            ctx.fillText("・REQ First", textStartX, cursorY);
-            ctx.textAlign = 'right'; ctx.fillText(Math.floor(totalFirstStats), rightValueX, cursorY);
-            cursorY += 17;
-        }
-        // REQ ALL
-        if (totalALLStats !== undefined) {
-            ctx.textAlign = 'left'; ctx.fillStyle = '#cbd5e1';
-            ctx.fillText("・REQ ALL", textStartX, cursorY);
-            ctx.textAlign = 'right'; ctx.fillText(Math.floor(totalALLStats), rightValueX, cursorY);
-            cursorY += 17;
-        }
-        // BONUS
-        if (totalALLStats !== undefined && totalFirstStats !== undefined) {
-            let bonus = totalALLStats - totalFirstStats;
-            ctx.textAlign = 'left'; ctx.fillStyle = displayColor;
-            ctx.fillText("・BONUS", textStartX, cursorY);
-            ctx.textAlign = 'right'; ctx.fillText((bonus >= 0 ? "+" : "") + Math.round(bonus * 10) / 10, rightValueX, cursorY);
-            cursorY += 17;
-        }
-
-        cursorY += 2;
-
-        // 微小な区切り線
+        // 区切り線
         ctx.save();
-        ctx.strokeStyle = 'rgba(255, 255, 255, 0.12)';
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
         ctx.lineWidth = 1;
         ctx.beginPath();
-        ctx.moveTo(iconSlotX, cursorY);
-        ctx.lineTo(rightValueX, cursorY);
+        ctx.moveTo(popupX + padding, cursorY);
+        ctx.lineTo(popupX + boxWidth - padding, cursorY);
         ctx.stroke();
         ctx.restore();
 
         cursorY += 10;
 
-        // アクティブステータス
+        // --- REQ関係 (すべて中央揃え) ---
+        let heroLevel = hero ? (hero.level || 0) : 0;
         ctx.font = '12px sans-serif';
+
+        // REQ LEV
+        ctx.fillStyle = (heroLevel < reqLevel) ? '#f87171' : '#fbbf24';
+        ctx.fillText(`REQ LEV：${reqLevel}`, centerX, cursorY);
+        cursorY += lineHeight;
+
+        // REQ First
+        if (totalFirstStats !== undefined) {
+            ctx.fillStyle = '#cbd5e1';
+            ctx.fillText(`REQ First：${Math.floor(totalFirstStats)}`, centerX, cursorY);
+            cursorY += lineHeight;
+        }
+        // REQ ALL
+        if (totalALLStats !== undefined) {
+            ctx.fillStyle = '#cbd5e1';
+            ctx.fillText(`REQ ALL：${Math.floor(totalALLStats)}`, centerX, cursorY);
+            cursorY += lineHeight;
+        }
+        // BONUS
+        if (totalALLStats !== undefined && totalFirstStats !== undefined) {
+            let bonus = totalALLStats - totalFirstStats;
+            ctx.fillStyle = displayColor;
+            ctx.fillText(`BONUS：${(bonus >= 0 ? "+" : "") + Math.round(bonus * 10) / 10}`, centerX, cursorY);
+            cursorY += lineHeight;
+        }
+
+        // 区切り線
+        cursorY += 4;
+        ctx.save();
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(popupX + padding, cursorY);
+        ctx.lineTo(popupX + boxWidth - padding, cursorY);
+        ctx.stroke();
+        ctx.restore();
+
+        cursorY += 10;
+
+        // --- アクティブステータス (例: LUK ：+2, 物理防御力：+6) ---
         activeStats.forEach(key => {
-            let labelMap = { str: "STR", dex: "DEX", int: "INT", luk: "LUK", maxHp: "最大HP", maxMp: "最大MP", atk: "攻撃力", matk: "魔力", def: "防御力" };
-            ctx.textAlign = 'left'; ctx.fillStyle = '#f8fafc';
-            ctx.fillText(labelMap[key] || key.toUpperCase(), iconSlotX, cursorY);
-            ctx.textAlign = 'right';
-            ctx.fillStyle = '#38bdf8';
-            ctx.fillText(`+${slot[key]}`, rightValueX, cursorY);
+            let labelMap = { 
+                str: "STR", dex: "DEX", int: "INT", luk: "LUK", 
+                maxHp: "最大HP", maxMp: "最大MP", 
+                atk: "攻撃力", matk: "魔力", def: "物理防御力", 
+                pdef: "物理防御力", mdef: "魔法防御力" 
+            };
+            let label = labelMap[key] || key.toUpperCase();
+            let val = slot[key];
+            let valStr = (val > 0 ? `+${val}` : `${val}`);
+
+            ctx.fillStyle = '#f8fafc';
+            ctx.fillText(`${label}：${valStr}`, centerX, cursorY);
             cursorY += lineHeight;
         });
 
-        cursorY += 4;
+        // 区切り線
+        cursorY += 2;
+        ctx.save();
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(popupX + padding, cursorY);
+        ctx.lineTo(popupX + boxWidth - padding, cursorY);
+        ctx.stroke();
+        ctx.restore();
 
-        // アップグレード可能回数
+        cursorY += 10;
+
+        // --- アップグレード可能回数 ---
         let total = slot.totalUpgrade || 7;
         let used = (slot.successCount || 0) + (slot.failCount || 0);
-        ctx.textAlign = 'left'; 
+        let remainUpgrade = Math.max(0, total - used);
+
         ctx.font = 'bold 11px sans-serif'; 
         ctx.fillStyle = '#facc15';
-        ctx.fillText(`アップグレード可能回数 : ${total - used}`, iconSlotX, cursorY);
+        ctx.fillText(`アップグレード可能回数：${remainUpgrade}`, centerX, cursorY);
 
     } else {
-        // ★ETC・消費アイテム等の場合：説明文を綺麗に配置
+        // 通常アイテム
         ctx.font = '12px sans-serif';
         ctx.fillStyle = '#cbd5e1';
-        ctx.fillText(statusText, textStartX, iconSlotY + 24);
+        ctx.fillText(statusText, centerX, cursorY);
     }
 
     // 🛡️ 2. 元の状態に復元
@@ -5537,6 +5606,116 @@ if (typeof window.enemyAuraCache === 'undefined') {
     window.enemyAuraCache = {};
 }
 
+/**
+ * 🕰️ アナログ時計のなかにデジタル表記（HH:MM）を融合させた描画関数
+ * @param {CanvasRenderingContext2D} ctx 
+ * @param {number} x 配置するX座標
+ * @param {number} y 配置するY座標
+ * @param {number} size 時計ボックス全体のサイズ（デフォルト72px）
+ */
+function drawBarMatchedAnalogClock(ctx, x, y, size = 72) {
+    if (typeof ctx === 'undefined') return;
+
+    const now = new Date();
+    const hours = now.getHours();
+    const minutes = now.getMinutes();
+    const seconds = now.getSeconds();
+
+    ctx.save();
+
+    // 1. ボックスの外枠と背景
+    const radius = size / 2 - 5;
+
+    const bgGrad = ctx.createLinearGradient(x, y, x, y + size);
+    bgGrad.addColorStop(0, "rgba(30, 41, 59, 0.95)");
+    bgGrad.addColorStop(1, "rgba(15, 23, 42, 0.95)");
+
+    ctx.fillStyle = bgGrad;
+    ctx.strokeStyle = "rgba(100, 116, 139, 0.8)";
+    ctx.lineWidth = 1.5;
+
+    const boxRadius = 6;
+    ctx.beginPath();
+    if (ctx.roundRect) {
+        ctx.roundRect(x, y, size, size, boxRadius);
+    } else {
+        ctx.rect(x, y, size, size);
+    }
+    ctx.fill();
+    ctx.stroke();
+
+    // 2. 時計の中心座標
+    const centerX = x + size / 2;
+    const centerY = y + size / 2;
+
+    // 3. 文字盤の目盛り（12, 3, 6, 9時）
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.5)";
+    ctx.lineWidth = 1.5;
+    for (let i = 0; i < 4; i++) {
+        const angle = (i * Math.PI) / 2;
+        const innerR = radius - 7;
+        const outerR = radius - 2;
+        ctx.beginPath();
+        ctx.moveTo(centerX + Math.cos(angle) * innerR, centerY + Math.sin(angle) * innerR);
+        ctx.lineTo(centerX + Math.cos(angle) * outerR, centerY + Math.sin(angle) * outerR);
+        ctx.stroke();
+    }
+
+    // 4. 針の角度計算
+    const secondAngle = (seconds * Math.PI) / 30 - Math.PI / 2;
+    const minuteAngle = (minutes * Math.PI) / 30 + (seconds * Math.PI) / 1800 - Math.PI / 2;
+    const hourAngle = ((hours % 12) * Math.PI) / 6 + (minutes * Math.PI) / 360 - Math.PI / 2;
+
+    // 時針
+    ctx.strokeStyle = "#ffffff";
+    ctx.lineWidth = 3;
+    ctx.lineCap = "round";
+    ctx.beginPath();
+    ctx.moveTo(centerX, centerY);
+    ctx.lineTo(centerX + Math.cos(hourAngle) * (radius * 0.45), centerY + Math.sin(hourAngle) * (radius * 0.45));
+    ctx.stroke();
+
+    // 分針
+    ctx.strokeStyle = "#cbd5e1";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(centerX, centerY);
+    ctx.lineTo(centerX + Math.cos(minuteAngle) * (radius * 0.7), centerY + Math.sin(minuteAngle) * (radius * 0.7));
+    ctx.stroke();
+
+    // 秒針（赤のアクセント）
+    ctx.strokeStyle = "#f87171";
+    ctx.lineWidth = 1.2;
+    ctx.beginPath();
+    ctx.moveTo(centerX, centerY);
+    ctx.lineTo(centerX + Math.cos(secondAngle) * (radius * 0.8), centerY + Math.sin(secondAngle) * (radius * 0.8));
+    ctx.stroke();
+
+    // 中心ポッチ
+    ctx.beginPath();
+    ctx.arc(centerX, centerY, 2, 0, Math.PI * 2);
+    ctx.fillStyle = "#facc15";
+    ctx.fill();
+
+    // 🌟 5. デジタル表記の追加（文字盤の下部に小さく HH:MM を表示）
+    const dispHours = String(hours).padStart(2, '0');
+    const dispMinutes = String(minutes).padStart(2, '0');
+    const timeText = `${dispHours}:${dispMinutes}`;
+
+    ctx.font = "bold 10px 'Segoe UI', monospace";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+
+    // 読みやすくするためにテキストの背景にわずかに暗い帯または影を引く
+    ctx.fillStyle = "rgba(15, 23, 42, 0.8)";
+    ctx.fillRect(centerX - 18, centerY + (radius * 0.35), 36, 14);
+
+    ctx.fillStyle = "#38bdf8"; // デジタル部分はスカイブルーで計器感アップ
+    ctx.fillText(timeText, centerX, centerY + (radius * 0.35) + 7);
+
+    ctx.restore();
+}
+
 // ============================================================
 // ⚙️ 【設定】オーラの有効/無効をここで一発切り替え
 // ============================================================
@@ -5607,7 +5786,8 @@ function applyEnemyAuraEffect(auraType, drawFunction) {
  */
 function drawEnemies(enemies, hero, frame) {
 
-	console.log("🎨 描画ループ開始！ 現在の敵の数:", enemies.length);
+	// 2026-9-5停止
+	//console.log("🎨 描画ループ開始！ 現在の敵の数:", enemies.length);
 	
 	// 🌟 10秒ごと（60FPSなら約600フレーム）にログを出す
     if (frame % 600 === 0) {
@@ -6174,14 +6354,16 @@ function drawChatBubbles(hero, others) {
 }
 
 // ============================================================
-// :::DRAW_PICKUP_EFFECTS::: 💎 アイテム収集時の吸い込みエフェクト（カード対応版）
+// :::DRAW_PICKUP_EFFECTS::: 💎 アイテム収集時の吸い込みエフェクト（図鑑・フィールド完全同期版）
 // ============================================================
 function drawPickupEffects(hero, others) {
+    if (!pickingUpEffects || !Array.isArray(pickingUpEffects)) return;
+
     pickingUpEffects.forEach((eff) => {
         const maxTime = VIEW_CONFIG.pickupEffect.duration;
         
         if (eff.timer === maxTime) {
-            console.log(`[EffectStart] Drawing with Color: ${eff.effectColor}, Type: ${eff.type}`);
+            console.log(`[EffectStart] Drawing with Color: ${eff.effectColor}, Type: ${eff.type}, Rank: ${eff.cardRank}`);
         }
         
         const t = Math.pow((maxTime - eff.timer) / maxTime, 2);
@@ -6229,44 +6411,285 @@ function drawPickupEffects(hero, others) {
                             img.naturalHeight > 0;
 
         if (isImageSafe) {
-            // 🌟 モンスターカードかどうかの判定（フィールド側と統一）
+            // 🌟 モンスターカードかどうかの判定（フィールド側と完全に統一）
             const isMonsterCard = eff.cardId || (eff.type && eff.type.toLowerCase().startsWith('monster'));
 
             if (isMonsterCard) {
-                // --- 🃏 吸い込み中のモンスターカード専用レンダリング ---
-                const effectSize = VIEW_CONFIG.pickupEffect.size; // 通常のエフェクトサイズを基準にする
-                const cardW = effectSize * 0.75;
-                const cardH = effectSize * 0.95;
+                // --- 🃏 吸い込み中のモンスターカード（図鑑＆フィールドと完全同一のランク別プレミアムデザイン） ---
+                ctx.imageSmoothingEnabled = false; // ドット絵をシャープに保つ
+
+                const cardW = 32;  
+                const cardH = 44;
 
                 const cardX = -cardW / 2;
                 const cardY = -cardH / 2;
+                const cutSize = 5;  
+                const outerRadius = 2;  
 
-                // 1. カード背景（フィールド側とお揃いの温かみのあるアイボリー＆ブラウン系）
-                const cardGrad = ctx.createLinearGradient(cardX, cardY, cardX, cardY + cardH);
-                cardGrad.addColorStop(0.0, "#fffaf0"); 
-                cardGrad.addColorStop(1.0, "#e8dccc"); 
+                // 📐 角丸付き斜めカットパス生成関数（図鑑・フィールドと完全共通）
+                const makeRoundedBevelPath = (x, y, w, h, cut, r) => {
+                    ctx.beginPath();
+                    ctx.moveTo(x, y + cut);
+                    ctx.lineTo(x + cut, y);
+                    ctx.lineTo(x + w - r, y);
+                    ctx.arcTo(x + w, y, x + w, y + r, r);
+                    ctx.lineTo(x + w, y + h - r);
+                    ctx.arcTo(x + w, y + h, x + w - r, y + h, r);
+                    ctx.lineTo(x + r, y + h);
+                    ctx.arcTo(x, y + h, x, y + h - r, r);
+                    ctx.closePath();
+                };
 
-                ctx.fillStyle = cardGrad;
+                const rank = eff.cardRank || 1;
+
+                // 🌟 【図鑑・フィールドと完全共通のランク別カラーテーマ定義】
+                let theme = {
+                    glowColor: "#f59e0b",      
+                    lightBorder: "#fef08a",    
+                    gradTop: "#fde047",        
+                    gradMid: "#eab308",        
+                    gradBottom: "#a16207",     
+                    innerTop: "#fef3c7",       
+                    innerMid: "#fde68a",       
+                    innerBottom: "#d1c4a9",
+                    isDiamond: false,
+                    isPlatinum: false,
+                    isRainbow: false
+                };
+
+                if (rank === 1) {
+                    theme = { glowColor: "#b45309", lightBorder: "#fed7aa", gradTop: "#fb923c", gradMid: "#c2410c", gradBottom: "#7c2d12", innerTop: "#ffedd5", innerMid: "#fed7aa", innerBottom: "#c2410c", isDiamond: false, isPlatinum: false, isRainbow: false };
+                } else if (rank === 2) {
+                    theme = { glowColor: "#94a3b8", lightBorder: "#e2e8f0", gradTop: "#cbd5e1", gradMid: "#64748b", gradBottom: "#334155", innerTop: "#f1f5f9", innerMid: "#cbd5e1", innerBottom: "#64748b", isDiamond: false, isPlatinum: false, isRainbow: false };
+                } else if (rank === 3) {
+                    theme = { glowColor: "#f59e0b", lightBorder: "#fef08a", gradTop: "#fde047", gradMid: "#eab308", gradBottom: "#a16207", innerTop: "#fef3c7", innerMid: "#fde68a", innerBottom: "#d1c4a9", isDiamond: false, isPlatinum: false, isRainbow: false };
+                } else if (rank === 4) {
+                    theme = { glowColor: "#e2e8f0", lightBorder: "#ffffff", gradTop: "#ffffff", gradMid: "#cbd5e1", gradBottom: "#64748b", innerTop: "#ffffff", innerMid: "#e2e8f0", innerBottom: "#cbd5e1", isDiamond: false, isPlatinum: true, isRainbow: false };
+                } else if (rank === 5) {
+                    theme = { glowColor: "#6ee7b7", lightBorder: "#ffffff", gradTop: "#7dd3fc", gradMid: "#0d9488", gradBottom: "#042f2e", innerTop: "#ffffff", innerMid: "#2dd4bf", innerBottom: "#0f766e", isDiamond: true, isPlatinum: false, isRainbow: false };
+                } else if (rank >= 6) {
+                    const frameGlobal = typeof frame !== 'undefined' ? frame : 0;
+                    const hue = (frameGlobal * 3) % 360;
+                    theme = {
+                        glowColor: `hsl(${hue}, 100%, 65%)`,
+                        lightBorder: "#ffffff",
+                        gradTop: `hsl(${hue}, 90%, 75%)`,
+                        gradMid: `hsl(${(hue + 60) % 360}, 90%, 50%)`,
+                        gradBottom: `hsl(${(hue + 120) % 360}, 90%, 30%)`,
+                        innerTop: "#ffffff",
+                        innerMid: `hsl(${hue}, 70%, 90%)`,
+                        innerBottom: `hsl(${(hue + 60) % 360}, 50%, 80%)`,
+                        isDiamond: false,
+                        isPlatinum: false,
+                        isRainbow: true
+                    };
+                }
+
+                // 0. 外側の輝き・グロー演出（フィールド描画と完全同期）
+                ctx.save();
+                ctx.strokeStyle = theme.glowColor;
+                ctx.lineWidth = 3.5;
+                ctx.globalAlpha = 0.35;
+                makeRoundedBevelPath(cardX - 1, cardY - 1, cardW + 2, cardH + 2, cutSize + 1, outerRadius + 1);
+                ctx.stroke();
+
+                ctx.lineWidth = 2;
+                ctx.globalAlpha = 0.6;
+                makeRoundedBevelPath(cardX - 0.5, cardY - 0.5, cardW + 1, cardH + 1, cutSize, outerRadius);
+                ctx.stroke();
+                ctx.restore();
+
+                // 1. フレーム（枠）のグラデーション描画
+                const frameGrad = ctx.createLinearGradient(cardX, cardY, cardX, cardY + cardH);
+                if (theme.isRainbow) {
+                    frameGrad.addColorStop(0.00, "rgba(255, 120, 120, 1.0)");
+                    frameGrad.addColorStop(0.16, "rgba(255, 200, 90,  1.0)");
+                    frameGrad.addColorStop(0.33, "rgba(255, 255, 120, 1.0)");
+                    frameGrad.addColorStop(0.50, "rgba(90,  255, 150, 1.0)");
+                    frameGrad.addColorStop(0.66, "rgba(90,  230, 255, 1.0)");
+                    frameGrad.addColorStop(0.83, "rgba(200, 120, 255, 1.0)");
+                    frameGrad.addColorStop(1.00, "rgba(255, 120, 210, 1.0)");
+                } else if (theme.isDiamond) {
+                    frameGrad.addColorStop(0.00, "#7dd3fc");
+                    frameGrad.addColorStop(0.50, "#0284c7");
+                    frameGrad.addColorStop(1.00, "#0369a1");
+                } else {
+                    frameGrad.addColorStop(0, theme.gradTop); 
+                    frameGrad.addColorStop(0.5, theme.gradMid); 
+                    frameGrad.addColorStop(1, theme.gradBottom); 
+                }
+                
+                ctx.fillStyle = frameGrad;
+                makeRoundedBevelPath(cardX, cardY, cardW, cardH, cutSize, outerRadius);
+                ctx.fill();
+
+                ctx.lineWidth = 1.0;
+                ctx.strokeStyle = theme.lightBorder;
+                makeRoundedBevelPath(cardX, cardY, cardW, cardH, cutSize, outerRadius);
+                ctx.stroke();
+
+                // 2. 内側エリアの生成
+                const innerMargin = 1.5; 
+                const innerX = cardX + innerMargin;
+                const innerY = cardY + innerMargin;
+                const innerW = cardW - innerMargin * 2;
+                const innerH = cardH - innerMargin * 2;
+                const innerCut = Math.max(0, cutSize - innerMargin);
+                const innerRadius = Math.max(0, outerRadius - innerMargin);
+
+                const makeInnerRoundedBevelPath = (x, y, w, h, cut, r) => {
+                    ctx.beginPath();
+                    if (cut > 0) {
+                        ctx.moveTo(x, y + cut);
+                        ctx.lineTo(x + cut, y);
+                    } else {
+                        ctx.moveTo(x, y);
+                    }
+                    ctx.lineTo(x + w - r, y);
+                    if (r > 0) ctx.arcTo(x + w, y, x + w, y + r, r);
+                    else ctx.lineTo(x+w,y);
+                    ctx.lineTo(x + w, y + h - r);
+                    if (r > 0) ctx.arcTo(x + w, y + h, x + w - r, y + h, r);
+                    else ctx.lineTo(x+w,y+h);
+                    ctx.lineTo(x + r, y + h);
+                    if (r > 0) ctx.arcTo(x, y + h, x, y + h - r, r);
+                    else ctx.lineTo(x,y+h);
+                    ctx.closePath();
+                };
+
+                const innerGrad = ctx.createLinearGradient(innerX + innerW, innerY, innerX, innerY + innerH);
+                if (theme.isRainbow) {
+                    innerGrad.addColorStop(0.00, "rgba(255, 120, 120, 1.0)");
+                    innerGrad.addColorStop(0.16, "rgba(255, 200, 90,  1.0)");
+                    innerGrad.addColorStop(0.33, "rgba(255, 255, 120, 1.0)");
+                    innerGrad.addColorStop(0.50, "rgba(90,  255, 150, 1.0)");
+                    innerGrad.addColorStop(0.66, "rgba(90,  230, 255, 1.0)");
+                    innerGrad.addColorStop(0.83, "rgba(200, 120, 255, 1.0)");
+                    innerGrad.addColorStop(1.00, "rgba(255, 120, 210, 1.0)");
+                } else if (theme.isDiamond) {
+                    innerGrad.addColorStop(0.00, "#e0f2fe");
+                    innerGrad.addColorStop(0.25, "#bae6fd");
+                    innerGrad.addColorStop(0.50, "#38bdf8");
+                    innerGrad.addColorStop(0.75, "#0284c7");
+                    innerGrad.addColorStop(1.00, "#0369a1");
+                } else {
+                    innerGrad.addColorStop(0, theme.innerTop); 
+                    innerGrad.addColorStop(0.5, theme.innerMid); 
+                    innerGrad.addColorStop(1, theme.innerBottom);    
+                }
+                
+                ctx.fillStyle = innerGrad;
+                makeInnerRoundedBevelPath(innerX, innerY, innerW, innerH, innerCut, innerRadius);
+                ctx.fill();
+
+                // 3. モンスター画像描画（クリッピング ＆ 左右反転 ＆ フィールドと同一のスケーリング）
+                ctx.save();
+                makeInnerRoundedBevelPath(innerX, innerY, innerW, innerH, innerCut, innerRadius);
+                ctx.clip();
+
+                const imgWidth = img.naturalWidth || img.width;
+                const imgHeight = img.naturalHeight || img.height;
+                const imgAspect = imgWidth / imgHeight;
+
+                const centerX_img = Math.round(innerX + innerW / 2);
+                const centerY_img = Math.round(innerY + innerH / 2);
+                ctx.translate(centerX_img, centerY_img);
+                ctx.scale(-1, 1); // 左右反転
+
+                const baseSize = Math.min(innerW, innerH);
+                let drawImgW, drawImgH;
+                if (imgAspect > 1) {
+                    drawImgW = Math.round(baseSize * 1.35);
+                    drawImgH = Math.round(drawImgW / imgAspect);
+                } else if (imgAspect < 1) {
+                    drawImgH = Math.round(baseSize * 1.40);
+                    drawImgW = Math.round(drawImgH * imgAspect);
+                } else {
+                    drawImgW = Math.round(baseSize * 1.35);
+                    drawImgH = Math.round(baseSize * 1.35);
+                }
+
+                ctx.drawImage(
+                    img, 
+                    -Math.round(drawImgW / 2), 
+                    -Math.round(drawImgH / 2), 
+                    drawImgW, 
+                    drawImgH
+                );
+
+                ctx.restore(); // クリッピング・反転の復元
+
+                // ==========================================
+                // ★ ダイヤモンド専用：太くまろやかに広がる光の帯
+                // ==========================================
+                if (theme.isDiamond) {
+                    ctx.save();
+                    makeInnerRoundedBevelPath(innerX, innerY, innerW, innerH, innerCut, innerRadius);
+                    ctx.clip();
+
+                    const shineGrad = ctx.createLinearGradient(innerX + innerW * 0.9, innerY + innerH * 0.1, innerX + innerW * 0.1, innerY + innerH * 0.9);
+                    shineGrad.addColorStop(0.00, "rgba(255, 255, 255, 0.0)");
+                    shineGrad.addColorStop(0.25, "rgba(255, 255, 255, 0.02)");
+                    shineGrad.addColorStop(0.40, "rgba(255, 255, 255, 0.30)"); 
+                    shineGrad.addColorStop(0.50, "rgba(255, 255, 255, 0.60)"); 
+                    shineGrad.addColorStop(0.60, "rgba(255, 255, 255, 0.30)"); 
+                    shineGrad.addColorStop(0.75, "rgba(255, 255, 255, 0.02)");
+                    shineGrad.addColorStop(1.00, "rgba(255, 255, 255, 0.0)");
+
+                    ctx.fillStyle = shineGrad;
+                    ctx.fillRect(innerX, innerY, innerW, innerH);
+                    ctx.restore();
+                }
+
+                // ==========================================
+                // ★ ランク6（レインボー）専用：ほんのりと気高い最高峰オーラ
+                // ==========================================
+                if (theme.isRainbow) {
+                    ctx.save();
+                    ctx.shadowColor = "rgba(255, 255, 255, 0.7)"; 
+                    ctx.shadowBlur = 18;                          
+                    ctx.shadowOffsetX = 0;
+                    ctx.shadowOffsetY = 0;
+
+                    makeInnerRoundedBevelPath(innerX, innerY, innerW, innerH, innerCut, innerRadius);
+                    ctx.strokeStyle = "rgba(255, 255, 255, 0.45)"; 
+                    ctx.lineWidth = 1.0;
+                    ctx.stroke();
+                    ctx.restore();
+                }
+
+                // ==========================================
+                // ★ プラチナ専用：ほんのちょっぴり白い上品な光沢
+                // ==========================================
+                if (theme.isPlatinum) {
+                    ctx.save();
+                    makeInnerRoundedBevelPath(innerX, innerY, innerW, innerH, innerCut, innerRadius);
+                    ctx.clip();
+
+                    const platShine = ctx.createLinearGradient(innerX, innerY, innerX + innerW, innerY + innerH);
+                    platShine.addColorStop(0.00, "rgba(255, 255, 255, 0.35)"); 
+                    platShine.addColorStop(0.35, "rgba(255, 255, 255, 0.45)"); 
+                    platShine.addColorStop(0.55, "rgba(255, 255, 255, 0.10)");
+                    platShine.addColorStop(1.00, "rgba(255, 255, 255, 0.0)");
+
+                    ctx.fillStyle = platShine;
+                    ctx.fillRect(innerX, innerY, innerW, innerH);
+                    ctx.restore();
+                }
+
+                // 4. カード表面のツヤ（ハイライト反射）
+                ctx.save();
+                makeRoundedBevelPath(cardX, cardY, cardW, cardH, cutSize, outerRadius);
+                ctx.clip();
+
+                const sheenGrad = ctx.createLinearGradient(cardX, cardY, cardX + cardW, cardY + cardH);
+                sheenGrad.addColorStop(0, "rgba(255, 255, 255, 0.40)"); 
+                sheenGrad.addColorStop(0.3, "rgba(255, 255, 255, 0.0)");
+                sheenGrad.addColorStop(1, "rgba(255, 255, 255, 0.0)");
+
+                ctx.fillStyle = sheenGrad;
                 ctx.fillRect(cardX, cardY, cardW, cardH);
-
-                // 2. 内部のモンスター画像を大きく描画
-                const innerSize = cardW * 1.35; 
-                ctx.drawImage(img, -innerSize / 2, -innerSize / 2 - 2, innerSize, innerSize);
-
-                // 3. 上部のヘッダー帯
-                const headerH = cardH * 0.18;
-                ctx.fillStyle = "#b89778"; 
-                ctx.fillRect(cardX, cardY, cardW, headerH);
-
-                // 4. 外枠のフレーム
-                ctx.strokeStyle = "#8c6747"; 
-                ctx.lineWidth = 1.5;
-                ctx.strokeRect(cardX, cardY, cardW, cardH);
-
-                // 内側のハイライト線
-                ctx.strokeStyle = "rgba(255, 255, 255, 0.6)";
-                ctx.lineWidth = 0.8;
-                ctx.strokeRect(cardX + 1.5, cardY + 1.5, cardW - 3, cardH - 3);
+                ctx.restore();
 
             } else {
                 // --- 通常アイテムの吸い込み描画 ---
@@ -6947,7 +7370,7 @@ async function loadItemCatalogFromDB() {
                 const capitalizedKey = row.monster_key.charAt(0).toUpperCase() + row.monster_key.slice(1);
 
                 newItemCategories[row.monster_key] = "ETC";
-                newItemImages[row.monster_key] = `/char_assets_enemy/${capitalizedKey}/Idle/tile000.png`;
+                newItemImages[row.monster_key] = `/card_assets/${capitalizedKey}.png`;
                 newItemDescriptions[row.monster_key] = row.description || "モンスターの生態が記された貴重なカード。";
             }
         });
@@ -7058,7 +7481,7 @@ async function loadItemCatalogFromDB() {
 
 
 // ============================================================
-// :::DRAW_ITEMS::: 💎 フィールド上のドロップアイテム描画 (明るいカード風版)
+// :::DRAW_ITEMS::: 💎 フィールド上のドロップアイテム描画 (図鑑カードデザイン完全同期版)
 // ============================================================
 function drawItems(items, frame) {
     if (!items || !Array.isArray(items)) return;
@@ -7068,11 +7491,6 @@ function drawItems(items, frame) {
 
         ctx.save();
         
-        // 🔍 【最強デバッグ行】アイテムが描画される直前の全情報を暴く
-        const rawCfg = ITEM_CONFIG[item.type];
-        const sp = sprites.items && sprites.items[item.type];
-        console.log(`[DEBUG ITEM] type:"${item.type}" | name:"${item.name}" | Config有:${!!rawCfg} | Sprite有:${!!sp} | 完了:${sp ? sp.complete : false} | 幅:${sp ? sp.naturalWidth : 'N/A'}`);
-
         // 1. 浮遊アニメーション
         const offset = item.id || (item.x + item.y);
         const floatY = item.landed ? -Math.abs(Math.sin(frame * VIEW_CONFIG.item.floatSpeed + offset) * VIEW_CONFIG.item.floatAmplitude) : 0;
@@ -7112,7 +7530,7 @@ function drawItems(items, frame) {
                     : sprites.items[config.name];
         }
 
-        // 🌟 【修正】一時的なロード中や404確定前の壊れた状態(broken)を完全に遮断する安全ガード
+        // 🌟 一時的なロード中や壊れた状態の遮断
         const isImageSafe = img && 
                             img.complete && 
                             typeof img.naturalWidth === 'number' && 
@@ -7124,43 +7542,282 @@ function drawItems(items, frame) {
             const isMonsterCard = item.cardId || (item.type && item.type.toLowerCase().startsWith('monster'));
 
             if (isMonsterCard) {
-                // --- 🃏 明るいアイボリー＆ブラウン系のカード風レンダリング ---
-                ctx.imageSmoothingEnabled = true;
+                // --- 🃏 フィールド上のモンスターカード（図鑑ウィンドウと完全同一のランク別プレミアムデザイン） ---
+                ctx.imageSmoothingEnabled = false; // ドット絵をシャープに保つ
 
-                const cardW = drawSize * 0.75;
-                const cardH = drawSize * 0.95;
+                // 図鑑側の比率（baseItemSize基準の比率）に合わせたサイズ調整
+                const cardW = 32;  
+                const cardH = 44;
 
                 const cardX = -cardW / 2;
                 const cardY = -cardH / 2;
+                const cutSize = 5;  
+                const outerRadius = 2;  
 
-                // 1. カード背景（温かみのある白・アイボリー系のグラデーション）
-                const cardGrad = ctx.createLinearGradient(cardX, cardY, cardX, cardY + cardH);
-                cardGrad.addColorStop(0.0, "#fffaf0"); // 上部は明るいホワイトアイボリー
-                cardGrad.addColorStop(1.0, "#e8dccc"); // 下部は優しいベージュ・ブラウン
+                // 📐 角丸付き斜めカットパス生成関数（図鑑と共通）
+                const makeRoundedBevelPath = (x, y, w, h, cut, r) => {
+                    ctx.beginPath();
+                    ctx.moveTo(x, y + cut);
+                    ctx.lineTo(x + cut, y);
+                    ctx.lineTo(x + w - r, y);
+                    ctx.arcTo(x + w, y, x + w, y + r, r);
+                    ctx.lineTo(x + w, y + h - r);
+                    ctx.arcTo(x + w, y + h, x + w - r, y + h, r);
+                    ctx.lineTo(x + r, y + h);
+                    ctx.arcTo(x, y + h, x, y + h - r, r);
+                    ctx.closePath();
+                };
 
-                ctx.fillStyle = cardGrad;
+                const rank = item.cardRank || 1;
+
+                // 🌟 【図鑑と完全共通のランク別カラーテーマ定義】
+                let theme = {
+                    glowColor: "#f59e0b",      
+                    lightBorder: "#fef08a",    
+                    gradTop: "#fde047",        
+                    gradMid: "#eab308",        
+                    gradBottom: "#a16207",     
+                    innerTop: "#fef3c7",       
+                    innerMid: "#fde68a",       
+                    innerBottom: "#d1c4a9",
+                    isDiamond: false,
+                    isPlatinum: false,
+                    isRainbow: false
+                };
+
+                if (rank === 1) {
+                    theme = { glowColor: "#b45309", lightBorder: "#fed7aa", gradTop: "#fb923c", gradMid: "#c2410c", gradBottom: "#7c2d12", innerTop: "#ffedd5", innerMid: "#fed7aa", innerBottom: "#c2410c", isDiamond: false, isPlatinum: false, isRainbow: false };
+                } else if (rank === 2) {
+                    theme = { glowColor: "#94a3b8", lightBorder: "#e2e8f0", gradTop: "#cbd5e1", gradMid: "#64748b", gradBottom: "#334155", innerTop: "#f1f5f9", innerMid: "#cbd5e1", innerBottom: "#64748b", isDiamond: false, isPlatinum: false, isRainbow: false };
+                } else if (rank === 3) {
+                    theme = { glowColor: "#f59e0b", lightBorder: "#fef08a", gradTop: "#fde047", gradMid: "#eab308", gradBottom: "#a16207", innerTop: "#fef3c7", innerMid: "#fde68a", innerBottom: "#d1c4a9", isDiamond: false, isPlatinum: false, isRainbow: false };
+                } else if (rank === 4) {
+                    theme = { glowColor: "#e2e8f0", lightBorder: "#ffffff", gradTop: "#ffffff", gradMid: "#cbd5e1", gradBottom: "#64748b", innerTop: "#ffffff", innerMid: "#e2e8f0", innerBottom: "#cbd5e1", isDiamond: false, isPlatinum: true, isRainbow: false };
+                } else if (rank === 5) {
+                    theme = { glowColor: "#6ee7b7", lightBorder: "#ffffff", gradTop: "#7dd3fc", gradMid: "#0d9488", gradBottom: "#042f2e", innerTop: "#ffffff", innerMid: "#2dd4bf", innerBottom: "#0f766e", isDiamond: true, isPlatinum: false, isRainbow: false };
+                } else if (rank >= 6) {
+                    const hue = (frame * 3) % 360;
+                    theme = {
+                        glowColor: `hsl(${hue}, 100%, 65%)`,
+                        lightBorder: "#ffffff",
+                        gradTop: `hsl(${hue}, 90%, 75%)`,
+                        gradMid: `hsl(${(hue + 60) % 360}, 90%, 50%)`,
+                        gradBottom: `hsl(${(hue + 120) % 360}, 90%, 30%)`,
+                        innerTop: "#ffffff",
+                        innerMid: `hsl(${hue}, 70%, 90%)`,
+                        innerBottom: `hsl(${(hue + 60) % 360}, 50%, 80%)`,
+                        isDiamond: false,
+                        isPlatinum: false,
+                        isRainbow: true
+                    };
+                }
+
+                // 0. 外側の輝き・グロー演出（図鑑と同等）
+                ctx.save();
+                ctx.strokeStyle = theme.glowColor;
+                ctx.lineWidth = 3.5;
+                ctx.globalAlpha = 0.35;
+                makeRoundedBevelPath(cardX - 1, cardY - 1, cardW + 2, cardH + 2, cutSize + 1, outerRadius + 1);
+                ctx.stroke();
+
+                ctx.lineWidth = 2;
+                ctx.globalAlpha = 0.6;
+                makeRoundedBevelPath(cardX - 0.5, cardY - 0.5, cardW + 1, cardH + 1, cutSize, outerRadius);
+                ctx.stroke();
+                ctx.restore();
+
+                // 1. フレーム（枠）のグラデーション描画
+                const frameGrad = ctx.createLinearGradient(cardX, cardY, cardX, cardY + cardH);
+                if (theme.isRainbow) {
+                    frameGrad.addColorStop(0.00, "rgba(255, 120, 120, 1.0)");
+                    frameGrad.addColorStop(0.16, "rgba(255, 200, 90,  1.0)");
+                    frameGrad.addColorStop(0.33, "rgba(255, 255, 120, 1.0)");
+                    frameGrad.addColorStop(0.50, "rgba(90,  255, 150, 1.0)");
+                    frameGrad.addColorStop(0.66, "rgba(90,  230, 255, 1.0)");
+                    frameGrad.addColorStop(0.83, "rgba(200, 120, 255, 1.0)");
+                    frameGrad.addColorStop(1.00, "rgba(255, 120, 210, 1.0)");
+                } else if (theme.isDiamond) {
+                    frameGrad.addColorStop(0.00, "#7dd3fc");
+                    frameGrad.addColorStop(0.50, "#0284c7");
+                    frameGrad.addColorStop(1.00, "#0369a1");
+                } else {
+                    frameGrad.addColorStop(0, theme.gradTop); 
+                    frameGrad.addColorStop(0.5, theme.gradMid); 
+                    frameGrad.addColorStop(1, theme.gradBottom); 
+                }
+                
+                ctx.fillStyle = frameGrad;
+                makeRoundedBevelPath(cardX, cardY, cardW, cardH, cutSize, outerRadius);
+                ctx.fill();
+
+                ctx.lineWidth = 1.0;
+                ctx.strokeStyle = theme.lightBorder;
+                makeRoundedBevelPath(cardX, cardY, cardW, cardH, cutSize, outerRadius);
+                ctx.stroke();
+
+                // 2. 内側エリアの生成
+                const innerMargin = 1.5; 
+                const innerX = cardX + innerMargin;
+                const innerY = cardY + innerMargin;
+                const innerW = cardW - innerMargin * 2;
+                const innerH = cardH - innerMargin * 2;
+                const innerCut = Math.max(0, cutSize - innerMargin);
+                const innerRadius = Math.max(0, outerRadius - innerMargin);
+
+                const makeInnerRoundedBevelPath = (x, y, w, h, cut, r) => {
+                    ctx.beginPath();
+                    if (cut > 0) {
+                        ctx.moveTo(x, y + cut);
+                        ctx.lineTo(x + cut, y);
+                    } else {
+                        ctx.moveTo(x, y);
+                    }
+                    ctx.lineTo(x + w - r, y);
+                    if (r > 0) ctx.arcTo(x + w, y, x + w, y + r, r);
+                    else ctx.lineTo(x+w,y);
+                    ctx.lineTo(x + w, y + h - r);
+                    if (r > 0) ctx.arcTo(x + w, y + h, x + w - r, y + h, r);
+                    else ctx.lineTo(x+w,y+h);
+                    ctx.lineTo(x + r, y + h);
+                    if (r > 0) ctx.arcTo(x, y + h, x, y + h - r, r);
+                    else ctx.lineTo(x,y+h);
+                    ctx.closePath();
+                };
+
+                const innerGrad = ctx.createLinearGradient(innerX + innerW, innerY, innerX, innerY + innerH);
+                if (theme.isRainbow) {
+                    innerGrad.addColorStop(0.00, "rgba(255, 120, 120, 1.0)");
+                    innerGrad.addColorStop(0.16, "rgba(255, 200, 90,  1.0)");
+                    innerGrad.addColorStop(0.33, "rgba(255, 255, 120, 1.0)");
+                    innerGrad.addColorStop(0.50, "rgba(90,  255, 150, 1.0)");
+                    innerGrad.addColorStop(0.66, "rgba(90,  230, 255, 1.0)");
+                    innerGrad.addColorStop(0.83, "rgba(200, 120, 255, 1.0)");
+                    innerGrad.addColorStop(1.00, "rgba(255, 120, 210, 1.0)");
+                } else if (theme.isDiamond) {
+                    innerGrad.addColorStop(0.00, "#e0f2fe");
+                    innerGrad.addColorStop(0.25, "#bae6fd");
+                    innerGrad.addColorStop(0.50, "#38bdf8");
+                    innerGrad.addColorStop(0.75, "#0284c7");
+                    innerGrad.addColorStop(1.00, "#0369a1");
+                } else {
+                    innerGrad.addColorStop(0, theme.innerTop); 
+                    innerGrad.addColorStop(0.5, theme.innerMid); 
+                    innerGrad.addColorStop(1, theme.innerBottom);    
+                }
+                
+                ctx.fillStyle = innerGrad;
+                makeInnerRoundedBevelPath(innerX, innerY, innerW, innerH, innerCut, innerRadius);
+                ctx.fill();
+
+                // 3. モンスター画像描画（クリッピング ＆ 左右反転 ＆ 図鑑準拠のスケーリング）
+                ctx.save();
+                makeInnerRoundedBevelPath(innerX, innerY, innerW, innerH, innerCut, innerRadius);
+                ctx.clip();
+
+                const imgWidth = img.naturalWidth || img.width;
+                const imgHeight = img.naturalHeight || img.height;
+                const imgAspect = imgWidth / imgHeight;
+
+                const centerX_img = Math.round(innerX + innerW / 2);
+                const centerY_img = Math.round(innerY + innerH / 2);
+                ctx.translate(centerX_img, centerY_img);
+                ctx.scale(-1, 1); // 左右反転
+
+                const baseSize = Math.min(innerW, innerH);
+                let drawImgW, drawImgH;
+                if (imgAspect > 1) {
+                    drawImgW = Math.round(baseSize * 1.35);
+                    drawImgH = Math.round(drawImgW / imgAspect);
+                } else if (imgAspect < 1) {
+                    drawImgH = Math.round(baseSize * 1.40);
+                    drawImgW = Math.round(drawImgH * imgAspect);
+                } else {
+                    drawImgW = Math.round(baseSize * 1.35);
+                    drawImgH = Math.round(baseSize * 1.35);
+                }
+
+                ctx.drawImage(
+                    img, 
+                    -Math.round(drawImgW / 2), 
+                    -Math.round(drawImgH / 2), 
+                    drawImgW, 
+                    drawImgH
+                );
+
+                ctx.restore(); // クリッピング・反転の復元
+
+                // ==========================================
+                // ★ ダイヤモンド専用：太くまろやかに広がる光の帯
+                // ==========================================
+                if (theme.isDiamond) {
+                    ctx.save();
+                    makeInnerRoundedBevelPath(innerX, innerY, innerW, innerH, innerCut, innerRadius);
+                    ctx.clip();
+
+                    const shineGrad = ctx.createLinearGradient(innerX + innerW * 0.9, innerY + innerH * 0.1, innerX + innerW * 0.1, innerY + innerH * 0.9);
+                    shineGrad.addColorStop(0.00, "rgba(255, 255, 255, 0.0)");
+                    shineGrad.addColorStop(0.25, "rgba(255, 255, 255, 0.02)");
+                    shineGrad.addColorStop(0.40, "rgba(255, 255, 255, 0.30)"); 
+                    shineGrad.addColorStop(0.50, "rgba(255, 255, 255, 0.60)"); 
+                    shineGrad.addColorStop(0.60, "rgba(255, 255, 255, 0.30)"); 
+                    shineGrad.addColorStop(0.75, "rgba(255, 255, 255, 0.02)");
+                    shineGrad.addColorStop(1.00, "rgba(255, 255, 255, 0.0)");
+
+                    ctx.fillStyle = shineGrad;
+                    ctx.fillRect(innerX, innerY, innerW, innerH);
+                    ctx.restore();
+                }
+
+                // ==========================================
+                // ★ ランク6（レインボー）専用：十字を使わない、ほんのりと気高い最高峰オーラ
+                // ==========================================
+                if (theme.isRainbow) {
+                    ctx.save();
+                    ctx.shadowColor = "rgba(255, 255, 255, 0.7)"; 
+                    ctx.shadowBlur = 18;                          
+                    ctx.shadowOffsetX = 0;
+                    ctx.shadowOffsetY = 0;
+
+                    makeInnerRoundedBevelPath(innerX, innerY, innerW, innerH, innerCut, innerRadius);
+                    ctx.strokeStyle = "rgba(255, 255, 255, 0.45)"; 
+                    ctx.lineWidth = 1.0;
+                    ctx.stroke();
+                    ctx.restore();
+                }
+
+                // ==========================================
+                // ★ プラチナ専用：ほんのちょっぴり白い上品な光沢
+                // ==========================================
+                if (theme.isPlatinum) {
+                    ctx.save();
+                    makeInnerRoundedBevelPath(innerX, innerY, innerW, innerH, innerCut, innerRadius);
+                    ctx.clip();
+
+                    const platShine = ctx.createLinearGradient(innerX, innerY, innerX + innerW, innerY + innerH);
+                    platShine.addColorStop(0.00, "rgba(255, 255, 255, 0.35)"); 
+                    platShine.addColorStop(0.35, "rgba(255, 255, 255, 0.45)"); 
+                    platShine.addColorStop(0.55, "rgba(255, 255, 255, 0.10)");
+                    platShine.addColorStop(1.00, "rgba(255, 255, 255, 0.0)");
+
+                    ctx.fillStyle = platShine;
+                    ctx.fillRect(innerX, innerY, innerW, innerH);
+                    ctx.restore();
+                }
+
+                // 4. カード表面のツヤ（ハイライト反射）
+                ctx.save();
+                makeRoundedBevelPath(cardX, cardY, cardW, cardH, cutSize, outerRadius);
+                ctx.clip();
+
+                const sheenGrad = ctx.createLinearGradient(cardX, cardY, cardX + cardW, cardY + cardH);
+                sheenGrad.addColorStop(0, "rgba(255, 255, 255, 0.40)"); 
+                sheenGrad.addColorStop(0.3, "rgba(255, 255, 255, 0.0)");
+                sheenGrad.addColorStop(1, "rgba(255, 255, 255, 0.0)");
+
+                ctx.fillStyle = sheenGrad;
                 ctx.fillRect(cardX, cardY, cardW, cardH);
+                ctx.restore();
 
-                // 2. モンスター画像を限界まで大きく描画
-                const innerSize = cardW * 1.35; 
-                ctx.drawImage(img, -innerSize / 2, -innerSize / 2 - 2, innerSize, innerSize);
-
-                // 3. 上部のヘッダー帯（落ち着いたキャメルブラウンの帯）
-                const headerH = cardH * 0.18;
-                ctx.fillStyle = "#b89778"; 
-                ctx.fillRect(cardX, cardY, cardW, headerH);
-
-                // 4. 外枠のフレーム（引き締まりつつ優しいブラウンの枠線）
-                ctx.strokeStyle = "#8c6747"; 
-                ctx.lineWidth = 1.5;
-                ctx.strokeRect(cardX, cardY, cardW, cardH);
-
-                // 内側の細いハイライト線
-                ctx.strokeStyle = "rgba(255, 255, 255, 0.6)";
-                ctx.lineWidth = 0.8;
-                ctx.strokeRect(cardX + 1.5, cardY + 1.5, cardW - 3, cardH - 3);
-
-                ctx.imageSmoothingEnabled = false;
             } else {
                 // --- 通常アイテムの描画処理 ---
                 const targetHeight = drawSize;
@@ -7207,7 +7864,7 @@ function drawItems(items, frame) {
             }
         } else {
             // 💡 フォールバック（黄色い四角）
-            if (item.type && (item.type.toLowerCase().includes('monster') || item.cardId)) {
+            if (item.type && (item.type.toLowerCase().includes('monster') || item.type === 'monster_card' || item.cardId)) {
                 console.warn(`⚠️ [Item Fallback Debug] アイテム '${item.type}' (名前: ${item.name}) が黄色い四角で描画されました。`, {
                     configExists: !!rawConfig,
                     configSrc: config.src,
@@ -7227,9 +7884,14 @@ function drawItems(items, frame) {
     });
 }
 
-// ============================================================
-// :::DRAW_INVENTORY_GRID::: 🎒 インベントリグリッドの描画管理（視認性＆質感向上版）
-// ============================================================
+// --- ホットバー専用のキャッシュ用キャンバス ---
+let _hotbarCacheCanvas = null;
+let _hotbarCacheCtx = null;
+let _lastHotbarStateKey = "";
+
+/**
+ * 🎒 ホットバー／ショートカット用インベントリ描画（バッグ側と完全統一の高精細版）
+ */
 function drawInventoryGrid(ctx, inventory) {
     if (!ctx || !inventory) return;
 
@@ -7237,186 +7899,258 @@ function drawInventoryGrid(ctx, inventory) {
     const padding = 8;
     const startX = 20;
     const startY = 130;
+    const totalSlots = 10;
+    const slotPadding = 6;
 
-    // 🌟 重複チェック用のSet
-    const alreadyDrawn = new Set();
+    let mX = (typeof mouseX !== 'undefined') ? mouseX : -1;
+    let mY = (typeof mouseY !== 'undefined') ? mouseY : -1;
 
-    for (let i = 0; i < 10; i++) {
+    // ホバーされているスロットのインデックスを判定
+    let hoveredSlotIndex = -1;
+    for (let i = 0; i < totalSlots; i++) {
         const x = startX + (slotSize + padding) * i;
         const y = startY;
-
-        // ==========================================
-        // 🌟 1. スロット背景＆枠の描画（視認性向上のリッチ装飾）
-        // ==========================================
-        ctx.save();
-        
-        // スロット背景（真っ黒ではなく、少し青みのある上質なダークカラーに変更して視認性をアップ）
-        ctx.fillStyle = "rgba(20, 25, 35, 0.75)";
-        ctx.strokeStyle = "rgba(255, 255, 255, 0.5)";
-        ctx.lineWidth = 1.5;
-
-        if (ctx.roundRect) {
-            ctx.beginPath();
-            ctx.roundRect(x, y, slotSize, slotSize, 4); // ちょっぴり角丸にして今風に
-            ctx.fill();
-            ctx.stroke();
-        } else {
-            ctx.fillRect(x, y, slotSize, slotSize);
-            ctx.strokeRect(x, y, slotSize, slotSize);
-        }
-
-        // スロット内側のインナーシャドウ（上部に薄いハイライトを添えて立体感を演出）
-        ctx.strokeStyle = "rgba(255, 255, 255, 0.15)";
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.moveTo(x + 3, y + 2);
-        ctx.lineTo(x + slotSize - 3, y + 2);
-        ctx.stroke();
-
-        ctx.restore();
-
-        const itemData = inventory[i];
-        
-        // 🌟 アイテムが存在する場合の処理
-        if (itemData && itemData.type) {
-            let type = itemData.type;
-            let count = itemData.count || 0;
-
-            // 1. まず、個数が0以下の不正なデータなら無視する
-            if (count <= 0) continue;
-
-            // 🌟 カテゴリーを取得
-            const category = itemCategories[type];
-
-            // 2. ETCアイテム（Gold, Treasureなど）は重複描画をチェックする
-            if (category === 'ETC') {
-                if (alreadyDrawn.has(type)) continue;
-                alreadyDrawn.add(type);
-            }
-
-            const config = ITEM_CONFIG[type];
-            if (config) {
-                // 🌟 最優先で imglive.net 固定でロード済みの itemImages から直接画像を取得
-                let displayImg = null;
-                if (typeof itemImages !== 'undefined' && itemImages[type]) {
-                    displayImg = itemImages[type];
-                } else {
-                    displayImg = config.isAnimated ? (config.images ? config.images[0] : null) : config.image;
-                }
-
-                // フォールバック（予備ルート）
-                if (!displayImg && config.src) {
-                    if (!config._tempImg) {
-                        config._tempImg = new Image();
-                        config._tempImg.crossOrigin = "anonymous";
-                        
-                        let baseSrc = config.src;
-                        if (typeof IMAGE_DOMAIN !== 'undefined' && IMAGE_DOMAIN !== "") {
-                            if (baseSrc.startsWith('/') && IMAGE_DOMAIN.endsWith('/')) {
-                                baseSrc = baseSrc.substring(1);
-                            }
-                            baseSrc = IMAGE_DOMAIN + baseSrc;
-                        }
-                        config._tempImg.src = baseSrc;
-                    }
-                    displayImg = config._tempImg;
-                }
-
-                // 描画実行
-                if (displayImg && displayImg.complete && typeof displayImg.naturalWidth === 'number' && displayImg.naturalWidth > 0) {
-                    const m = 5;
-                    const imgX = x + m;
-                    const imgY = y + m;
-                    const imgW = slotSize - m * 2;
-                    const imgH = slotSize - m * 2;
-                    
-                    // ==========================================
-                    // 🌟 グローカラーの判定（装備品のみ）
-                    // ==========================================
-                    let glowColor = null;
-                    if ((type === 'sword' || type === 'shield') && 
-                        itemData.totalALLStats !== undefined && 
-                        itemData.totalFirstStats !== undefined) {
-                        
-                        const bonus = itemData.totalALLStats - itemData.totalFirstStats;
-                        if (bonus >= 30) glowColor = "#ff0000";      // 神級
-                        else if (bonus >= 25) glowColor = "#00ff00"; // 超伝説
-                        else if (bonus >= 20) glowColor = "#ffff00"; // 極上
-                        else if (bonus >= 15) glowColor = "#ff00ff"; // 伝説
-                        else if (bonus >= 10) glowColor = "#00ccff"; // 希少
-                    }
-
-                    ctx.save();
-                    // 🌟 アイテムに対して強烈なグロー（発光）を適用
-                    if (glowColor) {
-                        ctx.shadowBlur = 20; 
-                        ctx.shadowColor = glowColor;
-                        ctx.shadowOffsetX = 0;
-                        ctx.shadowOffsetY = 0;
-                        ctx.drawImage(displayImg, imgX, imgY, imgW, imgH);
-
-                        ctx.shadowBlur = 5;
-                        ctx.drawImage(displayImg, imgX, imgY, imgW, imgH);
-                    } else {
-                        // 通常アイテムでもわずかに影を落として背景から浮かせる
-                        ctx.shadowBlur = 3;
-                        ctx.shadowColor = "rgba(0, 0, 0, 0.8)";
-                        ctx.drawImage(displayImg, imgX, imgY, imgW, imgH);
-                    }
-                    ctx.restore();
-                    
-                    // 🌟 個数表示（プロのMMO風カプセルバッジ仕様）
-                    const isStackItem = (category === 'ETC' || category === 'USE');
-                    if ((isStackItem && count >= 1) || count > 1) {
-                        ctx.save();
-                        
-                        let countStr = String(count);
-                        let fontSize = countStr.length >= 4 ? 9 : (countStr.length === 3 ? 10 : 11);
-                        ctx.font = `bold ${fontSize}px 'Segoe UI', sans-serif`;
-                        ctx.textAlign = "right";
-                        ctx.textBaseline = "middle";
-
-                        let metrics = ctx.measureText(countStr);
-                        let badgeTextW = metrics.width;
-                        let padX = 5;
-                        let badgeW = Math.max(18, badgeTextW + padX * 2);
-                        let badgeH = 15;
-                        
-                        let badgeX = (x + slotSize) - badgeW - 2;
-                        let badgeY = (y + slotSize) - badgeH - 2;
-                        let radius = 3.5;
-
-                        // バッジの背景
-                        ctx.shadowColor = "rgba(0, 0, 0, 0.4)";
-                        ctx.shadowBlur = 3;
-                        ctx.shadowOffsetY = 1;
-
-                        ctx.fillStyle = "rgba(10, 15, 25, 0.85)";
-                        ctx.strokeStyle = "rgba(100, 116, 139, 0.6)";
-                        ctx.lineWidth = 1;
-
-                        ctx.beginPath();
-                        if (ctx.roundRect) {
-                            ctx.roundRect(badgeX, badgeY, badgeW, badgeH, radius);
-                        } else {
-                            ctx.rect(badgeX, badgeY, badgeW, badgeH);
-                        }
-                        ctx.fill();
-                        ctx.stroke();
-
-                        ctx.shadowBlur = 0;
-                        ctx.shadowOffsetY = 0;
-
-                        // 数値テキスト描画
-                        ctx.fillStyle = "#ffffff";
-                        ctx.fillText(countStr, badgeX + badgeW - padX, badgeY + badgeH / 2 + 0.5);
-
-                        ctx.restore();
-                    }
-                }
-            }
+        if (!window.isDisconnected && mX >= x && mX <= x + slotSize && mY >= y && mY <= y + slotSize) {
+            hoveredSlotIndex = i;
+            break;
         }
     }
+
+    // キャッシュキーの生成（アイテムの種類、個数、装備状態、レア度、ホバー状態の変化を検知）
+    let inventoryStateStr = "";
+    for (let i = 0; i < totalSlots; i++) {
+        let item = inventory[i];
+        if (item && item.type) {
+            inventoryStateStr += `${i}:${item.type}_${item.count || 0}_${item.isEquipped ? 1 : 0}_${item.totalALLStats || 0},`;
+        } else {
+            inventoryStateStr += `${i}:empty,`;
+        }
+    }
+    let currentStateKey = `${inventoryStateStr}_${hoveredSlotIndex}`;
+
+    let dpr = window.devicePixelRatio || 1;
+    let gridWidth = totalSlots * slotSize + (totalSlots - 1) * padding + (slotPadding * 2); 
+    let gridHeight = slotSize + (slotPadding * 2); 
+
+    if (!_hotbarCacheCanvas) {
+        _hotbarCacheCanvas = document.createElement('canvas');
+        _hotbarCacheCtx = _hotbarCacheCanvas.getContext('2d');
+    }
+
+    if (_hotbarCacheCanvas.width !== gridWidth * dpr || _hotbarCacheCanvas.height !== gridHeight * dpr) {
+        _hotbarCacheCanvas.width = gridWidth * dpr;
+        _hotbarCacheCanvas.height = gridHeight * dpr;
+        _lastHotbarStateKey = "";
+    }
+
+    // --- 状態が変わった時だけ裏で重い描画を実行し、キャッシュを更新 ---
+    if (currentStateKey !== _lastHotbarStateKey) {
+        _lastHotbarStateKey = currentStateKey;
+
+        let bc = _hotbarCacheCtx;
+        bc.save();
+        bc.setTransform(dpr, 0, 0, dpr, 0, 0);
+        bc.imageSmoothingEnabled = true;
+        bc.imageSmoothingQuality = 'high';
+
+        bc.clearRect(0, 0, gridWidth, gridHeight);
+
+        const cStartX = slotPadding;
+        const cStartY = slotPadding;
+        const alreadyDrawn = new Set();
+
+        for (let i = 0; i < totalSlots; i++) {
+            const x = cStartX + (slotSize + padding) * i;
+            const y = cStartY;
+
+            const itemData = inventory[i];
+            const isHovered = (i === hoveredSlotIndex);
+
+            // 1. レア度の判定
+            let glowColor = null;
+            if (itemData && itemData.type && (itemData.count || 0) > 0) {
+                if ((itemData.type === 'sword' || itemData.type === 'shield') && 
+                    itemData.totalALLStats !== undefined && 
+                    itemData.totalFirstStats !== undefined) {
+                    
+                    let bonus = itemData.totalALLStats - itemData.totalFirstStats;
+                    if (bonus >= 30) glowColor = "#ff0000";      // 神級
+                    else if (bonus >= 25) glowColor = "#00ff00"; // 超伝説
+                    else if (bonus >= 20) glowColor = "#ffff00"; // 極上
+                    else if (bonus >= 15) glowColor = "#ff00ff"; // 伝説
+                    else if (bonus >= 10) glowColor = "#00ccff"; // 希少
+                }
+            }
+
+            // 2. スロット背景の取得＆描画
+            let cachedSlotImg = getCachedBagSlotImage(slotSize, glowColor, isHovered);
+            bc.drawImage(cachedSlotImg, x - slotPadding, y - slotPadding);
+
+            // 3. アイテムがいれば中身を描画
+            if (itemData && itemData.type) {
+                let type = itemData.type;
+                let count = itemData.count || 0;
+
+                if (count > 0) {
+                    let category = (typeof itemCategories !== 'undefined') ? itemCategories[type] : null;
+
+                    let isDuplicateETC = false;
+                    if (category === 'ETC') {
+                        if (alreadyDrawn.has(type)) {
+                            isDuplicateETC = true;
+                        } else {
+                            alreadyDrawn.add(type);
+                        }
+                    }
+
+                    if (!isDuplicateETC) {
+                        let displayImg = null;
+                        if (itemData.image) {
+                            displayImg = itemData.image;
+                        } else if (typeof itemImages !== 'undefined' && itemImages[type]) {
+                            displayImg = itemImages[type];
+                        } else if (typeof ITEM_CONFIG !== 'undefined' && ITEM_CONFIG[type]) {
+                            let config = ITEM_CONFIG[type];
+                            displayImg = config.isAnimated ? (config.images ? config.images[0] : null) : config.image;
+
+                            if (!displayImg && config.src) {
+                                if (!config._tempImg) {
+                                    config._tempImg = new Image();
+                                    config._tempImg.crossOrigin = "anonymous";
+                                    let baseSrc = config.src;
+                                    if (typeof IMAGE_DOMAIN !== 'undefined' && IMAGE_DOMAIN !== "") {
+                                        if (baseSrc.startsWith('/') && IMAGE_DOMAIN.endsWith('/')) {
+                                            baseSrc = baseSrc.substring(1);
+                                        }
+                                        baseSrc = IMAGE_DOMAIN + baseSrc;
+                                    }
+                                    config._tempImg.src = baseSrc;
+                                }
+                                displayImg = config._tempImg;
+                            }
+                        }
+
+                        // アイテム画像の描画（バッグ側と同一の高級感ある白枠・レア度発光演出）
+                        if (displayImg && displayImg.complete && typeof displayImg.naturalWidth === 'number' && displayImg.naturalWidth > 0) {
+                            let m = 5;
+                            let imgX = x + m;
+                            let imgY = y + m;
+                            let imgW = slotSize - m * 2;
+                            let imgH = slotSize - m * 2;
+
+                            bc.save();
+                            if (glowColor) {
+                                bc.shadowBlur = 24; 
+                                bc.shadowColor = glowColor;
+                                bc.shadowOffsetX = 0;
+                                bc.shadowOffsetY = 0;
+                                bc.drawImage(displayImg, imgX, imgY, imgW, imgH);
+
+                                bc.shadowBlur = 8;
+                                bc.drawImage(displayImg, imgX, imgY, imgW, imgH);
+                            } else {
+                                // 🌟 バッグ側と同じ美しい白枠・ハイライト演出
+                                bc.shadowBlur = 8;
+                                bc.shadowColor = "rgba(255, 255, 255, 0.95)";
+                                bc.shadowOffsetX = 0;
+                                bc.shadowOffsetY = 0;
+                                bc.drawImage(displayImg, imgX, imgY, imgW, imgH);
+                                
+                                bc.shadowBlur = 3;
+                                bc.shadowColor = "rgba(255, 255, 255, 0.8)";
+                                bc.drawImage(displayImg, imgX, imgY, imgW, imgH);
+
+                                bc.shadowBlur = 0;
+                                bc.drawImage(displayImg, imgX, imgY, imgW, imgH);
+                            }
+                            bc.restore();
+
+                            // 4. 装備中バッジ（E）
+                            if (itemData.isEquipped) {
+                                bc.save();
+                                const badgeW = 16;
+                                const badgeH = 15;
+                                const badgeX = x + slotSize - badgeW - 2;
+                                const badgeY = y + 2;
+                                const radius = 3;
+
+                                bc.fillStyle = 'rgba(10, 15, 25, 0.85)';
+                                bc.strokeStyle = '#34d399'; 
+                                bc.lineWidth = 1;
+
+                                bc.beginPath();
+                                if (bc.roundRect) {
+                                    bc.roundRect(badgeX, badgeY, badgeW, badgeH, radius);
+                                } else {
+                                    bc.rect(badgeX, badgeY, badgeW, badgeH);
+                                }
+                                bc.fill();
+                                bc.stroke();
+
+                                bc.font = 'bold 10px "Segoe UI", sans-serif';
+                                bc.fillStyle = '#34d399';
+                                bc.textAlign = 'center';
+                                bc.textBaseline = 'middle';
+                                bc.fillText('E', badgeX + badgeW / 2, badgeY + badgeH / 2 + 0.5);
+                                bc.restore();
+                            }
+
+                            // 5. 個数表示バッジ
+                            const isStackItem = (category === 'ETC' || category === 'USE');
+                            if ((isStackItem && count >= 1) || count > 1) {
+                                bc.save();
+                                let countStr = String(count);
+                                let fontSize = countStr.length >= 4 ? 9 : (countStr.length === 3 ? 10 : 11);
+                                bc.font = `bold ${fontSize}px 'Segoe UI', sans-serif`;
+                                bc.textAlign = "right";
+                                bc.textBaseline = "middle";
+
+                                let padX = 5;
+                                let badgeW = Math.max(18, countStr.length * 7 + padX * 2);
+                                let badgeH = 15;
+                                
+                                let badgeX = (x + slotSize) - badgeW - 2;
+                                let badgeY = (y + slotSize) - badgeH - 2;
+                                let radius = 3.5;
+
+                                bc.shadowColor = "rgba(0, 0, 0, 0.4)";
+                                bc.shadowBlur = 3;
+                                bc.shadowOffsetY = 1;
+
+                                bc.fillStyle = "rgba(10, 15, 25, 0.85)";
+                                bc.strokeStyle = "rgba(100, 116, 139, 0.6)";
+                                bc.lineWidth = 1;
+
+                                bc.beginPath();
+                                if (bc.roundRect) {
+                                    bc.roundRect(badgeX, badgeY, badgeW, badgeH, radius);
+                                } else {
+                                    bc.rect(badgeX, badgeY, badgeW, badgeH);
+                                }
+                                bc.fill();
+                                bc.stroke();
+
+                                bc.shadowBlur = 0;
+                                bc.shadowOffsetY = 0;
+
+                                bc.fillStyle = "#ffffff";
+                                bc.fillText(countStr, badgeX + badgeW - padX, badgeY + badgeH / 2 + 0.5);
+                                bc.restore();
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        bc.restore();
+    }
+
+    // 🚀 メイン画面への高精細一括描画
+    ctx.save();
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(_hotbarCacheCanvas, 0, 0, gridWidth * dpr, gridHeight * dpr, startX - slotPadding, startY - slotPadding, gridWidth, gridHeight);
+    ctx.restore();
 }
 
 // ============================================================
@@ -7665,389 +8399,522 @@ function drawBagTabs() {
     }
 }
 
+// 🎒 スロットの背景・枠・ハイライトをキャッシュするための保持用変数
+let _cachedBagSlotImages = {}; // 鍵: "slotSize_glowType", 値: OffscreenCanvas or canvas
+
+function getCachedBagSlotImage(slotSize, glowColor, isHovered) {
+    const cacheKey = `${slotSize}_${glowColor || 'default'}_${isHovered ? 'h' : 'n'}`;
+    if (_cachedBagSlotImages[cacheKey]) {
+        return _cachedBagSlotImages[cacheKey];
+    }
+
+    // パディング（外側のドロップシャドウやボーダーのはみ出し分を考慮）
+    const padding = 6;
+    const canvasSize = slotSize + padding * 2;
+    
+    const canvas = document.createElement('canvas');
+    canvas.width = canvasSize;
+    canvas.height = canvasSize;
+    const ctx2d = canvas.getContext('2d');
+
+    const x = padding;
+    const y = padding;
+
+    // --- 1. スロットカラーの決定 ---
+    let slotBgColor = "rgba(12, 17, 26, 0.99)";      // デフォルト背景（漆黒）
+    let slotCenterColor = "rgba(32, 41, 60, 0.98)";   // デフォルト中央用
+    let slotBorderColor = "rgba(71, 85, 105, 0.85)";  // デフォルト枠
+
+    if (glowColor === '#ff0000') { // 神級
+        slotBgColor = "rgba(45, 12, 15, 0.95)";
+        slotCenterColor = "rgba(85, 25, 32, 0.95)";
+        slotBorderColor = "#ff4444";
+    } else if (glowColor === '#00ff00') { // 超伝説
+        slotBgColor = "rgba(12, 35, 20, 0.95)";
+        slotCenterColor = "rgba(25, 75, 42, 0.95)";
+        slotBorderColor = "#44ff44";
+    } else if (glowColor === '#ffff00') { // 極上
+        slotBgColor = "rgba(35, 32, 12, 0.95)";
+        slotCenterColor = "rgba(75, 68, 25, 0.95)";
+        slotBorderColor = "#ffdd44";
+    } else if (glowColor === '#ff00ff') { // 伝説
+        slotBgColor = "rgba(35, 12, 35, 0.95)";
+        slotCenterColor = "rgba(75, 25, 75, 0.95)";
+        slotBorderColor = "#ff44ff";
+    } else if (glowColor === '#00ccff') { // 希少
+        slotBgColor = "rgba(12, 28, 42, 0.95)";
+        slotCenterColor = "rgba(25, 60, 90, 0.95)";
+        slotBorderColor = "#44ccff";
+    }
+
+    // --- 2. 高級感のあるスロット背景＆多層枠の描画 ---
+    ctx2d.save();
+    
+    // ① 外側のドロップシャドウ
+    ctx2d.shadowColor = "rgba(0, 0, 0, 0.7)";
+    ctx2d.shadowBlur = 6;
+    ctx2d.shadowOffsetX = 0;
+    ctx2d.shadowOffsetY = 2;
+
+    // ② 重厚なダークグラデーション
+    let slotGrad = ctx2d.createLinearGradient(x, y, x, y + slotSize);
+    if (glowColor) {
+        slotGrad.addColorStop(0, slotCenterColor);
+        slotGrad.addColorStop(1, slotBgColor);
+    } else {
+        slotGrad.addColorStop(0, "rgba(32, 41, 60, 0.98)");
+        slotGrad.addColorStop(1, "rgba(12, 17, 26, 0.99)");
+    }
+    ctx2d.fillStyle = slotGrad;
+
+    // ③ 上品なメタルボーダー
+    ctx2d.strokeStyle = glowColor ? slotBorderColor : "rgba(71, 85, 105, 0.85)";
+    ctx2d.lineWidth = glowColor ? 2 : 1.2;
+
+    if (ctx2d.roundRect) {
+        ctx2d.beginPath();
+        ctx2d.roundRect(x, y, slotSize, slotSize, 4);
+        ctx2d.fill();
+        ctx2d.stroke();
+    } else {
+        ctx2d.fillRect(x, y, slotSize, slotSize);
+        ctx2d.strokeRect(x, y, slotSize, slotSize);
+    }
+    ctx2d.restore();
+
+    // --- 3. 物理的な光の反射（トップハイライト＆インナーシャドウ） ---
+    ctx2d.save();
+    if (ctx2d.roundRect) {
+        ctx2d.beginPath();
+        ctx2d.roundRect(x + 1, y + 1, slotSize - 2, slotSize - 2, 3);
+        ctx2d.clip();
+    }
+
+    let topLight = ctx2d.createLinearGradient(x, y, x, y + slotSize * 0.5);
+    topLight.addColorStop(0, "rgba(255, 255, 255, 0.22)");
+    topLight.addColorStop(1, "rgba(255, 255, 255, 0.0)");
+    ctx2d.fillStyle = topLight;
+    ctx2d.fillRect(x, y, slotSize, slotSize * 0.5);
+
+    let bottomShadow = ctx2d.createLinearGradient(x, y + slotSize * 0.5, x, y + slotSize);
+    bottomShadow.addColorStop(0, "rgba(0, 0, 0, 0.0)");
+    bottomShadow.addColorStop(1, "rgba(0, 0, 0, 0.45)");
+    ctx2d.fillStyle = bottomShadow;
+    ctx2d.fillRect(x, y + slotSize * 0.5, slotSize, slotSize * 0.5);
+
+    if (isHovered) {
+        ctx2d.fillStyle = "rgba(255, 255, 255, 0.15)";
+        ctx2d.fillRect(x, y, slotSize, slotSize);
+    }
+
+    ctx2d.restore();
+
+    _cachedBagSlotImages[cacheKey] = canvas;
+    return canvas;
+}
+
+// --- インベントリ専用のキャッシュ用キャンバス（高解像度対応） ---
+let _bagCacheCanvas = null;
+let _bagCacheCtx = null;
+let _lastBagStateKey = "";
+
 /**
- * 🎒 バッグ専用：アイテムグリッドを描画する関数（スクロール対応・30スロット＆質感向上プロ風デザイン・所持金UI統合版）
+ * 🎒 バッグ専用：アイテムグリッドを描画する関数（高精細・キャッシュ最適化版）
  */
 function drawBagGrid() {
     if (typeof ctx === 'undefined') return;
 
     let bagX = gameWindows.inventory.x;
     let bagY = gameWindows.inventory.y;
-    let bagW = gameWindows.inventory.w || 240; // ウィンドウの幅（デフォルト想定）
+    let bagW = gameWindows.inventory.w || 240;
     
-    let cols = 5; // 横の列数
+    let cols = 5;
     let slotSize = 40;
-    let spacing = 5; // スロット間の隙間
+    let spacing = 5;
     let startX = bagX + 20;
-    let startY = bagY + 70; // タブの下あたり
+    let startY = bagY + 70;
 
-    // データ源の取得
     let bagSource = (window.hero && window.hero.inventory) ? window.hero.inventory : 
                     ((typeof inventoryVisualBuffer !== 'undefined') ? inventoryVisualBuffer : []);
 
-    let currentTab = gameWindows.inventory.currentTab; // "equip", "consume", "etc"
-    
-    // スクロール位置（何行目から表示するか：0スタート）
     let scrollRow = gameWindows.inventory.scrollY || 0;
-    let maxVisibleRows = 6; // 6行×5列 ＝ 30スロットを一度に表示
-    let maxTotalSlots = 50; // バッグの総スロット数
+    let maxVisibleRows = 6;
+    let maxTotalSlots = 50;
 
-    // 表示する開始インデックスと終了インデックスを計算
     let startIndex = scrollRow * cols;
     let endIndex = startIndex + (cols * maxVisibleRows);
 
-    let drawnIndex = 0; // 画面上の描画位置カウンター
-
-    // 🌟 マウス座標の取得（グローバルの mouseX, mouseY を前提）
     let mX = (typeof mouseX !== 'undefined') ? mouseX : -1;
     let mY = (typeof mouseY !== 'undefined') ? mouseY : -1;
 
-    // 🌟 重複チェック用のSet（ETCアイテムなどの重複防止用）
-    let alreadyDrawn = new Set();
+    let goldVal = (window.hero && window.hero.gold) ? window.hero.gold : 0;
 
-    ctx.save();
-
-    // 0番目から50番目までループ
+    // ホバーインデックスの特定
+    let hoveredSlotIndex = -1;
     for (let i = 0; i < maxTotalSlots; i++) {
-        let item = bagSource[i];
-
-        // スクロール範囲外のインデックスは描画スキップ
-        if (i < startIndex || i >= endIndex) {
-            continue;
-        }
-
-        // 画面上の何番目のマスに描画するか
-        let col = drawnIndex % cols;
-        let row = Math.floor(drawnIndex / cols);
-        
+        if (i < startIndex || i >= endIndex) continue;
+        let drawnIdx = i - startIndex;
+        let col = drawnIdx % cols;
+        let row = Math.floor(drawnIdx / cols);
         let x = startX + col * (slotSize + spacing);
         let y = startY + row * (slotSize + spacing);
-
-        // 🌟 マウスがこのスロットに乗っているか判定（ツールチップ用などに保持）
-        let isHovered = (!window.isDisconnected && mX >= x && mX <= x + slotSize && mY >= y && mY <= y + slotSize);
-
-        // ==========================================
-        // 🌟 1. スロット背景＆枠の描画（常にオンマウス状態の色に固定）
-        // ==========================================
-        ctx.save();
-        
-        // 常にオンマウス時と同じ明るめのカラーを採用
-        ctx.fillStyle = "rgba(30, 38, 52, 0.9)";
-        ctx.strokeStyle = "rgba(255, 255, 255, 0.8)";
-        ctx.lineWidth = 1.5;
-
-        if (ctx.roundRect) {
-            ctx.beginPath();
-            ctx.roundRect(x, y, slotSize, slotSize, 4); // 角丸で今風に
-            ctx.fill();
-            ctx.stroke();
-        } else {
-            ctx.fillRect(x, y, slotSize, slotSize);
-            ctx.strokeRect(x, y, slotSize, slotSize);
+        if (!window.isDisconnected && mX >= x && mX <= x + slotSize && mY >= y && mY <= y + slotSize) {
+            hoveredSlotIndex = i;
+            break;
         }
+    }
 
-        // スロット内側のインナーシャドウ（上部に薄いハイライトを添えて立体感を演出）
-        ctx.strokeStyle = "rgba(255, 255, 255, 0.15)";
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.moveTo(x + 3, y + 2);
-        ctx.lineTo(x + slotSize - 3, y + 2);
-        ctx.stroke();
+    let itemsStateStr = bagSource.slice(startIndex, endIndex).map(item => item ? `${item.type}_${item.count}_${item.isEquipped}_${item.totalALLStats || 0}` : 'empty').join(',');
+    let currentStateKey = `${scrollRow}_${goldVal}_${itemsStateStr}_${hoveredSlotIndex}`;
 
-        ctx.restore();
+    // 🌟 メイン画面のデバイスピクセル比（Retina対応など）を取得して高解像度化
+    let dpr = window.devicePixelRatio || 1;
+    let cacheWidth = 300;
+    let cacheHeight = 400;
 
-        // 2. アイテムがあれば中身を描画
-        if (item && item.type) {
-            let type = item.type;
-            let count = item.count || 0;
+    // オフスクリーンキャンバスの初期化（解像度をDPR倍にしてぼやけを防ぐ）
+    if (!_bagCacheCanvas) {
+        _bagCacheCanvas = document.createElement('canvas');
+        _bagCacheCtx = _bagCacheCanvas.getContext('2d');
+    }
 
-            // 個数が0以下の不正なデータなら無視
-            if (count > 0) {
-                // カテゴリーの判定
-                let category = (typeof itemCategories !== 'undefined') ? itemCategories[type] : null;
+    if (_bagCacheCanvas.width !== cacheWidth * dpr || _bagCacheCanvas.height !== cacheHeight * dpr) {
+        _bagCacheCanvas.width = cacheWidth * dpr;
+        _bagCacheCanvas.height = cacheHeight * dpr;
+        _lastBagStateKey = ""; // サイズ変更時はキャッシュを強制リフレッシュ
+    }
 
-                // ETCアイテムの重複描画チェック
-                let isDuplicateETC = false;
-                if (category === 'ETC') {
-                    if (alreadyDrawn.has(type)) {
-                        isDuplicateETC = true;
-                    } else {
-                        alreadyDrawn.add(type);
-                    }
-                }
+    // --- 状態が変わった時だけ裏で重い描画を実行し、キャッシュを更新 ---
+    if (currentStateKey !== _lastBagStateKey) {
+        _lastBagStateKey = currentStateKey;
+        
+        let bc = _bagCacheCtx;
+        bc.save();
+        
+        // DPRにあわせてスケールを調整（これで文字やアイコンがクッキリ描画されます）
+        bc.setTransform(dpr, 0, 0, dpr, 0, 0);
+        bc.imageSmoothingEnabled = true;
+        bc.imageSmoothingQuality = 'high';
 
-                if (!isDuplicateETC) {
-                    // 🌟 画像の取得ロジック
-                    let displayImg = null;
-                    if (item.image) {
-                        displayImg = item.image;
-                    } else if (typeof itemImages !== 'undefined' && itemImages[type]) {
-                        displayImg = itemImages[type];
-                    } else if (typeof ITEM_CONFIG !== 'undefined' && ITEM_CONFIG[type]) {
-                        let config = ITEM_CONFIG[type];
-                        displayImg = config.isAnimated ? (config.images ? config.images[0] : null) : config.image;
+        bc.clearRect(0, 0, cacheWidth, cacheHeight);
 
-                        if (!displayImg && config.src) {
-                            if (!config._tempImg) {
-                                config._tempImg = new Image();
-                                config._tempImg.crossOrigin = "anonymous";
-                                let baseSrc = config.src;
-                                if (typeof IMAGE_DOMAIN !== 'undefined' && IMAGE_DOMAIN !== "") {
-                                    if (baseSrc.startsWith('/') && IMAGE_DOMAIN.endsWith('/')) {
-                                        baseSrc = baseSrc.substring(1);
-                                    }
-                                    baseSrc = IMAGE_DOMAIN + baseSrc;
-                                }
-                                config._tempImg.src = baseSrc;
-                            }
-                            displayImg = config._tempImg;
-                        }
-                    }
+        let cBagX = 0; 
+        let cBagY = 0;
+        let cStartX = 20;
+        let cStartY = 70;
+        let drawnIndex = 0;
+        let alreadyDrawn = new Set();
+        let padding = 6;
 
-                    // 画像の描画（リッチなグロー効果対応）
-                    if (displayImg && displayImg.complete && typeof displayImg.naturalWidth === 'number' && displayImg.naturalWidth > 0) {
-                        let m = 5;
-                        let imgX = x + m;
-                        let imgY = y + m;
-                        let imgW = slotSize - m * 2;
-                        let imgH = slotSize - m * 2;
+        for (let i = 0; i < maxTotalSlots; i++) {
+            let item = bagSource[i];
 
-                        let glowColor = null;
-                        if ((type === 'sword' || type === 'shield') && 
-                            item.totalALLStats !== undefined && 
-                            item.totalFirstStats !== undefined) {
-                            
-                            let bonus = item.totalALLStats - item.totalFirstStats;
-                            if (bonus >= 30) glowColor = "#ff0000";      // 神級
-                            else if (bonus >= 25) glowColor = "#00ff00"; // 超伝説
-                            else if (bonus >= 20) glowColor = "#ffff00"; // 極上
-                            else if (bonus >= 15) glowColor = "#ff00ff"; // 伝説
-                            else if (bonus >= 10) glowColor = "#00ccff"; // 希少
-                        }
+            if (i < startIndex || i >= endIndex) {
+                continue;
+            }
 
-                        ctx.save();
-                        if (glowColor) {
-                            ctx.shadowBlur = 20; 
-                            ctx.shadowColor = glowColor;
-                            ctx.shadowOffsetX = 0;
-                            ctx.shadowOffsetY = 0;
-                            ctx.drawImage(displayImg, imgX, imgY, imgW, imgH);
+            let col = drawnIndex % cols;
+            let row = Math.floor(drawnIndex / cols);
+            
+            let x = cStartX + col * (slotSize + spacing);
+            let y = cStartY + row * (slotSize + spacing);
 
-                            ctx.shadowBlur = 5;
-                            ctx.drawImage(displayImg, imgX, imgY, imgW, imgH);
-                        } else {
-                            // 通常アイテムでもわずかに影を落として背景から浮かせる
-                            ctx.shadowBlur = 3;
-                            ctx.shadowColor = "rgba(0, 0, 0, 0.8)";
-                            ctx.drawImage(displayImg, imgX, imgY, imgW, imgH);
-                        }
-                        ctx.restore();
-                    } else {
-                        ctx.fillStyle = "#f1f5f9";
-                        ctx.font = "10px 'Segoe UI', sans-serif";
-                        let displayName = item.display_name || item.name || "品";
-                        ctx.fillText(displayName.substring(0, 3), x + 4, y + 22);
-                    }
+            let isHovered = (i === hoveredSlotIndex);
 
-                    // 🌟 装備中（isEquipped === true）ならプロ風の「E」ミニバッジを描画！
-                    if (item.isEquipped) {
-                        ctx.save();
-                        
-                        const badgeW = 16;
-                        const badgeH = 15;
-                        const badgeX = x + slotSize - badgeW - 2;
-                        const badgeY = y + 2;
-                        const radius = 3;
-
-                        ctx.fillStyle = 'rgba(10, 15, 25, 0.85)';
-                        ctx.strokeStyle = '#34d399'; 
-                        ctx.lineWidth = 1;
-
-                        ctx.beginPath();
-                        if (ctx.roundRect) {
-                            ctx.roundRect(badgeX, badgeY, badgeW, badgeH, radius);
-                        } else {
-                            ctx.rect(badgeX, badgeY, badgeW, badgeH);
-                        }
-                        ctx.fill();
-                        ctx.stroke();
-
-                        ctx.font = 'bold 10px "Segoe UI", sans-serif';
-                        ctx.fillStyle = '#34d399';
-                        ctx.textAlign = 'center';
-                        ctx.textBaseline = 'middle';
-                        ctx.fillText('E', badgeX + badgeW / 2, badgeY + badgeH / 2 + 0.5);
-                        
-                        ctx.restore();
-                    }
-
-                    // 個数表示（プロのMMO風カプセルバッジ仕様）
-                    const isStackItem = (category === 'ETC' || category === 'USE');
-                    if ((isStackItem && count >= 1) || count > 1) {
-                        ctx.save();
-                        
-                        let countStr = String(count);
-                        let fontSize = countStr.length >= 4 ? 9 : (countStr.length === 3 ? 10 : 11);
-                        ctx.font = `bold ${fontSize}px 'Segoe UI', sans-serif`;
-                        ctx.textAlign = "right";
-                        ctx.textBaseline = "middle";
-
-                        let metrics = ctx.measureText(countStr);
-                        let badgeTextW = metrics.width;
-                        let padX = 5;
-                        let badgeW = Math.max(18, badgeTextW + padX * 2);
-                        let badgeH = 15;
-                        
-                        let badgeX = (x + slotSize) - badgeW - 2;
-                        let badgeY = (y + slotSize) - badgeH - 2;
-                        let radius = 3.5;
-
-                        ctx.shadowColor = "rgba(0, 0, 0, 0.4)";
-                        ctx.shadowBlur = 3;
-                        ctx.shadowOffsetY = 1;
-
-                        ctx.fillStyle = "rgba(10, 15, 25, 0.85)";
-                        ctx.strokeStyle = "rgba(100, 116, 139, 0.6)";
-                        ctx.lineWidth = 1;
-
-                        ctx.beginPath();
-                        if (ctx.roundRect) {
-                            ctx.roundRect(badgeX, badgeY, badgeW, badgeH, radius);
-                        } else {
-                            ctx.rect(badgeX, badgeY, badgeW, badgeH);
-                        }
-                        ctx.fill();
-                        ctx.stroke();
-
-                        ctx.shadowBlur = 0;
-                        ctx.shadowOffsetY = 0;
-
-                        ctx.fillStyle = "#ffffff";
-                        ctx.fillText(countStr, badgeX + badgeW - padX, badgeY + badgeH / 2 + 0.5);
-
-                        ctx.restore();
-                    }
-
-                    // 🌟 ホバーされている場合はツールチップ用の変数にセット
-                    if (isHovered) {
-                        window.hoveredItemForTooltip = item;
+            // 1. レア度の判定
+            let glowColor = null;
+            if (item && item.type && item.count > 0) {
+                if ((item.type === 'sword' || item.type === 'shield') && 
+                    item.totalALLStats !== undefined && 
+                    item.totalFirstStats !== undefined) {
+                    
+                    let bonus = item.totalALLStats - item.totalFirstStats;
+                    if (bonus >= 30) {
+                        glowColor = "#ff0000"; // 神級
+                    } else if (bonus >= 25) {
+                        glowColor = "#00ff00"; // 超伝説
+                    } else if (bonus >= 20) {
+                        glowColor = "#ffff00"; // 極上
+                    } else if (bonus >= 15) {
+                        glowColor = "#ff00ff"; // 伝説
+                    } else if (bonus >= 10) {
+                        glowColor = "#00ccff"; // 希少
                     }
                 }
             }
+
+            // スロット背景画像を取得して描画
+            let cachedSlotImg = getCachedBagSlotImage(slotSize, glowColor, isHovered);
+            bc.drawImage(cachedSlotImg, x - padding, y - padding);
+
+            // 3. アイテムがいれば中身を描画
+            if (item && item.type) {
+                let type = item.type;
+                let count = item.count || 0;
+
+                if (count > 0) {
+                    let category = (typeof itemCategories !== 'undefined') ? itemCategories[type] : null;
+
+                    let isDuplicateETC = false;
+                    if (category === 'ETC') {
+                        if (alreadyDrawn.has(type)) {
+                            isDuplicateETC = true;
+                        } else {
+                            alreadyDrawn.add(type);
+                        }
+                    }
+
+                    if (!isDuplicateETC) {
+                        let displayImg = null;
+                        if (item.image) {
+                            displayImg = item.image;
+                        } else if (typeof itemImages !== 'undefined' && itemImages[type]) {
+                            displayImg = itemImages[type];
+                        } else if (typeof ITEM_CONFIG !== 'undefined' && ITEM_CONFIG[type]) {
+                            let config = ITEM_CONFIG[type];
+                            displayImg = config.isAnimated ? (config.images ? config.images[0] : null) : config.image;
+
+                            if (!displayImg && config.src) {
+                                if (!config._tempImg) {
+                                    config._tempImg = new Image();
+                                    config._tempImg.crossOrigin = "anonymous";
+                                    let baseSrc = config.src;
+                                    if (typeof IMAGE_DOMAIN !== 'undefined' && IMAGE_DOMAIN !== "") {
+                                        if (baseSrc.startsWith('/') && IMAGE_DOMAIN.endsWith('/')) {
+                                            baseSrc = baseSrc.substring(1);
+                                        }
+                                        baseSrc = IMAGE_DOMAIN + baseSrc;
+                                    }
+                                    config._tempImg.src = baseSrc;
+                                }
+                                displayImg = config._tempImg;
+                            }
+                        }
+
+                        // 画像の描画
+                        if (displayImg && displayImg.complete && typeof displayImg.naturalWidth === 'number' && displayImg.naturalWidth > 0) {
+                            let m = 5;
+                            let imgX = x + m;
+                            let imgY = y + m;
+                            let imgW = slotSize - m * 2;
+                            let imgH = slotSize - m * 2;
+
+                            bc.save();
+                            if (glowColor) {
+                                bc.shadowBlur = 24; 
+                                bc.shadowColor = glowColor;
+                                bc.shadowOffsetX = 0;
+                                bc.shadowOffsetY = 0;
+                                bc.drawImage(displayImg, imgX, imgY, imgW, imgH);
+
+                                bc.shadowBlur = 8;
+                                bc.drawImage(displayImg, imgX, imgY, imgW, imgH);
+                            } else {
+                                bc.shadowBlur = 8;
+                                bc.shadowColor = "rgba(255, 255, 255, 0.95)";
+                                bc.shadowOffsetX = 0;
+                                bc.shadowOffsetY = 0;
+                                bc.drawImage(displayImg, imgX, imgY, imgW, imgH);
+                                
+                                bc.shadowBlur = 3;
+                                bc.shadowColor = "rgba(255, 255, 255, 0.8)";
+                                bc.drawImage(displayImg, imgX, imgY, imgW, imgH);
+
+                                bc.shadowBlur = 0;
+                                bc.drawImage(displayImg, imgX, imgY, imgW, imgH);
+                            }
+                            bc.restore();
+                        }
+
+                        // 装備中バッジ（E）
+                        if (item.isEquipped) {
+                            bc.save();
+                            const badgeW = 16;
+                            const badgeH = 15;
+                            const badgeX = x + slotSize - badgeW - 2;
+                            const badgeY = y + 2;
+                            const radius = 3;
+
+                            bc.fillStyle = 'rgba(10, 15, 25, 0.85)';
+                            bc.strokeStyle = '#34d399'; 
+                            bc.lineWidth = 1;
+
+                            bc.beginPath();
+                            if (bc.roundRect) {
+                                bc.roundRect(badgeX, badgeY, badgeW, badgeH, radius);
+                            } else {
+                                bc.rect(badgeX, badgeY, badgeW, badgeH);
+                            }
+                            bc.fill();
+                            bc.stroke();
+
+                            bc.font = 'bold 10px "Segoe UI", sans-serif';
+                            bc.fillStyle = '#34d399';
+                            bc.textAlign = 'center';
+                            bc.textBaseline = 'middle';
+                            bc.fillText('E', badgeX + badgeW / 2, badgeY + badgeH / 2 + 0.5);
+                            bc.restore();
+                        }
+
+                        // 個数表示バッジ
+                        const isStackItem = (category === 'ETC' || category === 'USE');
+                        if ((isStackItem && count >= 1) || count > 1) {
+                            bc.save();
+                            let countStr = String(count);
+                            let fontSize = countStr.length >= 4 ? 9 : (countStr.length === 3 ? 10 : 11);
+                            bc.font = `bold ${fontSize}px 'Segoe UI', sans-serif`;
+                            bc.textAlign = "right";
+                            bc.textBaseline = "middle";
+
+                            let padX = 5;
+                            let badgeW = Math.max(18, countStr.length * 7 + padX * 2);
+                            let badgeH = 15;
+                            
+                            let badgeX = (x + slotSize) - badgeW - 2;
+                            let badgeY = (y + slotSize) - badgeH - 2;
+                            let radius = 3.5;
+
+                            bc.shadowColor = "rgba(0, 0, 0, 0.4)";
+                            bc.shadowBlur = 3;
+                            bc.shadowOffsetY = 1;
+
+                            bc.fillStyle = "rgba(10, 15, 25, 0.85)";
+                            bc.strokeStyle = "rgba(100, 116, 139, 0.6)";
+                            bc.lineWidth = 1;
+
+                            bc.beginPath();
+                            if (bc.roundRect) {
+                                bc.roundRect(badgeX, badgeY, badgeW, badgeH, radius);
+                            } else {
+                                bc.rect(badgeX, badgeY, badgeW, badgeH);
+                            }
+                            bc.fill();
+                            bc.stroke();
+
+                            bc.shadowBlur = 0;
+                            bc.shadowOffsetY = 0;
+
+                            bc.fillStyle = "#ffffff";
+                            bc.fillText(countStr, badgeX + badgeW - padX, badgeY + badgeH / 2 + 0.5);
+                            bc.restore();
+                        }
+                    }
+                }
+            }
+            drawnIndex++;
         }
 
-        drawnIndex++;
+        // --- 4. スクロールバーの描画（キャッシュ内） ---
+        let scrollBarX = cBagX + bagW - 18; 
+        let scrollBarY = cStartY;
+        let scrollBarW = 8;
+        let scrollBarH = maxVisibleRows * (slotSize + spacing) - spacing; 
+
+        bc.fillStyle = "rgba(15, 23, 42, 0.8)";
+        bc.fillRect(scrollBarX, scrollBarY, scrollBarW, scrollBarH);
+        bc.strokeStyle = "rgba(51, 65, 85, 0.6)";
+        bc.lineWidth = 1;
+        bc.strokeRect(scrollBarX, scrollBarY, scrollBarW, scrollBarH);
+
+        let maxScrollRow = 4; 
+        let knobH = Math.max(20, scrollBarH / (maxScrollRow + 1)); 
+        let availableMove = scrollBarH - knobH; 
+        
+        let knobY = scrollBarY;
+        if (maxScrollRow > 0) {
+            let scrollRatio = Math.min(1, Math.max(0, scrollRow / maxScrollRow));
+            knobY += scrollRatio * availableMove;
+        }
+
+        bc.fillStyle = "#475569";
+        bc.fillRect(scrollBarX + 1, knobY, scrollBarW - 2, knobH);
+        bc.strokeStyle = "#64748b";
+        bc.strokeRect(scrollBarX + 1, knobY, scrollBarW - 2, knobH);
+
+        // --- 5. 所持金UIの描画（キャッシュ内） ---
+        if (window.hero) {
+            const goldBarW = 215; 
+            const goldBarH = 28;  
+            const goldDrawX = cBagX + 20;
+            const goldDrawY = cStartY + maxVisibleRows * (slotSize + spacing); 
+            const radius = 6;
+
+            bc.save();
+            const bgGrad = bc.createLinearGradient(goldDrawX, goldDrawY, goldDrawX, goldDrawY + goldBarH);
+            bgGrad.addColorStop(0, "rgba(30, 41, 59, 0.95)"); 
+            bgGrad.addColorStop(1, "rgba(15, 23, 42, 0.95)");    
+            
+            bc.fillStyle = bgGrad;
+            bc.strokeStyle = "rgba(51, 65, 85, 0.8)"; 
+            bc.lineWidth = 1;
+
+            bc.beginPath();
+            if (bc.roundRect) {
+                bc.roundRect(goldDrawX, goldDrawY, goldBarW, goldBarH, radius);
+            } else {
+                bc.rect(goldDrawX, goldDrawY, goldBarW, goldBarH);
+            }
+            bc.fill();
+            bc.stroke();
+
+            const iconX = goldDrawX + 16;
+            const iconY = goldDrawY + goldBarH / 2;
+            
+            bc.shadowColor = "rgba(0, 0, 0, 0.4)";
+            bc.shadowBlur = 4;
+            bc.shadowOffsetY = 2;
+
+            bc.beginPath();
+            bc.arc(iconX, iconY, 8.5, 0, Math.PI * 2);
+            const coinGrad = bc.createRadialGradient(iconX - 2, iconY - 2, 1.5, iconX, iconY, 8.5);
+            coinGrad.addColorStop(0, "#fef08a");
+            coinGrad.addColorStop(1, "#fbbf24");
+            bc.fillStyle = coinGrad;
+            bc.fill();
+            
+            bc.shadowBlur = 0;
+            bc.shadowOffsetY = 0;
+
+            bc.strokeStyle = "#d97706";
+            bc.lineWidth = 1;
+            bc.stroke();
+
+            bc.fillStyle = "#78350f";
+            bc.font = "bold 10px 'Segoe UI', sans-serif";
+            bc.textAlign = "center";
+            bc.textBaseline = "middle";
+            bc.fillText("G", iconX, iconY);
+
+            bc.font = "bold 14px 'Segoe UI', sans-serif"; 
+            bc.textAlign = "right";
+            bc.textBaseline = "middle";
+            
+            const goldText = goldVal.toLocaleString() + " G"; 
+            
+            bc.strokeStyle = "#0f172a";
+            bc.lineWidth = 3;
+            bc.strokeText(goldText, goldDrawX + goldBarW - 12, goldDrawY + goldBarH / 2);
+            
+            bc.fillStyle = "#fef08a";
+            bc.fillText(goldText, goldDrawX + goldBarW - 12, goldDrawY + goldBarH / 2);
+
+            bc.restore();
+        }
+
+        bc.restore();
     }
 
-    // 3. 🎚️ スクロールバーの描画（30スロット・6行表示対応）
-    let scrollBarX = bagX + bagW - 18; 
-    let scrollBarY = startY;
-    let scrollBarW = 8;
-    let scrollBarH = maxVisibleRows * (slotSize + spacing) - spacing; 
-
-    ctx.fillStyle = "rgba(15, 23, 42, 0.8)";
-    ctx.fillRect(scrollBarX, scrollBarY, scrollBarW, scrollBarH);
-    ctx.strokeStyle = "rgba(51, 65, 85, 0.6)";
-    ctx.lineWidth = 1;
-    ctx.strokeRect(scrollBarX, scrollBarY, scrollBarW, scrollBarH);
-
-    let maxScrollRow = 4; 
-    let knobH = Math.max(20, scrollBarH / (maxScrollRow + 1)); 
-    let availableMove = scrollBarH - knobH; 
-    
-    let knobY = scrollBarY;
-    if (maxScrollRow > 0) {
-        let scrollRatio = Math.min(1, Math.max(0, scrollRow / maxScrollRow));
-        knobY += scrollRatio * availableMove;
-    }
-
-    ctx.fillStyle = "#475569";
-    ctx.fillRect(scrollBarX + 1, knobY, scrollBarW - 2, knobH);
-    ctx.strokeStyle = "#64748b";
-    ctx.strokeRect(scrollBarX + 1, knobY, scrollBarW - 2, knobH);
-
-    // ============================================================
-    // 💰 4. バッグインベントリ下部への所持金UI描画の統合（プロ風デザイン）
-    // ============================================================
-    if (window.hero) {
-        const goldBarW = 215; 
-        const goldBarH = 28;  
-        const goldDrawX = bagX + 20;
-        const goldDrawY = startY + maxVisibleRows * (slotSize + spacing) + 0; 
-        const radius = 6;
-
-        const bgGrad = ctx.createLinearGradient(goldDrawX, goldDrawY, goldDrawX, goldDrawY + goldBarH);
-        bgGrad.addColorStop(0, "rgba(30, 41, 59, 0.95)"); 
-        bgGrad.addColorStop(1, "rgba(15, 23, 42, 0.95)");    
-        
-        ctx.fillStyle = bgGrad;
-        ctx.strokeStyle = "rgba(51, 65, 85, 0.8)"; 
-        ctx.lineWidth = 1;
-
-        ctx.beginPath();
-        ctx.moveTo(goldDrawX + radius, goldDrawY);
-        ctx.lineTo(goldDrawX + goldBarW - radius, goldDrawY);
-        ctx.quadraticCurveTo(goldDrawX + goldBarW, goldDrawY, goldDrawX + goldBarW, goldDrawY + radius);
-        ctx.lineTo(goldDrawX + goldBarW, goldDrawY + goldBarH - radius);
-        ctx.quadraticCurveTo(goldDrawX + goldBarW, goldDrawY + goldBarH, goldDrawX + goldBarW - radius, goldDrawY + goldBarH);
-        ctx.lineTo(goldDrawX + radius, goldDrawY + goldBarH);
-        ctx.quadraticCurveTo(goldDrawX, goldDrawY + goldBarH, goldDrawX, goldDrawY + goldBarH - radius);
-        ctx.lineTo(goldDrawX, goldDrawY + radius);
-        ctx.quadraticCurveTo(goldDrawX, goldDrawY, goldDrawX + radius, goldDrawY);
-        ctx.closePath();
-        ctx.fill();
-        ctx.stroke();
-
-        const iconX = goldDrawX + 16;
-        const iconY = goldDrawY + goldBarH / 2;
-        
-        ctx.shadowColor = "rgba(0, 0, 0, 0.4)";
-        ctx.shadowBlur = 4;
-        ctx.shadowOffsetY = 2;
-
-        ctx.beginPath();
-        ctx.arc(iconX, iconY, 8.5, 0, Math.PI * 2);
-        const coinGrad = ctx.createRadialGradient(iconX - 2, iconY - 2, 1.5, iconX, iconY, 8.5);
-        coinGrad.addColorStop(0, "#fef08a");
-        coinGrad.addColorStop(1, "#fbbf24");
-        ctx.fillStyle = coinGrad;
-        ctx.fill();
-        
-        ctx.shadowBlur = 0;
-        ctx.shadowOffsetY = 0;
-
-        ctx.strokeStyle = "#d97706";
-        ctx.lineWidth = 1;
-        ctx.stroke();
-
-        ctx.fillStyle = "#78350f";
-        ctx.font = "bold 10px 'Segoe UI', sans-serif";
-        ctx.textAlign = "center";
-        ctx.textBaseline = "middle";
-        ctx.fillText("G", iconX, iconY);
-
-        ctx.font = "bold 14px 'Segoe UI', sans-serif"; 
-        ctx.textAlign = "right";
-        ctx.textBaseline = "middle";
-        
-        const goldVal = window.hero.gold || 0;
-        const goldText = goldVal.toLocaleString() + " G"; 
-        
-        ctx.strokeStyle = "#0f172a";
-        ctx.lineWidth = 3;
-        ctx.strokeText(goldText, goldDrawX + goldBarW - 12, goldDrawY + goldBarH / 2);
-        
-        const textGrad = ctx.createLinearGradient(0, goldDrawY, 0, goldDrawY + goldBarH);
-        textGrad.addColorStop(0, "#fef08a");
-        textGrad.addColorStop(1, "#fbbf24");
-        ctx.fillStyle = textGrad;
-        
-        ctx.fillText(goldText, goldDrawX + goldBarW - 12, goldDrawY + goldBarH / 2);
-
-        ctx.restore();
-    }
-
+    // 🚀 メイン画面への描画（CSSピクセルサイズを指定して綺麗に引き伸ばし・表示する）
+    ctx.save();
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(_bagCacheCanvas, 0, 0, cacheWidth * dpr, cacheHeight * dpr, bagX, bagY, cacheWidth, cacheHeight);
     ctx.restore();
+
+    // ツールチップ用のホバーアイテム設定
+    if (hoveredSlotIndex !== -1 && bagSource[hoveredSlotIndex]) {
+        window.hoveredItemForTooltip = bagSource[hoveredSlotIndex];
+    }
 }
 
 /**
@@ -8830,11 +9697,1035 @@ function drawJournalWindow() {
     drawSimpleWindow("📖 Journal", win.x, win.y, win.w, win.h);
 }
 
+// モンスターごとの「黒枠付き画像」を保存しておく倉庫
+const monsterOutlineCache = {};
+
+// ============================================================
+// 🎨 事前計算用キャッシュ（初期化時に一度だけ作る、または使い回す）
+// ============================================================
+const slotCacheCanvas = document.createElement('canvas');
+slotCacheCanvas.width = 42;
+slotCacheCanvas.height = 42;
+const cacheCtx = slotCacheCanvas.getContext('2d');
+
+// 角丸付き斜めカットパスの共通ヘルパー
+const makeRoundedBevelPath = (c, x, y, w, h, cut, r) => {
+    c.beginPath();
+    c.moveTo(x, y + cut);
+    c.lineTo(x + cut, y);
+    c.lineTo(x + w - r, y);
+    c.arcTo(x + w, y, x + w, y + r, r);
+    c.lineTo(x + w, y + h - r);
+    c.arcTo(x + w, y + h, x + w - r, y + h, r);
+    c.lineTo(x + r, y + h);
+    c.arcTo(x, y + h, x, y + h - r, r);
+    c.closePath();
+};
+
+// ============================================================
+// :::DRAW_BOOK_WINDOW::: 📕 モンスター図鑑（キー完全同期・マウス操作対応版）
+// ============================================================
+const _staticMonsterKeys = Array.from({ length: 102 }, (_, i) => `monster${i + 1}`);
+
+// マウス操作用の状態管理変数
+let isDraggingBookScroll = false;
+let bookScrollDragStartY = 0;
+let bookScrollStartScrollY = 0;
+
+const _bookCardPath = (c, x, y, w, h, cut, r) => {
+    c.beginPath();
+    c.moveTo(x, y + cut);
+    c.lineTo(x + cut, y);
+    c.lineTo(x + w - r, y);
+    if (r > 0) c.arcTo(x + w, y, x + w, y + r, r);
+    else c.lineTo(x + w, y);
+    c.lineTo(x + w, y + h - r);
+    if (r > 0) c.arcTo(x + w, y + h, x + w - r, y + h, r);
+    else c.lineTo(x + w, y + h);
+    c.lineTo(x + r, y + h);
+    if (r > 0) c.arcTo(x, y + h, x, y + h - r, r);
+    else c.lineTo(x, y + h);
+    c.closePath();
+};
+
+
+// ==========================================
+// カードBOOKキャッシュ用変数（ファイル上部の適切な位置に置いてください）
+// ==========================================
+let _bookContentCacheCanvas = null;
+let _bookCacheLastDataHash = "";
+
 function drawBookWindow() {
+
+    console.log("📖 カードBOOK描画中...");
+    
     const win = gameWindows.book;
     if (!win.isOpen) return;
-    drawSimpleWindow("📕 Monster Book", win.x, win.y, win.w, win.h);
+
+    if (typeof playerCardCollection === 'undefined') {
+        return;
+    }
+
+    // 1. ベースウィンドウ
+    drawHeavyBookWindow("📕 Monster Collection Book", win.x, win.y, win.w, win.h);
+
+    ctx.save();
+
+    // 2. レイアウト計算 ＆ スクロールバー領域の確保
+    const paddingX = 12;
+    const headerH = 40;  
+    const footerH = 30;  
+    const scrollbarW = 12; 
+    
+    const contentX = win.x + paddingX;
+    const contentY = win.y + headerH;
+    const contentW = win.w - (paddingX * 2) - scrollbarW - 6; 
+    const contentH = win.h - headerH - footerH - 6;
+
+    // クリッピング領域（本文のみ）
+    ctx.beginPath();
+    if (typeof ctx.roundRect === 'function') {
+        ctx.roundRect(contentX, contentY, contentW, contentH, 4);
+    } else {
+        ctx.rect(contentX, contentY, contentW, contentH);
+    }
+    ctx.clip(); 
+
+    const startX = 4;  
+    const startY = 10;
+    
+    const baseItemSize = typeof drawSize !== 'undefined' ? drawSize : 40; 
+    
+    const slotsPerRow = 6;  
+    const hGap = 4;         
+    const vGapRow = 12;     
+    
+    const cardW = baseItemSize * 0.88; 
+    const cardH = baseItemSize * 1.15;
+    
+    const blockPadTop = 26; 
+    const blockPadBottom = 14; 
+    
+    const innerCardBlockWidth = (slotsPerRow * baseItemSize) + (slotsPerRow - 1) * hGap;
+    const availableWidth = contentW - 8; 
+    const monsterBlockWidth = availableWidth; 
+    const monsterBlockHeight = cardH + blockPadTop + blockPadBottom; 
+    const blockPadX = (monsterBlockWidth - innerCardBlockWidth) / 2;
+
+    // メインキャンバスのドット絵補間を無効化
+    ctx.imageSmoothingEnabled = false;
+
+    const cutSize = 5;      
+    const outerRadius = 2;  
+
+    // No.1〜No.102の固定スロット配列
+    const TOTAL_BOOK_SLOTS = 102;
+    
+    if (typeof _cachedBookMonsterKeys === 'undefined' || !_cachedBookMonsterKeys) {
+        const slots = new Array(TOTAL_BOOK_SLOTS);
+        for (let i = 0; i < TOTAL_BOOK_SLOTS; i++) {
+            slots[i] = `empty_slot_${i + 1}`;
+        }
+
+        Object.keys(playerCardCollection).forEach(key => {
+            const match = key.match(/(\d+)/);
+            if (match) {
+                const num = parseInt(match[1], 10);
+                if (num >= 1 && num <= TOTAL_BOOK_SLOTS) {
+                    slots[num - 1] = key; 
+                }
+            }
+        });
+        _cachedBookMonsterKeys = slots;
+    }
+    const monsterKeys = _cachedBookMonsterKeys;
+
+    if (typeof win.scrollY === 'undefined') win.scrollY = 0;
+
+    const blockTotalHeight = monsterBlockHeight + vGapRow;
+    const totalContentHeight = monsterKeys.length * blockTotalHeight + 20;
+    const maxScrollY = Math.max(0, Math.ceil((totalContentHeight - contentH) / blockTotalHeight));
+    
+    // スクロール位置のクランプ
+    win.scrollY = Math.max(0, Math.min(win.scrollY, maxScrollY));
+
+    // 所持数の集計
+    let ownedMonsterCount = 0;
+    monsterKeys.forEach(monsterKey => {
+        if (!monsterKey.startsWith('empty_slot_')) {
+            const ranks = playerCardCollection[monsterKey];
+            if (ranks) {
+                const hasAnyCard = Object.values(ranks).some(r => r && r.unlocked);
+                if (hasAnyCard) {
+                    ownedMonsterCount++;
+                }
+            }
+        }
+    });
+
+    // ==========================================
+    // 3. 安全なハッシュ生成によるキャッシュ判定（JSON.stringify不使用）
+    // ==========================================
+    let currentDataHash = "";
+    monsterKeys.forEach(monsterKey => {
+        if (!monsterKey.startsWith('empty_slot_') && playerCardCollection[monsterKey]) {
+            const ranks = playerCardCollection[monsterKey];
+            for (let r = 1; r <= 6; r++) {
+                if (ranks[r]) {
+                    currentDataHash += `${r}:${ranks[r].unlocked ? 1 : 0}:${ranks[r].count || 0}|`;
+                }
+            }
+        }
+    });
+
+    if (!_bookContentCacheCanvas || _bookCacheLastDataHash !== currentDataHash) {
+        _bookCacheLastDataHash = currentDataHash;
+        
+        if (!_bookContentCacheCanvas) {
+            _bookContentCacheCanvas = document.createElement('canvas');
+        }
+        _bookContentCacheCanvas.width = contentW;
+        _bookContentCacheCanvas.height = totalContentHeight;
+        const c = _bookContentCacheCanvas.getContext('2d');
+        
+        // キャッシュ側の基本設定
+        c.imageSmoothingEnabled = false;
+        if (typeof c.webkitImageSmoothingEnabled !== 'undefined') c.webkitImageSmoothingEnabled = false;
+        if (typeof c.mozImageSmoothingEnabled !== 'undefined') c.mozImageSmoothingEnabled = false;
+        if (typeof c.msImageSmoothingEnabled !== 'undefined') c.msImageSmoothingEnabled = false;
+
+        // 全モンスターブロックをキャッシュに描き込む
+        monsterKeys.forEach((monsterKey, globalIndex) => {
+            const blockX = startX; 
+            const blockY = startY + (globalIndex * blockTotalHeight);
+            const isEmptyBlock = monsterKey.startsWith('empty_slot_');
+            const slotNumber = globalIndex + 1;
+
+            // モンスターブロック下敷き
+            c.fillStyle = isEmptyBlock ? "rgba(15, 12, 10, 0.6)" : "rgba(22, 16, 11, 0.92)";
+            c.strokeStyle = isEmptyBlock ? "rgba(100, 90, 80, 0.15)" : "rgba(190, 150, 100, 0.25)";
+            c.lineWidth = 1;
+            c.beginPath();
+            if (typeof c.roundRect === 'function') {
+                c.roundRect(blockX, blockY, monsterBlockWidth, monsterBlockHeight, 6);
+            } else {
+                c.rect(blockX, blockY, monsterBlockWidth, monsterBlockHeight);
+            }
+            c.fill();
+            c.stroke();
+
+            // モンスター名
+            c.fillStyle = isEmptyBlock ? "#6b7280" : "#fde047"; 
+            c.font = "bold 11px sans-serif";
+            c.textAlign = "center";
+            
+            let displayName = `No. ${slotNumber}`;
+            if (!isEmptyBlock) {
+                if (typeof SERVER_ITEM_NAMES !== 'undefined' && SERVER_ITEM_NAMES[monsterKey]) {
+                     displayName = SERVER_ITEM_NAMES[monsterKey].replace('カード', '').trim();
+                } else if (typeof getMonsterDisplayName === 'function') {
+                     displayName = getMonsterDisplayName(monsterKey);
+                } else {
+                     displayName = monsterKey; 
+                }
+            } else {
+                displayName = `--- ??? [${slotNumber}] ---`;
+            }
+            
+            c.fillText(displayName, blockX + monsterBlockWidth / 2, blockY + 16);
+
+            // 6つのランクスロットを描画
+            const rankList = [1, 2, 3, 4, 5, 6];
+            const firstSlotX = blockX + blockPadX;
+            const slotsStartY = blockY + blockPadTop; 
+
+            rankList.forEach((rank, rankIndex) => {
+                const slotX = firstSlotX + rankIndex * (baseItemSize + hGap);
+                const slotY = slotsStartY;
+
+                const cardDrawX = slotX + (baseItemSize - cardW) / 2;
+                const cardDrawY = slotY + (baseItemSize - cardH) / 2;
+
+                const ranks = !isEmptyBlock ? playerCardCollection[monsterKey] : null;
+                const rankCard = ranks ? ranks[rank] : null; 
+                const isUnlocked = rankCard && rankCard.unlocked;
+
+                if (isUnlocked) {
+                    let theme = {
+                        glowColor: "#f59e0b", lightBorder: "#fef08a",
+                        gradTop: "#fde047", gradMid: "#eab308", gradBottom: "#a16207",
+                        innerTop: "#fef3c7", innerMid: "#fde68a", innerBottom: "#d1c4a9",
+                        isDiamond: false,
+                        isRainbow: false
+                    };
+
+                    if (rank === 1) {
+                        // ブロンズ（銅）
+                        theme = { glowColor: "#b45309", lightBorder: "#fed7aa", gradTop: "#fb923c", gradMid: "#c2410c", gradBottom: "#7c2d12", innerTop: "#ffedd5", innerMid: "#fed7aa", innerBottom: "#c2410c", isDiamond: false, isRainbow: false };
+                    } else if (rank === 2) {
+                        // シルバー（銀）
+                        theme = { 
+                            glowColor: "#94a3b8", 
+                            lightBorder: "#e2e8f0", 
+                            gradTop: "#cbd5e1", 
+                            gradMid: "#64748b", 
+                            gradBottom: "#334155", 
+                            innerTop: "#f1f5f9", 
+                            innerMid: "#cbd5e1", 
+                            innerBottom: "#64748b", 
+                            isDiamond: false, 
+                            isRainbow: false 
+                        };
+                    } else if (rank === 3) {
+                        // ゴールド（金）
+                        theme = { glowColor: "#f59e0b", lightBorder: "#fef08a", gradTop: "#fde047", gradMid: "#eab308", gradBottom: "#a16207", innerTop: "#fef3c7", innerMid: "#fde68a", innerBottom: "#d1c4a9", isDiamond: false, isRainbow: false };
+                    } else if (rank === 4) {
+                        // 【プラチナ】シルバーよりワントーン明るい、気品のあるプラチナホワイト
+                        theme = { 
+                            glowColor: "#e2e8f0", 
+                            lightBorder: "#ffffff", 
+                            gradTop: "#ffffff",   // 一番上をピュアホワイトに近づける
+                            gradMid: "#cbd5e1",   // 中間を明るいシルバー
+                            gradBottom: "#64748b",// 下部を引き締める
+                            innerTop: "#ffffff",  
+                            innerMid: "#e2e8f0",  
+                            innerBottom: "#cbd5e1", // インナーも全体的に少しトーンを明るく
+                            isDiamond: false, 
+                            isPlatinum: true, 
+                            isRainbow: false 
+                        };
+                    } else if (rank === 5) {
+    // 【高光量・ダイヤモンド】発光感とまばゆさを強めたハイエンドテーマ
+    theme = { 
+        glowColor: "#6ee7b7", // 発光感を強めた明るいミントシアンの光彩
+        lightBorder: "#ffffff", // 縁取りを眩しい純白にしてハイライト感を強調
+        gradTop: "#7dd3fc",   // 上部はより明るく輝くスカイブルー
+        gradMid: "#0d9488",   // 深みのある青緑で奥行きをキープ
+        gradBottom: "#042f2e",// 重厚なダークカラーで光のコントラストを最大化
+        innerTop: "#ffffff",  // 内部のトップも純白で強い発光を表現
+        innerMid: "#2dd4bf",  // 鮮やかなシアンの輝き
+        innerBottom: "#0f766e", // 奥行きを感じさせる深い青緑
+        isDiamond: true,  
+        isRainbow: false 
+    };
+} else if (rank === 6) {
+    // 【高光量・レインボー】眩い輝きとあふれるオーラをまとった最高レアテーマ
+    theme = { 
+        glowColor: "#ffeedd", // 暖かみと強烈な発光感を感じさせるホワイトゴールド・レインボーの光彩
+        lightBorder: "#ffffff", // 眩い純白の縁取りで最高峰のハイライトを表現
+        gradTop: "#ffffff",   // 頂点からまばゆい純白の光があふれ出す
+        gradMid: "#ff77ff",   // 鮮やかさを増したマゼンタ・パープル・シアンのグラデーション
+        gradBottom: "#220044",// 深みのあるダークパープルで光のコントラストを極限まで引き立てる
+        innerTop: "#ffffff",  // 内部の起点も強烈な白発光
+        innerMid: "#00ffff",  // 鮮烈なシアン（青緑）の輝きをプラス
+        innerBottom: "#ffdd00",// 底部に向かってリッチなゴールド〜イエローへ変化
+        isDiamond: false,  
+        isRainbow: true       // レインボーアニメーション／特殊描画フラグ
+    };
 }
+
+                    c.strokeStyle = theme.glowColor;
+                    c.lineWidth = 3.5;
+                    c.globalAlpha = 0.35;
+                    _bookCardPath(c, cardDrawX - 1, cardDrawY - 1, cardW + 2, cardH + 2, cutSize + 1, outerRadius + 1);
+                    c.stroke();
+
+                    c.lineWidth = 2;
+                    c.globalAlpha = 0.6;
+                    _bookCardPath(c, cardDrawX - 0.5, cardDrawY - 0.5, cardW + 1, cardH + 1, cutSize, outerRadius);
+                    c.stroke();
+                    
+                    c.globalAlpha = 1.0;
+
+                    const frameGrad = c.createLinearGradient(cardDrawX, cardDrawY, cardDrawX, cardDrawY + cardH);
+                    // ==========================================
+// ★ フレーム（枠）側のレインボー
+// ==========================================
+if (theme.isRainbow) {
+    frameGrad.addColorStop(0.00, "rgba(255, 120, 120, 1.0)");
+    frameGrad.addColorStop(0.16, "rgba(255, 200, 90,  1.0)");
+    frameGrad.addColorStop(0.33, "rgba(255, 255, 120, 1.0)");
+    frameGrad.addColorStop(0.50, "rgba(90,  255, 150, 1.0)");
+    frameGrad.addColorStop(0.66, "rgba(90,  230, 255, 1.0)");
+    frameGrad.addColorStop(0.83, "rgba(200, 120, 255, 1.0)");
+    frameGrad.addColorStop(1.00, "rgba(255, 120, 210, 1.0)");
+} else if (theme.isDiamond) {
+                        frameGrad.addColorStop(0.00, "#7dd3fc");
+                        frameGrad.addColorStop(0.50, "#0284c7");
+                        frameGrad.addColorStop(1.00, "#0369a1");
+                    } else {
+                        frameGrad.addColorStop(0, theme.gradTop); 
+                        frameGrad.addColorStop(0.5, theme.gradMid); 
+                        frameGrad.addColorStop(1, theme.gradBottom); 
+                    }
+                    c.fillStyle = frameGrad;
+                    _bookCardPath(c, cardDrawX, cardDrawY, cardW, cardH, cutSize, outerRadius);
+                    c.fill();
+
+                    c.strokeStyle = theme.lightBorder;
+                    c.lineWidth = 1;
+                    _bookCardPath(c, cardDrawX, cardDrawY, cardW, cardH, cutSize, outerRadius);
+                    c.stroke();
+
+                    const innerMargin = 1.5; 
+                    const innerX = cardDrawX + innerMargin;
+                    const innerY = cardDrawY + innerMargin;
+                    const innerW = cardW - innerMargin * 2;
+                    const innerH = cardH - innerMargin * 2;
+                    const innerCut = Math.max(0, cutSize - innerMargin);
+                    const innerRadius = Math.max(0, outerRadius - innerMargin);
+
+                    const innerGrad = c.createLinearGradient(innerX + innerW, innerY, innerX, innerY + innerH);
+                    // ==========================================
+// ★ フレーム（枠）側のレインボー
+// ==========================================
+if (theme.isRainbow) {
+    frameGrad.addColorStop(0.00, "rgba(255, 120, 120, 1.0)");
+    frameGrad.addColorStop(0.16, "rgba(255, 200, 90,  1.0)");
+    frameGrad.addColorStop(0.33, "rgba(255, 255, 120, 1.0)");
+    frameGrad.addColorStop(0.50, "rgba(90,  255, 150, 1.0)");
+    frameGrad.addColorStop(0.66, "rgba(90,  230, 255, 1.0)");
+    frameGrad.addColorStop(0.83, "rgba(200, 120, 255, 1.0)");
+    frameGrad.addColorStop(1.00, "rgba(255, 120, 210, 1.0)");
+} else if (theme.isDiamond) {
+                        // ダイヤモンド用：深みと透明感のあるリッチなブルーグラデーション
+                        innerGrad.addColorStop(0.00, "#e0f2fe");
+                        innerGrad.addColorStop(0.25, "#bae6fd");
+                        innerGrad.addColorStop(0.50, "#38bdf8");
+                        innerGrad.addColorStop(0.75, "#0284c7");
+                        innerGrad.addColorStop(1.00, "#0369a1");
+                    } else {
+                        innerGrad.addColorStop(0, theme.innerTop); 
+                        innerGrad.addColorStop(0.5, theme.innerMid); 
+                        innerGrad.addColorStop(1, theme.innerBottom);     
+                    }
+                    c.fillStyle = innerGrad;
+                    _bookCardPath(c, innerX, innerY, innerW, innerH, innerCut, innerRadius);
+                    c.fill();
+
+                    const spriteName = monsterKey; 
+                    if (typeof sprites !== 'undefined' && sprites.items && sprites.items[spriteName]) {
+                        const img = sprites.items[spriteName];
+                        if (img && img.complete && img.naturalWidth > 0) {
+                            c.save();
+                            _bookCardPath(c, innerX, innerY, innerW, innerH, innerCut, innerRadius);
+                            c.clip(); 
+                            
+                            const centerX = Math.round(innerX + innerW / 2);
+                            const centerY = Math.round(innerY + innerH / 2);
+                            c.translate(centerX, centerY);
+                            c.scale(-1, 1);
+                            
+                            const imgWidth = img.naturalWidth || img.width;
+                            const imgHeight = img.naturalHeight || img.height;
+                            const imgAspect = imgWidth / imgHeight;
+                            
+                            let drawImgW, drawImgH;
+                            const baseSize = Math.min(innerW, innerH);
+                            if (imgAspect > 1) {
+                                drawImgW = Math.round(baseSize * 1.35);
+                                drawImgH = Math.round(drawImgW / imgAspect);
+                            } else if (imgAspect < 1) {
+                                drawImgH = Math.round(baseSize * 1.40);
+                                drawImgW = Math.round(drawImgH * imgAspect);
+                            } else {
+                                drawImgW = Math.round(baseSize * 1.35);
+                                drawImgH = Math.round(baseSize * 1.35);
+                            }
+
+                            if (!img._crispCacheCanvas) {
+                                img._crispCacheCanvas = document.createElement('canvas');
+                                img._crispCacheCanvas.width = drawImgW;
+                                img._crispCacheCanvas.height = drawImgH;
+                                
+                                const rc = img._crispCacheCanvas.getContext('2d');
+                                rc.imageSmoothingEnabled = true;
+                                rc.imageSmoothingQuality = 'high';
+                                if (typeof rc.webkitImageSmoothingEnabled !== 'undefined') rc.webkitImageSmoothingEnabled = true;
+                                if (typeof rc.mozImageSmoothingEnabled !== 'undefined') rc.mozImageSmoothingEnabled = true;
+                                
+                                rc.drawImage(img, 0, 0, imgWidth, imgHeight, 0, 0, drawImgW, drawImgH);
+                            }
+
+                            c.drawImage(
+                                img._crispCacheCanvas, 
+                                -Math.round(drawImgW / 2), 
+                                -Math.round(drawImgH / 2), 
+                                drawImgW, 
+                                drawImgH
+                            );
+                            
+                            c.restore();
+                        }
+                    }
+
+                    // ==========================================
+                    // ★ ダイヤモンド専用：太くまろやかに広がる光の帯
+                    // ==========================================
+                    if (theme.isDiamond) {
+                        c.save();
+                        _bookCardPath(c, innerX, innerY, innerW, innerH, innerCut, innerRadius);
+                        c.clip();
+
+                        // 斜めのグラデーション範囲
+                        const shineGrad = c.createLinearGradient(innerX + innerW * 0.9, innerY + innerH * 0.1, innerX + innerW * 0.1, innerY + innerH * 0.9);
+                        
+                        // 中央の「光の帯の幅」を広く取るグラデーション
+                        shineGrad.addColorStop(0.00, "rgba(255, 255, 255, 0.0)");
+                        shineGrad.addColorStop(0.25, "rgba(255, 255, 255, 0.02)");
+                        shineGrad.addColorStop(0.40, "rgba(255, 255, 255, 0.30)"); // 光の帯の入り口
+                        shineGrad.addColorStop(0.50, "rgba(255, 255, 255, 0.60)"); // 中央の強いピーク
+                        shineGrad.addColorStop(0.60, "rgba(255, 255, 255, 0.30)"); // 光の帯の出口（幅を太くキープ）
+                        shineGrad.addColorStop(0.75, "rgba(255, 255, 255, 0.02)");
+                        shineGrad.addColorStop(1.00, "rgba(255, 255, 255, 0.0)");
+
+                        c.fillStyle = shineGrad;
+                        c.fillRect(innerX, innerY, innerW, innerH);
+                        c.restore();
+                    }
+					
+					// ==========================================
+// ★ ランク6（レインボー）専用：十字を使わない、ほんのりと気高い最高峰オーラ
+// ==========================================
+if (theme.isRainbow) {
+    c.save();
+    
+    // 1. 他のランク（ダイヤモンド等）よりも一回り大きく、ふんわりと広がる上品な外周オーラ
+    // （シアンやゴールドの優しい光を広い半径でぼかす）
+    c.shadowColor = "rgba(255, 255, 255, 0.7)"; // 純白と虹色が混ざり合う柔らかい光
+    c.shadowBlur = 18;                         // ランク5よりも広めに、かつ優しくぼかす
+    c.shadowOffsetX = 0;
+    c.shadowOffsetY = 0;
+
+    // 2. カードの輪郭に沿って、主張しすぎない「極薄のプレミアムエッジ」を重ねる
+    // 完全に真っ白にするのではなく、ほんのり虹色のニュアンスを含んだ光のフチ
+    _bookCardPath(c, innerX, innerY, innerW, innerH, innerCut, innerRadius);
+    c.strokeStyle = "rgba(255, 255, 255, 0.45)"; // 主張を抑え、下地の色と完全に調和させる
+    c.lineWidth = 1.0;
+    c.stroke();
+
+    c.restore();
+}
+					
+					// ==========================================
+                    // ★ プラチナ専用：ほんのちょっぴり白い上品な光沢
+                    // ==========================================
+                    if (theme.isPlatinum) {
+                        c.save();
+                        _bookCardPath(c, innerX, innerY, innerW, innerH, innerCut, innerRadius);
+                        c.clip();
+
+                        // シルバーと差別化しつつ、白飛びさせない絶妙な白のグラデーション
+                        const platShine = c.createLinearGradient(innerX, innerY, innerX + innerW, innerY + innerH);
+                        platShine.addColorStop(0.00, "rgba(255, 255, 255, 0.35)"); // 少しだけ白の存在感をアップ
+                        platShine.addColorStop(0.35, "rgba(255, 255, 255, 0.45)"); // ふんわり明るいハイライト
+                        platShine.addColorStop(0.55, "rgba(255, 255, 255, 0.10)");
+                        platShine.addColorStop(1.00, "rgba(255, 255, 255, 0.0)");
+
+                        c.fillStyle = platShine;
+                        c.fillRect(innerX, innerY, innerW, innerH);
+                        c.restore();
+                    }
+
+                    // ==========================================
+                    // ★ 完全ドット直描きによるクッキリ個数表示
+                    // ==========================================
+                    if (rankCard.count > 0) {
+                        const countStr = `x${rankCard.count}`;
+                        
+                        const charW = 4; 
+                        const charH = 5; 
+                        const charGap = 1; 
+                        const totalTextW = countStr.length * charW + (countStr.length - 1) * charGap;
+                        
+                        const labelW = totalTextW + 6;
+                        const labelH = 11; 
+                        const labelX = cardDrawX + cardW - labelW - 2;
+                        const labelY = cardDrawY + cardH - labelH - 2;
+
+                        c.fillStyle = "rgba(5, 3, 2, 0.95)";
+                        c.strokeStyle = theme.glowColor;
+                        c.lineWidth = 1;
+
+                        c.beginPath();
+                        if (typeof c.roundRect === 'function') {
+                            c.roundRect(labelX, labelY, labelW, labelH, 2);
+                        } else {
+                            c.rect(labelX, labelY, labelW, labelH);
+                        }
+                        c.fill();
+                        c.stroke();
+
+                        const fontMap = {
+                            'x': [1,0,1, 0,1,0, 0,1,0, 0,1,0, 1,0,1],
+                            '0': [1,1,1, 1,0,1, 1,0,1, 1,0,1, 1,1,1],
+                            '1': [0,1,0, 1,1,0, 0,1,0, 0,1,0, 1,1,1],
+                            '2': [1,1,1, 0,0,1, 1,1,1, 1,0,0, 1,1,1],
+                            '3': [1,1,1, 0,0,1, 1,1,1, 0,0,1, 1,1,1],
+                            '4': [1,0,1, 1,0,1, 1,1,1, 0,0,1, 0,0,1],
+                            '5': [1,1,1, 1,0,0, 1,1,1, 0,0,1, 1,1,1],
+                            '6': [1,1,1, 1,0,0, 1,1,1, 1,0,1, 1,1,1],
+                            '7': [1,1,1, 0,0,1, 0,1,0, 0,1,0, 0,1,0],
+                            '8': [1,1,1, 1,0,1, 1,1,1, 1,0,1, 1,1,1],
+                            '9': [1,1,1, 1,0,1, 1,1,1, 0,0,1, 1,1,1]
+                        };
+
+                        let drawCursorX = labelX + 3;
+                        let drawCursorY = labelY + 3;
+
+                        for (let i = 0; i < countStr.length; i++) {
+                            const char = countStr[i];
+                            const pattern = fontMap[char] || fontMap['0'];
+                            
+                            c.fillStyle = "#ffffff"; 
+                            
+                            for (let py = 0; py < charH; py++) {
+                                for (let px = 0; px < 3; px++) {
+                                    if (pattern[py * 3 + px] === 1) {
+                                        c.fillRect(Math.round(drawCursorX + px), Math.round(drawCursorY + py), 1, 1);
+                                    }
+                                }
+                            }
+                            drawCursorX += charW + charGap;
+                        }
+                    }
+
+                } else {
+                    const cachedImg = getUnopenedCardImage(cardW, cardH, cutSize, outerRadius);
+                    c.drawImage(cachedImg, cardDrawX - 5, cardDrawY - 5);
+                }
+            });
+        });
+    }
+
+    // メイン画面へキャッシュされたコンテンツをスクロール位置に合わせて描画
+    if (_bookContentCacheCanvas) {
+        const srcY = win.scrollY * blockTotalHeight;
+        ctx.drawImage(
+            _bookContentCacheCanvas,
+            0, srcY, contentW, contentH,
+            contentX, contentY, contentW, contentH
+        );
+    }
+
+    // クリッピングを解除してUI（スクロールバー・フッター）を描画
+    ctx.restore(); 
+
+    // ==========================================
+    // 4. スクロールバー ＆ 上下ボタンの描画
+    // ==========================================
+    const sbX = contentX + contentW + 6;
+    const sbY = contentY;
+    const sbH = contentH;
+    const btnSize = 14; 
+
+    ctx.fillStyle = "rgba(10, 8, 6, 0.7)";
+    ctx.strokeStyle = "rgba(150, 120, 80, 0.3)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    if (typeof ctx.roundRect === 'function') {
+        ctx.roundRect(sbX, sbY, scrollbarW, sbH, 3);
+    } else {
+        ctx.rect(sbX, sbY, scrollbarW, sbH);
+    }
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.fillStyle = "#d4b572";
+    ctx.font = "9px sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("▲", sbX + scrollbarW / 2, sbY + btnSize / 2);
+    ctx.fillText("▼", sbX + scrollbarW / 2, sbY + sbH - btnSize / 2);
+
+    const trackStartY = sbY + btnSize + 2;
+    const trackHeight = sbH - (btnSize * 2) - 4;
+    
+    if (maxScrollY > 0) {
+        const thumbH = Math.max(20, trackHeight * (contentH / totalContentHeight));
+        const scrollRatio = win.scrollY / maxScrollY;
+        const thumbY = trackStartY + (trackHeight - thumbH) * scrollRatio;
+
+        ctx.fillStyle = "rgba(212, 181, 114, 0.65)";
+        ctx.strokeStyle = "rgba(253, 224, 71, 0.4)";
+        ctx.beginPath();
+        if (typeof ctx.roundRect === 'function') {
+            ctx.roundRect(sbX + 2, thumbY, scrollbarW - 4, thumbH, 2);
+        } else {
+            ctx.rect(sbX + 2, thumbY, scrollbarW - 4, thumbH);
+        }
+        ctx.fill();
+        ctx.stroke();
+    }
+
+    // ==========================================
+    // 5. フッターカウンターの描画
+    // ==========================================
+    const footerY = win.y + win.h - footerH - 6;
+    const footerW = win.w - (paddingX * 2);
+    const footerX = win.x + paddingX;
+
+    ctx.fillStyle = "rgba(15, 11, 8, 0.85)";
+    ctx.strokeStyle = "rgba(180, 140, 90, 0.3)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    if (typeof ctx.roundRect === 'function') {
+        ctx.roundRect(footerX, footerY, footerW, 22, 3);
+    } else {
+        ctx.rect(footerX, footerY, footerW, 22);
+    }
+    ctx.fill();
+    ctx.stroke();
+
+    const completionRate = Math.floor((ownedMonsterCount / TOTAL_BOOK_SLOTS) * 100);
+    const counterText = `Collection: ${ownedMonsterCount} / ${TOTAL_BOOK_SLOTS} (${completionRate}%)`;
+
+    ctx.fillStyle = "#fde047";
+    ctx.font = "bold 11px sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(counterText, footerX + footerW / 2, footerY + 11);
+}
+
+function _drawSparkle(c, x, y, color) {
+    c.save();
+    c.fillStyle = color;
+    c.shadowColor = color;
+    c.shadowBlur = 6;
+    // 小さな十字のきらめき
+    c.fillRect(x - 4, y - 1, 8, 2);
+    c.fillRect(x - 1, y - 4, 2, 8);
+    c.restore();
+}
+
+// ------------------------------------------------------------
+// 📚 重厚なアンティーク手帳ウィンドウ背景描画ヘルパー
+// ------------------------------------------------------------
+function drawHeavyBookWindow(title, x, y, w, h) {
+    ctx.save();
+
+    ctx.shadowBlur = 15;
+    ctx.shadowColor = "rgba(0, 0, 0, 0.7)";
+
+    const borderGrad = ctx.createLinearGradient(x, y, x, y + h);
+    borderGrad.addColorStop(0, "#d4af37"); 
+    borderGrad.addColorStop(0.15, "#856514");
+    borderGrad.addColorStop(0.5, "#42310a");
+    borderGrad.addColorStop(0.85, "#856514");
+    borderGrad.addColorStop(1, "#d4af37");
+
+    ctx.fillStyle = borderGrad;
+    ctx.beginPath();
+    ctx.roundRect(x, y, w, h, 8);
+    ctx.fill();
+
+    const innerX = x + 3;
+    const innerY = y + 3;
+    const innerW = w - 6;
+    const innerH = h - 6;
+
+    const leatherGrad = ctx.createRadialGradient(
+        x + w / 2, y + h / 2, 20,
+        x + w / 2, y + h / 2, Math.max(w, h) * 0.8
+    );
+    leatherGrad.addColorStop(0, "#3d291d"); 
+    leatherGrad.addColorStop(1, "#18100b"); 
+
+    ctx.shadowColor = "transparent";
+    ctx.fillStyle = leatherGrad;
+    ctx.beginPath();
+    ctx.roundRect(innerX, innerY, innerW, innerH, 6);
+    ctx.fill();
+
+    const titleBarH = 34;
+    const barGrad = ctx.createLinearGradient(innerX, innerY, innerX, innerY + titleBarH);
+    barGrad.addColorStop(0, "rgba(70, 50, 35, 0.85)");
+    barGrad.addColorStop(1, "rgba(35, 24, 16, 0.95)");
+
+    ctx.fillStyle = barGrad;
+    ctx.beginPath();
+    ctx.roundRect(innerX + 4, innerY + 4, innerW - 8, titleBarH, 4);
+    ctx.fill();
+
+    ctx.strokeStyle = "rgba(212, 175, 55, 0.4)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(innerX + 12, innerY + titleBarH + 4);
+    ctx.lineTo(innerX + innerW - 12, innerY + titleBarH + 4);
+    ctx.stroke();
+
+    ctx.shadowBlur = 4;
+    ctx.shadowColor = "#000000";
+    ctx.fillStyle = "#fde047";
+    ctx.font = "bold 13px 'Arial Black', Gadget, sans-serif";
+    ctx.textAlign = "left";
+    ctx.fillText(title, innerX + 16, innerY + 22);
+
+    ctx.restore();
+}
+
+// スクロール設定（ホイール・マウス操作）
+if (typeof window !== 'undefined' && !window._bookScrollInitialized) {
+    window._bookScrollInitialized = true;
+    
+    // ホイールスクロール（ブラウザスクロール抑制対応版）
+    window.addEventListener('wheel', (e) => {
+        if (typeof gameWindows !== 'undefined' && gameWindows.book && gameWindows.book.isOpen) {
+            const win = gameWindows.book;
+            
+            // マウスカーソルがBOOKウィンドウの範囲内にあるか判定
+            // (キャンバス上の座標系に合わせて調整しています)
+            const mouseX = e.offsetX !== undefined ? e.offsetX : (e.clientX - (typeof canvas !== 'undefined' ? canvas.getBoundingClientRect().left : 0));
+            const mouseY = e.offsetY !== undefined ? e.offsetY : (e.clientY - (typeof canvas !== 'undefined' ? canvas.getBoundingClientRect().top : 0));
+
+            const isInsideBook = (mouseX >= win.x && mouseX <= win.x + win.w && mouseY >= win.y && mouseY <= win.y + win.h);
+
+            if (isInsideBook) {
+                // BOOK上でのホイール操作時は、背後のブラウザスクロールを完全に防ぐ
+                e.preventDefault();
+
+                if (typeof win.scrollY === 'undefined') win.scrollY = 0;
+                
+                // スクロール量を調整（2行ずつ動かす例。お好みで変更可能）
+                win.scrollY += e.deltaY > 0 ? 2 : -2; 
+                
+                if (win.scrollY < 0) win.scrollY = 0;
+                
+                // 最大スクロール値の計算
+                const blockTotalHeight = (typeof drawSize !== 'undefined' ? drawSize : 40) * 1.15 + 26 + 14 + 12;
+                const headerH = 40;
+                const footerH = 30;
+                const contentH = win.h - headerH - footerH - 6;
+                const totalContentHeight = 102 * blockTotalHeight;
+                const maxScrollY = Math.max(0, Math.ceil((totalContentHeight - contentH) / blockTotalHeight));
+
+                if (win.scrollY > maxScrollY) win.scrollY = maxScrollY;
+            }
+        }
+    }, { passive: false }); // passive: false にすることで e.preventDefault() を有効化
+
+    // マウスダウン（スクロールバーのクリック・ドラッグ開始）
+    window.addEventListener('mousedown', (e) => {
+        if (typeof gameWindows === 'undefined' || !gameWindows.book || !gameWindows.book.isOpen) return;
+        
+        const mouseX = e.offsetX !== undefined ? e.offsetX : (e.clientX - (typeof canvas !== 'undefined' ? canvas.getBoundingClientRect().left : 0));
+        const mouseY = e.offsetY !== undefined ? e.offsetY : (e.clientY - (typeof canvas !== 'undefined' ? canvas.getBoundingClientRect().top : 0));
+        
+        const win = gameWindows.book;
+        const paddingX = 12;
+        const headerH = 40;  
+        const footerH = 30;  
+        const scrollbarW = 12; 
+        
+        const contentX = win.x + paddingX;
+        const contentY = win.y + headerH;
+        const contentW = win.w - (paddingX * 2) - scrollbarW - 6; 
+        const contentH = win.h - headerH - footerH - 6; 
+
+        const sbX = contentX + contentW + 6;
+        const sbY = contentY;
+        const sbH = contentH;
+        const btnSize = 14;
+
+        if (mouseX < sbX || mouseX > sbX + scrollbarW || mouseY < sbY || mouseY > sbY + sbH) {
+            return;
+        }
+
+        // スクロールバー操作時はテキスト選択などのブラウザデフォルト挙動を防ぐ
+        e.preventDefault();
+
+        const blockTotalHeight = (typeof drawSize !== 'undefined' ? drawSize : 40) * 1.15 + 26 + 14 + 12;
+        const totalContentHeight = 102 * blockTotalHeight;
+        const maxScrollY = Math.max(0, Math.ceil((totalContentHeight - contentH) / blockTotalHeight));
+
+        // ▲ボタン
+        if (mouseY >= sbY && mouseY <= sbY + btnSize) {
+            win.scrollY = Math.max(0, win.scrollY - 1);
+            return;
+        }
+        // ▼ボタン
+        if (mouseY >= sbY + sbH - btnSize && mouseY <= sbY + sbH) {
+            win.scrollY = Math.min(maxScrollY, win.scrollY + 1);
+            return;
+        }
+
+        const trackStartY = sbY + btnSize + 2;
+        const trackHeight = sbH - (btnSize * 2) - 4;
+        
+        if (maxScrollY > 0) {
+            const thumbH = Math.max(20, trackHeight * (contentH / totalContentHeight));
+            const scrollRatio = maxScrollY > 0 ? win.scrollY / maxScrollY : 0;
+            const thumbY = trackStartY + (trackHeight - thumbH) * scrollRatio;
+
+            if (mouseY >= thumbY && mouseY <= thumbY + thumbH) {
+                isDraggingBookScroll = true;
+                bookScrollDragStartY = mouseY;
+                bookScrollStartScrollY = win.scrollY;
+            } else {
+                const clickRatio = Math.max(0, Math.min(1, (mouseY - trackStartY - thumbH / 2) / (trackHeight - thumbH)));
+                win.scrollY = Math.round(clickRatio * maxScrollY);
+            }
+        }
+    });
+
+    // マウスムーブ（ドラッグ中のスクロール移動）
+    window.addEventListener('mousemove', (e) => {
+        if (!isDraggingBookScroll) return;
+        const win = gameWindows.book;
+        if (!win || !win.isOpen) return;
+
+        e.preventDefault();
+
+        const mouseY = e.offsetY !== undefined ? e.offsetY : (e.clientY - (typeof canvas !== 'undefined' ? canvas.getBoundingClientRect().top : 0));
+        const contentH = win.h - 40 - 30 - 6;
+        const blockTotalHeight = (typeof drawSize !== 'undefined' ? drawSize : 40) * 1.15 + 26 + 14 + 12;
+        const totalContentHeight = 102 * blockTotalHeight;
+        const maxScrollY = Math.max(0, Math.ceil((totalContentHeight - contentH) / blockTotalHeight));
+
+        const btnSize = 14;
+        const trackHeight = contentH - (btnSize * 2) - 4;
+        const thumbH = Math.max(20, trackHeight * (contentH / totalContentHeight));
+        const effectiveTrackHeight = trackHeight - thumbH;
+
+        if (effectiveTrackHeight > 0) {
+            const deltaY = mouseY - bookScrollDragStartY;
+            const deltaScrollRatio = deltaY / effectiveTrackHeight;
+            const newScrollY = bookScrollStartScrollY + (deltaScrollRatio * maxScrollY);
+            win.scrollY = Math.max(0, Math.min(maxScrollY, Math.round(newScrollY)));
+        }
+    });
+
+    // マウスアップ（ドラッグ終了）
+    window.addEventListener('mouseup', () => {
+        isDraggingBookScroll = false;
+    });
+}
+
+// キャッシュ生成用関数群
+const _cachedUnlockedCardImages = {};
+function getUnlockedCardImage(rank, w, h, cut, r) {
+    if (_cachedUnlockedCardImages[rank]) return _cachedUnlockedCardImages[rank];
+
+    const canvas = document.createElement('canvas');
+    canvas.width = w + 6;
+    canvas.height = h + 6;
+    const c = canvas.getContext('2d');
+
+    const cardDrawX = 3;
+    const cardDrawY = 3;
+
+    let glowColor, lightBorder, cTop, cMid, cBot;
+    if (rank === 1) { glowColor = "#b45309"; lightBorder = "#fed7aa"; cTop = "#fdba74"; cMid = "#c2410c"; cBot = "#7c2d12"; }
+    else if (rank === 2) { glowColor = "#94a3b8"; lightBorder = "#ffffff"; cTop = "#f8fafc"; cMid = "#94a3b8"; cBot = "#334155"; }
+    else if (rank === 3) { glowColor = "#f59e0b"; lightBorder = "#fef08a"; cTop = "#fde047"; cMid = "#d97706"; cBot = "#78350f"; }
+    else if (rank === 4) { glowColor = "#38bdf8"; lightBorder = "#bae6fd"; cTop = "#7dd3fc"; cMid = "#0284c7"; cBot = "#0369a1"; }
+    else if (rank === 5) { glowColor = "#c084fc"; lightBorder = "#f3e8ff"; cTop = "#f0abfc"; cMid = "#9333ea"; cBot = "#581c87"; }
+    else { glowColor = "#f43f5e"; lightBorder = "#ffffff"; cTop = "#fda4af"; cMid = "#e11d48"; cBot = "#881337"; }
+
+    c.strokeStyle = glowColor;
+    c.lineWidth = 2;
+    c.globalAlpha = 0.6;
+    _bookCardPath(c, cardDrawX - 0.5, cardDrawY - 0.5, w + 1, h + 1, cut, r);
+    c.stroke();
+    c.globalAlpha = 1.0;
+
+    const frameGrad = c.createLinearGradient(cardDrawX, cardDrawY, cardDrawX, cardDrawY + h);
+    frameGrad.addColorStop(0, cTop); 
+    frameGrad.addColorStop(0.5, cMid); 
+    frameGrad.addColorStop(1, cBot); 
+    c.fillStyle = frameGrad;
+    _bookCardPath(c, cardDrawX, cardDrawY, w, h, cut, r);
+    c.fill();
+
+    c.strokeStyle = lightBorder;
+    c.lineWidth = 1;
+    _bookCardPath(c, cardDrawX, cardDrawY, w, h, cut, r);
+    c.stroke();
+
+    const innerMargin = 1.5; 
+    const innerX = cardDrawX + innerMargin;
+    const innerY = cardDrawY + innerMargin;
+    const innerW = w - innerMargin * 2;
+    const innerH = h - innerMargin * 2;
+    const innerCut = Math.max(0, cut - innerMargin);
+    const innerRadius = Math.max(0, r - innerMargin);
+
+    const innerGrad = c.createLinearGradient(innerX, innerY, innerX, innerY + innerH);
+    innerGrad.addColorStop(0, "#ffffff"); 
+    innerGrad.addColorStop(0.5, cTop); 
+    innerGrad.addColorStop(1, cMid);     
+    c.fillStyle = innerGrad;
+    _bookCardPath(c, innerX, innerY, innerW, innerH, innerCut, innerRadius);
+    c.fill();
+
+    _cachedUnlockedCardImages[rank] = canvas;
+    return canvas;
+}
+
+let _cachedUnopenedCardImage = null;
+function getUnopenedCardImage(w, h, cut, r) {
+    if (_cachedUnopenedCardImage && _cachedUnopenedCardImage.width === w + 10) {
+        return _cachedUnopenedCardImage;
+    }
+
+    const canvas = document.createElement('canvas');
+    canvas.width = w + 10; 
+    canvas.height = h + 10;
+    const c = canvas.getContext('2d');
+
+    const cardDrawX = 5;
+    const cardDrawY = 5;
+
+    const frameGrad = c.createLinearGradient(cardDrawX, cardDrawY, cardDrawX, cardDrawY + h);
+    frameGrad.addColorStop(0, "#826953");  
+    frameGrad.addColorStop(0.5, "#594738"); 
+    frameGrad.addColorStop(1, "#382b21");  
+
+    c.fillStyle = frameGrad;
+    _bookCardPath(c, cardDrawX, cardDrawY, w, h, cut, r);
+    c.fill();
+
+    c.lineWidth = 1;
+    c.strokeStyle = "#b09375";
+    _bookCardPath(c, cardDrawX, cardDrawY, w, h, cut, r);
+    c.stroke();
+
+    const innerMargin = 1.5; 
+    const innerX = cardDrawX + innerMargin;
+    const innerY = cardDrawY + innerMargin;
+    const innerW = w - innerMargin * 2;
+    const innerH = h - innerMargin * 2;
+    const innerCut = Math.max(0, cut - innerMargin);
+    const innerRadius = Math.max(0, r - innerMargin);
+
+    const pitGrad = c.createLinearGradient(innerX, innerY, innerX, innerY + innerH);
+    pitGrad.addColorStop(0, "#382c23"); 
+    pitGrad.addColorStop(1, "#493b30");
+
+    c.fillStyle = pitGrad;
+    _bookCardPath(c, innerX, innerY, innerW, innerH, innerCut, innerRadius);
+    c.fill();
+
+    c.lineWidth = 1;
+    c.strokeStyle = "#1a130f";
+    _bookCardPath(c, innerX, innerY, innerW, innerH, innerCut, innerRadius);
+    c.stroke();
+
+    c.fillStyle = "rgba(215, 190, 160, 0.75)";
+    c.font = "bold 11px sans-serif";
+    c.textAlign = "center";
+    c.textBaseline = "middle";
+    
+    // 🌟 視覚的な中心に合わせるため、Y座標に「+2」のオフセットを追加
+    c.fillText("?", cardDrawX + w / 2, cardDrawY + h / 2 + 2);
+
+    _cachedUnopenedCardImage = canvas;
+    return canvas;
+}
+
+socket.on('card_collection_update', (collectionData) => {
+    playerCardCollection = collectionData;
+});
 
 // --- 👥 ソーシャル・コミュニティ系 ---
 function drawGuildWindow() {
