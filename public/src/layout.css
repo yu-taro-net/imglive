@@ -403,6 +403,11 @@ user-select: none;         /* これが標準！ */
 .whisper-btn-confirm { padding: 10px 20px; cursor: pointer; background: #2e7d32; color: white; border: none; border-radius: 5px; font-weight: bold; box-shadow: 0 0 5px #2e7d32; }
 .whisper-btn-cancel { padding: 10px 20px; cursor: pointer; background: #444; color: white; border: none; border-radius: 5px; }
 
+/* 例：交換窓より手前に配置する */
+#trade-window {
+    z-index: 2000; /* 交換窓 */
+}
+
 #tooltip-layer {
   position: fixed;
   top: 0; left: 0;
@@ -1460,4 +1465,78 @@ user-select: none;         /* これが標準！ */
 #collectionBookBtn:active {
     transform: translateY(0);
     box-shadow: none;
+}
+
+/* 自分のトレード枠と相手のトレード枠、どちらもマウスを乗せたら指差し（ポインター）にする */
+#my-slot-grid div, 
+#opponent-slot-grid div {
+    cursor: pointer;
+}
+
+/* インベントリウィンドウ全体の装飾 */
+#inventory-window {
+  position: absolute;
+  /* 画面の中央に配置する設定 */
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  
+  width: 300px;
+  background: rgba(15, 23, 42, 0.92);
+  border: 1px solid rgba(51, 65, 85, 0.8);
+  border-radius: 8px;
+  color: #ffffff;
+  font-family: 'Segoe UI', sans-serif;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.6);
+  padding: 12px;
+  box-sizing: border-box;
+  z-index: 9999;
+}
+
+/* タイトルバー */
+#inventory-window .window-header {
+  font-weight: bold;
+  font-size: 14px;
+  margin-bottom: 8px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid rgba(51, 65, 85, 0.6);
+  letter-spacing: 0.5px;
+}
+
+/* タブボタンの並び */
+#inventory-window .inventory-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 10px;
+}
+
+/* 各タブボタン */
+#inventory-window .tab-btn {
+  background: rgba(30, 41, 59, 0.8);
+  border: 1px solid rgba(51, 65, 85, 0.6);
+  color: #94a3b8;
+  padding: 4px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  transition: all 0.2s;
+}
+
+/* アクティブなタブ */
+#inventory-window .tab-btn.active {
+  background: rgba(52, 211, 153, 0.2);
+  border-color: #34d399;
+  color: #34d399;
+  font-weight: bold;
+}
+
+#inventory-window .window-header {
+  cursor: grab;
+  /* 以下の2行を追加して、ドラッグ中に文字が青く選択されるのを防ぐ */
+  -webkit-user-select: none; /* Safari/Chrome用 */
+  user-select: none;
+}
+
+#inventory-window .window-header:active {
+  cursor: grabbing;
 }

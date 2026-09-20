@@ -73,68 +73,173 @@
 </div>
 
 <!-- UI操作エリア全体 -->
-<div id="ui-container">
+<div id="ui-container" style="display: flex; flex-direction: column; gap: 8px;">
   
-  <!-- チャット入力行（ここは通常通り上部に配置） -->
-  <div class="chat-row" style="position: relative;">
-    <!-- 1番目：感情ボタン ＆ ポップアップ -->
-    <button id="emotion-btn" type="button" onclick="toggleEmotionPicker(event)" title="表情を選ぶ">
+  <!-- 🌟 チャット入力行（高さ43pxで統一） -->
+  <div class="chat-row" style="display: flex; align-items: center; gap: 8px; position: relative;">
+    
+    <!-- 1番目：感情ボタン（高さ43px） -->
+    <div style="position: relative; height: 43px; display: flex; align-items: center;">
+      <button id="emotion-btn" type="button" onclick="toggleEmotionPicker(event)" title="表情を選ぶ" style="
+        height: 43px; width: 43px; box-sizing: border-box; display: flex; align-items: center; justify-content: center;
+      ">
         <img id="current-emotion-icon" src="emotion_assets/null.png" alt="表情" class="emotion-btn-icon">
-    </button>
-    <div id="emotion-picker-popup" class="emotion-popup"></div>
+      </button>
+      <div id="emotion-picker-popup" class="emotion-popup"></div>
+    </div>
 
-    <!-- 2番目：チャットモード選択UI -->
-    <div id="custom-chat-mode" class="custom-select-wrapper">
-        <div id="chat-mode-trigger" class="custom-select-trigger" onclick="toggleChatModeDropdown(event)">
-            <span id="chat-mode-label">全体</span>
-            <span class="custom-arrow">▼</span>
-        </div>
-        <div id="chat-mode-options" class="custom-options">
-            <div class="custom-option" onclick="selectChatMode('all', '全体')">全体</div>
-            <div class="custom-option" onclick="selectChatMode('friend', '友達')">友達</div>
-            <div class="custom-option" onclick="selectChatMode('group', 'グループ')">グループ</div>
-            <div class="custom-option" onclick="selectChatMode('whisper', '内緒話')">内緒話</div>
-        </div>
+    <!-- 2番目：チャットモード選択UIトリガー（高さ43px） -->
+    <div id="custom-chat-mode" class="custom-select-wrapper" style="height: 43px; box-sizing: border-box; display: flex; align-items: center;">
+      <div id="chat-mode-trigger" class="custom-select-trigger" onclick="toggleChatModeDropdown(event)" style="
+        height: 43px; box-sizing: border-box; display: flex; align-items: center; padding: 0 10px;
+      ">
+        <span id="chat-mode-label">全体</span>
+        <span class="custom-arrow">▼</span>
+      </div>
+      <div id="chat-mode-options" class="custom-options">
+        <div class="custom-option" onclick="selectChatMode('all', '全体')">全体</div>
+        <div class="custom-option" onclick="selectChatMode('friend', '友達')">友達</div>
+        <div class="custom-option" onclick="selectChatMode('group', 'グループ')">グループ</div>
+        <div class="custom-option" onclick="selectChatMode('whisper', '内緒話')">内緒話</div>
+      </div>
     </div>
     <input type="hidden" id="chat-mode-value" value="all">
 
-    <!-- 3番目：メッセージ入力欄 -->
-    <input type="text" id="chat-in" placeholder="メッセージを入力してEnter...">
-  </div>
+    <!-- 3番目：メッセージ入力欄（高さ43px） -->
+    <input type="text" id="chat-in" placeholder="メッセージを入力してEnter..." style="
+      flex: 1; min-width: 180px; max-width: 440px; height: 43px; box-sizing: border-box; padding: 0 12px;
+    ">
 
-  <!-- 🌟 メッセージボックスの右側にボタンを配置するエリア -->
-  <div style="display: flex; gap: 12px; align-items: stretch; margin-top: 0px;">
-    
-    <!-- 左側：メッセージボックス -->
-    <div id="msg-box" style="flex: 1; margin-top: 0;"></div>
-
-    <!-- 右側：チャンネルボタン、ポイントショップ、コレクションブック、ログアウト -->
-    <div style="display: flex; flex-direction: column; gap: 6px; width: auto; justify-content: space-between;">
+    <!-- 右側の通知・CH変更エリアも高さ43pxに合わせる場合 -->
+    <div style="display: flex; align-items: center; gap: 6px; height: 43px; position: relative;">
       
-      <!-- チャンネル移動ボタン -->
-      <div class="channel-box" style="margin-top: 0; padding: 4px 6px; display: flex; align-items: center; gap: 4px;">
-        <span class="channel-label" style="font-size: 11px;">CH移動:</span>
-        <button onclick="changeChannel(1)" class="active" style="padding: 2px 6px; font-size: 11px; height: 24px;">CH.1</button>
-        <button onclick="changeChannel(2)" style="padding: 2px 6px; font-size: 11px; height: 24px;">CH.2</button>
-        <button onclick="changeChannel(3)" style="padding: 2px 6px; font-size: 11px; height: 24px;">CH.3</button>
-        <button onclick="changeChannel(4)" style="padding: 2px 6px; font-size: 11px; height: 24px;">CH.4</button>
-        <button onclick="changeChannel(5)" style="padding: 2px 6px; font-size: 11px; height: 24px;">CH.5</button>
+      <!-- メイプル風ログイン通知ポップアップ -->
+      <div id="maple-popup-bubble" style="
+        display: none; 
+        position: absolute; 
+        bottom: 50px; 
+        right: 0; 
+        background: linear-gradient(135deg, #c74b74 0%, #8b2b4f 100%); 
+        border: 2px solid #fbcfe8; 
+        border-radius: 8px; 
+        padding: 6px 10px; 
+        box-shadow: 0 4px 12px rgba(0,0,0,0.6); 
+        color: #ffffff; 
+        font-size: 11px; 
+        font-family: sans-serif;
+        z-index: 1005;
+        white-space: nowrap;
+      ">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <img id="maple-popup-icon" src="emotion_assets/null.png" style="width: 18px; height: 18px; object-fit: contain; background: rgba(0,0,0,0.3); border-radius: 3px; padding: 1px;" alt="icon">
+          <span id="maple-popup-text" style="text-shadow: 1px 1px 2px rgba(0,0,0,0.8); line-height: 1.3;">銀衣様がログインしました。</span>
+          <button type="button" onclick="closeMaplePopup()" style="
+            background: #ffffff; border: 1px solid #701a33; color: #8b2b4f; font-weight: bold; font-size: 10px;
+            width: 16px; height: 16px; display: flex; align-items: center; justify-content: center;
+            border-radius: 3px; cursor: pointer; padding: 0; margin-left: 4px;
+          ">×</button>
+        </div>
       </div>
 
-      <!-- 右下グループ（ポイントショップ ＆ コレクションブック ＆ ログアウト） -->
-      <div style="display: flex; gap: 6px;">
-        <!-- ポイントショップボタン -->
-        <button id="pointShopBtn" onclick="openPointShop()" style="flex: 1; height: 26px; min-height: unset; font-size: 11px; padding: 0 8px;">ポイントショップ</button>
-        
-        <!-- 🌟 コレクションブックボタン追加 -->
-        <button id="collectionBookBtn" onclick="toggleBookWindow()" style="height: 26px; min-height: unset; font-size: 11px; padding: 0 8px;">📖 図鑑</button>
-        
-        <!-- ログアウトボタン -->
-        <button id="logoutBtn" onclick="logout()" style="height: 26px; min-height: unset; font-size: 11px; padding: 0 8px;">ログアウト</button>
+      <!-- 🌟 グループ招待通知ポップアップ（青いメイプル風ダイアログ） -->
+      <div id="group-invite-popup" style="
+        display: none; 
+        position: absolute; 
+        bottom: 50px; 
+        right: 0; 
+        background: linear-gradient(135deg, #1d4ed8 0%, #1e3a8a 100%); 
+        border: 2px solid #93c5fd; 
+        border-radius: 8px; 
+        padding: 6px 10px; 
+        box-shadow: 0 4px 12px rgba(0,0,0,0.6); 
+        color: #ffffff; 
+        font-size: 11px; 
+        font-family: sans-serif;
+        z-index: 1010;
+        white-space: nowrap;
+      ">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <span style="font-size: 13px;">🤝</span>
+          <span id="group-invite-text" style="text-shadow: 1px 1px 2px rgba(0,0,0,0.8); line-height: 1.3;">'店店店店店'様からグループの招待です</span>
+          <!-- 受諾ボタン [⭕] -->
+          <button type="button" onclick="acceptGroupInvite()" style="
+            background: #22c55e; border: 1px solid #14532d; color: #ffffff; font-weight: bold; font-size: 10px;
+            width: 18px; height: 18px; display: flex; align-items: center; justify-content: center;
+            border-radius: 3px; cursor: pointer; padding: 0; margin-left: 4px;
+          " title="受諾">⭕</button>
+          <!-- 拒否ボタン [❌] -->
+          <button type="button" onclick="rejectGroupInvite()" style="
+            background: #ef4444; border: 1px solid #7f1d1d; color: #ffffff; font-weight: bold; font-size: 10px;
+            width: 18px; height: 18px; display: flex; align-items: center; justify-content: center;
+            border-radius: 3px; cursor: pointer; padding: 0;
+          " title="拒否">❌</button>
+        </div>
+      </div>
+
+      <!-- 🌟 【新規追加】交換申し込み通知ポップアップ（青いメイプル風ダイアログ） -->
+      <div id="trade-invite-popup" style="
+        display: none; 
+        position: absolute; 
+        bottom: 50px; 
+        right: 0; 
+        background: linear-gradient(135deg, #1d4ed8 0%, #1e3a8a 100%); 
+        border: 2px solid #93c5fd; 
+        border-radius: 8px; 
+        padding: 6px 10px; 
+        box-shadow: 0 4px 12px rgba(0,0,0,0.6); 
+        color: #ffffff; 
+        font-size: 11px; 
+        font-family: sans-serif;
+        z-index: 1010;
+        white-space: nowrap;
+      ">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <span style="font-size: 13px;">🔄</span>
+          <span id="trade-invite-text" style="text-shadow: 1px 1px 2px rgba(0,0,0,0.8); line-height: 1.3;">'誰か'様から交換の申し込みです</span>
+          <!-- 受諾ボタン [⭕] -->
+          <button type="button" onclick="acceptTradeRequest()" style="
+            background: #22c55e; border: 1px solid #14532d; color: #ffffff; font-weight: bold; font-size: 10px;
+            width: 18px; height: 18px; display: flex; align-items: center; justify-content: center;
+            border-radius: 3px; cursor: pointer; padding: 0; margin-left: 4px;
+          " title="受諾">⭕</button>
+          <!-- 拒否ボタン [❌] -->
+          <button type="button" onclick="rejectTradeRequest()" style="
+            background: #ef4444; border: 1px solid #7f1d1d; color: #ffffff; font-weight: bold; font-size: 10px;
+            width: 18px; height: 18px; display: flex; align-items: center; justify-content: center;
+            border-radius: 3px; cursor: pointer; padding: 0;
+          " title="拒否">❌</button>
+        </div>
+      </div>
+
+      <!-- 赤い丸アイコンの枠ボックス（43pxに高さ合わせ） -->
+      <div id="maple-notice-dot-box" style="position: relative; display: flex; align-items: center; justify-content: center; width: 36px; height: 43px; box-sizing: border-box; background: rgba(30, 41, 59, 0.85); border: 1px solid rgba(100, 116, 139, 0.6); border-radius: 4px; box-shadow: inset 0 1px 2px rgba(0,0,0,0.5);">
+        <div id="maple-notice-dot" style="width: 9px; height: 9px; background-color: #ef4444; border: 1.5px solid #ffffff; border-radius: 50%; box-shadow: 0 0 5px #ef4444;"></div>
+      </div>
+
+      <!-- チャンネル移動ボタン（43px高さ統一） -->
+      <div class="channel-box" style="margin-top: 0; padding: 0 6px; height: 43px; box-sizing: border-box; display: flex; align-items: center; gap: 3px; background: rgba(15,23,42,0.6); border: 1px solid rgba(255,255,255,0.1); border-radius: 4px;">
+        <span class="channel-label" style="font-size: 11px; color: #94a3b8; padding: 0 2px;">CH:</span>
+        <button onclick="changeChannel(1)" class="active" style="padding: 0 6px; font-size: 11px; height: 28px; box-sizing: border-box;">1</button>
+        <button onclick="changeChannel(2)" style="padding: 0 6px; font-size: 11px; height: 28px; box-sizing: border-box;">2</button>
+        <button onclick="changeChannel(3)" style="padding: 0 6px; font-size: 11px; height: 28px; box-sizing: border-box;">3</button>
+        <button onclick="changeChannel(4)" style="padding: 0 6px; font-size: 11px; height: 28px; box-sizing: border-box;">4</button>
+        <button onclick="changeChannel(5)" style="padding: 0 6px; font-size: 11px; height: 28px; box-sizing: border-box;">5</button>
       </div>
 
     </div>
 
+  </div>
+
+  <!-- 下段：メッセージログボックス ＋ 右側ユーティリティボタン -->
+  <div style="display: flex; gap: 12px; align-items: stretch; margin-top: 0px;">
+    <div id="msg-box" style="flex: 1; margin-top: 0; min-height: 80px;"></div>
+    <div style="display: flex; flex-direction: column; gap: 6px; width: auto; justify-content: flex-end;">
+      <div style="display: flex; gap: 6px;">
+        <button id="pointShopBtn" onclick="openPointShop()" style="height: 32px; font-size: 11px; padding: 0 10px;">ポイントショップ</button>
+        <button id="collectionBookBtn" onclick="toggleBookWindow()" style="height: 32px; font-size: 11px; padding: 0 10px;">📖 図鑑</button>
+        <button id="logoutBtn" onclick="logout()" style="height: 32px; font-size: 11px; padding: 0 10px;">ログアウト</button>
+      </div>
+    </div>
   </div>
 </div>
 

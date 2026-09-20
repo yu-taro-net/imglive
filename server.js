@@ -733,7 +733,7 @@ socket.on('join', data => {
             // 🌟 追加：【全チャンネル対応】ログイン通知を全員（io.emit）に飛ばす
             // これにより、別チャンネルにいるユーザーの画面にも通知が表示されます
             io.emit('globalNotification', {
-                message: `${p.name} がログインしました。`,
+                message: `${p.name} 様がログインしました。`,
                 color: "#FFFFFF",
                 senderId: socket.id, // 🌟 これを自分自身で判定するために追加
                 type: 'LOGIN'
@@ -939,6 +939,56 @@ socket.on('save_player_data', async (data) => {
     }
 });
 
+// サーバー側のどこか分かりやすい場所に用意しておく入れ物
+const tradePartners = {};
+
+// 🔄 交換申し込みをクライアントから受け取ったとき
+socket.on('sendTradeRequest', (data) => {
+    if (data.targetId) {
+        const senderPlayer = players[socket.id];
+
+        io.to(data.targetId).emit('receiveTradeRequest', {
+            senderId: socket.id,
+            senderName: senderPlayer ? senderPlayer.name : (data.senderName || "プレイヤー"),
+            model_id: senderPlayer ? senderPlayer.model_id : (data.model_id || 0),
+            charVar: senderPlayer ? senderPlayer.charVar : (data.charVar || 1)
+        });
+    }
+});
+
+// 交換受諾の返信を転送
+socket.on('acceptTradeRequest', (data) => {
+    if (data.targetId) {
+        const acceptingPlayer = players[socket.id]; // 承諾した人（自分）
+        const requesterSocketId = data.targetId;     // 招待を送った人（相手）
+
+        // 🌟 お互いをトレードパートナーとして記憶させる！
+        tradePartners[socket.id] = requesterSocketId;
+        tradePartners[requesterSocketId] = socket.id;
+
+        // 招待した側（targetId）へ、承諾した人のデータを送る
+        io.to(requesterSocketId).emit('tradeRequestAccepted', {
+            name: acceptingPlayer ? acceptingPlayer.name : "相手",
+            model_id: acceptingPlayer ? acceptingPlayer.model_id : 0,
+            charVar: acceptingPlayer ? acceptingPlayer.charVar : 1
+        });
+        
+        console.log(`[Trade] 成立: ${socket.id} と ${requesterSocketId} がトレードを開始しました`);
+    }
+});
+
+// 🌟 そして、先ほどの「トレード枠更新」の処理をここに置けば完璧に連動します！
+socket.on('updateTradeOffer', (data) => {
+    const partnerSocketId = tradePartners[socket.id]; // 記憶した相手のIDを引く
+    
+    if (partnerSocketId) {
+        io.to(partnerSocketId).emit('syncOpponentTrade', {
+            tradeSlots: data.tradeSlots
+        });
+        console.log(`[Server] トレード枠の更新を相手 (${partnerSocketId}) に送信しました`);
+    }
+});
+
         // ============================================================
 // :::DISCONNECT::: 👋 接続解除 (Disconnect) 処理
 // ============================================================
@@ -952,6 +1002,18 @@ socket.on('disconnect', () => {
         
         // 🌟 優先度：p.name があればそれを使用し、なければ socket.username、最後に socket.id を使用
         const name = p ? p.name : (socket.username || socket.id);
+
+        // 🌟 【追加】もしトレード中だったら、相手に切断されたことを知らせてペアを解除する
+        const partnerSocketId = tradePartners[socket.id];
+        if (partnerSocketId) {
+            // 相手の画面に「相手が切断しました」と伝えてトレードウィンドウを強制的に閉じるイベント
+            io.to(partnerSocketId).emit('tradeCancelled', { reason: 'opponent_disconnected' });
+            
+            // 相手側の記憶も消去
+            delete tradePartners[partnerSocketId];
+            LOG.SYS(`[Trade] 切断に伴いトレードを中止しました（相手: ${partnerSocketId}）`);
+        }
+        delete tradePartners[socket.id]; // 自分の記憶も消去
 
         // 🌟 露店を開設していた場合、全体リストから削除する
         if (active_venders[socket.id]) {
@@ -2884,6 +2946,95 @@ socket.on('remove_active_item', (data) => {
     }
 });
 
+// 👥 グループ招待をクライアントから受け取ったとき
+socket.on('sendGroupInvite', (data) => {
+    // data.targetId には招待を送りたい相手のソケットIDやユーザーIDが入っています
+    // data.senderName には送った人の名前が入っています
+
+    // 相手に「グループ招待が来たよ」というイベント（receiveGroupInvite）を転送する
+    if (data.targetId) {
+        io.to(data.targetId).emit('receiveGroupInvite', {
+            senderId: socket.id, // 招待を送った人のIDを添えてあげる
+            senderName: data.senderName
+        });
+    }
+});
+
+// 🔄 交換申し込みをクライアントから受け取ったとき
+/*
+socket.on('sendTradeRequest', (data) => {
+    if (data.targetId) {
+        // 🌟 サーバー側が保持している送信者（自分）のデータを安全に引く
+        const senderPlayer = players[socket.id];
+
+        io.to(data.targetId).emit('receiveTradeRequest', {
+            senderId: socket.id,
+            senderName: senderPlayer ? senderPlayer.name : (data.senderName || "プレイヤー"),
+            model_id: senderPlayer ? senderPlayer.model_id : (data.model_id || 0), // サーバー側を優先、なければデータから
+            charVar: senderPlayer ? senderPlayer.charVar : (data.charVar || 1)     // サーバー側を優先、なければデータから
+        });
+    }
+});
+*/
+
+// ⭕ グループ招待受諾の返信を処理する場合
+socket.on('acceptGroupInvite', (data) => {
+    if (data.targetId) {
+        io.to(data.targetId).emit('groupInviteAccepted', {
+            // 必要に応じて受諾されたことを通知
+        });
+    }
+});
+
+// ❌ グループ招待拒否の返信を処理する場合
+socket.on('rejectGroupInvite', (data) => {
+    if (data.targetId) {
+        io.to(data.targetId).emit('groupInviteRejected', {
+            // 必要に応じて拒否されたことを通知
+        });
+    }
+});
+
+// 交換受諾の返信を転送
+/*
+socket.on('acceptTradeRequest', (data) => {
+    if (data.targetId) {
+        const acceptingPlayer = players[socket.id]; // 承諾した人（自分）のデータ
+        
+        // 招待した側（targetId）へ、承諾した人のデータを送る
+        io.to(data.targetId).emit('tradeRequestAccepted', {
+            name: acceptingPlayer ? acceptingPlayer.name : "相手",
+            model_id: acceptingPlayer ? acceptingPlayer.model_id : 0,
+            charVar: acceptingPlayer ? acceptingPlayer.charVar : 1
+        });
+    }
+});
+*/
+
+// 交換拒否の返信を転送
+socket.on('rejectTradeRequest', (data) => {
+    if (data.targetId) {
+        io.to(data.targetId).emit('tradeRequestRejected', {});
+    }
+});
+
+// プレイヤーがトレード枠を更新したとき
+/*
+socket.on('updateTradeOffer', (data) => {
+    // 相手のソケットIDや、同じトレードルームにいる相手を探して送信する
+    // ※ 現在のルーム管理の仕組みに合わせて書き換えてください
+    const partnerSocketId = getTradePartnerSocketId(socket.id); // 例: 相手のIDを取得する関数
+    
+    if (partnerSocketId) {
+        // 相手にだけ「syncOpponentTrade」というイベントでデータを飛ばす
+        io.to(partnerSocketId).emit('syncOpponentTrade', {
+            tradeSlots: data.tradeSlots
+        });
+        console.log(`[Server] トレード枠の更新を相手 (${partnerSocketId}) に送信しました`);
+    }
+});
+*/
+
 // ============================================================
 // :::CONSUME::: 🧪 消費アイテムの使用処理（DBカタログ連動型）
 // ============================================================
@@ -2971,6 +3122,14 @@ socket.on('useConsumableItem', async (data) => {
                         player.hp = Math.min(player.maxHp, player.hp + 50);
                     }
                     console.log(`[Server] プレイヤーが sweets を使用してHPが回復しました。`);
+					
+					// 🌟 クライアント（画面側）に「HPが回復したよ！」というイベントとデータを送信する
+    // ※お使いの通信方式（io.to(...) や socket.emit 等）に合わせて変数名は調整してください
+    socket.emit('player_healed', {
+        hp: player.hp,
+        healAmount: 50
+    });
+	
                     break;
 
                 case 'pouch':
@@ -5769,6 +5928,10 @@ async function handleJoin(socket, name, channel) { // 🌟 async を追加
         name: name,
         channel: channel,
         
+        // 🌟 【追加】既存データから model_id と style_id を確実に引き継ぎます
+        model_id: (existingData.model_id !== undefined) ? existingData.model_id : 11,
+        style_id: (existingData.style_id !== undefined) ? existingData.style_id : 1,
+
         x: (existingData.x !== undefined) ? existingData.x : 50,
         y: (existingData.y !== undefined) ? existingData.y : 500,
         dir: existingData.dir !== undefined ? existingData.dir : 1,
@@ -5809,7 +5972,7 @@ async function handleJoin(socket, name, channel) { // 🌟 async を追加
         emitPlayerUpdate(socket.id);
     }
 
-    console.log(`[Join同期完了] ${name} (DB_ID: ${players[socket.id].dbId}, LV: ${currentLevel}, DB_ATK: ${dbAtk}, Exp: ${players[socket.id].exp}/${players[socket.id].maxExp})`);
+    console.log(`[Join同期完了] ${name} (DB_ID: ${players[socket.id].dbId}, LV: ${currentLevel}, MODEL: ${players[socket.id].model_id}, DB_ATK: ${dbAtk}, Exp: ${players[socket.id].exp}/${players[socket.id].maxExp})`);
 }
 
 // ============================================================
@@ -6933,7 +7096,12 @@ function sendState() {
             const roomPlayers = {};
             for (let id in players) {
                 if (players[id].channel === i) {
-                    roomPlayers[id] = players[id];
+                    // 🌟 元のデータをコピーしつつ、model_id と style_id が絶対に undefined にならないようガード！
+                    roomPlayers[id] = {
+                        ...players[id],
+                        model_id: players[id].model_id !== undefined ? players[id].model_id : 6, // ← 抜け落ちていたら 11 などを維持
+                        style_id: players[id].style_id !== undefined ? players[id].style_id : 1
+                    };
                 }
             }
 
@@ -7245,8 +7413,14 @@ function getJSTDate() {
 // ============================================================
 function emitPlayerList() {
     const playerList = Object.values(players).map(p => ({
+        id: p.id || socket.id, // プレイヤー識別用IDがあればあると便利
         name: p.name || 'Player',
-        channel: p.channel || 1
+        channel: p.channel || 1,
+        level: p.level || 1,
+        model_id: p.model_id || 1,   // 🌟 p.group ではなく正しい model_id を渡す
+        popularity: p.popularity || 0,
+        guild: p.guild || "無所属",
+        inventory: p.inventory || [] // 🌟 ここでインベントリ（装備・所持品）を必ず含める！
     }));
     io.emit('updatePlayerList', playerList);
 }

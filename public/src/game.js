@@ -54,6 +54,60 @@ const socket = io(SOCKET_URL, {
 
 console.log(`接続先: ${SOCKET_URL}`); // 確認用にコンソールに表示
 
+// ==========================================
+// 🌟 2. 相手からのグループ招待を受信する処理（ここに配置！）
+// ==========================================
+socket.on('receiveGroupInvite', (data) => {
+    const inviterName = data.senderName || "誰か";
+    
+    const textEl = document.getElementById('group-invite-text');
+    if (textEl) {
+        textEl.innerText = `'${inviterName}'様からグループの招待です`;
+    }
+    
+    const popupEl = document.getElementById('group-invite-popup');
+    if (popupEl) {
+        popupEl.style.display = 'block';
+    }
+    
+    window._currentInviteData = data;
+});
+
+// 🔄 交換申し込みを受信したとき（ひとつにまとめる）
+socket.on('receiveTradeRequest', (data) => {
+    const requesterName = data.senderName || "誰か";
+    console.log(`${requesterName} から交換の申し込みが届きました！`, data);
+    
+    // 1. 交換用ポップアップのテキストを書き換える（要素があれば）
+    const textEl = document.getElementById('trade-invite-text');
+    if (textEl) {
+        textEl.innerText = `'${requesterName}'様から交換の申し込みです`;
+    }
+    
+    // 2. 交換用ポップアップを表示する
+    const popupEl = document.getElementById('trade-invite-popup');
+    if (popupEl) {
+        popupEl.style.display = 'block';
+    }
+    
+    // 3. 返信用にデータを一時保存（🌟 model_id や charVar も含めた data を丸ごと保存！）
+    window._currentTradeData = data;
+});
+
+// 🔄 相手にトレードをキャンセルされたとき
+if (typeof socket !== 'undefined') {
+    socket.on('tradeCancelled', () => {
+        const tradeWindow = document.getElementById("trade-window");
+        if (tradeWindow) {
+            tradeWindow.style.display = "none";
+        }
+        if (typeof addSystemMessage === 'function') {
+            addSystemMessage("相手が交換をキャンセルしました。");
+        }
+        window._currentTradeTargetId = null;
+    });
+}
+
 // ============================================================
 // 📊 [SECTION 2: STATE] クライアント・ステート
 // 役割: 自分のキャラ(hero)、他プレイヤー(players)、現在のチャンネル等の保持
@@ -2163,7 +2217,7 @@ socket.on('change_channel_response', (data) => {
  * 役割：
  * - サーバーからの最新状態（state）を受信・反映
  * - チャンネル移動・アイテムドロップ音の判定処理
- * - プレイヤー入室通知の判定と管理
+ * - プレイヤー入室通知の判定と管理（ピンク吹き出し連動）
  * - 周辺環境（others, enemies, platforms等）のチャンネル別フィルタリング
  * - 🛡️ 重要：アイテム詳細消失対策（旧データとのマージによる復元）
  * - heroへの最終的なプロパティ同期と描画バッファの更新
@@ -2209,6 +2263,7 @@ socket.on('state', (data) => {
     // 他プレイヤーの入室通知・入室音判定
     const currentPlayerIdsInMyChannel = new Set();
     let hasNewArrival = false;
+    let arrivalPlayerName = "";
     
     for (let id in data.players) {
         if (id === socket.id) continue;
@@ -2218,9 +2273,19 @@ socket.on('state', (data) => {
             if (!window.prevPlayerIds.has(id)) {
                 if (!isChannelJustChanged && !window.recentLoginIds.has(id)) {
                     hasNewArrival = true;
-                    const arrivalName = p.name || "Player";
+                    arrivalPlayerName = p.name || "Player";
+                    
+                    // 🌟 メイプル風ピンクの吹き出し通知へ反映
+                    const popup = document.getElementById('maple-popup-bubble');
+                    const popupText = document.getElementById('maple-popup-text');
+                    if (popup && popupText) {
+                        popupText.textContent = `${arrivalPlayerName} 様と同じチャンネルです。`;
+                        popup.style.display = 'block';
+                    }
+
+                    // 念のため右下ログにも残す場合
                     if (typeof addNotification === 'function') {
-                        addNotification(`${arrivalName} が入室しました。`, "#66FF66");
+                        addNotification(`${arrivalPlayerName} が入室しました。`, "#66FF66");
                     }
                 }
             }
@@ -2228,6 +2293,15 @@ socket.on('state', (data) => {
     }
     if (hasNewArrival && !isChannelJustChanged) {
         if (typeof playInviteSound === 'function') playInviteSound();
+        
+        // 🌟 赤い丸インジケーターも軽く反応させる
+        const alertDot = document.getElementById('maple-notice-dot');
+        if (alertDot) {
+            alertDot.style.boxShadow = '0 0 10px #ff2222, 0 0 4px #ffffff';
+            setTimeout(() => {
+                alertDot.style.boxShadow = '0 0 5px #ef4444';
+            }, 600);
+        }
     }
     window.prevPlayerIds = currentPlayerIdsInMyChannel;
 
@@ -2315,7 +2389,15 @@ socket.on('state', (data) => {
     hero.maxExp          = myHeroData.maxExp || 100;
     hero.requiredExp     = myHeroData.requiredExp || hero.requiredExp || 100; // 💡 追加：必要経験値の同期
     hero.hp              = myHeroData.hp;
+	
+	// 🌟 ここにアニマル（model_id）の同期を追加！
+	// 🌟 修正後： サーバーから届いた値が undefined でない時だけ上書きし、無い時は今の値を維持する
+    if (myHeroData.model_id !== undefined && myHeroData.model_id !== null) {
+        hero.model_id = myHeroData.model_id;
+    }
 
+	console.log("サーバーから届いた model_id:", myHeroData.model_id);
+	
     // 🌟 1. まずインベントリから「各種ステータスボーナスおよびHP/MP装備ボーナス」を正確に集計する
     let bonusStr = 0;
     let bonusDex = 0;
@@ -2375,7 +2457,6 @@ socket.on('state', (data) => {
     hero.baseAtk = (myHeroData.baseAtk !== undefined) ? myHeroData.baseAtk : Math.max(13, rawAtk - totalWeaponAtk);
 
     // 💡 HP/MPのベース値と合計値の反映・逆算
-    // ※もしサーバーから届いた rawMaxHp がすでに装備込みの合計値であれば、そこから bonusMaxHp を引いてベース値を守る
     hero.baseMaxHp = (myHeroData.baseMaxHp !== undefined) ? myHeroData.baseMaxHp : Math.max(10, rawMaxHp - bonusMaxHp);
     hero.maxHp = hero.baseMaxHp + bonusMaxHp;
 
@@ -5021,6 +5102,400 @@ function addItemToVendingList(item) {
     
     listContainer.appendChild(itemEl);
     console.log(`${displayName} を価格 ${displayPrice} メルで販売リストに追加しました。現在のバッファ:`, vendingItemsBuffer);
+}
+
+// 🌟 相手がトレード受諾したことを受け取る（招待した側のブラウザに書くコード）
+socket.on('tradeRequestAccepted', (opponentData) => {
+    console.log("相手がトレード受諾しました！", opponentData);
+
+    // 1. トレード窓を開く
+    const tradeWindow = document.getElementById("trade-window");
+    if (tradeWindow) {
+        tradeWindow.style.display = "block";
+    }
+
+    // 2. 左側のエリアに相手の名前とアバターを描画する
+    // ※もし opponentData に相手の情報が入っていない場合は、直前の選択データ等から補うか、
+    //   サーバー側から opponentData（相手の名前やモデルIDなど）を一緒に送ってもらう必要があります。
+    if (opponentData && typeof setupOpponentTrade === 'function') {
+        setupOpponentTrade(opponentData);
+    }
+
+    if (typeof addSystemMessage === 'function') {
+        addSystemMessage("相手が交換を受け入れました。");
+    }
+});
+
+// トレード画面を開いたときの初期化・名前セット処理
+function openTradeWindow(opponentName) {
+    const tradeWindow = document.getElementById("trade-window");
+    if (tradeWindow) {
+        tradeWindow.style.display = 'block';
+    }
+
+    // 🌟 1. 左側（OPPONENT）：相手の名前（引数や選択されたプレイヤー名）をセット
+    const targetNameEl = document.getElementById('trade-target-name');
+    if (targetNameEl) {
+        // 相手の名前が渡されていなければ、従来通りターゲット名やフォールバックを使う
+        const opName = opponentName || (window._selectedProfilePlayer ? window._selectedProfilePlayer.name : "RUKIA");
+        targetNameEl.textContent = opName; // ← ここには絶対にご自身の名前を入れないようにします
+    }
+
+    // 🌟 2. 右側（YOU）：自分の名前（SSDD など）をセット
+    const myNameEl = document.getElementById('trade-my-name');
+    if (myNameEl) {
+        const myName = (typeof hero !== 'undefined' && hero && hero.name) ? hero.name : "自分";
+        myNameEl.textContent = myName; // ← ここにだけご自身の名前（SSDD）が入ります
+    }
+
+    // 3. スロット生成
+    if (typeof initTradeSlots === 'function') initTradeSlots();
+
+    // 4. アバター描画
+    if (typeof drawMyTradeAvatar === 'function') drawMyTradeAvatar();
+}
+
+// 確実に「自分＝右」「相手＝左」に名前を割り振る関数
+function setTradeNames(myActualName, opponentActualName) {
+    // 右側（YOU）：自分の名前をセット
+    const myNameEl = document.getElementById('trade-my-name');
+    if (myNameEl) {
+        myNameEl.textContent = myActualName || "自分";
+    }
+
+    // 左側（OPPONENT）：相手の名前をセット
+    const targetNameEl = document.getElementById('trade-target-name');
+    if (targetNameEl) {
+        targetNameEl.textContent = opponentActualName || "RUKIA";
+    }
+}
+
+// スロット生成用
+function initTradeSlots() {
+    const opponentGrid = document.getElementById('opponent-slot-grid');
+    opponentGrid.innerHTML = '';
+    for (let i = 0; i < 9; i++) {
+        const slot = document.createElement('div');
+        slot.style.cssText = "width: 40px; height: 40px; background: white; border: 1px solid #7f7f7f; border-radius: 2px; box-sizing: border-box;";
+        opponentGrid.appendChild(slot);
+    }
+
+    const myGrid = document.getElementById('my-slot-grid');
+    myGrid.innerHTML = '';
+    for (let i = 0; i < 9; i++) {
+        const slot = document.createElement('div');
+        slot.style.cssText = "width: 40px; height: 40px; background: white; border: 1px solid #7f7f7f; border-radius: 2px; box-sizing: border-box; cursor: pointer;";
+        myGrid.appendChild(slot);
+    }
+}
+
+// キャラクター描画用（高解像度化・余白自動カット・左向き反転）
+function drawMyTradeAvatar() {
+    const canvas = document.getElementById('trade-my-avatar-canvas');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+
+    if (typeof hero === 'undefined' || !hero) return;
+
+    // model_id とバリエーションの決定
+    const g = typeof selectedGroup !== 'undefined' ? selectedGroup : (hero.model_id || hero.group || 0);
+    const v = typeof selectedCharVar !== 'undefined' ? selectedCharVar : (hero.charVar || 1);
+
+    // キャラクター画像を取得
+    const currentImg = getPlayerCurrentImg(hero, g, v, typeof frame !== 'undefined' ? frame : 0, sprites, playerSprites, true);
+
+    if (currentImg && currentImg.complete) {
+        // 🌟 1. 高解像度ディスプレイ（Retina等）に対応するための倍率設定
+        const dpr = window.devicePixelRatio || 1;
+        const displayWidth = 64;
+        const displayHeight = 64;
+
+        // Canvas自体の内部解像度を物理ピクセルに合わせて倍増させる
+        if (canvas.width !== displayWidth * dpr || canvas.height !== displayHeight * dpr) {
+            canvas.width = displayWidth * dpr;
+            canvas.height = displayHeight * dpr;
+            canvas.style.width = displayWidth + 'px';
+            canvas.style.height = displayHeight + 'px';
+        }
+
+        ctx.save();
+        
+        // 描画がボヤけないようにドット絵・高解像度向けの補正を設定
+        ctx.imageSmoothingEnabled = false; // ドット絵のシャープさを保つ場合（滑らかにしたい場合は true）
+
+        // 座標系をDPR倍にスケーリング
+        ctx.scale(dpr, dpr);
+
+        ctx.clearRect(0, 0, displayWidth, displayHeight);
+
+        // 🌟 2. 一時キャンバスで余白自動カット
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = currentImg.width;
+        tempCanvas.height = currentImg.height;
+        const tempCtx = tempCanvas.getContext('2d');
+        tempCtx.drawImage(currentImg, 0, 0);
+
+        const imgData = tempCtx.getImageData(0, 0, currentImg.width, currentImg.height);
+        const data = imgData.data;
+
+        let minX = currentImg.width, minY = currentImg.height, maxX = 0, maxY = 0;
+        let found = false;
+
+        for (let y = 0; y < currentImg.height; y++) {
+            for (let x = 0; x < currentImg.width; x++) {
+                const alpha = data[(y * currentImg.width + x) * 4 + 3];
+                if (alpha > 10) {
+                    if (x < minX) minX = x;
+                    if (x > maxX) maxX = x;
+                    if (y < minY) minY = y;
+                    if (y > maxY) maxY = y;
+                    found = true;
+                }
+            }
+        }
+
+        if (!found) {
+            minX = 0; minY = 0; maxX = currentImg.width; maxY = currentImg.height;
+        }
+
+        const sourceX = minX;
+        const sourceY = minY;
+        const sourceWidth = maxX - minX + 1;
+        const sourceHeight = maxY - minY + 1;
+
+        // 🌟 3. サイズフィット計算
+        const targetHeight = 48; 
+        const scale = targetHeight / sourceHeight;
+        
+        const dw = sourceWidth * scale;
+        const dh = sourceHeight * scale;
+        
+        const dx = (displayWidth - dw) / 2;
+        const dy = (displayHeight - dh) / 2;
+
+        // 🌟 4. 左向き反転 ＆ 描画
+        ctx.translate(displayWidth, 0);
+        ctx.scale(-1, 1);
+
+        ctx.drawImage(
+            currentImg, 
+            sourceX, sourceY, sourceWidth, sourceHeight, 
+            dx, dy, dw, dh
+        );
+        
+        ctx.restore();
+    }
+}
+
+// 実際の描画処理をまとめたヘルパー関数
+function renderImageToCanvas(canvas, ctx, currentImg) {
+    const dpr = window.devicePixelRatio || 1;
+    const displayWidth = 64;
+    const displayHeight = 64;
+
+    if (canvas.width !== displayWidth * dpr || canvas.height !== displayHeight * dpr) {
+        canvas.width = displayWidth * dpr;
+        canvas.height = displayHeight * dpr;
+        canvas.style.width = displayWidth + 'px';
+        canvas.style.height = displayHeight + 'px';
+    }
+
+    ctx.save();
+    ctx.imageSmoothingEnabled = false;
+    ctx.scale(dpr, dpr);
+    ctx.clearRect(0, 0, displayWidth, displayHeight);
+
+    // 余白自動カットの計算
+    const tempCanvas = document.createElement('canvas');
+    tempCanvas.width = currentImg.width;
+    tempCanvas.height = currentImg.height;
+    const tempCtx = tempCanvas.getContext('2d');
+    tempCtx.drawImage(currentImg, 0, 0);
+
+    const imgData = tempCtx.getImageData(0, 0, currentImg.width, currentImg.height);
+    const data = imgData.data;
+
+    let minX = currentImg.width, minY = currentImg.height, maxX = 0, maxY = 0;
+    let found = false;
+
+    for (let y = 0; y < currentImg.height; y++) {
+        for (let x = 0; x < currentImg.width; x++) {
+            const alpha = data[(y * currentImg.width + x) * 4 + 3];
+            if (alpha > 10) {
+                if (x < minX) minX = x;
+                if (x > maxX) maxX = x;
+                if (y < minY) minY = y;
+                if (y > maxY) maxY = y;
+                found = true;
+            }
+        }
+    }
+
+    if (!found) {
+        minX = 0; minY = 0; maxX = currentImg.width; maxY = currentImg.height;
+    }
+
+    const sourceX = minX;
+    const sourceY = minY;
+    const sourceWidth = maxX - minX + 1;
+    const sourceHeight = maxY - minY + 1;
+
+    const targetHeight = 48; 
+    const scale = targetHeight / sourceHeight;
+    const dw = sourceWidth * scale;
+    const dh = sourceHeight * scale;
+    const dx = (displayWidth - dw) / 2;
+    const dy = (displayHeight - dh) / 2;
+
+    ctx.drawImage(
+        currentImg, 
+        sourceX, sourceY, sourceWidth, sourceHeight, 
+        dx, dy, dw, dh
+    );
+    
+    ctx.restore();
+}
+
+// 🌟 相手がトレードに入室・承諾したときに呼び出す関数
+function setupOpponentTrade(opponentData) {
+    if (!opponentData) return;
+
+    // 1. 相手の名前をセット（senderName を優先、なければ name を使うフォールバックに）
+    const targetNameEl = document.getElementById("trade-target-name");
+    if (targetNameEl) {
+        targetNameEl.textContent = opponentData.senderName || opponentData.name || "相手";
+    }
+
+    // 2. 相手のアバターを描画する
+    if (typeof drawOpponentTradeAvatar === 'function') {
+        drawOpponentTradeAvatar(opponentData);
+    }
+}
+
+// 相手のアバター描画用関数（右向き・高解像度・自動余白カット対応）
+function drawOpponentTradeAvatar(opponentData) {
+    console.log("🎨 [drawOpponentTradeAvatar] 実行開始:", opponentData);
+    console.log("🔍 【受け取った相手の全データ】:", JSON.stringify(opponentData, null, 2));
+	
+    const canvas = document.getElementById('trade-opponent-avatar-canvas');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+
+    if (!opponentData) return;
+
+    // 相手のモデルIDとバリエーションを取得（なければデフォルト）
+    const g = (opponentData.model_id !== undefined && opponentData.model_id !== null) ? opponentData.model_id : 0;
+    const v = opponentData.charVar || 1;
+
+    // フォルダ名やファイル名用に2桁の文字列に変換
+    const groupNum = String(g).padStart(2, '0');
+    const varNum = String(v).padStart(2, '0');
+    const action = "Idle"; // 基本の立ちポーズ
+    const frameNum = "00"; // 最初のフレーム
+
+    const displayWidth = 64;
+    const displayHeight = 64;
+    const dpr = window.devicePixelRatio || 1;
+
+    // Canvas自体の内部解像度を物理ピクセルに合わせて倍増させる
+    if (canvas.width !== displayWidth * dpr || canvas.height !== displayHeight * dpr) {
+        canvas.width = displayWidth * dpr;
+        canvas.height = displayHeight * dpr;
+        canvas.style.width = displayWidth + 'px';
+        canvas.style.height = displayHeight + 'px';
+    }
+
+    // 1. その場で新しい画像オブジェクトを作成してパスを指定！
+    const img = new Image();
+    img.src = `${IMAGE_DOMAIN}char_assets/${groupNum}/${varNum}/${action}/Characters-Character${varNum}-${action}_${frameNum}.png`;
+
+    // 描画を実行する内部関数（自動余白カット処理を含む）
+    const renderImage = (targetImg) => {
+        ctx.save();
+        ctx.imageSmoothingEnabled = false; // ドット絵のシャープさを保つ
+        ctx.scale(dpr, dpr);
+        ctx.clearRect(0, 0, displayWidth, displayHeight);
+
+        // 🌟 一時キャンバスで余白自動カット（ご提示いただいた自分のアバターと同じロジック）
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = targetImg.width;
+        tempCanvas.height = targetImg.height;
+        const tempCtx = tempCanvas.getContext('2d');
+        tempCtx.drawImage(targetImg, 0, 0);
+
+        const imgData = tempCtx.getImageData(0, 0, targetImg.width, targetImg.height);
+        const data = imgData.data;
+
+        let minX = targetImg.width, minY = targetImg.height, maxX = 0, maxY = 0;
+        let found = false;
+
+        for (let y = 0; y < targetImg.height; y++) {
+            for (let x = 0; x < targetImg.width; x++) {
+                const alpha = data[(y * targetImg.width + x) * 4 + 3];
+                if (alpha > 10) {
+                    if (x < minX) minX = x;
+                    if (x > maxX) maxX = x;
+                    if (y < minY) minY = y;
+                    if (y > maxY) maxY = y;
+                    found = true;
+                }
+            }
+        }
+
+        if (!found) {
+            minX = 0; minY = 0; maxX = targetImg.width; maxY = targetImg.height;
+        }
+
+        const sourceX = minX;
+        const sourceY = minY;
+        const sourceWidth = maxX - minX + 1;
+        const sourceHeight = maxY - minY + 1;
+
+        // 🌟 サイズフィット計算
+        const targetHeight = 48; 
+        const scale = targetHeight / sourceHeight;
+        
+        const dw = sourceWidth * scale;
+        const dh = sourceHeight * scale;
+        
+        const dx = (displayWidth - dw) / 2;
+        const dy = (displayHeight - dh) / 2;
+
+        // 🌟 描画（相手なので反転はせずそのまま右向きで描画）
+        ctx.drawImage(
+            targetImg, 
+            sourceX, sourceY, sourceWidth, sourceHeight, 
+            dx, dy, dw, dh
+        );
+        
+        ctx.restore();
+        console.log(`✨ 相手のアバター画像を余白カット＆自動フィットして描画しました (Group:${groupNum}, Var:${varNum})`);
+    };
+
+    // 2. ロード完了したら描画、まだなら読み込みを待つ
+    if (img.complete && img.naturalWidth !== 0) {
+        renderImage(img);
+    } else {
+        // ロード中はひとまずプレースホルダーを表示しつつ、完了したら描き直す
+        ctx.save();
+        ctx.fillStyle = "#333333";
+        ctx.fillRect(8, 8, 48, 48);
+        ctx.fillStyle = "#ffffff";
+        ctx.font = "10px sans-serif";
+        ctx.fillText(`Loading`, 14, 38);
+        ctx.restore();
+
+        img.onload = () => {
+            renderImage(img);
+        };
+        img.onerror = () => {
+            console.error(`❌ アバター画像の直接ロードに失敗しました: ${img.src}`);
+        };
+    }
+}
+
+function closeTradeWindow() {
+    document.getElementById('trade-window').style.display = 'none';
 }
 
 // ============================================================
