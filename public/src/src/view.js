@@ -540,8 +540,7 @@ const gameWindows = {
     // --- 戦略的予約枠（未来の目玉用） ---
     reserved_d: new GameWindow("reserved_d", 100, 100, 300, 300), // [D] あえて開けておく
     reserved_v: new GameWindow("reserved_v", 100, 100, 300, 300),  // [V] あえて開けておく
-    reserved_r: new GameWindow("reserved_r", 100, 100, 300, 300),  // [R] あえて開けておく
-    reserved_y: new GameWindow("reserved_y", 100, 100, 300, 300)  // [Y] あえて開けておく
+    reserved_r: new GameWindow("reserved_r", 100, 100, 300, 300)  // [R] あえて開けておく
 };
 
 // --- 1. 全ウィンドウスタック（Z-Index管理） ---
@@ -1315,19 +1314,6 @@ window.addEventListener('keydown', (e) => {
 
         win.isOpen = !win.isOpen;
         
-        // 🌟 追加：もしインベントリウィンドウなら、HTML側の表示状態（display）も完全同期させる
-        if (targetId === 'inventory') {
-            const inventoryWindow = document.getElementById('inventory-window');
-            if (inventoryWindow) {
-                inventoryWindow.style.display = win.isOpen ? 'block' : 'none';
-            }
-            // 開いた瞬間にCanvasの解像度を整えたり再描画する場合の安全策
-            if (win.isOpen) {
-                if (typeof initInventoryCanvasResolution === 'function') initInventoryCanvasResolution();
-                if (typeof drawBagGrid === 'function') drawBagGrid();
-            }
-        }
-        
         if (targetId === 'options' && win.isOpen) {
             console.log("Optionsを開いたのでIDを要求します");
             if (typeof socket !== 'undefined' && socket.emit) {
@@ -1358,12 +1344,6 @@ window.addEventListener('keydown', (e) => {
             Object.values(gameWindows).forEach(win => {
                 win.isOpen = false;
             });
-            
-            // 🌟 追加：Escapeキーで全閉じする際、HTMLインベントリウィンドウもしっかり非表示にする
-            const inventoryWindow = document.getElementById('inventory-window');
-            if (inventoryWindow) {
-                inventoryWindow.style.display = 'none';
-            }
             
             if (typeof playMenuDownSound === 'function') playMenuDownSound();
             console.log("All windows closed via Escape");
@@ -1714,21 +1694,6 @@ window.addEventListener('DOMContentLoaded', () => {
     safeMakeDraggable('zukan-overlay', 'zukan-header');
     safeMakeDraggable('mzukan-overlay', 'mzukan-header');
 });
-
-// テスト用：即座にボタンを探してログに出す
-const testBtn = document.getElementById('inventory-close-btn');
-console.log("【強制テスト】閉じるボタンの検出:", testBtn);
-
-if (testBtn) {
-    testBtn.addEventListener('click', () => {
-        console.log("🟢 成功！ボタンがクリックされました！");
-        if (typeof toggleInventoryWindow === 'function') {
-            toggleInventoryWindow(false);
-        } else {
-            console.log("❌ toggleInventoryWindow 関数が見つかりません");
-        }
-    });
-}
 
 // ============================================================
 // :::OPEN_DROP_FORM::: 🗑️ アイテム廃棄用入力フォームの展開と制御
@@ -2613,16 +2578,18 @@ function drawNotifications(ctx) {
     });
 }
 
-// 吹き出しを閉じる関数
-function closeMaplePopup() {
-    const popup = document.getElementById('maple-popup-bubble');
-    if (popup) {
-        popup.style.display = 'none';
-    }
-}
-
-// 🌐 グローバル通知の受信と制御
+// ============================================================
+// :::SOCKET_GLOBAL_NOTIFICATION::: 🌐 グローバル通知の受信と制御
+// ============================================================
+/**
+ * 役割：
+ * - 通知が自分自身によるものか判定し、重複を防止
+ * - ログイン通知（LOGIN）と通常の通知を識別し、色を適切に割り当て（メイプル風イエロー等）
+ * - 取得したメッセージを通知ログに追加し、音を鳴らしてプレイヤーに報知
+ * - ログインの一時的なID記録（recentLoginIds）を行い、入室判定の整合性を保護
+ */
 socket.on('globalNotification', (data) => {
+    // 🌟 通知の送信元（id）が自分自身だったら、何もせずに終了する
     if (data && data.senderId === socket.id) {
         return; 
     }
@@ -2630,6 +2597,7 @@ socket.on('globalNotification', (data) => {
     if (data && data.message) {
         // 右下のログエリアに表示
         if (typeof addNotification === 'function') {
+            // 🍁 LOGINタイプの場合はメイプル風イエロー(#FFF677)に、それ以外はサーバー指定色または白を適用
             const targetColor = (data.type === 'LOGIN') ? "#FFF677" : (data.color || "#FFFFFF");
             addNotification(data.message, targetColor);
         }
@@ -2639,26 +2607,10 @@ socket.on('globalNotification', (data) => {
             playInviteSound();
         }
 
-        // 🌟 画像のようなメイプル風吹き出しポップアップを表示する
-        const popup = document.getElementById('maple-popup-bubble');
-        const popupText = document.getElementById('maple-popup-text');
-        
-        if (popup && popupText) {
-            popupText.textContent = data.message;
-            popup.style.display = 'block';
-
-            // （オプション）一定時間（例：5秒後）に自動で消したい場合はコメントアウトを外す
-            /*
-            clearTimeout(window._maplePopupTimer);
-            window._maplePopupTimer = setTimeout(() => {
-                closeMaplePopup();
-            }, 5000);
-            */
-        }
-
         // 🌟 ログイン通知（type: 'LOGIN'）の場合、そのIDを一時的に記録する
         if (data.type === 'LOGIN' && data.senderId) {
             window.recentLoginIds.add(data.senderId);
+            // 3秒後に解除（その後のチャンネル移動は「入室」として判定させるため）
             setTimeout(() => {
                 window.recentLoginIds.delete(data.senderId);
             }, 500);
@@ -2682,883 +2634,77 @@ socket.on('updatePlayerList', (playerList) => {
     currentOnlinePlayers = playerList;
 });
 
-if (typeof GLOBAL_UI_STATE === 'undefined') {
-    GLOBAL_UI_STATE = {};
-}
-GLOBAL_UI_STATE.globalEventBtn = { x: 32, y: 0, w: 76, h: 28, hovered: false, pressed: false };
-
-if (!window._canvasUIEventsAttached) {
-    window._canvasUIEventsAttached = true;
-    canvas.addEventListener('mousemove', (e) => {
-        const rect = canvas.getBoundingClientRect();
-        const mx = e.clientX - rect.left;
-        const my = e.clientY - rect.top;
-        const eb = GLOBAL_UI_STATE.globalEventBtn;
-        if (eb) {
-            eb.hovered = (mx >= eb.x && mx <= eb.x + eb.w && my >= eb.y && my <= eb.y + eb.h);
-        }
-    });
-    canvas.addEventListener('mousedown', (e) => {
-        const rect = canvas.getBoundingClientRect();
-        const mx = e.clientX - rect.left;
-        const my = e.clientY - rect.top;
-        const eb = GLOBAL_UI_STATE.globalEventBtn;
-        if (eb && eb.hovered) {
-            eb.pressed = true;
-        }
-    });
-    window.addEventListener('mouseup', () => {
-        if (GLOBAL_UI_STATE.globalEventBtn) {
-            GLOBAL_UI_STATE.globalEventBtn.pressed = false;
-        }
-    });
-}
-
-function drawCanvasLeftEdgeEventButton(ctx) {
-    const btnW = 76;
-    const btnH = 26;
-    const btnX = 20;
-    const screenH = (typeof VIEW_CONFIG !== 'undefined' && VIEW_CONFIG.SCREEN_HEIGHT) 
-        ? VIEW_CONFIG.SCREEN_HEIGHT 
-        : (ctx.canvas ? ctx.canvas.height : 600);
-    const baseY = screenH - 420;
-
-    const eb = GLOBAL_UI_STATE.globalEventBtn || { hovered: false, pressed: false };
-    const isHovered = eb.hovered;
-    const isPressed = eb.pressed;
-
-    // ホバー時は translateY(-1px) 相当のオフセット、アクティブ時は 0
-    let drawY = base_offset(baseY, isHovered, isPressed);
-    function base_offset(y, h, p) {
-        if (p) return y; // active時は沈む分なし or 戻す
-        return h ? y - 1 : y; // hover時は-1px
-    }
-
-    eb.x = btnX; eb.y = drawY; eb.w = btnW; eb.h = btnH;
-    GLOBAL_UI_STATE.globalEventBtn = eb;
-
-    ctx.save();
-
-    // 影・グローの切り替え（pointShopBtnのbox-shadow再現）
-    if (isPressed) {
-        ctx.shadowColor = 'transparent';
-        ctx.shadowBlur = 0;
-    } else if (isHovered) {
-        ctx.shadowColor = 'rgba(56, 189, 248, 0.4)';
-        ctx.shadowBlur = 10;
-        ctx.shadowOffsetX = 0;
-        ctx.shadowOffsetY = 0;
-    } else {
-        ctx.shadowColor = 'rgba(0, 0, 0, 0.3)';
-        ctx.shadowBlur = 4;
-        ctx.shadowOffsetX = 0;
-        ctx.shadowOffsetY = 2;
-    }
-
-    // グラデーション生成
-    const grad = ctx.createLinearGradient(btnX, drawY, btnX, drawY + btnH);
-    if (isHovered) {
-        grad.addColorStop(0, 'rgba(51, 65, 85, 0.9)');
-        grad.addColorStop(1, 'rgba(30, 41, 59, 0.95)');
-    } else {
-        grad.addColorStop(0, 'rgba(30, 41, 59, 0.8)');
-        grad.addColorStop(1, 'rgba(15, 23, 42, 0.9)');
-    }
-
-    // 角丸背景を描画（radius: 5px）
-    const r = 5;
-    ctx.beginPath();
-    if (ctx.roundRect) {
-        ctx.roundRect(btnX, drawY, btnW, btnH, r);
-    } else {
-        ctx.rect(btnX, drawY, btnW, btnH);
-    }
-    ctx.fillStyle = grad;
-    ctx.fill();
-
-    // シャドウリセットして枠線・内側ハイライト描画
-    ctx.shadowColor = 'transparent';
-    ctx.shadowBlur = 0;
-
-    // メインボーダー
-    ctx.strokeStyle = isHovered ? '#38bdf8' : 'rgba(96, 165, 250, 0.5)';
-    ctx.lineWidth = 1;
-    ctx.stroke();
-
-    // 通常時のインセット風シャドウシミュレーション（inset 0 0 6px rgba(96,165,250,0.15)相当）
-    if (!isHovered && !isPressed) {
-        ctx.strokeStyle = 'rgba(96, 165, 250, 0.15)';
-        ctx.lineWidth = 1;
-        ctx.strokeRect(btnX + 1.5, drawY + 1.5, btnW - 3, btnH - 3);
-    }
-
-    // テキスト描画（font-weight: 600, color連動）
-    ctx.fillStyle = isHovered ? '#ffffff' : '#60a5fa';
-    ctx.font = '600 12px "Segoe UI", Tahoma, Geneva, Verdana, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText('🎁 イベント', btnX + btnW / 2, drawY + btnH / 2);
-
-    ctx.restore();
-}
-
 // ============================================================
-// :::DRAW_ONLINE_LIST::: 👥 オンラインプレイヤー名簿（折りたたみ機能付き）
+// :::DRAW_ONLINE_LIST::: 👥 オンラインプレイヤー名簿の描画（プロ風・メイプル風調和版）
 // ============================================================
-
-// アイコン画像のキャッシュと開閉状態の初期化
-if (!window._onlineIconCache) {
-    window._onlineIconCache = {};
-    const iconPaths = {
-        profile: "//imgv.jp/photo/Photo0/UserIcon/none_100x100.png",
-        achievement: "//imgv.jp/photo/Photo0/MenuIcon_16x16/create3.png",
-        gallery: "//imgv.jp/photo/Photo0/MenuIcon_16x16/gallery2.png"
-    };
-
-    for (let key in iconPaths) {
-        const img = new Image();
-        img.src = iconPaths[key];
-        window._onlineIconCache[key] = img;
-    }
-}
-
-// 🌟 リストの開閉状態（初期値は開いた状態: true）
-if (typeof window._isOnlineListOpen === 'undefined') {
-    window._isOnlineListOpen = true;
-}
-
+/**
+ * 役割：
+ * - プレイヤーリストが存在しない場合は描画をスキップ
+ * - 動的な背景ボックスのサイズ計算と、上質かつレトロな枠線・背景の描画
+ * - タイトル（オンライン人数）と各プレイヤーの名前・チャンネル情報の配置
+ * - 右寄せ・左寄せを使い分けた見やすいフォーマットでの描画（座標完全維持）
+ */
 function drawOnlineList(ctx) {
     if (!currentOnlinePlayers || currentOnlinePlayers.length === 0) return;
 
-    // 📐 レイアウト基準値
-    const padding = 12;
-    const headerHeight = 28;
-    const rowHeight = 30; 
-    const bgWidth = 240;
-    
-    // 🌟 開閉状態によって高さを切り替える
-    const isOpen = window._isOnlineListOpen;
-    const bgHeight = isOpen 
-        ? headerHeight + (currentOnlinePlayers.length * rowHeight) + (padding * 2)
-        : headerHeight; // 閉じているときはヘッダーの高さのみ
+    // 表示位置の設定（元の座標を完全に維持）
+    const startX = VIEW_CONFIG.SCREEN_WIDTH - 140; // 右端から140px
+    const startY = 80;                             // CH表示の下あたり
+    const lineHeight = 18;                         // 1行の高さ
+    const bgWidth = 130;
+    const bgHeight = (currentOnlinePlayers.length + 1) * lineHeight + 10;
 
-    const startX = VIEW_CONFIG.SCREEN_WIDTH - bgWidth - 15; 
-    const startY = 80; 
-    const cornerRadius = 10; 
-
-    // マウス位置の判定
-    let hoveredRowIndex = -1;
-    let hoveredButtonType = -1; // -2: ヘッダー(開閉), 0: プロフ, 1: 成果, 2: ギャラリー
-    let isHeaderHovered = false;
-
-    const iconSize = 16;
-    const btnGap = 6;
-    const rightBtnAreaWidth = (iconSize * 2) + btnGap;
-    const rightBtnStartX = startX + bgWidth - padding - rightBtnAreaWidth;
-
-    if (typeof mouseX !== 'undefined' && typeof mouseY !== 'undefined') {
-        if (mouseX >= startX && mouseX <= startX + bgWidth && mouseY >= startY && mouseY <= startY + bgHeight) {
-            // ヘッダー部分にマウスがあるか
-            if (mouseY >= startY && mouseY <= startY + headerHeight) {
-                isHeaderHovered = true;
-                hoveredButtonType = -2; // ヘッダークリック用
-            } 
-            // リストが開いていて、各プレイヤー行にマウスがある場合
-            else if (isOpen) {
-                currentOnlinePlayers.forEach((p, index) => {
-                    const rowY = startY + headerHeight + padding + (index * rowHeight);
-                    if (mouseY >= rowY && mouseY <= rowY + rowHeight) {
-                        hoveredRowIndex = index;
-
-                        const relX = mouseX - startX;
-                        if (relX < rightBtnStartX - startX - 4) {
-                            hoveredButtonType = 0; // 左側（プロフィール）
-                        } else {
-                            const btnRelX = mouseX - rightBtnStartX;
-                            if (btnRelX >= 0 && btnRelX <= rightBtnAreaWidth) {
-                                const bIdx = Math.floor(btnRelX / (iconSize + btnGap));
-                                hoveredButtonType = Math.min(bIdx + 1, 2); // 1: 成果, 2: ギャラリー
-                            }
-                        }
-                    }
-                });
-            }
-        }
-    }
-    window._hoveredOnlineRow = hoveredRowIndex;
-    window._hoveredOnlineBtn = hoveredButtonType;
-    window._isHeaderHovered = isHeaderHovered;
+    const boxX = startX - 10;
+    const boxY = startY - 20;
 
     ctx.save();
 
-    // 1. 背景パネル
-    ctx.fillStyle = "rgba(0, 0, 0, 0.6)";
-    ctx.beginPath();
-    if (ctx.roundRect) {
-        ctx.roundRect(startX, startY, bgWidth, bgHeight, cornerRadius);
-    } else {
-        ctx.rect(startX, startY, bgWidth, bgHeight);
-    }
-    ctx.fill();
-
-    // 2. 枠線
-    ctx.strokeStyle = isHeaderHovered ? "#38bdf8" : "rgba(255, 255, 255, 0.3)";
-    ctx.lineWidth = isHeaderHovered ? 1.5 : 1;
-    ctx.strokeRect(startX, startY, bgWidth, bgHeight);
-
-    // 3. ヘッダー "ONLINE (人数) [▼/▲]"
-    ctx.font = "bold 12px Arial";
-    ctx.textAlign = "left";
-    ctx.textBaseline = "middle";
-    ctx.fillStyle = isHeaderHovered ? "#ffffff" : "#FFD700";
+    // 1. 上質なレトロモダン風の背景（微かなグラデーションで立体感をプラス）
+    const bgGrad = ctx.createLinearGradient(boxX, boxY, boxX, boxY + bgHeight);
+    bgGrad.addColorStop(0, "rgba(20, 20, 30, 0.85)");
+    bgGrad.addColorStop(1, "rgba(10, 10, 15, 0.90)");
     
-    ctx.shadowColor = "rgba(0, 0, 0, 0.7)";
-    ctx.shadowBlur = 3;
-    
-    // 開閉アイコン（▼ または ▲）を添える
-    const toggleIcon = isOpen ? "▲ 閉じる" : "▼ 開く";
-    ctx.fillText(`ONLINE (${currentOnlinePlayers.length})`, startX + padding, startY + (headerHeight / 2) + 2);
+    ctx.fillStyle = bgGrad;
+    ctx.fillRect(boxX, boxY, bgWidth, bgHeight);
 
-    // 右側に開閉の状態を表示
-    ctx.font = "10px Arial";
+    // 2. エッジの効いた二重ボーダー風フレーム（クラシックかつシャープな演出）
+    ctx.strokeStyle = "#4a4a5a"; // 外枠のダークフレーム
+    ctx.lineWidth = 1;
+    ctx.strokeRect(boxX, boxY, bgWidth, bgHeight);
+
+    ctx.strokeStyle = "#1a1a24"; // 内側のドロップシャドウ風ライン
+    ctx.strokeRect(boxX + 1, boxY + 1, bgWidth - 2, bgHeight - 2);
+
+    // 3. タイトル "ONLINE (人数)" (初期メイプルの雰囲気を残した洗練されたイエロー)
+    ctx.font = "bold 11px 'Segoe UI', sans-serif";
     ctx.textAlign = "right";
-    ctx.fillStyle = isHeaderHovered ? "#38bdf8" : "#aaaaaa";
-    ctx.fillText(toggleIcon, startX + bgWidth - padding, startY + (headerHeight / 2) + 2);
+    ctx.fillStyle = "#FFD700"; // 高級感のあるゴールドイエロー
+    
+    ctx.shadowColor = "rgba(0, 0, 0, 0.9)";
+    ctx.shadowBlur = 4;
+    ctx.shadowOffsetX = 1;
+    ctx.shadowOffsetY = 1;
+    ctx.fillText(`ONLINE (${currentOnlinePlayers.length})`, startX + 110, startY);
 
-    ctx.shadowBlur = 0; // 影をリセット
-
-    // 🌟 リストが閉じている場合はここで終了
-    if (!isOpen) {
-        ctx.restore();
-        return;
-    }
-
-    // ヘッダー下のすっきりした区切り線
-    ctx.strokeStyle = "rgba(255, 255, 255, 0.15)";
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(startX + padding, startY + headerHeight);
-    ctx.lineTo(startX + bgWidth - padding, startY + headerHeight);
-    ctx.stroke();
-
-    // 4. 各プレイヤーの描画ループ（開いているときのみ描画）
+    // 4. 各プレイヤーの名前とチャンネル
+    ctx.font = "11px 'Segoe UI', sans-serif";
     currentOnlinePlayers.forEach((p, index) => {
-        const rowY = startY + headerHeight + padding + (index * rowHeight);
-        const isRowHovered = (window._hoveredOnlineRow === index);
-
-        if (isRowHovered) {
-            ctx.fillStyle = "rgba(255, 255, 255, 0.1)";
-            ctx.fillRect(startX + 6, rowY + 2, bgWidth - 12, rowHeight - 4);
-        }
-
-        const centerY = rowY + (rowHeight / 2);
-
-        // ユーザーアイコン
-        const userImg = window._onlineIconCache.profile;
-        const iconRadius = 9; 
-        const iconX = startX + padding + iconRadius;
+        const y = startY + (index + 1) * lineHeight;
         
-        ctx.save();
-        ctx.beginPath();
-        ctx.arc(iconX, centerY, iconRadius, 0, Math.PI * 2);
-        ctx.clip();
+        // 名前（視認性の高いクリアホワイト）
+        ctx.fillStyle = "#F0F0F5";
+        ctx.textAlign = "right";
+        ctx.shadowColor = "rgba(0, 0, 0, 0.9)";
+        ctx.shadowBlur = 3;
+        ctx.fillText(`${p.name}`, startX + 110, y);
 
-        if (userImg && userImg.complete && userImg.naturalWidth > 0) {
-            ctx.drawImage(userImg, iconX - iconRadius, centerY - iconRadius, iconRadius * 2, iconRadius * 2);
-        } else {
-            ctx.fillStyle = "#333333";
-            ctx.fillRect(iconX - iconRadius, centerY - iconRadius, iconRadius * 2, iconRadius * 2);
-        }
-        ctx.restore();
-
-        ctx.strokeStyle = isRowHovered && window._hoveredOnlineBtn === 0 ? "#38bdf8" : "rgba(255, 255, 255, 0.3)";
-        ctx.lineWidth = 1;
-        ctx.beginPath();
-        ctx.arc(iconX, centerY, iconRadius, 0, Math.PI * 2);
-        ctx.stroke();
-
-        // チャンネル番号
-        ctx.font = "10px Arial";
-        ctx.fillStyle = "#7dd3fc";
+        // チャンネル番号（少し落ち着いたシアンまたはソフトイエローで洗練度アップ）
+        ctx.fillStyle = "#88DDFF"; // チャンネルが埋もれない上品な水色（または元の #FFEE66 でもOKです）
         ctx.textAlign = "left";
-        ctx.textBaseline = "middle";
-        ctx.fillText(`CH.${p.channel}`, startX + 34, centerY);
-
-        // 🌟 各プレイヤーのレベル表記
-        const playerLevel = p.level !== undefined ? p.level : (p.lv !== undefined ? p.lv : 1);
-        ctx.fillStyle = "#fde047"; 
-        ctx.fillText(`Lv.${playerLevel}`, startX + 78, centerY);
-
-        // プレイヤー名
-        const isAnyElementHovered = isRowHovered;
-        ctx.font = isAnyElementHovered ? "bold 11px Arial" : "11px Arial";
-        ctx.fillStyle = isAnyElementHovered ? "#ffffff" : "#e2e8f0";
-        ctx.fillText(p.name, startX + 115, centerY);
-
-        // 右側の2つのボタン（成果・ギャラリー）
-        const rightIcons = [
-            window._onlineIconCache.achievement,
-            window._onlineIconCache.gallery
-        ];
-
-        rightIcons.forEach((iconImg, bIdx) => {
-            const bx = rightBtnStartX + (bIdx * (iconSize + btnGap));
-            const by = centerY - (iconSize / 2);
-            const isBtnHovered = isRowHovered && (window._hoveredOnlineBtn === bIdx + 1);
-
-            if (isBtnHovered) {
-                ctx.fillStyle = "rgba(56, 189, 248, 0.3)";
-                ctx.fillRect(bx - 3, by - 3, iconSize + 6, iconSize + 6);
-                ctx.strokeStyle = "#38bdf8";
-                ctx.lineWidth = 1;
-                ctx.strokeRect(bx - 3, by - 3, iconSize + 6, iconSize + 6);
-            }
-
-            if (iconImg && iconImg.complete && iconImg.naturalWidth > 0) {
-                ctx.drawImage(iconImg, bx, by, iconSize, iconSize);
-            }
-        });
+        ctx.shadowColor = "rgba(0, 0, 0, 0.9)";
+        ctx.shadowBlur = 3;
+        ctx.fillText(`ch${p.channel}`, startX, y);
     });
-
-    ctx.restore();
-}
-
-// プロフィールウィンドウの開閉状態と対象プレイヤーの保持
-if (typeof window._isProfileWindowOpen === 'undefined') {
-    window._isProfileWindowOpen = false;
-}
-if (typeof window._selectedProfilePlayer === 'undefined') {
-    window._selectedProfilePlayer = null;
-}
-
-canvas.addEventListener('click', (e) => {
-    // 🌟 プロフィールウィンドウが開いている場合の操作判定
-    if (window._isProfileWindowOpen && window._selectedProfilePlayer) {
-        const bgWidth = 340;
-        const bgHeight = 500; // 🌟 描画側と合わせるため、500に変更しました！
-        const startX = (VIEW_CONFIG.SCREEN_WIDTH - bgWidth) / 2;
-        const startY = (VIEW_CONFIG.SCREEN_HEIGHT - bgHeight) / 2;
-
-        // 1. ×ボタン（閉じる）の判定
-        const closeBtnX = startX + bgWidth - 28;
-        const closeBtnY = startY + 10;
-        if (mouseX >= closeBtnX && mouseX <= closeBtnX + 18 && mouseY >= closeBtnY && mouseY <= closeBtnY + 18) {
-            window._isProfileWindowOpen = false;
-            window._selectedProfilePlayer = null;
-            return;
-        }
-
-        // 2. 人気度＋1ボタンの判定
-        const popBtnX = startX + 185;
-        const popBtnY = startY + 99;
-        const popBtnW = 68;
-        const popBtnH = 18;
-        if (mouseX >= popBtnX && mouseX <= popBtnX + popBtnW && mouseY >= popBtnY && mouseY <= popBtnY + popBtnH) {
-            const target = window._selectedProfilePlayer;
-            target.popularity = (target.popularity || 0) + 1;
-            console.log(`${target.name} の人気度が上昇！現在: ${target.popularity}`);
-            return;
-        }
-
-        // 3. 下部アクションボタン（グループ・カード交換・アイテム交換）の判定
-        const btnWidth = 92;
-        const btnHeight = 32;
-        const btnY = startY + bgHeight - 48;
-        const btnGap = 8;
-        
-        const groupBtnX = startX + 16;
-        const cardTradeBtnX = groupBtnX + btnWidth + btnGap;
-        const tradeBtnX = cardTradeBtnX + btnWidth + btnGap;
-
-        // ① グループ申し込み
-        if (mouseX >= groupBtnX && mouseX <= groupBtnX + btnWidth && mouseY >= btnY && mouseY <= btnY + btnHeight) {
-            const targetPlayer = window._selectedProfilePlayer;
-            console.log(`${targetPlayer.name} へグループ申し込み`);
-            if (typeof socket !== 'undefined' && targetPlayer.id) {
-                socket.emit('sendGroupInvite', {
-                    targetId: targetPlayer.id,
-                    senderName: window.hero ? window.hero.name : "自分"
-                });
-            }
-            return;
-        }
-
-        // ② カード交換申し込み
-        if (mouseX >= cardTradeBtnX && mouseX <= cardTradeBtnX + btnWidth && mouseY >= btnY && mouseY <= btnY + btnHeight) {
-            const targetPlayer = window._selectedProfilePlayer;
-            console.log(`${targetPlayer.name} へカード交換申し込み`);
-            
-            window._isProfileWindowOpen = false;
-            window._selectedProfilePlayer = null;
-            return;
-        }
-
-        // ③ アイテム交換申し込み
-        if (mouseX >= tradeBtnX && mouseX <= tradeBtnX + btnWidth && mouseY >= btnY && mouseY <= btnY + btnHeight) {
-            const targetPlayer = window._selectedProfilePlayer;
-            console.log(`${targetPlayer.name} へアイテム交換申し込み`);
-            
-            if (typeof socket !== 'undefined' && targetPlayer.id) {
-                const myHero = window.hero;
-                socket.emit('sendTradeRequest', {
-                    targetId: targetPlayer.id,
-                    senderName: myHero ? myHero.name : "自分",
-                    model_id: myHero ? (myHero.model_id !== undefined ? myHero.model_id : (myHero.group || 0)) : 0,
-                    charVar: myHero ? (myHero.charVar || 1) : 1
-                });
-            }
-
-            const targetNameEl = document.getElementById("trade-target-name");
-            if (targetNameEl) {
-                targetNameEl.textContent = "";
-            }
-
-            const myNameEl = document.getElementById("trade-my-name");
-            if (myNameEl) {
-                myNameEl.textContent = (typeof hero !== 'undefined' && hero && hero.name) ? hero.name : "自分";
-            }
-
-            const tradeWindow = document.getElementById("trade-window");
-            if (tradeWindow) {
-                tradeWindow.style.display = "block";
-                
-                if (typeof initTradeSlots === 'function') initTradeSlots();
-                if (typeof drawMyTradeAvatar === 'function') drawMyTradeAvatar(window.hero);
-            }
-
-            if (typeof addSystemMessage === 'function') {
-                addSystemMessage(`${targetPlayer.name}との交換を申し込みました。相手の参加を待っています...`);
-            }
-
-            window._isProfileWindowOpen = false;
-            window._selectedProfilePlayer = null;
-            return;
-        }
-
-        return;
-    }
-    
-    if (typeof window._isHeaderHovered !== 'undefined' && window._isHeaderHovered) {
-        window._isOnlineListOpen = !window._isOnlineListOpen;
-        return;
-    }
-
-    if (window._isOnlineListOpen && typeof window._hoveredOnlineRow !== 'undefined' && window._hoveredOnlineRow >= 0) {
-        const targetPlayer = currentOnlinePlayers[window._hoveredOnlineRow];
-        const actionType = window._hoveredOnlineBtn;
-
-        if (targetPlayer && actionType >= 0) {
-            if (actionType === 0) {
-                window._selectedProfilePlayer = targetPlayer;
-                window._isProfileWindowOpen = true;
-                console.log(`${targetPlayer.name} のプロフィールウィンドウを開きます`);
-            } else if (actionType === 1) {
-                console.log(`${targetPlayer.name} の成果を開く`);
-            } else if (actionType === 2) {
-                console.log(`${targetPlayer.name} のギャラリーを開く`);
-            }
-        }
-    }
-});
-
-// ============================================================
-// :::DRAW_PROFILE_WINDOW::: 👤 拡張プレイヤープロフィールウィンドウ（BOOK仕様カード対応版）
-// ============================================================
-function drawProfileWindow(tCtx) {
-    if (!window._isProfileWindowOpen || !window._selectedProfilePlayer) return;
-
-    let p = window._selectedProfilePlayer;
-    if (window.hero && (p === window.hero || (p.id && window.hero.id && p.id === window.hero.id))) {
-        p = window.hero;
-    }
-
-    const bgWidth = 340;
-    const bgHeight = 500; // 🌟 ランク1〜6のカード表示エリアの高さに合わせてウィンドウを拡張
-    const startX = (VIEW_CONFIG.SCREEN_WIDTH - bgWidth) / 2;
-    const startY = (VIEW_CONFIG.SCREEN_HEIGHT - bgHeight) / 2;
-    const cornerRadius = 12;
-
-    ctx.save();
-
-    // 1. ウィンドウの背景パネル
-    ctx.fillStyle = "rgba(15, 23, 42, 0.95)";
-    ctx.beginPath();
-    if (ctx.roundRect) {
-        ctx.roundRect(startX, startY, bgWidth, bgHeight, cornerRadius);
-    } else {
-        ctx.rect(startX, startY, bgWidth, bgHeight);
-    }
-    ctx.fill();
-
-    // 2. ウィンドウの枠線
-    ctx.strokeStyle = "#38bdf8";
-    ctx.lineWidth = 1.5;
-    ctx.stroke();
-
-    // 3. タイトルバー部分
-    ctx.fillStyle = "#1e293b";
-    ctx.beginPath();
-    if (ctx.roundRect) {
-        ctx.roundRect(startX, startY, bgWidth, 36, [cornerRadius, cornerRadius, 0, 0]);
-    } else {
-        ctx.rect(startX, startY, bgWidth, 36);
-    }
-    ctx.fill();
-
-    ctx.fillStyle = "#ffffff";
-    ctx.font = "bold 13px Arial";
-    ctx.textAlign = "left";
-    ctx.textBaseline = "middle";
-    ctx.fillText("プレイヤープロフィール", startX + 15, startY + 18);
-
-    // 4. 閉じる「×」ボタンの描画
-    const closeBtnX = startX + bgWidth - 28;
-    const closeBtnY = startY + 10;
-    ctx.fillStyle = "rgba(239, 68, 68, 0.8)";
-    ctx.fillRect(closeBtnX, closeBtnY, 18, 18);
-    ctx.fillStyle = "#ffffff";
-    ctx.font = "bold 11px Arial";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillText("×", closeBtnX + 9, closeBtnY + 9);
-
-    // 5. プレイヤーアイコン
-    const iconX = startX + 45;
-    const iconY = startY + 75;
-    const iconRadius = 24;
-
-    ctx.save();
-    ctx.beginPath();
-    ctx.arc(iconX, iconY, iconRadius, 0, Math.PI * 2);
-    ctx.clip();
-    const userImg = window._onlineIconCache ? window._onlineIconCache.profile : null;
-    if (userImg && userImg.complete && userImg.naturalWidth > 0) {
-        ctx.drawImage(userImg, iconX - iconRadius, iconY - iconRadius, iconRadius * 2, iconRadius * 2);
-    } else {
-        ctx.fillStyle = "#333333";
-        ctx.fillRect(iconX - iconRadius, iconY - iconRadius, iconRadius * 2, iconRadius * 2);
-    }
-    ctx.restore();
-
-    ctx.strokeStyle = "#38bdf8";
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.arc(iconX, iconY, iconRadius, 0, Math.PI * 2);
-    ctx.stroke();
-
-    // 6. 基本情報
-    ctx.textAlign = "left";
-    ctx.textBaseline = "top";
-    
-    ctx.font = "bold 15px Arial";
-    ctx.fillStyle = "#ffffff";
-    ctx.fillText(p.name || "Player", startX + 82, startY + 48);
-
-    ctx.font = "11px Arial";
-    ctx.fillStyle = "#fde047";
-    ctx.fillText(`Lv.${p.level !== undefined ? p.level : 1}`, startX + 82, startY + 68);
-
-    ctx.fillStyle = "#7dd3fc";
-    ctx.fillText(`CH.${p.channel || 1}`, startX + 130, startY + 68);
-
-    const animalMap = {
-        0: "あひる", 1: "あらいぐま", 2: "いぬ", 3: "うさぎ", 4: "カピバラ",
-        5: "きのこ", 6: "くま", 7: "コアラ", 8: "ねこ", 9: "パンダ",
-        10: "ビーバー", 11: "ひよこ", 12: "ぶた", 13: "ペンギン", 14: "ラクーン", 15: "りす"
-    };
-
-    const rawModelId = (p.model_id !== undefined && p.model_id !== null) ? p.model_id : "";
-    const animalName = animalMap[String(rawModelId)] !== undefined ? animalMap[String(rawModelId)] : (rawModelId !== "" ? `ID:${rawModelId}` : "なし");
-
-    const popularity = p.popularity !== undefined ? p.popularity : 0;
-    const guildName = p.guild || "無所属";
-
-    ctx.font = "11px Arial";
-    ctx.fillStyle = "#cbd5e1";
-    ctx.fillText(`🐾 アニマル: ${animalName}`, startX + 82, startY + 86);
-    ctx.fillText(`⭐ 人気度: ${popularity}`, startX + 82, startY + 102);
-    ctx.fillText(`🛡️ ギルド: ${guildName}`, startX + 82, startY + 118);
-
-    // 人気度アップ小ボタン
-    const popBtnX = startX + 185;
-    const popBtnY = startY + 99;
-    const popBtnW = 68;
-    const popBtnH = 18;
-    ctx.fillStyle = "rgba(74, 222, 128, 0.25)";
-    ctx.fillRect(popBtnX, popBtnY, popBtnW, popBtnH);
-    ctx.strokeStyle = "#4ade80";
-    ctx.lineWidth = 1;
-    ctx.strokeRect(popBtnX, popBtnY, popBtnW, popBtnH);
-    ctx.font = "9px Arial";
-    ctx.fillStyle = "#4ade80";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillText("👍 ＋1する", popBtnX + popBtnW / 2, popBtnY + popBtnH / 2);
-
-    // 水平区切り線
-    ctx.strokeStyle = "rgba(255, 255, 255, 0.15)";
-    ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(startX + 15, startY + 145);
-    ctx.lineTo(startX + bgWidth - 15, startY + 145);
-    ctx.stroke();
-
-    // 7. 装備アイテムセクション
-    ctx.font = "bold 12px Arial";
-    ctx.fillStyle = "#f8fafc";
-    ctx.textAlign = "left";
-    ctx.textBaseline = "top";
-    ctx.fillText("装備アイテム", startX + 20, startY + 155);
-
-    const equipSlots = [
-        { label: "剣", types: ["sword", "weapon"] },
-        { label: "盾", types: ["shield"] },
-        { label: "マント", types: ["cloak", "cape"] },
-        { label: "ペンダント", types: ["pendant", "necklace"] },
-        { label: "指輪", types: ["ring"] },
-        { label: "ベルト", types: ["belt"] }
-    ];
-
-    const slotSize = 36;
-    const slotGap = 8;
-    const equipStartX = startX + 20;
-    const equipStartY = startY + 175;
-
-    let hoveredEquippedItem = null;
-    let hoveredSlotInfo = null;
-
-    equipSlots.forEach((slot, idx) => {
-        const col = idx % 3; 
-        const row = Math.floor(idx / 3); 
-
-        const sx = equipStartX + col * (slotSize + slotGap + 12);
-        const sy = equipStartY + row * (slotSize + slotGap);
-
-        const absoluteSlotX = sx;
-        const absoluteSlotY = sy;
-
-        const isHover = (typeof mouseX !== 'undefined' && typeof mouseY !== 'undefined' &&
-                         mouseX >= absoluteSlotX && mouseX <= absoluteSlotX + slotSize &&
-                         mouseY >= absoluteSlotY && mouseY <= absoluteSlotY + slotSize);
-
-        ctx.fillStyle = isHover ? "rgba(255, 255, 255, 0.15)" : "rgba(0, 0, 0, 0.4)";
-        ctx.fillRect(sx, sy, slotSize, slotSize);
-        ctx.strokeStyle = isHover ? "#fbbf24" : "rgba(255, 255, 255, 0.3)";
-        ctx.lineWidth = isHover ? 1.5 : 1;
-        ctx.strokeRect(sx, sy, slotSize, slotSize);
-
-        let equippedItem = null;
-        if (p.inventory && Array.isArray(p.inventory)) {
-            equippedItem = p.inventory.find(inv => {
-                if (!inv || !inv.isEquipped) return false;
-                const invType = String(inv.type || inv.name || "").toLowerCase();
-                return slot.types.some(t => invType.includes(t));
-            });
-        }
-
-        if (isHover) {
-            if (equippedItem) {
-                hoveredEquippedItem = equippedItem;
-            } else {
-                hoveredSlotInfo = `未装備 (${slot.label})`;
-            }
-        }
-
-        if (!equippedItem) {
-            ctx.font = "9px Arial";
-            ctx.fillStyle = "#94a3b8";
-            ctx.textAlign = "center";
-            ctx.textBaseline = "middle";
-            ctx.fillText(slot.label, sx + slotSize / 2, sy + slotSize / 2);
-        } else {
-            const imageKey = equippedItem.image || equippedItem.type || equippedItem.name;
-            let img = (typeof itemImages !== 'undefined') ? itemImages[imageKey] : null;
-
-            if (img && img.complete && img.naturalWidth > 0) {
-                const padding = 3;
-                const imgW = slotSize - padding * 2;
-                const imgH = slotSize - padding * 2;
-                
-                const glowCol = typeof getEquipGlowColor === 'function' ? getEquipGlowColor(equippedItem) : null;
-
-                ctx.save();
-                if (glowCol) {
-                    ctx.shadowBlur = 8;
-                    ctx.shadowColor = glowCol;
-                    ctx.strokeStyle = glowCol;
-                    ctx.lineWidth = 2;
-                    if (ctx.roundRect) {
-                        ctx.beginPath();
-                        ctx.roundRect(sx + 2, sy + 2, slotSize - 4, slotSize - 4, 3);
-                        ctx.stroke();
-                    }
-                } else {
-                    ctx.shadowBlur = 3;
-                    ctx.shadowColor = "rgba(0,0,0,0.4)";
-                }
-
-                ctx.drawImage(img, sx + padding, sy + padding, imgW, imgH);
-                ctx.restore();
-            } else {
-                ctx.font = "8px Arial";
-                ctx.fillStyle = "#facc15";
-                ctx.textAlign = "center";
-                ctx.textBaseline = "middle";
-                ctx.fillText(equippedItem.name || "装備", sx + slotSize / 2, sy + slotSize / 2);
-            }
-        }
-    });
-
-    // ==========================================
-    // 🌟 8. モンスターカードBOOK連動セクション（ランク1〜6）
-    // ==========================================
-    const cardSectionY = startY + 275;
-    ctx.font = "bold 12px Arial";
-    ctx.fillStyle = "#f8fafc";
-    ctx.textAlign = "left";
-    ctx.textBaseline = "top";
-    ctx.fillText("モンスターカード図鑑 収集状況", startX + 20, cardSectionY);
-
-    // ランク1〜6の定義（BOOK側のテーマカラーに対応）
-    const bookRanks = [
-        { id: 1, label: "銅", color: "#fb923c" },
-        { id: 2, label: "銀", color: "#cbd5e1" },
-        { id: 3, label: "金", color: "#fde047" },
-        { id: 4, label: "Pt", color: "#ffffff" },
-        { id: 5, label: "Dia", color: "#38bdf8" },
-        { id: 6, label: "虹", color: "#ff77ff" }
-    ];
-
-    // プレイヤーのコレクションデータからランク1〜6のアンロック数を集計
-    const rankCounts = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 };
-    const targetCollection = p.playerCardCollection || playerCardCollection;
-    
-    if (targetCollection) {
-        Object.keys(targetCollection).forEach(monsterKey => {
-            const ranks = targetCollection[monsterKey];
-            if (ranks) {
-                for (let r = 1; r <= 6; r++) {
-                    if (ranks[r] && ranks[r].unlocked) {
-                        rankCounts[r]++;
-                    }
-                }
-            }
-        });
-    }
-
-    const cardBoxW = 46;
-    const cardBoxH = 34;
-    const cardBoxGap = 4;
-    const cardStartX = startX + 20;
-    const cardStartY = cardSectionY + 20;
-
-    bookRanks.forEach((rInfo, idx) => {
-        const bx = cardStartX + idx * (cardBoxW + cardBoxGap);
-        const by = cardStartY;
-
-        // 背景ボックス
-        ctx.fillStyle = "rgba(0, 0, 0, 0.45)";
-        ctx.fillRect(bx, by, cardBoxW, cardBoxH);
-        ctx.strokeStyle = rInfo.color;
-        ctx.lineWidth = 1;
-        ctx.strokeRect(bx, by, cardBoxW, cardBoxH);
-
-        // ランク名
-        ctx.font = "bold 9px Arial";
-        ctx.fillStyle = rInfo.color;
-        ctx.textAlign = "center";
-        ctx.textBaseline = "top";
-        ctx.fillText(rInfo.label, bx + cardBoxW / 2, by + 4);
-
-        // アンロック数
-        const count = rankCounts[rInfo.id] || 0;
-        ctx.font = "bold 11px Arial";
-        ctx.fillStyle = "#ffffff";
-        ctx.fillText(count, bx + cardBoxW / 2, by + 17);
-    });
-
-    // ==========================================
-    // 9. 下部アクションボタン（3つ並び）
-    // ==========================================
-    const btnWidth = 92;
-    const btnHeight = 32;
-    const btnY = startY + bgHeight - 48; // ウィンドウ下部に追従
-    const btnGap = 8;
-    
-    const groupBtnX = startX + 16;
-    const cardTradeBtnX = groupBtnX + btnWidth + btnGap;
-    const tradeBtnX = cardTradeBtnX + btnWidth + btnGap;
-    
-    // ① グループ申し込みボタン
-    ctx.fillStyle = "rgba(56, 189, 248, 0.2)";
-    ctx.fillRect(groupBtnX, btnY, btnWidth, btnHeight);
-    ctx.strokeStyle = "#38bdf8";
-    ctx.lineWidth = 1;
-    ctx.strokeRect(groupBtnX, btnY, btnWidth, btnHeight);
-    
-    ctx.font = "bold 10px Arial";
-    ctx.fillStyle = "#38bdf8";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillText("👥 グループ", groupBtnX + btnWidth / 2, btnY + btnHeight / 2);
-
-    // ② カード交換申し込みボタン
-    ctx.fillStyle = "rgba(168, 85, 247, 0.2)";
-    ctx.fillRect(cardTradeBtnX, btnY, btnWidth, btnHeight);
-    ctx.strokeStyle = "#a855f7";
-    ctx.lineWidth = 1;
-    ctx.strokeRect(cardTradeBtnX, btnY, btnWidth, btnHeight);
-
-    ctx.fillStyle = "#a855f7";
-    ctx.fillText("🃏 カード交換", cardTradeBtnX + btnWidth / 2, btnY + btnHeight / 2);
-
-    // ③ アイテム交換申し込みボタン
-    ctx.fillStyle = "rgba(250, 204, 21, 0.2)";
-    ctx.fillRect(tradeBtnX, btnY, btnWidth, btnHeight);
-    ctx.strokeStyle = "#facc15";
-    ctx.lineWidth = 1;
-    ctx.strokeRect(tradeBtnX, btnY, btnWidth, btnHeight);
-
-    ctx.fillStyle = "#facc15";
-    ctx.fillText("🔄 アイテム交換", tradeBtnX + btnWidth / 2, btnY + btnHeight / 2);
-
-    // ==========================================
-    // 10. マウスカーソル追尾型ポップアップの描画
-    // ==========================================
-    if (typeof mouseX !== 'undefined' && typeof mouseY !== 'undefined') {
-        if (hoveredEquippedItem && typeof drawItemTooltip === 'function') {
-            drawItemTooltip(tCtx, hoveredEquippedItem, mouseX + 12, mouseY + 12);
-        } else if (hoveredSlotInfo) {
-            ctx.save();
-            ctx.font = "11px 'Segoe UI', sans-serif";
-            const textMetrics = ctx.measureText(hoveredSlotInfo);
-            const boxW = textMetrics.width + 12;
-            const boxH = 20;
-            
-            const boxX = mouseX + 12;
-            const boxY = mouseY + 12;
-
-            ctx.fillStyle = "rgba(12, 17, 28, 0.92)";
-            ctx.strokeStyle = "rgba(255, 255, 255, 0.25)";
-            ctx.lineWidth = 1;
-            
-            if (ctx.roundRect) {
-                ctx.beginPath();
-                ctx.roundRect(boxX, boxY, boxW, boxH, 4);
-                ctx.fill();
-                ctx.stroke();
-            } else {
-                ctx.fillRect(boxX, boxY, boxW, boxH);
-                ctx.strokeRect(boxX, boxY, boxW, boxH);
-            }
-
-            ctx.fillStyle = "#f8fafc";
-            ctx.textAlign = "center";
-            ctx.textBaseline = "middle";
-            ctx.fillText(hoveredSlotInfo, boxX + boxW / 2, boxY + boxH / 2);
-            ctx.restore();
-        }
-    }
 
     ctx.restore();
 }
@@ -4131,23 +3277,12 @@ function drawGame(hero, others, enemies, items, platforms, ladders, damageTexts,
 	if (typeof drawOnlineList === 'function') {
         drawOnlineList(ctx);
     }
-	
-	drawProfileWindow(tCtx);
     
 	drawHeldItem();
-	
-	drawCanvasLeftEdgeEventButton(ctx);
 	
 	// 🌟 ここに追加！一番手前に通知を出す
     if (typeof drawNotificationArea === 'function') {
         drawNotificationArea(ctx, VIEW_CONFIG.SCREEN_WIDTH, VIEW_CONFIG.SCREEN_HEIGHT);
-    }
-	
-	// ==========================================
-    // 🌟 【ここに追加！】トレード中のツールチップ描画
-    // ==========================================
-    if (typeof renderTradeTooltips === 'function') {
-        renderTradeTooltips(ctx, hero);
     }
 	
     // ==========================================
@@ -4670,335 +3805,6 @@ function drawEmotionIcon(ctx, entity) {
     ctx.globalAlpha = Math.max(0, Math.min(1, alpha));
     ctx.drawImage(emotionImg, drawX, drawY, 32, 32);
     ctx.restore();
-}
-
-// 現在招待を送ってきた相手の識別用（必要に応じて保持）
-let currentInviterName = "";
-
-/**
- * 💡 他ユーザーからグループ招待が届いたときに呼び出す関数
- * @param {string} inviterName 招待してきたプレイヤーの名前
- */
-function showGroupInvitePopup(inviterName) {
-    currentInviterName = inviterName || "プレイヤー";
-    
-    // テキストを動的に書き換える
-    const textSpan = document.getElementById("group-invite-text");
-    if (textSpan) {
-        textSpan.textContent = `'${currentInviterName}'様からグループの招待です`;
-    }
-
-    // ポップアップを表示する
-    const popup = document.getElementById("group-invite-popup");
-    if (popup) {
-        popup.style.display = "block";
-    }
-}
-
-/**
- * ⭕ 招待を受諾したときの処理
- */
-function acceptGroupInvite() {
-    const popup = document.getElementById("group-invite-popup");
-    if (popup) popup.style.display = "none";
-
-    // 🌟 1. サーバーへ「受諾した」旨を伝える通信処理
-    if (typeof socket !== 'undefined' && window._currentInviteData) {
-        socket.emit('acceptGroupInvite', {
-            targetId: window._currentInviteData.senderId // 招待を送ってきた人のID
-        });
-    }
-
-    // 2. 名前の取得（currentInviterNameが定義されていなければ一時データから取得）
-    const inviterName = typeof currentInviterName !== 'undefined' 
-        ? currentInviterName 
-        : (window._currentInviteData ? window._currentInviteData.senderName : "相手");
-
-    console.log(`${inviterName}からのグループ招待を受諾しました`);
-    
-    // チャット欄などにシステムメッセージとして流す場合
-    if (typeof addSystemMessage === 'function') {
-        addSystemMessage(`${inviterName}のグループに参加しました。`);
-    }
-
-    // 使い終わった一時データをクリア
-    window._currentInviteData = null;
-}
-
-/**
- * ❌ 招待を拒否したときの処理
- */
-function rejectGroupInvite() {
-    const popup = document.getElementById("group-invite-popup");
-    if (popup) popup.style.display = "none";
-
-    // 🌟 1. サーバーへ「拒否した」旨を伝える通信処理
-    if (typeof socket !== 'undefined' && window._currentInviteData) {
-        socket.emit('rejectGroupInvite', {
-            targetId: window._currentInviteData.senderId // 招待を送ってきた人のID
-        });
-    }
-
-    // 2. 名前の取得
-    const inviterName = typeof currentInviterName !== 'undefined' 
-        ? currentInviterName 
-        : (window._currentInviteData ? window._currentInviteData.senderName : "相手");
-
-    console.log(`${inviterName}からのグループ招待を拒否しました`);
-
-    // 使い終わった一時データをクリア
-    window._currentInviteData = null;
-}
-
-function acceptTradeRequest() {
-    console.log("👉 acceptTradeRequest が実行されました");
-
-    // 🔍 デバッグ：現在保持されているトレードデータの中身を丸ごと確認
-    console.log("🔍 window._currentTradeData の中身:", window._currentTradeData);
-
-    const popup = document.getElementById("trade-invite-popup");
-    if (popup) popup.style.display = "none";
-
-    // 1. サーバーへ受諾を通知
-    if (typeof socket !== 'undefined' && window._currentTradeData) {
-        console.log("📡 サーバーへ acceptTradeRequest を送信します。targetId:", window._currentTradeData.senderId);
-        socket.emit('acceptTradeRequest', {
-            targetId: window._currentTradeData.senderId
-        });
-    } else {
-        console.warn("⚠️ socket または window._currentTradeData が存在しないため、サーバーへの送信がスキップされました");
-    }
-
-    // 2. トレード窓を開く
-    const tradeWindow = document.getElementById("trade-window");
-    if (tradeWindow) {
-        tradeWindow.style.display = "block";
-        console.log("🪟 #trade-window を display: block にしました");
-    } else {
-        console.warn("⚠️ #trade-window が見つかりませんでした");
-    }
-
-    // 3. 【左側】相手の名前をセット
-    const targetNameEl = document.getElementById("trade-target-name");
-    if (targetNameEl && window._currentTradeData) {
-        targetNameEl.textContent = window._currentTradeData.senderName;
-        console.log("👤 相手の名前をセットしました:", window._currentTradeData.senderName);
-    } else {
-        console.warn("⚠️ trade-target-name 要素、または window._currentTradeData がありません");
-    }
-
-    if (window._currentTradeData && typeof setupOpponentTrade === 'function') {
-        console.log("🎨 setupOpponentTrade を実行します。渡すデータ:", window._currentTradeData);
-        setupOpponentTrade(window._currentTradeData);
-    } else {
-        console.warn("⚠️ setupOpponentTrade 関数が存在しない、または window._currentTradeData がないためスキップされました");
-    }
-
-    // 4. 【右側】自分の名前とアバターをセット（player ではなく window.hero を使用）
-    const myHero = typeof window.hero !== 'undefined' ? window.hero : null;
-    console.log("🦸 取得した myHero (window.hero):", myHero);
-    
-    const myNameEl = document.getElementById("trade-my-name");
-    if (myNameEl && myHero) {
-        myNameEl.textContent = myHero.name || "自分";
-    }
-
-    if (myHero && typeof drawMyTradeAvatar === 'function') {
-        drawMyTradeAvatar(myHero);
-        console.log("🖼️ drawMyTradeAvatar を実行しました");
-    } else {
-        console.warn("⚠️ window.hero が見つからないため、自分のアバターを描画できませんでした");
-    }
-
-    // データをクリア
-    console.log("🧹 window._currentTradeData をクリアします");
-    window._currentTradeData = null;
-	
-	// 🌟 3x3スロットを初期化・表示する！
-    if (typeof initTradeSlots === 'function') {
-        initTradeSlots();
-        console.log("✅ 3x3トレードスロットを初期化しました");
-    }
-}
-
-/**
- * ❌ 交換申し込みを拒否したとき
- */
-function rejectTradeRequest() {
-    const popup = document.getElementById("trade-invite-popup");
-    if (popup) popup.style.display = "none";
-
-    if (typeof socket !== 'undefined' && window._currentTradeData) {
-        socket.emit('rejectTradeRequest', {
-            targetId: window._currentTradeData.senderId
-        });
-    }
-
-    const requesterName = window._currentTradeData ? window._currentTradeData.senderName : "相手";
-    console.log(`${requesterName}からの交換を拒否しました`);
-
-    window._currentTradeData = null;
-}
-
-/**
- * ❌ 交換窓を閉じる（キャンセルする）ときの処理
- */
-function closeTradeWindow() {
-    const tradeWindow = document.getElementById("trade-window");
-    if (tradeWindow) {
-        tradeWindow.style.display = "none";
-    }
-
-    // 🌟 自分と相手の「白薄（オーバーレイ）」を強制的に非表示にしてリセット
-    const myOverlay = document.getElementById('my-trade-overlay');
-    const opponentOverlay = document.getElementById('opponent-trade-overlay');
-    
-    if (myOverlay) myOverlay.style.display = 'none';
-    if (opponentOverlay) opponentOverlay.style.display = 'none';
-
-    // もし相手と通信中であれば、サーバーにキャンセルを伝える
-    if (typeof socket !== 'undefined' && window._currentTradeTargetId) {
-        socket.emit('cancelTrade', {
-            targetId: window._currentTradeTargetId
-        });
-    }
-
-    if (typeof addSystemMessage === 'function') {
-        addSystemMessage("交換をキャンセルしました。");
-    }
-
-    // トレード関連の保持データをクリア ＆ 陳列をリセット
-    window._currentTradeTargetId = null;
-
-    if (typeof resetTradeSlots === 'function') {
-        resetTradeSlots();
-    } else {
-        myTradeSlots = [null, null, null, null, null, null, null, null, null];
-        opponentTradeSlots = [null, null, null, null, null, null, null, null, null];
-        updateMyTradeDisplay();
-        updateOpponentTradeDisplay();
-    }
-}
-
-// 💬 アラートの代わりにHTMLモーダルを表示する関数
-function showTradeAlert(message) {
-    const alertModal = document.getElementById('trade-alert-modal');
-    const messageEl = document.getElementById('trade-alert-message');
-    const okBtn = document.getElementById('trade-alert-ok-btn');
-
-    if (!alertModal || !messageEl || !okBtn) {
-        // 万が一HTML要素が見つからない場合のフォールバック
-        alert(message);
-        return;
-    }
-
-    messageEl.textContent = message;
-    alertModal.style.display = 'block';
-
-    okBtn.onclick = () => {
-        alertModal.style.display = 'none';
-    };
-}
-
-let myTradeCurrency = 0;       // 自分がトレードに出している金額
-let opponentTradeCurrency = 0; // 相手がトレードに出している金額
-
-// 自分の通貨入力ダイアログを開く関数（HTMLモーダル＆UIアラート版）
-function openTradeCurrencyInput() {
-    const modal = document.getElementById('trade-currency-modal');
-    const titleEl = document.getElementById('trade-currency-title');
-    const inputEl = document.getElementById('trade-currency-input');
-    const confirmBtn = document.getElementById('trade-currency-confirm');
-    const cancelBtn = document.getElementById('trade-currency-cancel');
-
-    if (!modal) return;
-
-    // タイトルを設定
-    titleEl.textContent = "金額を入力";
-    inputEl.value = myTradeCurrency;
-    modal.style.display = 'block';
-    inputEl.focus();
-    inputEl.select();
-
-    // イベント重複を防ぐために一度リセット
-    confirmBtn.onclick = null;
-    cancelBtn.onclick = null;
-
-    // キャンセルボタン
-    cancelBtn.onclick = () => {
-        modal.style.display = 'none';
-    };
-
-    // 決定ボタン
-    confirmBtn.onclick = () => {
-        let amount = parseInt(inputEl.value, 10);
-        
-        if (isNaN(amount) || amount < 0) {
-            showTradeAlert("有効な数値を入力してください。");
-            return;
-        }
-        
-        // 🌟 【ここを確認】所持金が格納されている実際の変数に合わせる
-        // 例: hero や player オブジェクトの中に所持金がある場合
-        const currentMeso = (typeof hero !== 'undefined' && hero.gold !== undefined) ? hero.gold : 0;
-        
-        if (amount > currentMeso) {
-            showTradeAlert("所持金が足りません！");
-            return;
-        }
-        
-        // 一度置いた金額より少なくすることはできない！
-        if (amount < myTradeCurrency) {
-            showTradeAlert("一度トレードに提示した金額を減らすことはできません！");
-            return;
-        }
-        
-        myTradeCurrency = amount;
-        updateTradeCurrencyDisplay(); // 自分の画面を更新
-        
-        // サーバーへ金額を送信する
-        // 🌟 サーバーへ金額を送信する（targetId を追加！）
-        if (typeof socket !== 'undefined') {
-            socket.emit('updateTradeCurrency', { 
-                currency: myTradeCurrency,
-                targetId: window._currentTradePartnerId || null // ← これを追加！
-            });
-        }
-
-        modal.style.display = 'none';
-    };
-}
-
-// 通貨の表示を更新する関数（単位なし版）
-function updateTradeCurrencyDisplay() {
-    const myCurrencyEl = document.getElementById('trade-my-meso'); 
-    if (myCurrencyEl) {
-        myCurrencyEl.innerText = myTradeCurrency.toLocaleString();
-    }
-    
-    const oppCurrencyEl = document.getElementById('trade-opponent-meso');
-    if (oppCurrencyEl) {
-        oppCurrencyEl.innerText = opponentTradeCurrency.toLocaleString();
-    }
-}
-
-// 🤝 トレードの陳列データおよび画面を完全にリセットする関数
-function resetTradeSlots() {
-    // 自分のトレードスロットをすべて空にする
-    myTradeSlots = [null, null, null, null, null, null, null, null, null];
-    // 相手のトレードスロットも安全のためリセット
-    opponentTradeSlots = [null, null, null, null, null, null, null, null, null];
-
-    // 🌟 通貨（ゴールド等）の金額もリセット
-    myTradeCurrency = 0;
-    opponentTradeCurrency = 0;
-
-    // 画面の見た目を更新して綺麗にする
-    updateMyTradeDisplay();
-    updateOpponentTradeDisplay();
-    updateTradeCurrencyDisplay(); // 🌟 金額の表示も「0 Gold」などにリセット
-
-    console.log("[Trade] トレードウィンドウが閉じられたため、陳列アイテムと通貨をリセットしました。");
 }
 
 // ============================================================
@@ -5732,11 +4538,7 @@ function drawUIOverlay(hero) {
     // ツールチップ描画の実行
     if (!window.isDisconnected && typeof tCtx !== 'undefined') {
         if (window.hoveredItemForTooltip) {
-            // スロットの位置ではなく、マウスのブラウザ画面上の生座標を渡す
-            const clientX = window.rawClientX !== undefined ? window.rawClientX : mouseX;
-            const clientY = window.rawClientY !== undefined ? window.rawClientY : mouseY;
-            
-            drawItemTooltip(tCtx, window.hoveredItemForTooltip, clientX, clientY, hero);
+            drawItemTooltip(tCtx, window.hoveredItemForTooltip, mouseX, mouseY, hero);
         }
     }
 }
@@ -8010,13 +6812,6 @@ function drawTopStatusUI(hero) {
     // 🌟 角丸の半径（ちょっぴり丸めるための数値：3px）
     const cornerRadius = 3;
 
-    // 🌟 HPバーの一時的な変色（フラグ）のカウントダウン処理
-    let isFlashing = false;
-    if (hero && hero.hpFlashTimer && hero.hpFlashTimer > 0) {
-        isFlashing = true;
-        hero.hpFlashTimer--;
-    }
-
     ctx.save();
 
     // 1. 背景パネル
@@ -8055,15 +6850,10 @@ function drawTopStatusUI(hero) {
     }
     ctx.fill();
     
-    // HPバー中身（🌟 回復フラグが立っている間は真っ白に光らせる！）
+    // HPバー中身
     const currentHpW = Math.max(0, barWidth * hpRate);
     if (currentHpW > 0) {
-        if (isFlashing) {
-            ctx.fillStyle = "#ffffff"; // 光っている間は白く変色
-        } else {
-            ctx.fillStyle = hpRate > 0.3 ? "#2ecc71" : "#e74c3c"; // 通常時の色
-        }
-
+        ctx.fillStyle = hpRate > 0.3 ? "#2ecc71" : "#e74c3c";
         ctx.beginPath();
         if (ctx.roundRect) {
             // 中身の幅が角丸の直径より小さい場合の保険としてMath.maxを使用
@@ -8218,47 +7008,7 @@ function drawTopStatusUI(hero) {
     ctx.shadowBlur = 0;
 
     ctx.restore();
-    
-    // 🌟 アラートタイマーが動いていたら、画面中央に文字を浮かび上がらせる
-    if (typeof window.healAlertTimer !== 'undefined' && window.healAlertTimer > 0) {
-        window.healAlertTimer--; // 1フレームずつ減らす
-
-        ctx.save();
-        ctx.font = "bold 24px Arial";
-        ctx.textAlign = "center";
-        ctx.textBaseline = "middle";
-
-        // 画面の中央あたりの座標（あるいはキャラの頭上など）
-        const centerX = ctx.canvas.width / 2;
-        const centerY = ctx.canvas.height / 2 - 50; // 少し上に配置
-
-        // ふんわり上に浮かび上がる演出（タイマーに合わせてY座標を上にずらす）
-        const floatOffsetY = (60 - window.healAlertTimer) * 0.5;
-
-        // 文字のフチ（黒）
-        ctx.fillStyle = "black";
-        ctx.fillText(window.healAlertText, centerX, centerY - floatOffsetY);
-
-        // 文字本体（鮮やかな黄緑色など）
-        ctx.fillStyle = "#00ff66";
-        ctx.fillText(window.healAlertText, centerX, centerY - floatOffsetY);
-
-        ctx.restore();
-    }
 }
-
-socket.on('player_healed', (data) => {
-    if (typeof hero !== 'undefined' && hero) {
-        hero.hp = data.hp;
-        
-        // 既存の文字用アラート
-        //window.healAlertText = `+${data.healAmount} HP RECOVERED!`;
-        //window.healAlertTimer = 60; 
-
-        // 🌟 HPバーを一時的に変色させるフラグ（60フレーム ＝ 約1秒間持続）
-        hero.hpFlashTimer = 60; 
-    }
-});
 
 // ============================================================
 // :::DRAW_PLAYER_HP::: 🛡️ プレイヤーHPバーのレンダリング管理
@@ -8270,7 +7020,7 @@ socket.on('player_healed', (data) => {
  * - アニメーション演出：displayRatio を用いたダメージ残像（白バー）の滑らかな追従
  * - メンテナンス性：マジックナンバーを廃し、すべて VIEW_CONFIG に集約
  */
-function drawPlayerHP20260913(hero) {
+function drawPlayerHP(hero) {
     const uiX = VIEW_CONFIG.ui.paddingX;
     const uiY = VIEW_CONFIG.ui.paddingY;
     const barW = VIEW_CONFIG.ui.hpBarWidth;
@@ -9216,7 +7966,7 @@ function drawInventoryGrid(ctx, inventory) {
             const itemData = inventory[i];
             const isHovered = (i === hoveredSlotIndex);
 
-            // 🌟 レア度によるグローカラーの判定（アイテム用）
+            // 1. レア度の判定
             let glowColor = null;
             if (itemData && itemData.type && (itemData.count || 0) > 0) {
                 if ((itemData.type === 'sword' || itemData.type === 'shield') && 
@@ -9232,11 +7982,11 @@ function drawInventoryGrid(ctx, inventory) {
                 }
             }
 
-            // 🎯 1. スロット背景＆枠：常にレア度カラーを反映させずノーマル（null）で描画
-            let cachedSlotImg = getCachedBagSlotImage(slotSize, null, isHovered);
+            // 2. スロット背景の取得＆描画
+            let cachedSlotImg = getCachedBagSlotImage(slotSize, glowColor, isHovered);
             bc.drawImage(cachedSlotImg, x - slotPadding, y - slotPadding);
 
-            // 2. アイテムがいれば中身を描画
+            // 3. アイテムがいれば中身を描画
             if (itemData && itemData.type) {
                 let type = itemData.type;
                 let count = itemData.count || 0;
@@ -9280,7 +8030,7 @@ function drawInventoryGrid(ctx, inventory) {
                             }
                         }
 
-                        // アイテム画像の描画（🌟 アイテム自体のグロー発光は維持）
+                        // アイテム画像の描画（バッグ側と同一の高級感ある白枠・レア度発光演出）
                         if (displayImg && displayImg.complete && typeof displayImg.naturalWidth === 'number' && displayImg.naturalWidth > 0) {
                             let m = 5;
                             let imgX = x + m;
@@ -9299,6 +8049,7 @@ function drawInventoryGrid(ctx, inventory) {
                                 bc.shadowBlur = 8;
                                 bc.drawImage(displayImg, imgX, imgY, imgW, imgH);
                             } else {
+                                // 🌟 バッグ側と同じ美しい白枠・ハイライト演出
                                 bc.shadowBlur = 8;
                                 bc.shadowColor = "rgba(255, 255, 255, 0.95)";
                                 bc.shadowOffsetX = 0;
@@ -9314,7 +8065,7 @@ function drawInventoryGrid(ctx, inventory) {
                             }
                             bc.restore();
 
-                            // 3. 装備中バッジ（E）
+                            // 4. 装備中バッジ（E）
                             if (itemData.isEquipped) {
                                 bc.save();
                                 const badgeW = 16;
@@ -9344,7 +8095,7 @@ function drawInventoryGrid(ctx, inventory) {
                                 bc.restore();
                             }
 
-                            // 4. 個数表示バッジ
+                            // 5. 個数表示バッジ
                             const isStackItem = (category === 'ETC' || category === 'USE');
                             if ((isStackItem && count >= 1) || count > 1) {
                                 bc.save();
@@ -9648,56 +8399,6 @@ function drawBagTabs() {
     }
 }
 
-const inventoryWindow = document.getElementById('inventory-window');
-const windowHeader = inventoryWindow.querySelector('.window-header');
-
-let isDragging = false;
-let startX = 0;
-let startY = 0;
-
-// タイトルバーを押した瞬間
-windowHeader.addEventListener('mousedown', (e) => {
-    if (e.button !== 0) return; // 左クリックのみ反応
-
-    isDragging = true;
-    startX = e.clientX;
-    startY = e.clientY;
-
-    // 1. 現在の画面上の位置（viewport基準）をそのまま取得
-    const rect = inventoryWindow.getBoundingClientRect();
-
-    // 2. position: fixed なので、rect.left / top をそのまま style に代入できる
-    inventoryWindow.style.left = `${rect.left}px`;
-    inventoryWindow.style.top = `${rect.top}px`;
-
-    // 3. 中央寄せに使っていた transform を解除
-    inventoryWindow.style.transform = 'none';
-
-    // 4. 移動計算用の基準位置を保存
-    initialLeft = rect.left;
-    initialTop = rect.top;
-
-    e.stopPropagation();
-    e.preventDefault();
-});
-
-// マウスを動かしている最中（画面全体で監視）
-document.addEventListener('mousemove', (e) => {
-    if (!isDragging) return;
-
-    const dx = e.clientX - startX;
-    const dy = e.clientY - startY;
-
-    // 以前計算した initialLeft/Top を基準に移動
-    inventoryWindow.style.left = `${initialLeft + dx}px`;
-    inventoryWindow.style.top = `${initialTop + dy}px`;
-});
-
-// マウスを離したとき
-document.addEventListener('mouseup', () => {
-    isDragging = false;
-});
-
 // 🎒 スロットの背景・枠・ハイライトをキャッシュするための保持用変数
 let _cachedBagSlotImages = {}; // 鍵: "slotSize_glowType", 値: OffscreenCanvas or canvas
 
@@ -9722,7 +8423,7 @@ function getCachedBagSlotImage(slotSize, glowColor, isHovered) {
     // --- 1. スロットカラーの決定 ---
     let slotBgColor = "rgba(12, 17, 26, 0.99)";      // デフォルト背景（漆黒）
     let slotCenterColor = "rgba(32, 41, 60, 0.98)";   // デフォルト中央用
-    let slotBorderColor = "rgba(71, 85, 105, 0.85)";   // デフォルト枠
+    let slotBorderColor = "rgba(71, 85, 105, 0.85)";  // デフォルト枠
 
     if (glowColor === '#ff0000') { // 神級
         slotBgColor = "rgba(45, 12, 15, 0.95)";
@@ -9890,7 +8591,7 @@ function drawBagGrid() {
         let bc = _bagCacheCtx;
         bc.save();
         
-        // DPRにあわせてスケールを調整
+        // DPRにあわせてスケールを調整（これで文字やアイコンがクッキリ描画されます）
         bc.setTransform(dpr, 0, 0, dpr, 0, 0);
         bc.imageSmoothingEnabled = true;
         bc.imageSmoothingQuality = 'high';
@@ -9920,7 +8621,7 @@ function drawBagGrid() {
 
             let isHovered = (i === hoveredSlotIndex);
 
-            // 1. レア度の判定（アイテム側のグローカラー用）
+            // 1. レア度の判定
             let glowColor = null;
             if (item && item.type && item.count > 0) {
                 if ((item.type === 'sword' || item.type === 'shield') && 
@@ -9942,8 +8643,8 @@ function drawBagGrid() {
                 }
             }
 
-            // 🌟 2. スロット背景＆枠：常にレア度カラーを反映させずノーマル（null）で描画
-            let cachedSlotImg = getCachedBagSlotImage(slotSize, null, isHovered);
+            // スロット背景画像を取得して描画
+            let cachedSlotImg = getCachedBagSlotImage(slotSize, glowColor, isHovered);
             bc.drawImage(cachedSlotImg, x - padding, y - padding);
 
             // 3. アイテムがいれば中身を描画
@@ -9990,7 +8691,7 @@ function drawBagGrid() {
                             }
                         }
 
-                        // 画像の描画（🌟 アイテム自体のグロー発光は維持）
+                        // 画像の描画
                         if (displayImg && displayImg.complete && typeof displayImg.naturalWidth === 'number' && displayImg.naturalWidth > 0) {
                             let m = 5;
                             let imgX = x + m;
@@ -10009,94 +8710,93 @@ function drawBagGrid() {
                                 bc.shadowBlur = 8;
                                 bc.drawImage(displayImg, imgX, imgY, imgW, imgH);
                             } else {
-                                // 通常アイテムの白縁（ふちどり）表現
-                                bc.shadowBlur = 6;
-                                bc.shadowColor = "rgba(255, 255, 255, 0.9)";
+                                bc.shadowBlur = 8;
+                                bc.shadowColor = "rgba(255, 255, 255, 0.95)";
                                 bc.shadowOffsetX = 0;
                                 bc.shadowOffsetY = 0;
                                 bc.drawImage(displayImg, imgX, imgY, imgW, imgH);
                                 
-                                bc.shadowBlur = 2;
-                                bc.shadowColor = "rgba(255, 255, 255, 1.0)";
+                                bc.shadowBlur = 3;
+                                bc.shadowColor = "rgba(255, 255, 255, 0.8)";
                                 bc.drawImage(displayImg, imgX, imgY, imgW, imgH);
 
                                 bc.shadowBlur = 0;
                                 bc.drawImage(displayImg, imgX, imgY, imgW, imgH);
                             }
                             bc.restore();
+                        }
 
-                            // 装備中バッジ（E）
-                            if (item.isEquipped) {
-                                bc.save();
-                                const badgeW = 16;
-                                const badgeH = 15;
-                                const badgeX = x + slotSize - badgeW - 2;
-                                const badgeY = y + 2;
-                                const radius = 3;
+                        // 装備中バッジ（E）
+                        if (item.isEquipped) {
+                            bc.save();
+                            const badgeW = 16;
+                            const badgeH = 15;
+                            const badgeX = x + slotSize - badgeW - 2;
+                            const badgeY = y + 2;
+                            const radius = 3;
 
-                                bc.fillStyle = 'rgba(10, 15, 25, 0.85)';
-                                bc.strokeStyle = '#34d399'; 
-                                bc.lineWidth = 1;
+                            bc.fillStyle = 'rgba(10, 15, 25, 0.85)';
+                            bc.strokeStyle = '#34d399'; 
+                            bc.lineWidth = 1;
 
-                                bc.beginPath();
-                                if (bc.roundRect) {
-                                    bc.roundRect(badgeX, badgeY, badgeW, badgeH, radius);
-                                } else {
-                                    bc.rect(badgeX, badgeY, badgeW, badgeH);
-                                }
-                                bc.fill();
-                                bc.stroke();
-
-                                bc.font = 'bold 10px "Segoe UI", sans-serif';
-                                bc.fillStyle = '#34d399';
-                                bc.textAlign = 'center';
-                                bc.textBaseline = 'middle';
-                                bc.fillText('E', badgeX + badgeW / 2, badgeY + badgeH / 2 + 0.5);
-                                bc.restore();
+                            bc.beginPath();
+                            if (bc.roundRect) {
+                                bc.roundRect(badgeX, badgeY, badgeW, badgeH, radius);
+                            } else {
+                                bc.rect(badgeX, badgeY, badgeW, badgeH);
                             }
+                            bc.fill();
+                            bc.stroke();
 
-                            // 個数表示バッジ
-                            const isStackItem = (category === 'ETC' || category === 'USE');
-                            if ((isStackItem && count >= 1) || count > 1) {
-                                bc.save();
-                                let countStr = String(count);
-                                let fontSize = countStr.length >= 4 ? 9 : (countStr.length === 3 ? 10 : 11);
-                                bc.font = `bold ${fontSize}px 'Segoe UI', sans-serif`;
-                                bc.textAlign = "right";
-                                bc.textBaseline = "middle";
+                            bc.font = 'bold 10px "Segoe UI", sans-serif';
+                            bc.fillStyle = '#34d399';
+                            bc.textAlign = 'center';
+                            bc.textBaseline = 'middle';
+                            bc.fillText('E', badgeX + badgeW / 2, badgeY + badgeH / 2 + 0.5);
+                            bc.restore();
+                        }
 
-                                let padX = 5;
-                                let badgeW = Math.max(18, countStr.length * 7 + padX * 2);
-                                let badgeH = 15;
-                                
-                                let badgeX = (x + slotSize) - badgeW - 2;
-                                let badgeY = (y + slotSize) - badgeH - 2;
-                                let radius = 3.5;
+                        // 個数表示バッジ
+                        const isStackItem = (category === 'ETC' || category === 'USE');
+                        if ((isStackItem && count >= 1) || count > 1) {
+                            bc.save();
+                            let countStr = String(count);
+                            let fontSize = countStr.length >= 4 ? 9 : (countStr.length === 3 ? 10 : 11);
+                            bc.font = `bold ${fontSize}px 'Segoe UI', sans-serif`;
+                            bc.textAlign = "right";
+                            bc.textBaseline = "middle";
 
-                                bc.shadowColor = "rgba(0, 0, 0, 0.4)";
-                                bc.shadowBlur = 3;
-                                bc.shadowOffsetY = 1;
+                            let padX = 5;
+                            let badgeW = Math.max(18, countStr.length * 7 + padX * 2);
+                            let badgeH = 15;
+                            
+                            let badgeX = (x + slotSize) - badgeW - 2;
+                            let badgeY = (y + slotSize) - badgeH - 2;
+                            let radius = 3.5;
 
-                                bc.fillStyle = "rgba(10, 15, 25, 0.85)";
-                                bc.strokeStyle = "rgba(100, 116, 139, 0.6)";
-                                bc.lineWidth = 1;
+                            bc.shadowColor = "rgba(0, 0, 0, 0.4)";
+                            bc.shadowBlur = 3;
+                            bc.shadowOffsetY = 1;
 
-                                bc.beginPath();
-                                if (bc.roundRect) {
-                                    bc.roundRect(badgeX, badgeY, badgeW, badgeH, radius);
-                                } else {
-                                    bc.rect(badgeX, badgeY, badgeW, badgeH);
-                                }
-                                bc.fill();
-                                bc.stroke();
+                            bc.fillStyle = "rgba(10, 15, 25, 0.85)";
+                            bc.strokeStyle = "rgba(100, 116, 139, 0.6)";
+                            bc.lineWidth = 1;
 
-                                bc.shadowBlur = 0;
-                                bc.shadowOffsetY = 0;
-
-                                bc.fillStyle = "#ffffff";
-                                bc.fillText(countStr, badgeX + badgeW - padX, badgeY + badgeH / 2 + 0.5);
-                                bc.restore();
+                            bc.beginPath();
+                            if (bc.roundRect) {
+                                bc.roundRect(badgeX, badgeY, badgeW, badgeH, radius);
+                            } else {
+                                bc.rect(badgeX, badgeY, badgeW, badgeH);
                             }
+                            bc.fill();
+                            bc.stroke();
+
+                            bc.shadowBlur = 0;
+                            bc.shadowOffsetY = 0;
+
+                            bc.fillStyle = "#ffffff";
+                            bc.fillText(countStr, badgeX + badgeW - padX, badgeY + badgeH / 2 + 0.5);
+                            bc.restore();
                         }
                     }
                 }
@@ -10203,381 +8903,18 @@ function drawBagGrid() {
 
         bc.restore();
     }
-	
-	// 🚀 インベントリ専用HTML Canvasへの描画
-    const targetCanvas = document.getElementById('inventoryCanvas');
-    if (targetCanvas) {
-        const targetCtx = targetCanvas.getContext('2d');
-        targetCtx.save();
-        targetCtx.clearRect(0, 0, targetCanvas.width, targetCanvas.height);
-        
-        // アンチエイリアスを有効にしてくっきり描画させる
-        targetCtx.imageSmoothingEnabled = true;
-        targetCtx.imageSmoothingQuality = 'high';
-        
-        // キャッシュ（高解像度）をターゲットCanvasのCSSサイズ（300x400）に合わせて綺麗に流し込む
-        targetCtx.drawImage(
-            _bagCacheCanvas, 
-            0, 0, _bagCacheCanvas.width, _bagCacheCanvas.height, 
-            0, 0, 300, 400 // CSS上の表示サイズに合わせる
-        );
 
-        // ==========================================================
-        // 🌟 【追加】inventoryCanvas内でアイテムを掴んで追尾させる描画処理
-        // ==========================================================
-        if (typeof selectedSlotIndex !== 'undefined' && selectedSlotIndex !== -1) {
-            const heldItem = bagSource[selectedSlotIndex];
-            if (heldItem && heldItem.type) {
-                const localMouseX = mX - bagX;
-                const localMouseY = mY - bagY;
+    // 🚀 メイン画面への描画（CSSピクセルサイズを指定して綺麗に引き伸ばし・表示する）
+    ctx.save();
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';
+    ctx.drawImage(_bagCacheCanvas, 0, 0, cacheWidth * dpr, cacheHeight * dpr, bagX, bagY, cacheWidth, cacheHeight);
+    ctx.restore();
 
-                const iconDrawSize = 32;
-                const drawX = localMouseX - iconDrawSize / 2;
-                const drawY = localMouseY - iconDrawSize / 2;
-
-                let displayImg = null;
-                if (heldItem.image) {
-                    displayImg = heldItem.image;
-                } else if (typeof itemImages !== 'undefined' && itemImages[heldItem.type]) {
-                    displayImg = itemImages[heldItem.type];
-                } else if (typeof ITEM_CONFIG !== 'undefined' && ITEM_CONFIG[heldItem.type]) {
-                    let config = ITEM_CONFIG[heldItem.type];
-                    displayImg = config.isAnimated ? (config.images ? config.images[0] : null) : config.image;
-                }
-
-                if (displayImg && displayImg.complete && displayImg.naturalWidth > 0) {
-                    targetCtx.save();
-                    targetCtx.globalAlpha = 0.65; // うっすら表示
-                    targetCtx.imageSmoothingEnabled = true;
-                    targetCtx.imageSmoothingQuality = 'high';
-                    targetCtx.drawImage(displayImg, drawX, drawY, iconDrawSize, iconDrawSize);
-                    targetCtx.restore();
-                }
-            }
-        }
-
-        targetCtx.restore();
-    }
-	
     // ツールチップ用のホバーアイテム設定
     if (hoveredSlotIndex !== -1 && bagSource[hoveredSlotIndex]) {
         window.hoveredItemForTooltip = bagSource[hoveredSlotIndex];
     }
-}
-
-// ============================================================
-// :::INVENTORY_CANVAS_CONTROLLER::: 🖱️ インベントリキャンバス上の操作一括制御（ダブルクリック対応版）
-// ============================================================
-const inventoryCanvas = document.getElementById('inventoryCanvas');
-
-// ダブルクリック判定用の変数（重複定義を防ぐため typeof でガード）
-if (typeof lastBagClickTime === 'undefined') {
-    var lastBagClickTime = 0;
-    var lastBagClickIndex = -1;
-}
-
-if (inventoryCanvas) {
-    // 🌟 mousedown を inventoryCanvas に紐付け
-    inventoryCanvas.addEventListener('mousedown', (event) => {
-        if (window.isDisconnected) return;
-
-        const rect = inventoryCanvas.getBoundingClientRect();
-        
-        // mousemove と同じ考え方で、インベントリ内の正確なローカル座標を算出
-        const clickX = event.clientX - rect.left + (gameWindows.inventory ? gameWindows.inventory.x : 0);
-        const clickY = event.clientY - rect.top + (gameWindows.inventory ? gameWindows.inventory.y : 0);
-
-        console.log(`[InventoryClick] (${Math.round(clickX)}, ${Math.round(clickY)})`);
-
-        // インベントリウィンドウが開いているか確認
-        const win = gameWindows && gameWindows.inventory;
-        if (!win || !win.isOpen) return;
-
-        let bagX = win.x;
-        let bagY = win.y;
-        let cols = 5;
-        let slotSize = 40;
-        let spacing = 5;
-        let startX = bagX + 20;
-        let startY = bagY + 70;
-        let scrollRow = win.scrollY || 0;
-        let maxVisibleRows = 6;
-        let maxTotalSlots = 50;
-
-        let clickedSlotIndex = -1;
-        let drawnIndex = 0;
-        let startIndex = scrollRow * cols;
-        let endIndex = startIndex + (cols * maxVisibleRows);
-
-        let alreadyCheckedETC = new Set();
-
-        for (let i = 0; i < maxTotalSlots; i++) {
-            let item = (hero && hero.inventory) ? hero.inventory[i] : null;
-
-            if (i < startIndex || i >= endIndex) {
-                continue;
-            }
-
-            let col = drawnIndex % cols;
-            let row = Math.floor(drawnIndex / cols);
-            let x = startX + col * (slotSize + spacing);
-            let y = startY + row * (slotSize + spacing);
-
-            if (clickX >= x && clickX <= x + slotSize && clickY >= y && clickY <= y + slotSize) {
-                if (item && item.type) {
-                    let category = (typeof itemCategories !== 'undefined') ? itemCategories[item.type] : null;
-                    if (category === 'ETC') {
-                        if (!alreadyCheckedETC.has(item.type)) {
-                            alreadyCheckedETC.add(item.type);
-                        }
-                    }
-                }
-                clickedSlotIndex = i;
-                break;
-            }
-            drawnIndex++;
-        }
-
-        // バッグ内のスロットがクリックされた場合
-        if (clickedSlotIndex !== -1) {
-            console.log(`[ClickDebug] バッグスロットIndex: ${clickedSlotIndex} をクリック.`);
-            
-            const item = hero && hero.inventory && hero.inventory[clickedSlotIndex];
-            const vendingWin = document.getElementById('vending-window');
-            const isVendingOpen = vendingWin && vendingWin.style.display === 'block';
-
-            // 🌟 露店出品モードの処理
-            if (item && isVendingOpen) {
-                let baseName = item.name || item.item_name || "アイテム";
-                if (typeof ITEM_CONFIG !== 'undefined' && ITEM_CONFIG[item.type]) {
-                    baseName = ITEM_CONFIG[item.type].display_name || ITEM_CONFIG[item.type].name;
-                }
-
-                const checkStr = `${item.category || ''} ${item.item_type || ''} ${item.type}`.toLowerCase();
-                const isEquip = checkStr.includes('shield') || checkStr.includes('sword');
-                
-                let rankName = "";
-                if (isEquip) {
-                    const bonus = (item.totalALLStats || 0) - (item.totalFirstStats || 0);
-                    if (bonus >= 30)      { rankName = "(神級)"; }
-                    else if (bonus >= 25) { rankName = "(超伝説)"; }
-                    else if (bonus >= 20) { rankName = "(極上)"; }
-                    else if (bonus >= 15) { rankName = "(伝説)"; }
-                    else if (bonus >= 10) { rankName = "(希少)"; }
-                    else if (bonus >= 5)  { rankName = "(良品)"; }
-                    else if (bonus >= 0)  { rankName = "(標準)"; }
-                    else                  { rankName = "(粗悪)"; }
-                }
-
-                const displayPromptName = `${baseName}${rankName}`;
-                const totalOwned = item.count || 1;
-
-                const modal = document.getElementById('vending-quantity-modal');
-                const qInput = document.getElementById('modal-quantity-input');
-                const pInput = document.getElementById('modal-price-input');
-                const confirmBtn = document.getElementById('modal-confirm-btn');
-                const cancelBtn = document.getElementById('modal-cancel-btn');
-
-                if (modal) {
-                    document.getElementById('modal-item-name').innerText = displayPromptName;
-                    document.getElementById('modal-max-quantity').innerText = totalOwned;
-                    
-                    qInput.value = isEquip ? 1 : totalOwned;
-                    qInput.disabled = isEquip;
-                    pInput.value = 1000;
-
-                    modal.style.display = 'block';
-
-                    confirmBtn.onclick = null;
-                    cancelBtn.onclick = null;
-
-                    cancelBtn.onclick = () => {
-                        modal.style.display = 'none';
-                    };
-
-                    confirmBtn.onclick = () => {
-                        const sellCount = parseInt(qInput.value);
-                        const price = parseInt(pInput.value);
-
-                        if (isNaN(sellCount) || sellCount <= 0 || sellCount > totalOwned) {
-                            alert("有効な数量を入力してください。");
-                            return;
-                        }
-                        if (isNaN(price) || price < 0) {
-                            alert("有効な価格を入力してください。");
-                            return;
-                        }
-
-                        const iconPath = item.imageName ? `${IMAGE_DOMAIN}item_assets/${item.imageName}.png` : `${IMAGE_DOMAIN}item_assets/${item.type}.png`;
-                        
-                        const itemToSend = { 
-                            ...item, 
-                            name: displayPromptName, 
-                            displayName: displayPromptName,
-                            iconUrl: iconPath,
-                            price: price,
-                            count: sellCount,
-                            originalIndex: clickedSlotIndex 
-                        };
-
-                        if (typeof addItemToVendingList === 'function') {
-                            addItemToVendingList(itemToSend);
-                            if (typeof playMouseClickSound === 'function') playMouseClickSound();
-                        }
-                        modal.style.display = 'none';
-                    };
-                }
-                return;
-            }
-
-            // ------------------------------------------------------------
-            // 🌟 【新規追加】ダブルクリックの判定処理 (露店モードオフ時)
-            // ------------------------------------------------------------
-            const currentTime = Date.now();
-            const timeDiff = currentTime - lastBagClickTime;
-
-            if (lastBagClickIndex === clickedSlotIndex && timeDiff < 400 && timeDiff > 50) {
-                console.log(`[Doubleclick] バッグスロット ${clickedSlotIndex} のダブルクリックを検知！`);
-
-                if (!item) {
-                    lastBagClickTime = 0;
-                    lastBagClickIndex = -1;
-                    return;
-                }
-
-                // 4. トレードウィンドウが開いている場合の割り込み処理
-                const tradeEl = document.getElementById('trade-window');
-                const isTradeOpen = (tradeEl && tradeEl.style.display !== 'none' && tradeEl.style.display !== '');
-                
-                if (isTradeOpen) {
-                    const targetNameEl = document.getElementById('trade-target-name');
-                    const hasOpponent = targetNameEl && targetNameEl.innerText.trim() !== "";
-
-                    if (!hasOpponent) {
-                        console.log("⚠️ 相手が入室するまでアイテムを陳列することはできません。");
-                        lastBagClickTime = 0;
-                        lastBagClickIndex = -1;
-                        return;
-                    }
-
-                    const alreadyExists = myTradeSlots.some(slot => slot && slot.slot_index === clickedSlotIndex);
-                    if (alreadyExists) {
-                        console.log("⚠️ このアイテムはすでにトレードスロットに陳列されています！");
-                        lastBagClickTime = 0;
-                        lastBagClickIndex = -1;
-                        return;
-                    }
-
-                    const emptySlotIndex = myTradeSlots.findIndex(slot => slot === null);
-                    if (emptySlotIndex === -1) {
-                        console.log("⚠️ トレードスロットがいっぱいです（最大9個まで）！");
-                        lastBagClickTime = 0;
-                        lastBagClickIndex = -1;
-                        return;
-                    }
-
-                    console.log(`[Trade] トレードスロットへアイテムを追加します: スロット ${clickedSlotIndex}`);
-                    
-                    myTradeSlots[emptySlotIndex] = { ...item, slot_index: clickedSlotIndex };
-                    updateMyTradeDisplay();
-                    // 🌟 修正：サーバー側が確実に宛先を特定できるように、もしあれば targetId や partnerId を添えてあげる
-socket.emit('updateTradeOffer', { 
-    tradeSlots: myTradeSlots,
-    targetId: window._currentTradePartnerId || null // 相手のIDを一緒に乗せる
-});
-
-                    selectedSlotIndex = -1;
-                    lastBagClickTime = 0;
-                    lastBagClickIndex = -1;
-                    return;
-                }
-
-                // アイテムの装備品判定
-                const itemName = (item.name || "").toLowerCase();
-                const itemType = (item.type || "").toLowerCase();
-                const isEquipment = itemType === 'sword' || itemType === 'shield' || 
-                                     itemName.includes('剣') || itemName.includes('盾') ||
-                                     itemName.includes('sword') || itemName.includes('shield');
-
-                if (isEquipment) {
-                    console.log(`[Equip] スロット ${clickedSlotIndex} の装備品を脱着します: ${itemName}`);
-                    socket.emit('equipItem', { slotIndex: clickedSlotIndex });
-                } else {
-                    const targetItemName = item.name || item.type || "";
-                    console.log(`[ItemUse] スロット ${clickedSlotIndex} の消費アイテムを使用します: ${targetItemName}`);
-                    socket.emit('useConsumableItem', { 
-                        slotIndex: clickedSlotIndex, 
-                        item: item, 
-                        itemName: targetItemName 
-                    });
-                }
-                
-                if (typeof playEquipSound === 'function') playEquipSound();
-
-                selectedSlotIndex = -1;
-                lastBagClickTime = 0;
-                lastBagClickIndex = -1;
-                inventoryCanvas.style.cursor = "grab";
-                return;
-            } else {
-                // 1回目のクリックとして記録
-                lastBagClickTime = currentTime;
-                lastBagClickIndex = clickedSlotIndex;
-            }
-            // ------------------------------------------------------------
-
-            // 🌟 【最重要】アイテムを掴む・スワップするロジック
-            if (typeof selectedSlotIndex !== 'undefined' && selectedSlotIndex !== -1 && selectedSlotIndex !== clickedSlotIndex) {
-                socket.emit('swapItems', { from: selectedSlotIndex, to: clickedSlotIndex });
-                if (typeof playDropSound === 'function') playDropSound();
-                selectedSlotIndex = -1;
-                inventoryCanvas.style.cursor = "grab"; 
-            } else if (typeof selectedSlotIndex !== 'undefined' && selectedSlotIndex === clickedSlotIndex) {
-                selectedSlotIndex = -1; 
-                inventoryCanvas.style.cursor = "grab";
-                if (typeof playDropSound === 'function') playDropSound();
-            } else if (item) {
-                selectedSlotIndex = clickedSlotIndex; 
-                inventoryCanvas.style.cursor = "grabbing"; 
-                if (typeof playHoverSound === 'function') playHoverSound();
-            }
-            return;
-        } else {
-            // インベントリの枠外をクリックした場合（アイテムを捨てる判定など）
-            lastBagClickIndex = -1; // 枠外をクリックしたらダブルクリック判定をリセット
-            if (typeof selectedSlotIndex !== 'undefined' && selectedSlotIndex !== -1) {
-                const item = hero && hero.inventory && hero.inventory[selectedSlotIndex];
-                if (item && typeof openDropForm === 'function') {
-                    openDropForm(selectedSlotIndex, item);
-                    selectedSlotIndex = -1;
-                    inventoryCanvas.style.cursor = "grab";
-                    return;
-                }
-            }
-        }
-    });
-
-    // 🌟 mousemove・mouseleave のコードをそのまま完全踏襲
-    inventoryCanvas.addEventListener('mousemove', (event) => {
-        const rect = inventoryCanvas.getBoundingClientRect();
-        
-        mouseX = event.clientX - rect.left + gameWindows.inventory.x;
-        mouseY = event.clientY - rect.top + gameWindows.inventory.y;
-        
-        window.rawClientX = event.clientX - 340 + window.scrollX;
-        window.rawClientY = event.clientY - 75 + window.scrollY;
-        
-        drawBagGrid();
-    });
-
-    inventoryCanvas.addEventListener('mouseleave', () => {
-        mouseX = -1;
-        mouseY = -1;
-        window.rawClientX = undefined;
-        window.rawClientY = undefined;
-        window.hoveredItemForTooltip = null; 
-        drawBagGrid();
-    });
 }
 
 /**
@@ -10753,32 +9090,9 @@ function updateScrollByMouseY(my, scrollBarY, scrollBarH) {
     gameWindows.inventory.scrollY = Math.round(clickRatio * maxScrollRow);
 }
 
-function initInventoryCanvasResolution() {
-    const canvas = document.getElementById('inventoryCanvas');
-    if (!canvas) return;
-
-    const dpr = window.devicePixelRatio || 1;
-    
-    // 表示サイズ（CSS上の大きさ）
-    const displayWidth = 300;
-    const displayHeight = 400;
-
-    // 内部の描画ピクセル数をDPR倍にして高精細化する
-    canvas.width = displayWidth * dpr;
-    canvas.height = displayHeight * dpr;
-
-    const ctx = canvas.getContext('2d');
-    // 描画倍率をスケーリングしておく
-    ctx.scale(dpr, dpr);
-}
-
-// 起動時に一度呼ぶ
-initInventoryCanvasResolution();
-
 // ============================================================
 // 🖱️ マウスホイールイベント（キャンバス内限定・完全共存版）
 // ============================================================
-/*
 window.addEventListener('wheel', (event) => {
     if (!gameWindows || !gameWindows.inventory || !gameWindows.inventory.isOpen) return;
 
@@ -10818,169 +9132,6 @@ window.addEventListener('wheel', (event) => {
         gameWindows.inventory.scrollY = Math.max(gameWindows.inventory.scrollY - 1, 0);
     }
 }, { passive: false });
-*/
-
-// ============================================================
-// 🖱️ マウスホイールイベント（ちょうど良いスピード調整版）
-// ============================================================
-if (typeof window._scrollAccumulator === 'undefined') {
-    window._scrollAccumulator = 0;
-}
-
-window.addEventListener('wheel', (event) => {
-    const inventoryWindow = document.getElementById('inventory-window');
-    
-    // 1. インベントリウィンドウが存在しない、または非表示なら何もしない
-    if (!inventoryWindow || inventoryWindow.style.display === 'none') {
-        return;
-    }
-
-    const targetElement = event.target;
-
-    // 2. マウスがインベントリの内部にあるか判定
-    if (!inventoryWindow.contains(targetElement)) {
-        return; 
-    }
-
-    event.preventDefault(); // ページ全体の予期せぬスクロールを防止
-
-    // gameWindows.inventory と scrollY の安全確保
-    if (typeof gameWindows === 'undefined') window.gameWindows = {};
-    if (!gameWindows.inventory) gameWindows.inventory = {};
-    gameWindows.inventory.scrollY = gameWindows.inventory.scrollY || 0;
-    
-    let maxScrollRow = 4; // スクロール可能な最大行数
-
-    // 🌟 【ここがポイント】ホイールの感度（標準的な1ノッチで反応するように調整）
-    // 数字を小さくすると軽くなり、大きくすると重くなります（おすすめは 30〜50 前後）
-    const scrollThreshold = 40; 
-
-    window._scrollAccumulator += event.deltaY;
-
-    if (window._scrollAccumulator >= scrollThreshold) {
-        // 下に1行スクロール
-        gameWindows.inventory.scrollY = Math.min(gameWindows.inventory.scrollY + 1, maxScrollRow);
-        window._scrollAccumulator = 0; // リセット
-    } else if (window._scrollAccumulator <= -scrollThreshold) {
-        // 上に1行スクロール
-        gameWindows.inventory.scrollY = Math.max(gameWindows.inventory.scrollY - 1, 0);
-        window._scrollAccumulator = 0; // リセット
-    }
-}, { passive: false });
-
-// ============================================================
-// :::INVENTORY_MOUSE_MOVE::: 📦 インベントリのウィンドウ対応マウス移動判定（デバッグ版）
-// ============================================================
-window.addEventListener('mousemove', (e) => {
-    if (window.isDisconnected) return;
-
-    const inventoryWindow = document.getElementById('inventory-window');
-    const targetCanvas = document.getElementById('inventoryCanvas');
-
-    // 1. 存在・非表示チェック
-    if (!inventoryWindow || inventoryWindow.style.display === 'none' || !targetCanvas) {
-        return; // ここで引っかかっている場合は、ID名や display の値が違います
-    }
-
-    // 2. マウスがインベントリウィンドウの内部にあるか判定
-    const targetElement = e.target;
-    if (!inventoryWindow.contains(targetElement)) {
-        return; // 🛑 【原因候補A】ここで弾かれている場合、inventoryWindow の範囲判定がDOMの構造とズレています
-    }
-
-	// 2026-9-20停止
-    //console.log("🟢 [DEBUG] マウスがインベントリ領域内に入りました！ target:", targetElement);
-
-    // 3. inventoryCanvas基準のローカル座標を算出
-    const rect = targetCanvas.getBoundingClientRect();
-    const localX = e.clientX - rect.left;
-    const localY = e.clientY - rect.top;
-	
-	// 2026-9-20停止
-    //console.log(`📍 [DEBUG] 座標計算 -> localX: ${localX.toFixed(1)}, localY: ${localY.toFixed(1)} (clientX: ${e.clientX}, rect.left: ${rect.left.toFixed(1)})`);
-
-    const invWin = gameWindows["inventory"];
-    if (!invWin) {
-        console.log("❌ [DEBUG] gameWindows['inventory'] が見つかりません！");
-        return;
-    }
-
-    // 閉じるボタンやヘッダーの判定
-    if (invWin.isMouseOverClose && invWin.isMouseOverClose(localX, localY)) {
-        console.log("🔴 [DEBUG] 閉じるボタンの上です");
-        targetCanvas.style.cursor = "pointer";
-        return;
-    }
-    if (invWin.isMouseOverHeader && invWin.isMouseOverHeader(localX, localY)) {
-        console.log("🟠 [DEBUG] ヘッダーの上です");
-        targetCanvas.style.cursor = "move";
-        return;
-    }
-
-    // 4. バッグ内スロットの判定
-    let cols = 5;
-    let slotSize = 40;
-    let spacing = 5;
-    let startX = 20;
-    let startY = 70;
-    let scrollRow = invWin.scrollY || 0;
-    let maxVisibleRows = 6;
-    let maxTotalSlots = 50;
-
-    let drawnIndex = 0;
-    let startIndex = scrollRow * cols;
-    let endIndex = startIndex + (cols * maxVisibleRows);
-    let isOverBagItem = false;
-    let alreadyCheckedETC = new Set();
-
-    for (let i = 0; i < maxTotalSlots; i++) {
-        if (i < startIndex || i >= endIndex) {
-            continue;
-        }
-
-        let item = (hero && hero.inventory) ? hero.inventory[i] : null;
-        let col = drawnIndex % cols;
-        let row = Math.floor(drawnIndex / cols);
-        let x = startX + col * (slotSize + spacing);
-        let y = startY + row * (slotSize + spacing);
-
-        // スロットの範囲内かチェック
-        if (localX >= x && localX <= x + slotSize && localY >= y && localY <= y + slotSize) {
-		
-			// 2026-9-20停止
-            //console.log(`🎯 [DEBUG] スロット #${i} (行列: ${col},${row}) の上にヒットしました！ item:`, item);
-            if (item) {
-                let category = (typeof itemCategories !== 'undefined') ? itemCategories[item.type] : null;
-                // 2026-9-20停止
-				//console.log(`🏷️ [DEBUG] アイテム情報 -> type: ${item.type}, category: ${category}`);
-                if (category === 'ETC') {
-                    if (!alreadyCheckedETC.has(item.type)) {
-                        alreadyCheckedETC.add(item.type);
-                        isOverBagItem = true;
-                    }
-                } else {
-                    isOverBagItem = true;
-                }
-            } else {
-                console.log(`📭 [DEBUG] スロット #${i} は空です`);
-            }
-            break;
-        }
-        drawnIndex++;
-    }
-
-	// 2026-9-20停止
-    //console.log(`✨ [DEBUG] 最終判定 -> isOverBagItem: ${isOverBagItem}, selectedSlotIndex: ${selectedSlotIndex}`);
-
-    // カーソルの切り替え
-    if (isOverBagItem || selectedSlotIndex !== -1) {
-        targetCanvas.style.cursor = selectedSlotIndex !== -1 ? "grabbing" : "grab";
-		// 2026-9-20停止
-        //console.log("👉 [DEBUG] カーソルを grab に変更しました");
-    } else {
-        targetCanvas.style.cursor = "default";
-    }
-});
 
 // ============================================================
 // ⌨️ キーボード全体でのブラウザスクロール防止
@@ -11030,32 +9181,6 @@ window.addEventListener('mousedown', (event) => {
         handleBagMouseDown(event.clientX, event.clientY);
     }
 });
-
-// ============================================================
-// 🎒 インベントリの開閉を完全に一元管理する関数
-// ============================================================
-function toggleInventoryWindow(forceOpen) {
-    if (!gameWindows) window.gameWindows = {};
-    if (!gameWindows.inventory) gameWindows.inventory = {};
-
-    // 開閉状態を決定（強制指定がなければ反転）
-    const nextState = (typeof forceOpen === 'boolean') ? forceOpen : !gameWindows.inventory.isOpen;
-    
-    // 1. JS側のフラグを同期
-    gameWindows.inventory.isOpen = nextState;
-
-    // 2. HTMLウィンドウの表示/非表示を同期
-    const inventoryWindow = document.getElementById('inventory-window');
-    if (inventoryWindow) {
-        inventoryWindow.style.display = nextState ? 'block' : 'none';
-    }
-
-    // 3. 開いたときにCanvasの解像度を整える
-    if (nextState) {
-        if (typeof initInventoryCanvasResolution === 'function') initInventoryCanvasResolution();
-        if (typeof drawBagGrid === 'function') drawBagGrid();
-    }
-}
 
 // ============================================================
 // :::DRAW_EXTRA_WINDOW::: 🛠️ デバッグメニューウィンドウの描画管理
@@ -11197,34 +9322,6 @@ const EQUIPMENT_SLOTS = [
     { x: 110, y: 92,  type: 'belt',    label: '帯', name: 'ベルト' }
 ];
 
-// 🌟 レア度カラー算出関数（パフォーマンスとスコープの観点から外側に配置）
-function getEquipGlowColor(item) {
-    if (!item) return null;
-    const statKeys = ['str', 'dex', 'int', 'luk', 'maxHp', 'maxMp', 'atk', 'matk', 'def'];
-    let totalFirst = item.totalFirstStats;
-    let totalAll = item.totalALLStats;
-
-    if (totalFirst === undefined && typeof ITEM_CATALOG !== 'undefined') {
-        const catItem = ITEM_CATALOG[item.id || item.item_id];
-        if (catItem) {
-            totalFirst = statKeys.reduce((acc, k) => acc + (Number(catItem[k]) || 0), 0);
-        }
-    }
-    if (totalAll === undefined) {
-        totalAll = statKeys.reduce((acc, k) => acc + (Number(item[k]) || 0), 0);
-    }
-
-    if (totalAll !== undefined && totalFirst !== undefined) {
-        const bonus = totalAll - totalFirst;
-        if (bonus >= 30) return "#ff4d4d";
-        if (bonus >= 25) return "#4ade80";
-        if (bonus >= 20) return "#facc15";
-        if (bonus >= 15) return "#e879f9";
-        if (bonus >= 10) return "#38bdf8";
-    }
-    return null;
-}
-
 function drawEquipmentWindow() {
     const win = gameWindows.equipment;
     if (!win.isOpen) return;
@@ -11319,6 +9416,34 @@ function drawEquipmentWindow() {
 
     // ホバーされた未装備スロットのテキストを保持
     let hoveredSlotName = null;
+
+    // レア度カラー算出関数
+    function getEquipGlowColor(item) {
+        if (!item) return null;
+        const statKeys = ['str', 'dex', 'int', 'luk', 'maxHp', 'maxMp', 'atk', 'matk', 'def'];
+        let totalFirst = item.totalFirstStats;
+        let totalAll = item.totalALLStats;
+
+        if (totalFirst === undefined && typeof ITEM_CATALOG !== 'undefined') {
+            const catItem = ITEM_CATALOG[item.id || item.item_id];
+            if (catItem) {
+                totalFirst = statKeys.reduce((acc, k) => acc + (Number(catItem[k]) || 0), 0);
+            }
+        }
+        if (totalAll === undefined) {
+            totalAll = statKeys.reduce((acc, k) => acc + (Number(item[k]) || 0), 0);
+        }
+
+        if (totalAll !== undefined && totalFirst !== undefined) {
+            const bonus = totalAll - totalFirst;
+            if (bonus >= 30) return "#ff4d4d";
+            if (bonus >= 25) return "#4ade80";
+            if (bonus >= 20) return "#facc15";
+            if (bonus >= 15) return "#e879f9";
+            if (bonus >= 10) return "#38bdf8";
+        }
+        return null;
+    }
 
     EQUIPMENT_SLOTS.forEach(slot => {
         const { x, y, type, label, name } = slot;
@@ -11560,152 +9685,10 @@ function drawWorldMapWindow() {
     ctx.restore();
 }
 
-function drawMiniMapWindow(hero) {
-    const win = gameWindows?.minimap;
-    if (!win || !win.isOpen) return;
-
-    // 基本ウィンドウ枠（タイトルバー込み）
-    if (typeof drawSimpleWindow === 'function') {
-        drawSimpleWindow("📍 Mini Map", win.x, win.y, win.w, win.h);
-    } else {
-        ctx.fillStyle = '#0f172a';
-        ctx.fillRect(win.x, win.y, win.w, win.h);
-    }
-
-    const headerHeight = 26;
-    const padding = 8;
-    const mapArea = {
-        x: win.x + padding,
-        y: win.y + headerHeight + padding,
-        w: Math.max(40, win.w - padding * 2),
-        h: Math.max(40, win.h - headerHeight - padding * 2)
-    };
-
-    ctx.save();
-    
-    // 領域外への描画はみ出しを防止
-    ctx.beginPath();
-    ctx.rect(mapArea.x, mapArea.y, mapArea.w, mapArea.h);
-    ctx.clip();
-
-    // 暗いRPG風ミニマップ背景
-    ctx.fillStyle = 'rgba(15, 23, 42, 0.95)';
-    ctx.fillRect(mapArea.x, mapArea.y, mapArea.w, mapArea.h);
-
-    // マップデータ安全取得 ＋ 空データならデフォルトフォールバック
-    let currentMap = (typeof MAP_DATA !== 'undefined' && MAP_DATA) ? MAP_DATA : null;
-    if (!currentMap || !Array.isArray(currentMap.platforms) || currentMap.platforms.length === 0) {
-        currentMap = {
-            platforms: [
-                { x: 50,  y: 450, w: 180, h: 20 },
-                { x: 300, y: 300, w: 200, h: 20 }, 
-                { x: 550, y: 150, w: 200, h: 20 } 
-            ],
-            ladders: [{ x: 580, y1: 130, y2: 565 }]
-        };
-    }
-
-    // 実際の要素からワールドの端を動적算出
-    let maxW = 800;
-    let maxH = 600;
-    if (Array.isArray(currentMap.platforms)) {
-        for (const p of currentMap.platforms) {
-            maxW = Math.max(maxW, (p.x || 0) + (p.w || 0) + 40);
-            maxH = Math.max(maxH, (p.y || 0) + (p.h || 0) + 40);
-        }
-    }
-    if (Array.isArray(currentMap.ladders)) {
-        for (const l of currentMap.ladders) {
-            maxW = Math.max(maxW, (l.x || 0) + 40);
-            maxH = Math.max(maxH, Math.max(l.y1 || 0, l.y2 || 0) + 40);
-        }
-    }
-    const groundYSetting = SETTINGS?.SYSTEM?.GROUND_Y || 565;
-    maxH = Math.max(maxH, groundYSetting + 50);
-
-    const WORLD_W = currentMap.width || maxW;
-    const WORLD_H = currentMap.height || maxH;
-
-    const scaleX = mapArea.w / WORLD_W;
-    const scaleY = mapArea.h / WORLD_H;
-
-    // 地面
-    const gx = mapArea.x;
-    const gy = mapArea.y + groundYSetting * scaleY;
-    const gw = mapArea.w;
-    const gh = Math.max(4, (WORLD_H - groundYSetting + 40) * scaleY);
-
-    ctx.fillStyle = '#334155';
-    ctx.fillRect(gx, gy, gw, gh);
-    ctx.fillStyle = '#64748b';
-    ctx.fillRect(gx, gy, gw, Math.max(2, gh * 0.18));
-
-    // はしご
-    if (Array.isArray(currentMap.ladders)) {
-        ctx.strokeStyle = 'rgba(56, 189, 248, 0.55)';
-        ctx.lineWidth = Math.max(1.5, 2 * scaleX);
-        for (const l of currentMap.ladders) {
-            const lx = mapArea.x + (l.x || 0) * scaleX;
-            const ly1 = mapArea.y + (l.y1 || 0) * scaleY;
-            const ly2 = mapArea.y + (l.y2 || 0) * scaleY;
-            ctx.beginPath();
-            ctx.moveTo(lx, ly1);
-            ctx.lineTo(lx, ly2);
-            ctx.stroke();
-        }
-    }
-
-    // 足場
-    if (Array.isArray(currentMap.platforms)) {
-        ctx.fillStyle = '#cbd5e1';
-        for (const p of currentMap.platforms) {
-            const px = mapArea.x + (p.x || 0) * scaleX;
-            const py = mapArea.y + (p.y || 0) * scaleY;
-            const pw = Math.max(3, (p.w || 50) * scaleX);
-            const ph = Math.max(3, (p.h || 10) * scaleY);
-            ctx.fillRect(px, py, pw, ph);
-        }
-    }
-
-    // 🌟 ネスト構造対応のプレイヤー検出 & 手動オフセット調整
-    const rawHero = hero 
-        || (typeof player !== 'undefined' ? player : null)
-        || (typeof localPlayer !== 'undefined' ? localPlayer : null)
-        || (typeof myPlayer !== 'undefined' ? myPlayer : null)
-        || (typeof window !== 'undefined' ? (window.player || window.hero || window.localPlayer) : null);
-
-    const hxVal = rawHero ? (rawHero.x ?? rawHero.pos?.x ?? rawHero.position?.x) : undefined;
-    const hyVal = rawHero ? (rawHero.y ?? rawHero.pos?.y ?? rawHero.position?.y) : undefined;
-
-    if (rawHero && typeof hxVal === 'number' && typeof hyVal === 'number') {
-        // 🔧 【手動調整用】足場にぴったり乗せるためのピクセル補正
-        const manualOffsetX = 0;
-        const manualOffsetY = 25; // 浮きが気になる場合はここを調整（プラスで下へ、マイナスで上へ：例: 15〜25など）
-
-        const targetX = hxVal + manualOffsetX;
-        const targetY = hyVal + manualOffsetY;
-
-        const hx = mapArea.x + targetX * scaleX;
-        const hy = mapArea.y + targetY * scaleY;
-
-        ctx.fillStyle = '#f43f5e'; // ピンクドット
-        ctx.beginPath();
-        ctx.arc(hx, hy, 4, 0, Math.PI * 2);
-        ctx.fill();
-
-        ctx.strokeStyle = '#ffffff';
-        ctx.lineWidth = 1;
-        ctx.stroke();
-    }
-
-    ctx.restore();
-
-    // ミニマップ内周りのボーダー
-    ctx.save();
-    ctx.strokeStyle = 'rgba(100, 116, 139, 0.8)';
-    ctx.lineWidth = 1;
-    ctx.strokeRect(mapArea.x, mapArea.y, mapArea.w, mapArea.h);
-    ctx.restore();
+function drawMiniMapWindow() {
+    const win = gameWindows.minimap;
+    if (!win.isOpen) return;
+    drawSimpleWindow("📍 Mini Map", win.x, win.y, win.w, win.h);
 }
 
 function drawJournalWindow() {
@@ -12481,16 +10464,9 @@ function drawHeavyBookWindow(title, x, y, w, h) {
     ctx.restore();
 }
 
-// ============================================================
-// 📚 BOOK用スクロール設定（ホイール・マウス操作・スピード調整版）
-// ============================================================
+// スクロール設定（ホイール・マウス操作）
 if (typeof window !== 'undefined' && !window._bookScrollInitialized) {
     window._bookScrollInitialized = true;
-    
-    // ホイールの蓄積量を記憶する変数
-    if (typeof window._bookScrollAccumulator === 'undefined') {
-        window._bookScrollAccumulator = 0;
-    }
     
     // ホイールスクロール（ブラウザスクロール抑制対応版）
     window.addEventListener('wheel', (e) => {
@@ -12498,6 +10474,7 @@ if (typeof window !== 'undefined' && !window._bookScrollInitialized) {
             const win = gameWindows.book;
             
             // マウスカーソルがBOOKウィンドウの範囲内にあるか判定
+            // (キャンバス上の座標系に合わせて調整しています)
             const mouseX = e.offsetX !== undefined ? e.offsetX : (e.clientX - (typeof canvas !== 'undefined' ? canvas.getBoundingClientRect().left : 0));
             const mouseY = e.offsetY !== undefined ? e.offsetY : (e.clientY - (typeof canvas !== 'undefined' ? canvas.getBoundingClientRect().top : 0));
 
@@ -12509,6 +10486,11 @@ if (typeof window !== 'undefined' && !window._bookScrollInitialized) {
 
                 if (typeof win.scrollY === 'undefined') win.scrollY = 0;
                 
+                // スクロール量を調整（2行ずつ動かす例。お好みで変更可能）
+                win.scrollY += e.deltaY > 0 ? 2 : -2; 
+                
+                if (win.scrollY < 0) win.scrollY = 0;
+                
                 // 最大スクロール値の計算
                 const blockTotalHeight = (typeof drawSize !== 'undefined' ? drawSize : 40) * 1.15 + 26 + 14 + 12;
                 const headerH = 40;
@@ -12517,20 +10499,7 @@ if (typeof window !== 'undefined' && !window._bookScrollInitialized) {
                 const totalContentHeight = 102 * blockTotalHeight;
                 const maxScrollY = Math.max(0, Math.ceil((totalContentHeight - contentH) / blockTotalHeight));
 
-                // 🌟 【スピード調整ポイント】感度のしきい値（インベントリと同じ「40」に設定）
-                // 数値が大きいほど重く、小さいほど軽くなります
-                const scrollThreshold = 40;
-                window._bookScrollAccumulator += e.deltaY;
-
-                if (window._bookScrollAccumulator >= scrollThreshold) {
-                    // 下に1行（または1ブロック）進める
-                    win.scrollY = Math.min(maxScrollY, win.scrollY + 1);
-                    window._bookScrollAccumulator = 0; // リセット
-                } else if (window._bookScrollAccumulator <= -scrollThreshold) {
-                    // 上に1行（または1ブロック）戻す
-                    win.scrollY = Math.max(0, win.scrollY - 1);
-                    window._bookScrollAccumulator = 0; // リセット
-                }
+                if (win.scrollY > maxScrollY) win.scrollY = maxScrollY;
             }
         }
     }, { passive: false }); // passive: false にすることで e.preventDefault() を有効化
@@ -13990,334 +11959,6 @@ if (typeof lastClickTime === 'undefined') {
     var lastClickWindow = ''; // どこをクリックしたかを区別 ('top_bar' or 'bag_window')
 }
 
-// ============================================================
-// :::DOUBLE_CLICK_CONTROLLER::: 🖱️ 10スロット ＆ 50スロットバッグのダブルクリック判定
-// ============================================================
-if (typeof lastClickTime === 'undefined') {
-    var lastClickTime = 0;
-    var lastClickIndex = -1;
-    var lastClickWindow = ''; // どこをクリックしたかを区別 ('top_bar' or 'bag_window')
-}
-
-// 🌟 トレード用アイテム配列の定義（まだ定義していなければここで初期化）
-/*
-if (typeof myTradeSlots === 'undefined') {
-    var myTradeSlots = [null, null, null, null, null, null, null, null, null];
-}
-
-// 🌟 自分のトレードスロット（3x3）の見た目を更新する関数
-function updateMyTradeDisplay() {
-    const myGrid = document.getElementById('my-slot-grid');
-    if (!myGrid) return;
-    
-    const slots = myGrid.children;
-    for (let i = 0; i < 9; i++) {
-        const slotEl = slots[i];
-        if (!slotEl) continue;
-        
-        const item = myTradeSlots[i];
-        slotEl.innerHTML = ''; // 一度中身をクリア
-        slotEl.style.position = 'relative'; // 個数表示用
-        
-        if (item) {
-            const img = document.createElement('img');
-            
-            // 🌟 教えていただいた確実なパス生成ロジック
-            const imgName = item.image_name || item.type || item.id;
-            img.src = `${IMAGE_DOMAIN}item_assets/${imgName}.png`;
-            
-            img.style.width = '32px';
-            img.style.height = '32px';
-            img.style.margin = '4px';
-            img.style.display = 'block';
-			
-			// 🌟 ここを追加！ドット絵をくっきり表示する魔法のCSS
-            img.style.imageRendering = 'pixelated';
-            img.style.imageRendering = '-moz-crisp-edges';
-            img.style.imageRendering = 'crisp-edges';
-			
-            slotEl.appendChild(img);
-            
-            // ついでに個数（count）が1より多ければ、右下に個数を表示
-            if (item.count && item.count > 1) {
-                const countBadge = document.createElement('span');
-                countBadge.innerText = item.count;
-                countBadge.style.cssText = "position: absolute; bottom: 2px; right: 4px; font-size: 10px; font-weight: bold; color: white; text-shadow: 1px 1px 1px black;";
-                slotEl.appendChild(countBadge);
-            }
-        }
-    }
-}
-*/
-
-// ============================================================
-// :::TRADE_SYSTEM::: 🤝 トレード用配列 ＆ 描画関数（カーソル制御・完全同期版）
-// ============================================================
-if (typeof myTradeSlots === 'undefined') {
-    var myTradeSlots = [null, null, null, null, null, null, null, null, null];
-}
-
-// 自分のトレードスロット更新関数
-function updateMyTradeDisplay() {
-    const myGrid = document.getElementById('my-slot-grid');
-    if (!myGrid) return;
-    
-    const slots = myGrid.children;
-    for (let i = 0; i < 9; i++) {
-        const slotEl = slots[i];
-        if (!slotEl) continue;
-        
-        const item = myTradeSlots[i];
-        slotEl.innerHTML = '';
-        slotEl.style.position = 'relative';
-        slotEl.style.width = '48px';
-        slotEl.style.height = '48px';
-        slotEl.style.boxSizing = 'border-box';
-        
-        // 🌟 カーソル制御: アイテムの有無で切り替え
-        if (item && item.type) {
-            slotEl.style.cursor = 'pointer'; // 陳列されている場合は人差し指
-        } else {
-            slotEl.style.cursor = 'default'; // 空きスロットはデフォルト（通常の矢印）
-        }
-        
-        // 🌟 1. 先にこのアイテムのレア度（グローカラー）を1箇所で完全に計算・決定する
-        let sharedGlowColor = null;
-        if (item && item.type) {
-            if (item.glowColor) {
-                sharedGlowColor = item.glowColor;
-            } else if ((item.type === 'sword' || item.type === 'shield') && 
-                       item.totalALLStats !== undefined && 
-                       item.totalFirstStats !== undefined) {
-                
-                let bonus = item.totalALLStats - item.totalFirstStats;
-                if (bonus >= 30) {
-                    sharedGlowColor = "rgba(255, 0, 0, 0.8)";       // 神級（赤）
-                } else if (bonus >= 25) {
-                    sharedGlowColor = "rgba(0, 255, 0, 0.8)";       // 超伝説（緑）
-                } else if (bonus >= 20) {
-                    sharedGlowColor = "rgba(255, 255, 0, 0.8)";     // 極上（黄）
-                } else if (bonus >= 15) {
-                    sharedGlowColor = "rgba(255, 0, 255, 0.8)";     // 伝説（紫）
-                } else if (bonus >= 10) {
-                    sharedGlowColor = "rgba(0, 204, 255, 0.8)";     // 希少（青）
-                }
-            }
-        }
-
-        // 🌟 2. 背景スロットの描画（共通化したグローカラーを渡すので1個目から正確に光る）
-        if (typeof getCachedBagSlotImage === 'function') {
-            const slotBgCanvas = getCachedBagSlotImage(40, sharedGlowColor, false, true);
-            slotEl.style.backgroundImage = `url(${slotBgCanvas.toDataURL()})`;
-            slotEl.style.backgroundSize = 'cover';
-        }
-        
-        // 🌟 3. アイテム画像の作成と輪郭発光の適用
-        if (item && item.type) {
-            const img = document.createElement('img');
-            let imgName = item.image_name || item.type || item.id;
-            img.src = `${IMAGE_DOMAIN}item_assets/${imgName}.png`;
-
-            // バッグと同じ 30px × 30px にサイズ統一
-            img.style.width = '30px';
-            img.style.height = '30px';
-            img.style.position = 'absolute';
-            img.style.top = '50%';
-            img.style.left = '50%';
-            img.style.transform = 'translate(-50%, -50%)';
-            img.style.display = 'block';
-            
-            // ドット絵くっきり設定
-            img.style.imageRendering = 'pixelated';
-            img.style.imageRendering = '-moz-crisp-edges';
-            img.style.imageRendering = 'crisp-edges';
-
-            // レア度に応じたグロー（影）をアイテムの輪郭に沿って反映
-            if (sharedGlowColor) {
-                img.style.filter = `drop-shadow(0 0 4px ${sharedGlowColor}) drop-shadow(0 0 8px ${sharedGlowColor})`;
-            } else {
-                img.style.filter = 'drop-shadow(0 0 2px rgba(255,255,255,0.8))';
-            }
-
-            slotEl.appendChild(img);
-            
-            // 個数表示（縦横バランス最適化版）
-            if (item.count && item.count > 1) {
-                const countBadge = document.createElement('span');
-                let countStr = String(item.count);
-                let fontSize = countStr.length >= 4 ? 9 : (countStr.length === 3 ? 10 : 11);
-                
-                countBadge.innerText = countStr;
-                countBadge.style.cssText = `
-                    position: absolute;
-                    bottom: 2px;
-                    right: 2px;
-                    height: 14px;
-                    padding: 0 3px;
-                    font-size: ${fontSize}px;
-                    font-family: 'Segoe UI', -apple-system, sans-serif;
-                    font-weight: bold;
-                    color: #ffffff;
-                    background-color: rgba(10, 15, 25, 0.85);
-                    border: 1px solid rgba(100, 116, 139, 0.6);
-                    border-radius: 3px;
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
-                    box-sizing: border-box;
-                    pointer-events: none;
-                    transform: scale(0.8, 0.95);
-                    transform-origin: bottom right;
-                `;
-                slotEl.appendChild(countBadge);
-            }
-        }
-    }
-}
-
-// 相手のトレードスロットデータ
-if (typeof opponentTradeSlots === 'undefined') {
-    var opponentTradeSlots = [null, null, null, null, null, null, null, null, null];
-}
-
-// 相手のトレードスロット更新関数（自分側と完全に同じロジック）
-function updateOpponentTradeDisplay() {
-    const oppGrid = document.getElementById('opponent-slot-grid');
-    if (!oppGrid) return;
-    
-    const slots = oppGrid.children;
-    for (let i = 0; i < 9; i++) {
-        const slotEl = slots[i];
-        if (!slotEl) continue;
-        
-        const item = opponentTradeSlots[i];
-        slotEl.innerHTML = '';
-        slotEl.style.position = 'relative';
-        slotEl.style.width = '48px';
-        slotEl.style.height = '48px';
-        slotEl.style.boxSizing = 'border-box';
-        
-        // 🌟 カーソル制御: アイテムの有無で切り替え
-        if (item && item.type) {
-            slotEl.style.cursor = 'pointer'; // 陳列されている場合は人差し指
-        } else {
-            slotEl.style.cursor = 'default'; // 空きスロットはデフォルト
-        }
-        
-        // 1. レア度カラーの共通計算
-        let sharedGlowColor = null;
-        if (item && item.type) {
-            if (item.glowColor) {
-                sharedGlowColor = item.glowColor;
-            } else if ((item.type === 'sword' || item.type === 'shield') && 
-                       item.totalALLStats !== undefined && 
-                       item.totalFirstStats !== undefined) {
-                
-                let bonus = item.totalALLStats - item.totalFirstStats;
-                if (bonus >= 30) {
-                    sharedGlowColor = "rgba(255, 0, 0, 0.8)";
-                } else if (bonus >= 25) {
-                    sharedGlowColor = "rgba(0, 255, 0, 0.8)";
-                } else if (bonus >= 20) {
-                    sharedGlowColor = "rgba(255, 255, 0, 0.8)";
-                } else if (bonus >= 15) {
-                    sharedGlowColor = "rgba(255, 0, 255, 0.8)";
-                } else if (bonus >= 10) {
-                    sharedGlowColor = "rgba(0, 204, 255, 0.8)";
-                }
-            }
-        }
-
-        // 2. 背景スロットの描画
-        if (typeof getCachedBagSlotImage === 'function') {
-            const slotBgCanvas = getCachedBagSlotImage(40, sharedGlowColor, false, true);
-            slotEl.style.backgroundImage = `url(${slotBgCanvas.toDataURL()})`;
-            slotEl.style.backgroundSize = 'cover';
-        }
-        
-        // 3. アイテム画像の描画
-        if (item && item.type) {
-            const img = document.createElement('img');
-            let imgName = item.image_name || item.type || item.id;
-            img.src = `${IMAGE_DOMAIN}item_assets/${imgName}.png`;
-
-            img.style.width = '30px';
-            img.style.height = '30px';
-            img.style.position = 'absolute';
-            img.style.top = '50%';
-            img.style.left = '50%';
-            img.style.transform = 'translate(-50%, -50%)';
-            img.style.display = 'block';
-            
-            img.style.imageRendering = 'pixelated';
-            img.style.imageRendering = '-moz-crisp-edges';
-            img.style.imageRendering = 'crisp-edges';
-
-            if (sharedGlowColor) {
-                img.style.filter = `drop-shadow(0 0 4px ${sharedGlowColor}) drop-shadow(0 0 8px ${sharedGlowColor})`;
-            } else {
-                img.style.filter = 'drop-shadow(0 0 2px rgba(255,255,255,0.8))';
-            }
-
-            slotEl.appendChild(img);
-            
-            // 個数表示（縦横バランス最適化版）
-            if (item.count && item.count > 1) {
-                const countBadge = document.createElement('span');
-                let countStr = String(item.count);
-                let fontSize = countStr.length >= 4 ? 9 : (countStr.length === 3 ? 10 : 11);
-                
-                countBadge.innerText = countStr;
-                countBadge.style.cssText = `
-                    position: absolute;
-                    bottom: 2px;
-                    right: 2px;
-                    height: 14px;
-                    padding: 0 3px;
-                    font-size: ${fontSize}px;
-                    font-family: 'Segoe UI', -apple-system, sans-serif;
-                    font-weight: bold;
-                    color: #ffffff;
-                    background-color: rgba(10, 15, 25, 0.85);
-                    border: 1px solid rgba(100, 116, 139, 0.6);
-                    border-radius: 3px;
-                    display: flex;
-                    align-items: center;
-                    justify-content: center;
-                    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
-                    box-sizing: border-box;
-                    pointer-events: none;
-                    transform: scale(0.8, 0.95);
-                    transform-origin: bottom right;
-                `;
-                slotEl.appendChild(countBadge);
-            }
-        }
-    }
-}
-
-// ============================================================
-// :::MOUSE_POSITION_TRACKER::: 🖱️ マウス座標の追跡用変数 & リスナー
-// ============================================================
-let currentMouseX = 0;
-let currentMouseY = 0;
-
-canvas.addEventListener('mousemove', (event) => {
-    const rect = canvas.getBoundingClientRect();
-    currentMouseX = event.clientX - rect.left;
-    currentMouseY = event.clientY - rect.top;
-});
-
-// ============================================================
-// :::DOUBLE_CLICK_CONTROLLER::: 🖱️ 10スロット ＆ 50スロットバッグのダブルクリック判定
-// ============================================================
-if (typeof lastClickTime === 'undefined') {
-    var lastClickTime = 0;
-    var lastClickIndex = -1;
-    var lastClickWindow = ''; // どこをクリックしたかを区別 ('top_bar' or 'bag_window')
-}
-
 canvas.addEventListener('click', (event) => {
     const rect = canvas.getBoundingClientRect();
     const clickX = event.clientX - rect.left;
@@ -14399,67 +12040,6 @@ canvas.addEventListener('click', (event) => {
 
             console.log(`${targetIndex}番のアイテム:`, item);
 
-            // ------------------------------------------------------------
-            // 🌟 4. トレードウィンドウが開いている場合の割り込み処理
-            // ------------------------------------------------------------
-            const tradeEl = document.getElementById('trade-window');
-            const isTradeOpen = (tradeEl && tradeEl.style.display !== 'none' && tradeEl.style.display !== '');
-            
-            if (isTradeOpen) {
-                // 相手が入室しているかチェック
-                const targetNameEl = document.getElementById('trade-target-name');
-                const hasOpponent = targetNameEl && targetNameEl.innerText.trim() !== "";
-
-                if (!hasOpponent) {
-                    console.log("⚠️ 相手が入室するまでアイテムを陳列することはできません。");
-                    lastClickTime = 0;
-                    lastClickIndex = -1;
-                    lastClickWindow = '';
-                    return;
-                }
-
-                // すでに同じインベントリスロットのアイテムがトレード枠に置いてあるかチェック
-                const alreadyExists = myTradeSlots.some(slot => slot && slot.slot_index === targetIndex);
-                if (alreadyExists) {
-                    console.log("⚠️ このアイテムはすでにトレードスロットに陳列されています！");
-                    lastClickTime = 0;
-                    lastClickIndex = -1;
-                    lastClickWindow = '';
-                    return;
-                }
-
-                // 🌟 トレードスロット（9枠）がすべて埋まっていないかチェック
-                const emptySlotIndex = myTradeSlots.findIndex(slot => slot === null);
-                if (emptySlotIndex === -1) {
-                    console.log("⚠️ トレードスロットがいっぱいです（最大9個まで）！");
-                    lastClickTime = 0;
-                    lastClickIndex = -1;
-                    lastClickWindow = '';
-                    return;
-                }
-
-                console.log(`[Trade] トレードスロットへアイテムを追加します: スロット ${targetIndex}`);
-                
-                // 空いているスロットにアイテムを登録して画面を更新
-                myTradeSlots[emptySlotIndex] = item;
-                updateMyTradeDisplay();
-                
-                // 🌟 サーバーへ自分のトレード枠の中身を送信する
-                // 🌟 【修正】サーバーへ送るときに、保存しておいた相手のID（targetId）を一緒に乗せる！
-socket.emit('updateTradeOffer', { 
-    tradeSlots: myTradeSlots,
-    targetId: window._currentTradePartnerId || null // ← ここを追加
-});
-
-                selectedSlotIndex = -1;
-
-                // 判定をリセットして終了
-                lastClickTime = 0;
-                lastClickIndex = -1;
-                lastClickWindow = '';
-                return;
-            }
-
             // アイテムの識別名やカテゴリを取得
             const itemName = (item.name || "").toLowerCase();
             const itemType = (item.type || "").toLowerCase();
@@ -14505,184 +12085,6 @@ socket.emit('updateTradeOffer', {
         lastClickWindow = '';
     }
 });
-
-// ============================================================
-// :::TRADE_TOOLTIP_RENDERER::: 🎨 ツールチップ描画処理（相手の変数名自動対応版）
-// ============================================================
-let hoveredTradeItem = null;
-let tooltipMouseX = 0;
-let tooltipMouseY = 0;
-
-function setupTradeGridListeners() {
-    const myGrid = document.getElementById('my-slot-grid');
-    const oppGrid = document.getElementById('opponent-slot-grid');
-
-    // 🌟 1. 自分のトレード枠の紐付け
-    if (myGrid && !myGrid.dataset.listenerAttached) {
-        myGrid.dataset.listenerAttached = "true";
-        
-        myGrid.addEventListener('mousemove', (e) => {
-            const rect = myGrid.getBoundingClientRect();
-            const localX = e.clientX - rect.left;
-            const localY = e.clientY - rect.top;
-            const col = Math.floor(localX / (rect.width / 3));
-            const row = Math.floor(localY / (rect.height / 3));
-            const slotIndex = row * 3 + col;
-
-            const currentMySlots = typeof myTradeSlots !== 'undefined' ? myTradeSlots : [];
-            if (currentMySlots[slotIndex]) {
-                hoveredTradeItem = currentMySlots[slotIndex];
-                tooltipMouseX = e.clientX;
-                tooltipMouseY = e.clientY;
-            } else {
-                hoveredTradeItem = null;
-            }
-        });
-
-        myGrid.addEventListener('mouseleave', () => {
-            hoveredTradeItem = null;
-        });
-    }
-
-    // 🌟 2. 相手のトレード枠の紐付け（複数の変数名を自動で探す安全設計）
-    if (oppGrid && !oppGrid.dataset.listenerAttached) {
-        oppGrid.dataset.listenerAttached = "true";
-        
-        oppGrid.addEventListener('mousemove', (e) => {
-            const rect = oppGrid.getBoundingClientRect();
-            const localX = e.clientX - rect.left;
-            const localY = e.clientY - rect.top;
-            const col = Math.floor(localX / (rect.width / 3));
-            const row = Math.floor(localY / (rect.height / 3));
-            const slotIndex = row * 3 + col;
-
-            // 相手のアイテムが入っていそうなグローバル変数を片っ端からチェック
-            const currentOppSlots = 
-                (typeof opponentTradeSlots !== 'undefined' && opponentTradeSlots) ? opponentTradeSlots :
-                (typeof otherTradeSlots !== 'undefined' && otherTradeSlots) ? otherTradeSlots :
-                (typeof partnerTradeSlots !== 'undefined' && partnerTradeSlots) ? partnerTradeSlots :
-                (typeof targetTradeSlots !== 'undefined' && targetTradeSlots) ? targetTradeSlots : [];
-
-            if (currentOppSlots[slotIndex]) {
-                hoveredTradeItem = currentOppSlots[slotIndex];
-                tooltipMouseX = e.clientX;
-                tooltipMouseY = e.clientY;
-            } else {
-                hoveredTradeItem = null;
-            }
-        });
-
-        oppGrid.addEventListener('mouseleave', () => {
-            hoveredTradeItem = null;
-        });
-    }
-}
-
-// 毎フレームの描画ループ（drawGame内）で呼び出す関数
-function renderTradeTooltips(ctx, hero) {
-    const tradeEl = document.getElementById('trade-window');
-    const isTradeOpen = (tradeEl && tradeEl.style.display !== 'none' && tradeEl.style.display !== '');
-
-    if (!isTradeOpen) {
-        hoveredTradeItem = null;
-        return;
-    }
-
-    setupTradeGridListeners();
-
-    if (!hoveredTradeItem || typeof drawItemTooltip !== 'function') {
-        return;
-    }
-
-    const canvasRect = canvas.getBoundingClientRect();
-    const renderX = tooltipMouseX - canvasRect.left;
-    const renderY = tooltipMouseY - canvasRect.top;
-
-    drawItemTooltip(tCtx, hoveredTradeItem, renderX, renderY, hero);
-}
-
-// 相手がトレード枠を変更したときに関係データを受け取る
-socket.on('syncOpponentTrade', (data) => {
-    if (data && data.tradeSlots) {
-        opponentTradeSlots = data.tradeSlots;
-        updateOpponentTradeDisplay(); // 相手の画面を更新
-    }
-});
-
-// 相手の切断などによりトレードがキャンセルされたとき
-socket.on('tradeCancelled', (data) => {
-    console.log("⚠️ 相手が切断したため、トレードがキャンセルされました。");
-    
-    // トレードウィンドウを非表示にする
-    const tradeEl = document.getElementById('trade-window');
-    if (tradeEl) tradeEl.style.display = 'none';
-    
-    // 自分側のトレードスロットや相手のスロット配列をクリアしておく
-    if (typeof myTradeSlots !== 'undefined') myTradeSlots = [null, null, null, null, null, null, null, null, null];
-    if (typeof opponentTradeSlots !== 'undefined') opponentTradeSlots = [null, null, null, null, null, null, null, null, null];
-    
-    // 必要なら画面表示もリフレッシュ
-    if (typeof updateMyTradeDisplay === 'function') updateMyTradeDisplay();
-    if (typeof updateOpponentTradeDisplay === 'function') updateOpponentTradeDisplay();
-});
-
-// ============================================================
-// :::TRADE_WINDOW_DRAG::: 🖱️ トレードウィンドウのドラッグ移動機能
-// ============================================================
-function initTradeWindowDrag() {
-    const tradeWindow = document.getElementById('trade-window');
-    const tradeHeader = document.getElementById('trade-header');
-
-    if (!tradeWindow || !tradeHeader) return;
-
-    let isDragging = false;
-    let startX = 0;
-    let startY = 0;
-    let initialLeft = 0;
-    let initialTop = 0;
-
-    tradeHeader.addEventListener('mousedown', (e) => {
-        // ボタンや閉じるボタンを押した時はドラッグを開始しない
-        if (e.target.tagName === 'BUTTON') return;
-
-        isDragging = true;
-        startX = e.clientX;
-        startY = e.clientY;
-
-        // 現在の中央配置（transform）を解除し、現在のピクセル座標を絶対位置に固定する
-        const rect = tradeWindow.getBoundingClientRect();
-        tradeWindow.style.transform = 'none';
-        tradeWindow.style.left = rect.left + 'px';
-        tradeWindow.style.top = rect.top + 'px';
-
-        initialLeft = rect.left;
-        initialTop = rect.top;
-
-        // テキスト選択などを防ぐ
-        e.preventDefault();
-    });
-
-    document.addEventListener('mousemove', (e) => {
-        if (!isDragging) return;
-
-        const deltaX = e.clientX - startX;
-        const deltaY = e.clientY - startY;
-
-        tradeWindow.style.left = (initialLeft + deltaX) + 'px';
-        tradeWindow.style.top = (initialTop + deltaY) + 'px';
-    });
-
-    document.addEventListener('mouseup', () => {
-        isDragging = false;
-    });
-}
-
-// ページ読み込み完了時やスクリプト実行時に有効化
-if (document.readyState === 'complete' || document.readyState === 'interactive') {
-    initTradeWindowDrag();
-} else {
-    document.addEventListener('DOMContentLoaded', initTradeWindowDrag);
-}
 
 // ============================================================
 // :::GOLD_UI_CONTROLLER::: 💰 所持金UIのクリック判定

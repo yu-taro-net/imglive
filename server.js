@@ -547,6 +547,11 @@ try {
     }
 }
 
+// サーバー側のどこか分かりやすい場所に用意しておく入れ物
+const tradePartners = {};
+// 🔒 トレードのペアごとのロック回数を記録する場所
+const tradePairLocks = {};
+
 // ============================================================
 // :::SOCKET_CONNECTION::: 📞 サーバー正門・新規接続処理・初期データ配信
 // ============================================================
@@ -939,9 +944,6 @@ socket.on('save_player_data', async (data) => {
     }
 });
 
-// サーバー側のどこか分かりやすい場所に用意しておく入れ物
-const tradePartners = {};
-
 // 🔄 交換申し込みをクライアントから受け取ったとき
 socket.on('sendTradeRequest', (data) => {
     if (data.targetId) {
@@ -960,32 +962,147 @@ socket.on('sendTradeRequest', (data) => {
 socket.on('acceptTradeRequest', (data) => {
     if (data.targetId) {
         const acceptingPlayer = players[socket.id]; // 承諾した人（自分）
-        const requesterSocketId = data.targetId;     // 招待を送った人（相手）
+        const requesterSocketId = data.targetId;    // 招待を送った人（相手）
 
-        // 🌟 お互いをトレードパートナーとして記憶させる！
+        // お互いをトレードパートナーとして記憶させる
         tradePartners[socket.id] = requesterSocketId;
         tradePartners[requesterSocketId] = socket.id;
 
-        // 招待した側（targetId）へ、承諾した人のデータを送る
+        // 1. 🌟 招待した側（targetId）へ、承諾した人のデータと「相手のID」を教える
         io.to(requesterSocketId).emit('tradeRequestAccepted', {
+            senderId: socket.id,
+            partnerId: socket.id, // 🌟 ここを追加！招待した側も相手のIDを把握できるようにする
             name: acceptingPlayer ? acceptingPlayer.name : "相手",
             model_id: acceptingPlayer ? acceptingPlayer.model_id : 0,
             charVar: acceptingPlayer ? acceptingPlayer.charVar : 1
+        });
+        
+        // 2. 承諾した側（自分）に対しても「トレードが始まったよ」と通知を送る
+        socket.emit('tradeStarted', {
+            partnerId: requesterSocketId
         });
         
         console.log(`[Trade] 成立: ${socket.id} と ${requesterSocketId} がトレードを開始しました`);
     }
 });
 
-// 🌟 そして、先ほどの「トレード枠更新」の処理をここに置けば完璧に連動します！
+// 🌟 トレード枠の更新処理
 socket.on('updateTradeOffer', (data) => {
-    const partnerSocketId = tradePartners[socket.id]; // 記憶した相手のIDを引く
+    // 🌟 誰が送ってきたか、dataに targetId が含まれているかログに出す
+    console.log(`[Server DEBUG] updateTradeOffer 受信: 送信元=${socket.id}, data.targetId=${data.targetId}`);
+
+    // tradePartners から相手を引く
+    let partnerSocketId = tradePartners[socket.id];
     
+    // もし tradePartners にいなくても、クライアントから targetId が送られてきているならそれを補佐的に使う
+    if (!partnerSocketId && data.targetId) {
+        partnerSocketId = data.targetId;
+    }
+
+    console.log(`[Server DEBUG] 宛先パートナーID: ${partnerSocketId}`);
+
     if (partnerSocketId) {
         io.to(partnerSocketId).emit('syncOpponentTrade', {
             tradeSlots: data.tradeSlots
         });
         console.log(`[Server] トレード枠の更新を相手 (${partnerSocketId}) に送信しました`);
+    } else {
+        console.warn(`[Server Warning] ${socket.id} のトレード相手が見つかりませんでした！ tradePartners:`, tradePartners);
+    }
+});
+
+// 💰 トレード金額の更新を相手に同期する
+socket.on('updateTradeCurrency', (data) => {
+    console.log(`[Server DEBUG] updateTradeCurrency 受信: 送信元=${socket.id}, 金額=${data.currency}, data.targetId=${data.targetId}`);
+
+    // tradePartners から相手を引く
+    let partnerSocketId = tradePartners[socket.id];
+    
+    // 🌟 もし tradePartners にいなくても、クライアントから targetId が送られてきているならそれを補佐的に使う
+    if (!partnerSocketId && data.targetId) {
+        partnerSocketId = data.targetId;
+    }
+
+    console.log(`[Server DEBUG] 宛先パートナーID (金額): ${partnerSocketId}`);
+
+    if (partnerSocketId) {
+        // 相手へ「相手側の画面に表示すべき金額」として送る
+        io.to(partnerSocketId).emit('syncOpponentCurrency', {
+            currency: data.currency
+        });
+        console.log(`[Server] 金額の更新を相手 (${partnerSocketId}) に送信しました: ${data.currency}`);
+    } else {
+        console.warn(`[Server Warning] ${socket.id} のトレード金額の相手が見つかりませんでした！ tradePartners:`, tradePartners);
+    }
+});
+
+// 💬 トレード用チャットのメッセージを同期する
+socket.on('tradeChatMessage', (data) => {
+    console.log(`[Server DEBUG] tradeChatMessage 受信: 送信元=${socket.id}, メッセージ=${data.text}`);
+
+    // tradePartners から相手を引く
+    let partnerSocketId = tradePartners[socket.id];
+    
+    // 見つからない場合はクライアントから送られてきた targetId を補佐的に使う
+    if (!partnerSocketId && data.targetId) {
+        partnerSocketId = data.targetId;
+    }
+
+    if (partnerSocketId) {
+        // 送信元のプレイヤー名を取得（サーバー側の管理方法に合わせてください）
+        const senderPlayer = players[socket.id];
+        const senderName = senderPlayer ? senderPlayer.name : "相手";
+
+        // 相手の画面へイベントとメッセージ、送信者名を送信
+        io.to(partnerSocketId).emit('syncTradeChatMessage', {
+            senderName: senderName,
+            text: data.text
+        });
+        console.log(`[Server] チャットを相手 (${partnerSocketId}) に転送しました`);
+    } else {
+        console.warn(`[Server Warning] ${socket.id} のチャット送信先パートナーが見つかりませんでした！`);
+    }
+});
+
+// 🔒 トレードの準備完了（ロック）状態を同期する
+socket.on('updateTradeLock', (data) => {
+    let partnerSocketId = tradePartners[socket.id];
+    if (!partnerSocketId && data.targetId) {
+        partnerSocketId = data.targetId;
+    }
+
+    if (partnerSocketId) {
+        io.to(partnerSocketId).emit('syncOpponentLock', {
+            isLocked: data.isLocked
+        });
+        console.log(`[Server] ロック状態の更新を相手 (${partnerSocketId}) に送信しました: ${data.isLocked}`);
+
+        const sortedIds = [socket.id, partnerSocketId].sort();
+        const pairKey = `${sortedIds[0]}_${sortedIds[1]}`;
+
+        if (!tradePairLocks[pairKey]) {
+            tradePairLocks[pairKey] = { count: 0, lockedUsers: new Set() };
+        }
+
+        // 🌟 まだこの人がロックしていなければカウントを増やす（同じ人が連打しても2回にならないようにする）
+        if (!tradePairLocks[pairKey].lockedUsers.has(socket.id)) {
+            tradePairLocks[pairKey].lockedUsers.add(socket.id);
+            tradePairLocks[pairKey].count++;
+        }
+
+        console.log(`🔍 [Debug] ペア (${pairKey}) のロック人数: ${tradePairLocks[pairKey].count} / 2`);
+
+        // 🌟 2人分揃ったら完了！
+        if (tradePairLocks[pairKey].count >= 2) {
+            console.log(`[Server] 🎉 双方のロックが完了しました！ (${pairKey})`);
+            
+            io.to(sortedIds[0]).emit('tradeBothLocked');
+            io.to(sortedIds[1]).emit('tradeBothLocked');
+
+            delete tradePairLocks[pairKey];
+            delete tradePartners[sortedIds[0]];
+            delete tradePartners[sortedIds[1]];
+        }
     }
 });
 
