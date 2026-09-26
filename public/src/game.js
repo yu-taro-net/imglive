@@ -2396,7 +2396,8 @@ socket.on('state', (data) => {
         hero.model_id = myHeroData.model_id;
     }
 
-	console.log("サーバーから届いた model_id:", myHeroData.model_id);
+	// 停止 2026-9-24
+	//console.log("サーバーから届いた model_id:", myHeroData.model_id);
 	
     // 🌟 1. まずインベントリから「各種ステータスボーナスおよびHP/MP装備ボーナス」を正確に集計する
     let bonusStr = 0;
@@ -3777,7 +3778,7 @@ function update() {
 		
 		// 🌟 デバッグ用：何が判定されているかコンソールに出してみる
         if (typeof hoveredEquipItem !== 'undefined') {
-			// 停止 2026-9-5停止
+			// 停止 2026-9-5
             //console.log("hoveredEquipItem:", hoveredEquipItem);
         }
 
@@ -5138,7 +5139,7 @@ socket.on('tradeRequestAccepted', (opponentData) => {
 });
 
 // トレード画面を開いたときの初期化・名前セット処理
-function openTradeWindow(opponentName) {
+function openTradeWindow20260925(opponentName) {
     const tradeWindow = document.getElementById("trade-window");
     if (tradeWindow) {
         tradeWindow.style.display = 'block';
@@ -5445,32 +5446,54 @@ function initTradeChatEvents() {
 
 // 💡 交換ボタン（準備完了）が押されたときの処理
 function onTradeLockButtonClicked() {
+    const nameEl = document.getElementById('trade-target-name');
+    // 念のため、未入室ならここで弾く
+    if (!nameEl || nameEl.textContent.trim() === '（待機中...）') {
+        return;
+    }
+
     const myOverlay = document.getElementById('my-trade-overlay');
     if (!myOverlay) return;
 
-    // 🌟 すでにロック（白薄）されている場合は、もう解除できないので何もしない
+    // すでにロックされている場合は何もしない
     if (myOverlay.style.display === 'block') {
         return;
     }
 
-    // 自分のエリアを薄い白にする（ロック確定）
     myOverlay.style.display = 'block';
     console.log("🔒 自分のトレードをロックしました（解除不可）");
 
-    // （お好みで）ボタン自体を無効化してグレーアウトさせる場合
-    // const exchangeBtn = event.target;
-    // if (exchangeBtn) {
-    //     exchangeBtn.disabled = true;
-    //     exchangeBtn.style.opacity = "0.5";
-    //     exchangeBtn.style.cursor = "not-allowed";
-    // }
-
-    // サーバーへ「自分がロックした」という状態を送信
     if (typeof socket !== 'undefined') {
         socket.emit('updateTradeLock', {
-            isLocked: true, // 常に true のみを送る
+            isLocked: true,
             targetId: window._currentTradePartnerId || null
         });
+    }
+}
+
+/**
+ * 🌟 相手の入室状態に合わせて「交換」ボタンの活性/非活性を切り替える関数
+ */
+function updateTradeButtonState() {
+    const nameEl = document.getElementById('trade-target-name');
+    const lockBtn = document.getElementById('trade-lock-btn');
+    if (!nameEl || !lockBtn) return;
+
+    // 名前が「（待機中...）」または空文字の場合は未入室と判定
+    const isWaiting = (nameEl.textContent.trim() === '（待機中...）' || nameEl.textContent.trim() === '');
+
+    if (isWaiting) {
+        // 未入室：ボタンを押せないようにする（グレーアウト）
+        lockBtn.disabled = true;
+        lockBtn.style.opacity = "0.5";
+        lockBtn.style.cursor = "not-allowed";
+        lockBtn.style.filter = "grayscale(100%)";
+    } else {
+        // 入室済み：ボタンを押せるようにする
+        lockBtn.disabled = false;
+        lockBtn.style.opacity = "1";
+        lockBtn.style.cursor = "pointer";
+        lockBtn.style.filter = "none";
     }
 }
 
@@ -5496,6 +5519,152 @@ socket.on('tradeBothLocked', () => {
     
     // ここにトレード完了時の処理（アイテムの受け渡し確定、ウィンドウを閉じるなど）を書く
 });
+
+// 🌟 トレード完了時の受信処理
+if (typeof socket !== 'undefined') {
+    socket.on('tradeCompleted', (data) => {
+        // メッセージを取得（サーバーから届いていなければデフォルト文言）
+        const message = data && data.message ? data.message : "トレードが正常に完了しました！";
+
+        // 💡 綺麗なHTMLモーダルダイアログで完了メッセージを表示
+        if (typeof showTradeAlert === 'function') {
+            showTradeAlert(message);
+        } else if (typeof addSystemMessage === 'function') {
+            addSystemMessage(message);
+        } else {
+            alert(message); // フォールバック
+        }
+
+        // トレードウィンドウを閉じる
+        const tradeWindow = document.getElementById("trade-window");
+        if (tradeWindow) {
+            tradeWindow.style.display = "none";
+        }
+
+        // 💡 ここで「完全リセット関数」を一発で呼び出す！
+        if (typeof resetTradeStateToDefault === 'function') {
+            resetTradeStateToDefault();
+        }
+    });
+}
+
+// 🔄 トレード終了時（完了・キャンセル共通で使える）の完全リセット関数
+function resetTradeStateToDefault() {
+    // 1. 相手のIDやセッション情報を完全にクリア
+    window._currentTradeTargetId = null;
+    window._currentTradePartnerId = null;
+
+    // 2. 相手の名前表示を「待機中...」に戻す
+    const targetNameEl = document.getElementById('trade-target-name');
+    if (targetNameEl) {
+        targetNameEl.innerText = "（待機中...）";
+    }
+
+    // 3. 相手のキャラクターアバター（Canvas）をクリア
+    const oppAvatarCanvas = document.getElementById('trade-opponent-avatar-canvas');
+    if (oppAvatarCanvas) {
+        const ctx = oppAvatarCanvas.getContext('2d');
+        if (ctx) ctx.clearRect(0, 0, oppAvatarCanvas.width, oppAvatarCanvas.height);
+    }
+
+    // 4. 通貨（ゴールド）の数値をリセット
+    myTradeCurrency = 0;
+    opponentTradeCurrency = 0;
+    if (typeof updateTradeCurrencyDisplay === 'function') {
+        updateTradeCurrencyDisplay();
+    }
+
+    // 5. トレードスロット（お互いの出し物）を空っぽにリセット
+    if (typeof resetTradeSlots === 'function') {
+        resetTradeSlots();
+    } else {
+        myTradeSlots = [null, null, null, null, null, null, null, null, null];
+        opponentTradeSlots = [null, null, null, null, null, null, null, null, null];
+        if (typeof updateMyTradeDisplay === 'function') updateMyTradeDisplay();
+        if (typeof updateOpponentTradeDisplay === 'function') updateOpponentTradeDisplay();
+    }
+
+    // 6. オーバーレイ（準備完了チェックなどの半透明カバー）も非表示にする
+    const myOverlay = document.getElementById('my-trade-overlay');
+    const opponentOverlay = document.getElementById('opponent-trade-overlay');
+    if (myOverlay) myOverlay.style.display = 'none';
+    if (opponentOverlay) opponentOverlay.style.display = 'none';
+
+    // 7. 「準備完了」ボタンなどの状態も有効化（または初期色）に戻す
+    const readyBtn = document.getElementById('trade-ready-btn'); // ボタンのIDは実際の環境に合わせてください
+    if (readyBtn) {
+        readyBtn.disabled = false;
+        readyBtn.innerText = "準備完了";
+        readyBtn.style.background = ""; // 元の色に戻す
+    }
+}
+
+socket.on('closeTradeWindow', () => {
+    // 例: トレード画面のDOM要素を非表示にする、状態をリセットするなど
+    const tradeWindow = document.getElementById('trade-window');
+    if (tradeWindow) tradeWindow.style.display = 'none';
+
+    // 自分が入れていた出品スロットや金額の保持データも初期化しておく
+    myTradeSlots = [];
+    myInputGold = 0;
+});
+
+// 🌟 相手がトレードを閉じた（キャンセルした）ときの受信処理
+if (typeof socket !== 'undefined') {
+    socket.on('tradeCancelledByPartner', (data) => {
+        const tradeWindow = document.getElementById("trade-window");
+        const isTradeVisible = tradeWindow && tradeWindow.style.display !== "none";
+
+        if (isTradeVisible) {
+            if (tradeWindow) {
+                tradeWindow.style.display = "none";
+            }
+
+            const myOverlay = document.getElementById('my-trade-overlay');
+            const opponentOverlay = document.getElementById('opponent-trade-overlay');
+            if (myOverlay) myOverlay.style.display = 'none';
+            if (opponentOverlay) opponentOverlay.style.display = 'none';
+
+            // 💡 ここを修正！標準の alert() ではなく、専用のモーダル関数を呼び出す
+            const alertMsg = data.message || "相手がトレードをキャンセルしました。";
+            if (typeof showTradeAlert === 'function') {
+                showTradeAlert(alertMsg);
+            } else if (typeof addSystemMessage === 'function') {
+                addSystemMessage(alertMsg);
+            } else {
+                alert(alertMsg); // 最終フォールバック
+            }
+
+            // --- 以降のステータスリセット処理はそのまま ---
+            const targetNameEl = document.getElementById('trade-target-name');
+            if (targetNameEl) targetNameEl.innerText = "（待機中...）";
+
+            const oppAvatarCanvas = document.getElementById('trade-opponent-avatar-canvas');
+            if (oppAvatarCanvas) {
+                const ctx = oppAvatarCanvas.getContext('2d');
+                if (ctx) ctx.clearRect(0, 0, oppAvatarCanvas.width, oppAvatarCanvas.height);
+            }
+
+            window._currentTradeTargetId = null;
+            window._currentTradePartnerId = null;
+
+            myTradeCurrency = 0;
+            opponentTradeCurrency = 0;
+            if (typeof updateTradeCurrencyDisplay === 'function') {
+                updateTradeCurrencyDisplay();
+            }
+
+            if (typeof resetTradeSlots === 'function') {
+                resetTradeSlots();
+            } else {
+                myTradeSlots = [null, null, null, null, null, null, null, null, null];
+                opponentTradeSlots = [null, null, null, null, null, null, null, null, null];
+                updateMyTradeDisplay();
+                updateOpponentTradeDisplay();
+            }
+        }
+    });
+}
 
 // トレードウィンドウを開く処理の中に `initTradeChatEvents();` を組み込んでおくと確実です。
 

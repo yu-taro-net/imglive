@@ -403,6 +403,11 @@ user-select: none;         /* これが標準！ */
 .whisper-btn-confirm { padding: 10px 20px; cursor: pointer; background: #2e7d32; color: white; border: none; border-radius: 5px; font-weight: bold; box-shadow: 0 0 5px #2e7d32; }
 .whisper-btn-cancel { padding: 10px 20px; cursor: pointer; background: #444; color: white; border: none; border-radius: 5px; }
 
+/* 例：交換窓より手前に配置する */
+#trade-window {
+    z-index: 2000; /* 交換窓 */
+}
+
 #tooltip-layer {
   position: fixed;
   top: 0; left: 0;
@@ -967,24 +972,56 @@ user-select: none;         /* これが標準！ */
     font-family: monospace; /* 文字幅が一定のフォントだとより綺麗です */
 }
 
-/* ドット専用の固定枠 */
-.dots {
+/* ドット全体を綺麗に整列させる固定幅 */
+.dots-box {
     display: inline-block;
-    width: 20px;      /* ここで幅を固定！これで文字が動きません */
-    text-align: left; /* ドットは左寄せ */
+    width: 2em;
+    text-align: left;
 }
 
-/* ドットのアニメーション */
-.dots::after {
-    animation: dots 1.5s steps(4, end) infinite;
-    content: "";
+/* 共通の設定 */
+.dots-box span {
+    opacity: 0;
+    animation: 1.5s infinite;
 }
 
-@keyframes dots {
-    0%   { content: ""; }
-    25%  { content: "."; }
-    50%  { content: ".."; }
-    75%  { content: "..."; }
+/* 1個目のドット（最初からすぐ出て、最後まで残る） */
+.dots-box .d1 {
+    animation-name: showDot1;
+}
+
+/* 2個目のドット（少し遅れて出て、残り続ける） */
+.dots-box .d2 {
+    animation-name: showDot2;
+}
+
+/* 3個目のドット（さらに遅れて出て、3つ揃う） */
+.dots-box .d3 {
+    animation-name: showDot3;
+}
+
+/* それぞれのタイミング設定 */
+@keyframes showDot1 {
+    0%   { opacity: 0; }
+    15%  { opacity: 1; }
+    85%  { opacity: 1; }
+    100% { opacity: 0; }
+}
+
+@keyframes showDot2 {
+    0%   { opacity: 0; }
+    35%  { opacity: 0; }
+    50%  { opacity: 1; }
+    85%  { opacity: 1; }
+    100% { opacity: 0; }
+}
+
+@keyframes showDot3 {
+    0%   { opacity: 0; }
+    60%  { opacity: 0; }
+    75%  { opacity: 1; }
+    85%  { opacity: 1; }
+    100% { opacity: 0; }
 }
 
 /* --- 感情ボタンのデザイン --- */
@@ -1460,4 +1497,96 @@ user-select: none;         /* これが標準！ */
 #collectionBookBtn:active {
     transform: translateY(0);
     box-shadow: none;
+}
+
+/* 自分のトレード枠と相手のトレード枠、どちらもマウスを乗せたら指差し（ポインター）にする */
+#my-slot-grid div, 
+#opponent-slot-grid div {
+    cursor: pointer;
+}
+
+/* インベントリウィンドウ全体の装飾 */
+#inventory-window {
+  position: fixed;
+  /* 画面の中央に配置する設定 */
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  
+  width: 300px;
+  background: rgba(15, 23, 42, 0.92);
+  border: 1px solid rgba(51, 65, 85, 0.8);
+  border-radius: 8px;
+  color: #ffffff;
+  font-family: 'Segoe UI', sans-serif;
+  box-shadow: 0 10px 25px rgba(0, 0, 0, 0.6);
+  padding: 12px;
+  box-sizing: border-box;
+  z-index: 9999;
+}
+
+/* タイトルバー */
+#inventory-window .window-header {
+  font-weight: bold;
+  font-size: 14px;
+  margin-bottom: 8px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid rgba(51, 65, 85, 0.6);
+  letter-spacing: 0.5px;
+}
+
+/* タブボタンの並び */
+#inventory-window .inventory-tabs {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 10px;
+}
+
+/* 各タブボタン */
+#inventory-window .tab-btn {
+  background: rgba(30, 41, 59, 0.8);
+  border: 1px solid rgba(51, 65, 85, 0.6);
+  color: #94a3b8;
+  padding: 4px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  transition: all 0.2s;
+}
+
+/* アクティブなタブ */
+#inventory-window .tab-btn.active {
+  background: rgba(52, 211, 153, 0.2);
+  border-color: #34d399;
+  color: #34d399;
+  font-weight: bold;
+}
+
+#inventory-window .window-header {
+  cursor: grab;
+  /* 以下の2行を追加して、ドラッグ中に文字が青く選択されるのを防ぐ */
+  -webkit-user-select: none; /* Safari/Chrome用 */
+  user-select: none;
+}
+
+#inventory-window .window-header:active {
+  cursor: grabbing;
+}
+
+/* 閉じるボタンのデザイン */
+#inventory-window .close-btn {
+  background: transparent;
+  border: none;
+  color: #94a3b8;
+  font-size: 18px;
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+  border-radius: 4px;
+  transition: all 0.2s;
+}
+
+#inventory-window .close-btn:hover {
+  background: rgba(239, 68, 68, 0.2);
+  color: #ef4444;
 }

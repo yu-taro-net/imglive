@@ -1590,3 +1590,24 @@ user-select: none;         /* これが標準！ */
   background: rgba(239, 68, 68, 0.2);
   color: #ef4444;
 }
+
+#inventory-canvas-area {
+	margin-top: -50px; /* 👈 ここを調整して上の余白を消す */
+	margin-bottom:-15px;
+}
+
+#inventory-window .window-header {
+    position: relative; /* 重なり順を有効にするために必要 */
+    z-index: 10;        /* Canvasよりも手前に表示させる */
+    
+    /* 既存の設定はそのまま */
+    font-weight: bold;
+    font-size: 14px;
+    margin-bottom: 8px;
+    padding-bottom: 4px;
+    border-bottom: 1px solid rgba(51, 65, 85, 0.6);
+    letter-spacing: 0.5px;
+    cursor: grab;
+    -webkit-user-select: none;
+    user-select: none;
+}

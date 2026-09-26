@@ -1626,12 +1626,13 @@ window.addEventListener('click', function(e) {
  * - マウスムーブ(mousemove)でマウス移動量分だけウィンドウを追従させる
  * - マウスアップ(mouseup)でドラッグ状態を終了し、カーソルを通常に戻す
  */
-function makeDraggable(windowId, headerId) {
-    const win = document.getElementById(windowId);
-    const header = document.getElementById(headerId);
+function makeDraggable(windowTarget, headerTarget) {
+    // 🌟 引数がID（文字列）でも、DOM要素そのものでも安全に取得できるようにガード
+    const win = typeof windowTarget === 'string' ? document.getElementById(windowTarget) : windowTarget;
+    const header = typeof headerTarget === 'string' ? document.getElementById(headerTarget) : headerTarget;
     
     if (!win || !header) {
-        console.error("ドラッグ設定エラー: 要素が見つかりません", { windowId, headerId });
+        // 要素がまだDOMにない場合にエラーで止めず、安全にスキップする
         return;
     }
 
@@ -1659,7 +1660,6 @@ function makeDraggable(windowId, headerId) {
         // マウスカーソルを「掴んでいる状態」にする
         document.body.style.cursor = "move";
         
-        console.log("ドラッグ開始");
         e.stopPropagation();
         e.preventDefault(); // テキスト選択などを防ぐ
     };
@@ -1680,7 +1680,6 @@ function makeDraggable(windowId, headerId) {
     // 3. マウスを離した時
     document.addEventListener('mouseup', function() {
         if (isDragging) {
-            console.log("ドラッグ終了");
             isDragging = false;
             document.body.style.cursor = "default";
         }
@@ -3110,7 +3109,7 @@ canvas.addEventListener('click', (e) => {
 
             const targetNameEl = document.getElementById("trade-target-name");
             if (targetNameEl) {
-                targetNameEl.textContent = "";
+                //targetNameEl.textContent = "";
             }
 
             const myNameEl = document.getElementById("trade-my-name");
@@ -3161,11 +3160,22 @@ canvas.addEventListener('click', (e) => {
     }
 });
 
+// プロフィールウィンドウのドラッグ用状態変数
+let profileWindowX = null; // 初期値はnull（未配置なら中央に表示）
+let profileWindowY = null;
+let isDraggingProfile = false;
+let profileDragOffsetX = 0;
+let profileDragOffsetY = 0;
+
 // ============================================================
-// :::DRAW_PROFILE_WINDOW::: 👤 拡張プレイヤープロフィールウィンドウ（BOOK仕様カード対応版）
+// :::DRAW_PROFILE_WINDOW::: 👤 拡張プレイヤープロフィールウィンドウ（ドラッグ移動対応版）
 // ============================================================
 function drawProfileWindow(tCtx) {
-    if (!window._isProfileWindowOpen || !window._selectedProfilePlayer) return;
+    if (!window._isProfileWindowOpen || !window._selectedProfilePlayer) {
+        // ウィンドウが閉じているときはドラッグ状態もリセット
+        isDraggingProfile = false;
+        return;
+    }
 
     let p = window._selectedProfilePlayer;
     if (window.hero && (p === window.hero || (p.id && window.hero.id && p.id === window.hero.id))) {
@@ -3173,10 +3183,23 @@ function drawProfileWindow(tCtx) {
     }
 
     const bgWidth = 340;
-    const bgHeight = 500; // 🌟 ランク1〜6のカード表示エリアの高さに合わせてウィンドウを拡張
-    const startX = (VIEW_CONFIG.SCREEN_WIDTH - bgWidth) / 2;
-    const startY = (VIEW_CONFIG.SCREEN_HEIGHT - bgHeight) / 2;
+    const bgHeight = 500;
     const cornerRadius = 12;
+
+    // 🌟 初回、またはウィンドウが開いた直立時は画面中央に配置する
+    if (profileWindowX === null || profileWindowY === null) {
+        profileWindowX = (VIEW_CONFIG.SCREEN_WIDTH - bgWidth) / 2;
+        profileWindowY = (VIEW_CONFIG.SCREEN_HEIGHT - bgHeight) / 2;
+    }
+
+    // 🌟 タイトルバー（上部36px）がドラッグされたときの移動処理
+    if (isDraggingProfile && typeof mouseX !== 'undefined' && typeof mouseY !== 'undefined') {
+        profileWindowX = mouseX - profileDragOffsetX;
+        profileWindowY = mouseY - profileDragOffsetY;
+    }
+
+    const startX = profileWindowX;
+    const startY = profileWindowY;
 
     ctx.save();
 
@@ -3410,7 +3433,7 @@ function drawProfileWindow(tCtx) {
     });
 
     // ==========================================
-    // 🌟 8. モンスターカードBOOK連動セクション（ランク1〜6）
+    // 8. モンスターカードBOOK連動セクション（ランク1〜6）
     // ==========================================
     const cardSectionY = startY + 275;
     ctx.font = "bold 12px Arial";
@@ -3419,7 +3442,6 @@ function drawProfileWindow(tCtx) {
     ctx.textBaseline = "top";
     ctx.fillText("モンスターカード図鑑 収集状況", startX + 20, cardSectionY);
 
-    // ランク1〜6の定義（BOOK側のテーマカラーに対応）
     const bookRanks = [
         { id: 1, label: "銅", color: "#fb923c" },
         { id: 2, label: "銀", color: "#cbd5e1" },
@@ -3429,7 +3451,6 @@ function drawProfileWindow(tCtx) {
         { id: 6, label: "虹", color: "#ff77ff" }
     ];
 
-    // プレイヤーのコレクションデータからランク1〜6のアンロック数を集計
     const rankCounts = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 };
     const targetCollection = p.playerCardCollection || playerCardCollection;
     
@@ -3456,21 +3477,18 @@ function drawProfileWindow(tCtx) {
         const bx = cardStartX + idx * (cardBoxW + cardBoxGap);
         const by = cardStartY;
 
-        // 背景ボックス
         ctx.fillStyle = "rgba(0, 0, 0, 0.45)";
         ctx.fillRect(bx, by, cardBoxW, cardBoxH);
         ctx.strokeStyle = rInfo.color;
         ctx.lineWidth = 1;
         ctx.strokeRect(bx, by, cardBoxW, cardBoxH);
 
-        // ランク名
         ctx.font = "bold 9px Arial";
         ctx.fillStyle = rInfo.color;
         ctx.textAlign = "center";
         ctx.textBaseline = "top";
         ctx.fillText(rInfo.label, bx + cardBoxW / 2, by + 4);
 
-        // アンロック数
         const count = rankCounts[rInfo.id] || 0;
         ctx.font = "bold 11px Arial";
         ctx.fillStyle = "#ffffff";
@@ -3482,14 +3500,13 @@ function drawProfileWindow(tCtx) {
     // ==========================================
     const btnWidth = 92;
     const btnHeight = 32;
-    const btnY = startY + bgHeight - 48; // ウィンドウ下部に追従
+    const btnY = startY + bgHeight - 48;
     const btnGap = 8;
     
     const groupBtnX = startX + 16;
     const cardTradeBtnX = groupBtnX + btnWidth + btnGap;
     const tradeBtnX = cardTradeBtnX + btnWidth + btnGap;
     
-    // ① グループ申し込みボタン
     ctx.fillStyle = "rgba(56, 189, 248, 0.2)";
     ctx.fillRect(groupBtnX, btnY, btnWidth, btnHeight);
     ctx.strokeStyle = "#38bdf8";
@@ -3502,7 +3519,6 @@ function drawProfileWindow(tCtx) {
     ctx.textBaseline = "middle";
     ctx.fillText("👥 グループ", groupBtnX + btnWidth / 2, btnY + btnHeight / 2);
 
-    // ② カード交換申し込みボタン
     ctx.fillStyle = "rgba(168, 85, 247, 0.2)";
     ctx.fillRect(cardTradeBtnX, btnY, btnWidth, btnHeight);
     ctx.strokeStyle = "#a855f7";
@@ -3512,7 +3528,6 @@ function drawProfileWindow(tCtx) {
     ctx.fillStyle = "#a855f7";
     ctx.fillText("🃏 カード交換", cardTradeBtnX + btnWidth / 2, btnY + btnHeight / 2);
 
-    // ③ アイテム交換申し込みボタン
     ctx.fillStyle = "rgba(250, 204, 21, 0.2)";
     ctx.fillRect(tradeBtnX, btnY, btnWidth, btnHeight);
     ctx.strokeStyle = "#facc15";
@@ -3562,6 +3577,44 @@ function drawProfileWindow(tCtx) {
 
     ctx.restore();
 }
+
+// マウスを押したとき（プロフィールのタイトルバー上ならドラッグ開始）
+window.addEventListener('mousedown', (e) => {
+    if (!window._isProfileWindowOpen) return;
+    
+    // 現在のプロフィールウィンドウの領域（幅340, 高さ500, タイトルバーの高さ36）
+    const bgWidth = 340;
+    const bgHeight = 500;
+    const startX = profileWindowX;
+    const startY = profileWindowY;
+
+    // マウス座標をキャンバス基準に合わせる（もし既にある共通変数 mouseX / mouseY があればそちらを使ってもOKです）
+    const rect = canvas.getBoundingClientRect();
+    const currentMouseX = e.clientX - rect.left;
+    const currentMouseY = e.clientY - rect.top;
+
+    // ① 閉じる「×」ボタンが押されたか判定
+    const closeBtnX = startX + bgWidth - 28;
+    const closeBtnY = startY + 10;
+    if (currentMouseX >= closeBtnX && currentMouseX <= closeBtnX + 18 &&
+        currentMouseY >= closeBtnY && currentMouseY <= closeBtnY + 18) {
+        window._isProfileWindowOpen = false;
+        return;
+    }
+
+    // ② タイトルバー（高さ36px）の範囲内をクリックしたか判定
+    if (currentMouseX >= startX && currentMouseX <= startX + bgWidth &&
+        currentMouseY >= startY && currentMouseY <= startY + 36) {
+        isDraggingProfile = true;
+        profileDragOffsetX = currentMouseX - startX;
+        profileDragOffsetY = currentMouseY - startY;
+    }
+});
+
+// マウスを離したとき（ドラッグ終了）
+window.addEventListener('mouseup', () => {
+    isDraggingProfile = false;
+});
 
 /*
 // 🌟 サーバーからプレイヤーリストを受け取る
@@ -4132,7 +4185,10 @@ function drawGame(hero, others, enemies, items, platforms, ladders, damageTexts,
         drawOnlineList(ctx);
     }
 	
-	drawProfileWindow(tCtx);
+	// 🌟 tCtx が存在する場合だけ安全に実行する
+    if (typeof tCtx !== 'undefined' && tCtx !== null) {
+        drawProfileWindow(tCtx);
+    }
     
 	drawHeldItem();
 	
@@ -4536,7 +4592,8 @@ function drawEntities(hero, others, enemies, items, frame) {
     // デバッグ：配列の中に何体いるか確認
     if (frame % 180 === 0) {
         const activeEnemies = enemies.filter(e => e.alive);
-        console.log(`現在の敵の総数: ${enemies.length}, 生きている敵の数: ${activeEnemies.length}`);
+		// 停止 2026-9-24
+        //console.log(`現在の敵の総数: ${enemies.length}, 生きている敵の数: ${activeEnemies.length}`);
     }
     
     // -------------------------------------------------------
@@ -4621,19 +4678,39 @@ VIEW_CONFIG.emotion = {
     offsetY: -65 // 💡 この数値を大きくすると下がり、小さくすると上がります（まずはここで一括調整）
 };
 
+// 🌟 キャラクターごとのエモーション状態を保持するグローバルマップ（オブジェクト再生成によるリセットを完全防止）
+if (typeof window.emotionStateStore === 'undefined') {
+    window.emotionStateStore = {};
+}
+
 // ============================================================
 // :::DRAW_EMOTION_ICON::: 😊 エモーションアイコンの共通描画
 // ============================================================
 function drawEmotionIcon(ctx, entity) {
     if (!entity || !entity.emotionId || typeof emotionImages === 'undefined' || !emotionImages[entity.emotionId]) {
+        if (entity && entity.id) {
+            delete window.emotionStateStore[entity.id];
+        }
         return;
     }
 
-    if (entity.emotionTimer === undefined) entity.emotionTimer = 180;
-    entity.emotionTimer--;
+    // キャラクターを一意に識別するID（id、なければ代わりのプロパティ）
+    const entityKey = entity.id || entity.name || entity.socketId || 'unknown_entity';
+
+    // 🌟 マップに存在しない、または感情が変わった場合のみタイマーを新規作成
+    if (!window.emotionStateStore[entityKey] || window.emotionStateStore[entityKey].emotionId !== entity.emotionId) {
+        window.emotionStateStore[entityKey] = {
+            emotionId: entity.emotionId,
+            timer: 180
+        };
+    }
+
+    const state = window.emotionStateStore[entityKey];
+    state.timer--;
     
-    if (entity.emotionTimer <= 0) {
+    if (state.timer <= 0) {
         entity.emotionId = null;
+        delete window.emotionStateStore[entityKey];
         return;
     }
 
@@ -4652,15 +4729,15 @@ function drawEmotionIcon(ctx, entity) {
     const emotionOffset = VIEW_CONFIG.emotion ? VIEW_CONFIG.emotion.offsetY : 15;
     const drawY = spriteDrawY - emotionOffset;
     
-    // フェードイン・フェードアウトの計算
+    // フェードイン・フェードアウトの計算（グローバルな state.timer を基準にする）
     const maxTimer = 180;
     const fadeDuration = 20;
     let alpha = 1.0;
 
-    if (entity.emotionTimer < fadeDuration) {
-        alpha = entity.emotionTimer / fadeDuration; // フェードアウト
+    if (state.timer < fadeDuration) {
+        alpha = state.timer / fadeDuration; // フェードアウト
     } else {
-        const elapsed = maxTimer - entity.emotionTimer;
+        const elapsed = maxTimer - state.timer;
         if (elapsed < fadeDuration) {
             alpha = elapsed / fadeDuration; // フェードイン
         }
@@ -4758,6 +4835,12 @@ function acceptTradeRequest() {
 
     const popup = document.getElementById("trade-invite-popup");
     if (popup) popup.style.display = "none";
+	
+	// 🌟 【追加】ここで誘ってきた相手のIDを window._currentTradePartnerId にしっかり保存する！
+    if (window._currentTradeData && window._currentTradeData.senderId) {
+        window._currentTradePartnerId = window._currentTradeData.senderId;
+        console.log("🤝 誘われた側：トレード相手のIDを保持しました:", window._currentTradePartnerId);
+    }
 
     // 1. サーバーへ受諾を通知
     if (typeof socket !== 'undefined' && window._currentTradeData) {
@@ -4844,12 +4927,17 @@ function rejectTradeRequest() {
  * ❌ 交換窓を閉じる（キャンセルする）ときの処理
  */
 function closeTradeWindow() {
+
+	console.log("🛠 closeTradeWindow が呼ばれました！"); // 🌟 ここを追加
+    console.log("現在保持している targetId:", window._currentTradeTargetId); // 🌟 ここを追加
+    console.log("socketの状態:", typeof socket); // 🌟 ここを追加
+	
     const tradeWindow = document.getElementById("trade-window");
     if (tradeWindow) {
         tradeWindow.style.display = "none";
     }
 
-    // 🌟 自分と相手の「白薄（オーバーレイ）」を強制的に非表示にしてリセット
+    // 自分と相手の「白薄（オーバーレイ）」を強制的に非表示にしてリセット
     const myOverlay = document.getElementById('my-trade-overlay');
     const opponentOverlay = document.getElementById('opponent-trade-overlay');
     
@@ -4857,9 +4945,9 @@ function closeTradeWindow() {
     if (opponentOverlay) opponentOverlay.style.display = 'none';
 
     // もし相手と通信中であれば、サーバーにキャンセルを伝える
-    if (typeof socket !== 'undefined' && window._currentTradeTargetId) {
+    if (typeof socket !== 'undefined' && window._currentTradePartnerId) {
         socket.emit('cancelTrade', {
-            targetId: window._currentTradeTargetId
+            targetId: window._currentTradePartnerId
         });
     }
 
@@ -4867,8 +4955,31 @@ function closeTradeWindow() {
         addSystemMessage("交換をキャンセルしました。");
     }
 
-    // トレード関連の保持データをクリア ＆ 陳列をリセット
+    // 🌟 1. 相手の名前欄を初期値の「（待機中...）」に戻す
+    const targetNameEl = document.getElementById('trade-target-name');
+    if (targetNameEl) {
+        targetNameEl.innerText = "（待機中...）";
+    }
+
+    // 🌟 2. 相手のアバター描画用キャンバスをクリアして空白にする
+    const oppAvatarCanvas = document.getElementById('trade-opponent-avatar-canvas');
+    if (oppAvatarCanvas) {
+        const ctx = oppAvatarCanvas.getContext('2d');
+        if (ctx) {
+            ctx.clearRect(0, 0, oppAvatarCanvas.width, oppAvatarCanvas.height);
+        }
+    }
+
+    // トレード関連の保持データをクリア ＆ IDもリセット
     window._currentTradeTargetId = null;
+    window._currentTradePartnerId = null;
+
+    // 🌟 3. 提示していた金額も 0 にリセットして表示を更新
+    myTradeCurrency = 0;
+    opponentTradeCurrency = 0;
+    if (typeof updateTradeCurrencyDisplay === 'function') {
+        updateTradeCurrencyDisplay();
+    }
 
     if (typeof resetTradeSlots === 'function') {
         resetTradeSlots();
@@ -4879,25 +4990,87 @@ function closeTradeWindow() {
         updateOpponentTradeDisplay();
     }
 }
-
-// 💬 アラートの代わりにHTMLモーダルを表示する関数
+// 💬 アラートの代わりにHTMLモーダルを表示する関数（自動生成版）
 function showTradeAlert(message) {
-    const alertModal = document.getElementById('trade-alert-modal');
-    const messageEl = document.getElementById('trade-alert-message');
-    const okBtn = document.getElementById('trade-alert-ok-btn');
-
-    if (!alertModal || !messageEl || !okBtn) {
-        // 万が一HTML要素が見つからない場合のフォールバック
-        alert(message);
-        return;
+    // 既存のカスタムダイアログがあれば削除（二重表示防止）
+    const existingDialog = document.getElementById('custom-trade-alert-dialog');
+    if (existingDialog) {
+        existingDialog.remove();
     }
 
-    messageEl.textContent = message;
-    alertModal.style.display = 'block';
+    // オーバーレイ（背景の半透明ブラック）
+    const overlay = document.createElement('div');
+    overlay.id = 'custom-trade-alert-dialog';
+    overlay.style.cssText = `
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 100vh;
+        background: rgba(0, 0, 0, 0.6);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        z-index: 99999;
+        animation: fadeIn 0.2s ease-out;
+    `;
 
-    okBtn.onclick = () => {
-        alertModal.style.display = 'none';
+    // ダイアログボックス本体
+    const box = document.createElement('div');
+    box.style.cssText = `
+        background: #2a2a2a;
+        color: #ffffff;
+        padding: 24px 32px;
+        border-radius: 12px;
+        box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+        text-align: center;
+        max-width: 380px;
+        width: 90%;
+        border: 1px solid #444;
+        font-family: sans-serif;
+    `;
+
+    // メッセージテキスト
+    const text = document.createElement('p');
+    text.style.cssText = `
+        margin: 0 0 20px 0;
+        font-size: 16px;
+        line-height: 1.5;
+        color: #f0f0f0;
+    `;
+    text.textContent = message;
+
+    // 閉じるボタン
+    const button = document.createElement('button');
+    button.style.cssText = `
+        background: #4a90e2;
+        color: white;
+        border: none;
+        padding: 10px 24px;
+        border-radius: 6px;
+        font-size: 14px;
+        font-weight: bold;
+        cursor: pointer;
+        transition: background 0.2s;
+    `;
+    button.innerText = "閉じる";
+    button.onmouseover = () => button.style.background = "#357abd";
+    button.onmouseout = () => button.style.background = "#4a90e2";
+    
+    // ボタンを押したらダイアログを消す
+    const closeDialog = () => {
+        overlay.style.opacity = '0';
+        setTimeout(() => overlay.remove(), 200);
     };
+    button.onclick = closeDialog;
+    overlay.onclick = (e) => {
+        if (e.target === overlay) closeDialog(); // 背景クリックでも閉じられるように
+    };
+
+    box.appendChild(text);
+    box.appendChild(button);
+    overlay.appendChild(box);
+    document.body.appendChild(overlay);
 }
 
 let myTradeCurrency = 0;       // 自分がトレードに出している金額
@@ -4912,6 +5085,19 @@ function openTradeCurrencyInput() {
     const cancelBtn = document.getElementById('trade-currency-cancel');
 
     if (!modal) return;
+
+    // 🌟 【追加】相手が入室しているかチェック（未入室ならダイアログを開かせずにガード）
+    const targetNameEl = document.getElementById('trade-target-name');
+    const nameText = targetNameEl ? targetNameEl.innerText.trim() : "";
+    const hasOpponent = nameText !== "" && !nameText.includes("待機中");
+
+    if (!hasOpponent) {
+        console.log("⚠️ 相手が入室するまで金額を提示することはできません。");
+        if (typeof showTradeAlert === 'function') {
+            showTradeAlert("相手の入室を待っています...");
+        }
+        return; // ← ここで処理をストップしてダイアログを開きません！
+    }
 
     // タイトルを設定
     titleEl.textContent = "金額を入力";
@@ -4938,8 +5124,7 @@ function openTradeCurrencyInput() {
             return;
         }
         
-        // 🌟 【ここを確認】所持金が格納されている実際の変数に合わせる
-        // 例: hero や player オブジェクトの中に所持金がある場合
+        // 🌟 所持金が格納されている実際の変数に合わせる
         const currentMeso = (typeof hero !== 'undefined' && hero.gold !== undefined) ? hero.gold : 0;
         
         if (amount > currentMeso) {
@@ -4957,11 +5142,10 @@ function openTradeCurrencyInput() {
         updateTradeCurrencyDisplay(); // 自分の画面を更新
         
         // サーバーへ金額を送信する
-        // 🌟 サーバーへ金額を送信する（targetId を追加！）
         if (typeof socket !== 'undefined') {
-            socket.emit('updateTradeCurrency', { 
+            socket.emit('updateTradeOfferCurrency', {  // サーバー側のイベント名に合わせて調整してください
                 currency: myTradeCurrency,
-                targetId: window._currentTradePartnerId || null // ← これを追加！
+                targetId: window._currentTradePartnerId || null
             });
         }
 
@@ -4999,6 +5183,45 @@ function resetTradeSlots() {
     updateTradeCurrencyDisplay(); // 🌟 金額の表示も「0 Gold」などにリセット
 
     console.log("[Trade] トレードウィンドウが閉じられたため、陳列アイテムと通貨をリセットしました。");
+}
+
+// 🔄 トレード終了時（完了・キャンセル共通で使える）の完全リセット関数
+function resetTradeStateToDefault() {
+    // 1. 相手のIDやセッション情報を完全にクリア
+    window._currentTradeTargetId = null;
+    window._currentTradePartnerId = null;
+
+    // 2. 相手の名前表示を「待機中...」に戻す
+    const targetNameEl = document.getElementById('trade-target-name');
+    if (targetNameEl) {
+        targetNameEl.innerText = "（待機中...）";
+    }
+
+    // 3. 相手のキャラクターアバター（Canvas）をクリア
+    const oppAvatarCanvas = document.getElementById('trade-opponent-avatar-canvas');
+    if (oppAvatarCanvas) {
+        const ctx = oppAvatarCanvas.getContext('2d');
+        if (ctx) ctx.clearRect(0, 0, oppAvatarCanvas.width, oppAvatarCanvas.height);
+    }
+
+    // 4. 🌟 アイテムとゴールドのリセットは、お持ちのこの関数にお任せ！
+    if (typeof resetTradeSlots === 'function') {
+        resetTradeSlots();
+    }
+
+    // 5. オーバーレイ（準備完了チェックなどの半透明カバー）も非表示にする
+    const myOverlay = document.getElementById('my-trade-overlay');
+    const opponentOverlay = document.getElementById('opponent-trade-overlay');
+    if (myOverlay) myOverlay.style.display = 'none';
+    if (opponentOverlay) opponentOverlay.style.display = 'none';
+
+    // 6. 「準備完了」ボタンなどの状態も有効化に戻す
+    const readyBtn = document.getElementById('trade-ready-btn');
+    if (readyBtn) {
+        readyBtn.disabled = false;
+        readyBtn.innerText = "準備完了";
+        readyBtn.style.background = ""; 
+    }
 }
 
 // ============================================================
@@ -6989,17 +7212,20 @@ function drawEnemies(enemies, hero, frame) {
 	
 	// 🌟 10秒ごと（60FPSなら約600フレーム）にログを出す
     if (frame % 600 === 0) {
-        console.log("--- ⏰ 10秒ごとの敵配列スナップショット ---");
-        console.table(enemies);
+		// 停止 2026-9-24
+        //console.log("--- ⏰ 10秒ごとの敵配列スナップショット ---");
+        //console.table(enemies);
     }
 	
 	// 描画ループの中など
 if (enemies.length !== window.lastEnemyCount) {
     //console.log(`⚠️ 敵の数が変化しました: ${window.lastEnemyCount} → ${enemies.length}`);
 	const aliveEnemies = enemies.filter(e => e && e.alive);
-	console.log("⚠️ 現在の生存している敵の数:", aliveEnemies.length);
+	// 停止 2026-9-24
+	//console.log("⚠️ 現在の生存している敵の数:", aliveEnemies.length);
 	// もしここで 7 と出るなら、なぜ配列の長さが 8 なのに生きているのが 7 なのかがわかります
-	console.log("死んでいる敵:", enemies.filter(e => !e.alive));
+	// 停止 2026-9-24
+	//console.log("死んでいる敵:", enemies.filter(e => !e.alive));
     window.lastEnemyCount = enemies.length;
 }
 	
@@ -7391,7 +7617,8 @@ function getEnemyVisualData(en, sprites, frame, hero) {
 function drawEnemyHPBar(en, frame) {
 
 	if (frame % 180 === 0) {
-		console.log(`🔍 [Debug] ID:${en.id} HP:${en.hp} / Max:${en.maxHp}`);
+		// 停止 2026-9-24
+		//console.log(`🔍 [Debug] ID:${en.id} HP:${en.hp} / Max:${en.maxHp}`);
 	}
 	
     if (en.isFading) return;
@@ -9648,32 +9875,36 @@ function drawBagTabs() {
     }
 }
 
-const inventoryWindow = document.getElementById('inventory-window');
-const windowHeader = inventoryWindow.querySelector('.window-header');
-
 let isDragging = false;
+let activeWindow = null;
 let startX = 0;
 let startY = 0;
+let initialLeft = 0;
+let initialTop = 0;
 
-// タイトルバーを押した瞬間
-windowHeader.addEventListener('mousedown', (e) => {
-    if (e.button !== 0) return; // 左クリックのみ反応
+// 1. タイトルバーを押した瞬間（イベント委任：document全体で監視）
+document.addEventListener('mousedown', (e) => {
+    if (e.button !== 0) return; // 左クリックのみ
+
+    // クリックされた場所が「インベントリのタイトルバー（またはその中の要素）」か判定
+    const windowHeader = e.target.closest('#inventory-window .window-header');
+    if (!windowHeader) return;
+
+    // 対象のインベントリウィンドウを取得
+    activeWindow = windowHeader.closest('#inventory-window');
+    if (!activeWindow) return;
 
     isDragging = true;
     startX = e.clientX;
     startY = e.clientY;
 
-    // 1. 現在の画面上の位置（viewport基準）をそのまま取得
-    const rect = inventoryWindow.getBoundingClientRect();
+    // 現在の位置（viewport基準）を取得
+    const rect = activeWindow.getBoundingClientRect();
 
-    // 2. position: fixed なので、rect.left / top をそのまま style に代入できる
-    inventoryWindow.style.left = `${rect.left}px`;
-    inventoryWindow.style.top = `${rect.top}px`;
+    activeWindow.style.left = `${rect.left}px`;
+    activeWindow.style.top = `${rect.top}px`;
+    activeWindow.style.transform = 'none';
 
-    // 3. 中央寄せに使っていた transform を解除
-    inventoryWindow.style.transform = 'none';
-
-    // 4. 移動計算用の基準位置を保存
     initialLeft = rect.left;
     initialTop = rect.top;
 
@@ -9681,27 +9912,36 @@ windowHeader.addEventListener('mousedown', (e) => {
     e.preventDefault();
 });
 
-// マウスを動かしている最中（画面全体で監視）
+// 2. マウスを動かしている最中
 document.addEventListener('mousemove', (e) => {
-    if (!isDragging) return;
+    if (!isDragging || !activeWindow) return;
 
     const dx = e.clientX - startX;
     const dy = e.clientY - startY;
 
-    // 以前計算した initialLeft/Top を基準に移動
-    inventoryWindow.style.left = `${initialLeft + dx}px`;
-    inventoryWindow.style.top = `${initialTop + dy}px`;
+    activeWindow.style.left = `${initialLeft + dx}px`;
+    activeWindow.style.top = `${initialTop + dy}px`;
 });
 
-// マウスを離したとき
+// 3. マウスを離したとき
 document.addEventListener('mouseup', () => {
     isDragging = false;
+    activeWindow = null;
 });
 
 // 🎒 スロットの背景・枠・ハイライトをキャッシュするための保持用変数
-let _cachedBagSlotImages = {}; // 鍵: "slotSize_glowType", 値: OffscreenCanvas or canvas
+// varで宣言することで巻き上げ（Hoisting）が効き、定義前に関数から呼ばれてもReferenceErrorになりません
+if (typeof _cachedBagSlotImages === 'undefined') {
+    var _cachedBagSlotImages = {};
+}
 
 function getCachedBagSlotImage(slotSize, glowColor, isHovered) {
+    // 🌟 万が一、何らかのタイミングで変数がロストしていた場合の二重安全ガード
+    if (typeof _cachedBagSlotImages === 'undefined') {
+        window._cachedBagSlotImages = window._cachedBagSlotImages || {};
+        var _cachedBagSlotImages = window._cachedBagSlotImages;
+    }
+
     const cacheKey = `${slotSize}_${glowColor || 'default'}_${isHovered ? 'h' : 'n'}`;
     if (_cachedBagSlotImages[cacheKey]) {
         return _cachedBagSlotImages[cacheKey];
@@ -10431,7 +10671,7 @@ if (inventoryCanvas) {
             }
 
             // ------------------------------------------------------------
-            // 🌟 【新規追加】ダブルクリックの判定処理 (露店モードオフ時)
+            // 🌟 ダブルクリックの判定処理 (露店モードオフ時)
             // ------------------------------------------------------------
             const currentTime = Date.now();
             const timeDiff = currentTime - lastBagClickTime;
@@ -10450,8 +10690,10 @@ if (inventoryCanvas) {
                 const isTradeOpen = (tradeEl && tradeEl.style.display !== 'none' && tradeEl.style.display !== '');
                 
                 if (isTradeOpen) {
+                    // 🌟 修正：初期値の「（待機中...）」が含まれているうちは陳列をガードする
                     const targetNameEl = document.getElementById('trade-target-name');
-                    const hasOpponent = targetNameEl && targetNameEl.innerText.trim() !== "";
+                    const nameText = targetNameEl ? targetNameEl.innerText.trim() : "";
+                    const hasOpponent = nameText !== "" && !nameText.includes("待機中");
 
                     if (!hasOpponent) {
                         console.log("⚠️ 相手が入室するまでアイテムを陳列することはできません。");
@@ -10480,11 +10722,11 @@ if (inventoryCanvas) {
                     
                     myTradeSlots[emptySlotIndex] = { ...item, slot_index: clickedSlotIndex };
                     updateMyTradeDisplay();
-                    // 🌟 修正：サーバー側が確実に宛先を特定できるように、もしあれば targetId や partnerId を添えてあげる
-socket.emit('updateTradeOffer', { 
-    tradeSlots: myTradeSlots,
-    targetId: window._currentTradePartnerId || null // 相手のIDを一緒に乗せる
-});
+                    
+                    socket.emit('updateTradeOffer', { 
+                        tradeSlots: myTradeSlots,
+                        targetId: window._currentTradePartnerId || null
+                    });
 
                     selectedSlotIndex = -1;
                     lastBagClickTime = 0;
@@ -10496,8 +10738,8 @@ socket.emit('updateTradeOffer', {
                 const itemName = (item.name || "").toLowerCase();
                 const itemType = (item.type || "").toLowerCase();
                 const isEquipment = itemType === 'sword' || itemType === 'shield' || 
-                                     itemName.includes('剣') || itemName.includes('盾') ||
-                                     itemName.includes('sword') || itemName.includes('shield');
+                                   itemName.includes('剣') || itemName.includes('盾') ||
+                                   itemName.includes('sword') || itemName.includes('shield');
 
                 if (isEquipment) {
                     console.log(`[Equip] スロット ${clickedSlotIndex} の装備品を脱着します: ${itemName}`);
@@ -10526,7 +10768,7 @@ socket.emit('updateTradeOffer', {
             }
             // ------------------------------------------------------------
 
-            // 🌟 【最重要】アイテムを掴む・スワップするロジック
+            // 🌟 アイテムを掴む・スワップするロジック
             if (typeof selectedSlotIndex !== 'undefined' && selectedSlotIndex !== -1 && selectedSlotIndex !== clickedSlotIndex) {
                 socket.emit('swapItems', { from: selectedSlotIndex, to: clickedSlotIndex });
                 if (typeof playDropSound === 'function') playDropSound();
@@ -10543,8 +10785,8 @@ socket.emit('updateTradeOffer', {
             }
             return;
         } else {
-            // インベントリの枠外をクリックした場合（アイテムを捨てる判定など）
-            lastBagClickIndex = -1; // 枠外をクリックしたらダブルクリック判定をリセット
+            // インベントリの枠外をクリックした場合
+            lastBagClickIndex = -1;
             if (typeof selectedSlotIndex !== 'undefined' && selectedSlotIndex !== -1) {
                 const item = hero && hero.inventory && hero.inventory[selectedSlotIndex];
                 if (item && typeof openDropForm === 'function') {
@@ -10557,15 +10799,21 @@ socket.emit('updateTradeOffer', {
         }
     });
 
-    // 🌟 mousemove・mouseleave のコードをそのまま完全踏襲
     inventoryCanvas.addEventListener('mousemove', (event) => {
         const rect = inventoryCanvas.getBoundingClientRect();
         
         mouseX = event.clientX - rect.left + gameWindows.inventory.x;
         mouseY = event.clientY - rect.top + gameWindows.inventory.y;
         
-        window.rawClientX = event.clientX - 340 + window.scrollX;
-        window.rawClientY = event.clientY - 75 + window.scrollY;
+        const stageCanvas = document.getElementById('stage');
+        if (stageCanvas) {
+            const stageRect = stageCanvas.getBoundingClientRect();
+            window.rawClientX = event.clientX - stageRect.left;
+            window.rawClientY = event.clientY - stageRect.top;
+        } else {
+            window.rawClientX = event.clientX + window.scrollX;
+            window.rawClientY = event.clientY + window.scrollY;
+        }
         
         drawBagGrid();
     });
@@ -13358,7 +13606,7 @@ const createCharSelector2 = (currentModelId) => {
  * 修正後の役割：
  * - ログイン済みかどうかを判定し、ログインなら変更リクエスト、そうでなければ通常ログインを送信
  */
-const selectCharacterAndLogin = (groupIndex, styleIndex) => {
+function selectCharacterAndLogin(groupIndex, styleIndex) {
     console.log("🔥 [着火] キャラ選択を実行しました");
 	
 	// 🔊 キャラ選択・決定時の効果音を再生
@@ -13405,7 +13653,7 @@ const selectCharacterAndLogin = (groupIndex, styleIndex) => {
     if (!isAlreadyLoggedIn) {
         window.isGameStarted = true;
     }
-};
+}
 
 socket.on('request_char_select', () => {
     // 既存のキャラ選択関数を再実行
@@ -14406,9 +14654,10 @@ canvas.addEventListener('click', (event) => {
             const isTradeOpen = (tradeEl && tradeEl.style.display !== 'none' && tradeEl.style.display !== '');
             
             if (isTradeOpen) {
-                // 相手が入室しているかチェック
+                // 相手が入室しているかチェック（「（待機中...）」や空欄のときはガードする）
                 const targetNameEl = document.getElementById('trade-target-name');
-                const hasOpponent = targetNameEl && targetNameEl.innerText.trim() !== "";
+                const nameText = targetNameEl ? targetNameEl.innerText.trim() : "";
+                const hasOpponent = nameText !== "" && !nameText.includes("待機中");
 
                 if (!hasOpponent) {
                     console.log("⚠️ 相手が入室するまでアイテムを陳列することはできません。");
@@ -14441,15 +14690,15 @@ canvas.addEventListener('click', (event) => {
                 console.log(`[Trade] トレードスロットへアイテムを追加します: スロット ${targetIndex}`);
                 
                 // 空いているスロットにアイテムを登録して画面を更新
+                item.slot_index = targetIndex; // 重複チェック用に保持
                 myTradeSlots[emptySlotIndex] = item;
                 updateMyTradeDisplay();
                 
                 // 🌟 サーバーへ自分のトレード枠の中身を送信する
-                // 🌟 【修正】サーバーへ送るときに、保存しておいた相手のID（targetId）を一緒に乗せる！
-socket.emit('updateTradeOffer', { 
-    tradeSlots: myTradeSlots,
-    targetId: window._currentTradePartnerId || null // ← ここを追加
-});
+                socket.emit('updateTradeOffer', { 
+                    tradeSlots: myTradeSlots,
+                    targetId: window._currentTradePartnerId || null
+                });
 
                 selectedSlotIndex = -1;
 
@@ -14584,7 +14833,7 @@ function renderTradeTooltips(ctx, hero) {
     const isTradeOpen = (tradeEl && tradeEl.style.display !== 'none' && tradeEl.style.display !== '');
 
     if (!isTradeOpen) {
-        hoveredTradeItem = null;
+        hoveredTradeItem = null; // ウィンドウが閉じたらクリア
         return;
     }
 
@@ -14598,7 +14847,9 @@ function renderTradeTooltips(ctx, hero) {
     const renderX = tooltipMouseX - canvasRect.left;
     const renderY = tooltipMouseY - canvasRect.top;
 
-    drawItemTooltip(tCtx, hoveredTradeItem, renderX, renderY, hero);
+    // ※もし tCtx が定義されていない環境であれば ctx に書き換えてください
+    const tooltipCtx = typeof tCtx !== 'undefined' ? tCtx : ctx;
+    drawItemTooltip(tooltipCtx, hoveredTradeItem, renderX, renderY, hero);
 }
 
 // 相手がトレード枠を変更したときに関係データを受け取る

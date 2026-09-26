@@ -52,11 +52,33 @@
 
 <!-- ゲーム画面本体 -->
 <div id="main-container" style="display: flex; gap: 20px; align-items: flex-start;">
+  
+  <div id="game-wrapper" style="
+    position: relative; 
+    width: 800px; 
+    height: 600px;
+    /* ここに枠線の太さ分の余白を持たせるか、インセットで処理します */
+">
+    <!-- 1. ゲーム本体（通常通り） -->
+    <canvas id="stage" width="800" height="600" style="display: block; width: 100%; height: 100%;"></canvas>
 
-  <div id="game-wrapper" style="position: relative; width: 800px; height: 600px;">
-    <canvas id="stage" width="800" height="600"></canvas>
-    <canvas id="tooltip-layer" width="800" height="600" style="position: absolute; top:0; left:0; z-index: 9999; pointer-events: none;"></canvas>
-  </div>
+    <!-- 2. 【完全無欠のオーバーレイ枠】 -->
+    <div style="
+        position: absolute; 
+        top: 0; 
+        left: 0; 
+        width: calc(100% + 8px); 
+        height: calc(100% + 8px); 
+        border-radius: 14px; 
+        box-shadow: inset 0 0 0 4px #334155; 
+        pointer-events: none;
+        z-index: 10;
+        box-sizing: border-box;
+    "></div>
+
+    <!-- 3. ツールチップ層 -->
+    <canvas id="tooltip-layer" style="position: fixed; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 50000; pointer-events: none;"></canvas>
+</div>
 
   <div id="wiki-menu-container">
     <div class="wiki-menu-header">WIKI MENU</div>

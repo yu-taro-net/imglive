@@ -42,11 +42,13 @@
     </div>
 
     <!-- アイテムタブ（装備・消費・ETC） -->
+	<!--
     <div class="inventory-tabs">
         <button class="tab-btn active">装備</button>
         <button class="tab-btn">消費</button>
         <button class="tab-btn">ETC</button>
     </div>
+	-->
 
     <!-- Canvasの描画内容がピタッと重なるコンテナエリア -->
     <div id="inventory-canvas-area" style="position: relative; width: 300px; height: 400px;">
@@ -56,7 +58,7 @@
 
 </div>
 
-<!-- 🌟 メイプル風アイテム交換ウィンドウ（全体デザイン統一版・ラベル削除） -->
+<!-- 🌟 メイプル風アイテム交換ウィンドウ（全体デザイン統一版・ラベル削除・高さ安定化対応） -->
 <div id="trade-window" class="maple-window" style="
     display: none;
     position: fixed;
@@ -106,8 +108,8 @@
                         <div style="width: 64px; height: 64px; background: #faf9f5; border: 1px solid #ccc; border-radius: 2px; display: flex; align-items: center; justify-content: center; overflow: hidden; flex-shrink: 0;">
                             <canvas id="trade-opponent-avatar-canvas" width="64" height="64" style="display: block;"></canvas>
                         </div>
-                        <!-- 名前 -->
-                        <div id="trade-target-name" style="font-size: 11px; font-weight: bold; color: #d34a4a; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; width: 100%; text-align: center;"></div>
+                        <!-- 🌟 名前（未入室時も高さを固定し、ズレを防止） -->
+                        <div id="trade-target-name" style="font-size: 11px; font-weight: bold; color: #d34a4a; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; width: 100%; text-align: center; min-height: 16px; line-height: 16px;">（待機中...）</div>
                     </div>
                 </div>
 
@@ -121,17 +123,17 @@
                 </div>
             </div>
 
-            <!-- 中央コントロールボタンエリア -->
-            <div style="display: flex; flex-direction: column; justify-content: center; gap: 8px; width: 60px;">
-                <!-- 🌟 交換ボタンにクリックイベントを設定 -->
-                <button type="button" class="maple-btn-orange" onclick="onTradeLockButtonClicked()" style="width: 100%; text-align: center; padding: 6px 0; font-size: 10px; cursor: pointer;">交換</button>
-                <button type="button" class="maple-btn" onclick="closeTradeWindow()" style="width: 100%; text-align: center; padding: 6px 0; font-size: 10px; cursor: pointer;">出る</button>
-            </div>
+            <!-- 中央コントロールボタンエリアの部分 -->
+<div style="display: flex; flex-direction: column; justify-content: center; gap: 8px; width: 60px;">
+    <!-- 🌟 id="trade-lock-btn" を追加 -->
+    <button type="button" id="trade-lock-btn" class="maple-btn-orange" onclick="onTradeLockButtonClicked()" style="width: 100%; text-align: center; padding: 6px 0; font-size: 10px; cursor: pointer;">交換</button>
+    <button type="button" class="maple-btn" onclick="closeTradeWindow()" style="width: 100%; text-align: center; padding: 6px 0; font-size: 10px; cursor: pointer;">出る</button>
+</div>
 
             <!-- 自分のエリア（右） -->
             <div id="my-trade-container" style="width: 175px; background: #e3decb; border: 1px solid #9c9886; border-radius: 4px; padding: 10px; display: flex; flex-direction: column; justify-content: space-between; box-sizing: border-box; position: relative;">
                 
-                <!-- 🔒 自分郎がロックしたときに被せる薄い白のオーバーレイ -->
+                <!-- 🔒 自分側がロックしたときに被せる薄い白のオーバーレイ -->
                 <div id="my-trade-overlay" style="display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(255, 255, 255, 0.4); border-radius: 4px; pointer-events: none; z-index: 10;"></div>
 
                 <div>
@@ -141,8 +143,8 @@
                         <div style="width: 64px; height: 64px; background: #faf9f5; border: 1px solid #ccc; border-radius: 2px; display: flex; align-items: center; justify-content: center; overflow: hidden; flex-shrink: 0;">
                             <canvas id="trade-my-avatar-canvas" width="64" height="64" style="display: block;"></canvas>
                         </div>
-                        <!-- 名前 -->
-                        <div id="trade-my-name" style="font-size: 11px; font-weight: bold; color: #3b82f6; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; width: 100%; text-align: center;">自分</div>
+                        <!-- 🌟 名前（高さのバランスを合わせるため同様に設定） -->
+                        <div id="trade-my-name" style="font-size: 11px; font-weight: bold; color: #3b82f6; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; width: 100%; text-align: center; min-height: 16px; line-height: 16px;">自分</div>
                     </div>
                 </div>
 
