@@ -200,6 +200,7 @@ ctx.scale(dpr, dpr);       // 描画全体を拡大して帳尻を合わせる
 ctx.imageSmoothingEnabled = false;
 
 // --- 🌟 キーとウィンドウIDのマッピング定義 ---
+/*
 const keyMap = {
 	's': 'status',      'e': 'equipment', 'i': 'inventory', 
 	'k': 'skill',       'q': 'quest',     'w': 'worldmap', 
@@ -210,6 +211,7 @@ const keyMap = {
 	'a': 'avatar',      'd': 'reserved_d','v': 'reserved_v'
 	// 'extra' は特定のキー割り当てがないため、必要に応じてここに追加可能です
 };
+*/
 
 const DAMAGE_ASSETS = {
     '0': IMAGE_DOMAIN + 'damage_assets/00.png',
@@ -541,7 +543,10 @@ const gameWindows = {
     reserved_d: new GameWindow("reserved_d", 100, 100, 300, 300), // [D] あえて開けておく
     reserved_v: new GameWindow("reserved_v", 100, 100, 300, 300),  // [V] あえて開けておく
     reserved_r: new GameWindow("reserved_r", 100, 100, 300, 300),  // [R] あえて開けておく
-    reserved_y: new GameWindow("reserved_y", 100, 100, 300, 300)  // [Y] あえて開けておく
+    reserved_y: new GameWindow("reserved_y", 100, 100, 300, 300),  // [Y] あえて開けておく
+	// --- 冒険・ナビゲーション系などに追加 ---
+    library: new GameWindow("library", 120, 80, 400, 450),  // [📚] 図書館ウィンドウ
+    gallery: new GameWindow("gallery", 150, 100, 450, 400)  // [🖼️] ギャラリーウィンドウ
 };
 
 // --- 1. 全ウィンドウスタック（Z-Index管理） ---
@@ -550,6 +555,7 @@ const gameWindows = {
 let windowStack = [
     "reserved_v", "reserved_d", "help", "options", "event", "log",
     "trade", "party", "friend", "guild", "book", "journal",
+    "library", "gallery", // 💡 新しく追加したウィンドウをスタックに配置
     "minimap", "worldmap", "quest", "upgrade", "avatar", "skill",
     "extra", "status", "equipment", "inventory" 
 ];
@@ -1566,24 +1572,110 @@ if (stageCanvas) {
  * 役割：
  * - 選択中のプレイヤー情報(window.selectedPlayer)を確認
  * - 名前、レベル等の情報をHTML要素へ反映（DOMバインディング）
- * - プロフィールウィンドウ(player-profile-window)を表示し、右クリックメニューを閉じる
+ * - プロフィールウィンドウを表示し、右クリックメニューを閉じる
  */
 function handleProfileClick() {
     if (!window.selectedPlayer) return;
 
     const p = window.selectedPlayer;
     
-    // HTMLの各要素にプレイヤーの情報をセットする
-    document.getElementById('profile-name').innerText = p.name || "不明なプレイヤー";
-    document.getElementById('profile-level').innerText = p.level || "??";
-    // もし職業データなどがあればここに追加
-    // document.getElementById('profile-job').innerText = p.job || "冒険者";
+    // 1. 基本情報
+    document.getElementById('profile-name').innerText = p.name || "Player";
+    document.getElementById('profile-level').innerText = `Lv.${p.level !== undefined ? p.level : 1}`;
+    
+    // チャンネルがあればセット（HTMLに #profile-channel があれば）
+    const chEl = document.getElementById('profile-channel');
+    if (chEl) chEl.innerText = `CH.${p.channel || 1}`;
 
-    // ウィンドウを表示する
-    document.getElementById('player-profile-window').style.display = 'block';
+    // 2. アイコン画像の設定
+    const userImg = window._onlineIconCache ? window._onlineIconCache.profile : null;
+    const iconEl = document.getElementById("profile-user-icon");
+    if (iconEl) {
+        if (userImg && userImg.src) {
+            iconEl.src = userImg.src;
+        } else if (p.iconUrl) {
+            iconEl.src = p.iconUrl;
+        }
+    }
 
-    // 右クリックメニューは閉じる
-    document.getElementById('player-context-menu').style.display = 'none';
+    // 3. アニマル名の変換（ANIMAL_MAP を使用）
+    const rawModelId = (p.model_id !== undefined && p.model_id !== null) ? p.model_id : "";
+    const animalName = (typeof ANIMAL_MAP !== 'undefined' && ANIMAL_MAP[String(rawModelId)] !== undefined) 
+        ? ANIMAL_MAP[String(rawModelId)] 
+        : (rawModelId !== "" ? `ID:${rawModelId}` : "なし");
+    
+    const animalEl = document.getElementById('profile-animal');
+    if (animalEl) animalEl.innerText = animalName;
+
+    // 4. その他のステータス一覧
+    const popEl = document.getElementById('profile-popularity');
+    if (popEl) popEl.innerText = p.popularity !== undefined ? p.popularity : 0;
+
+    const guildEl = document.getElementById('profile-guild');
+    if (guildEl) guildEl.innerText = p.guild || "無所属";
+
+    // プレイ時間の計算
+    const rawTime = p.playTime !== undefined ? p.playTime : (p.totalTime !== undefined ? p.totalTime : 0);
+    const totalMinutes = Math.floor(rawTime / 60); 
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+    const timeText = hours > 0 ? `${hours}時間 ${minutes}分` : `${minutes}分`;
+    const timeEl = document.getElementById('profile-time');
+    if (timeEl) timeEl.innerText = timeText;
+
+    const commEl = document.getElementById('profile-community');
+    if (commEl) commEl.innerText = p.community || p.communityName || "未加入";
+
+    const homepageUrl = p.homepage || p.website || p.url || "";
+    const homepageText = homepageUrl ? (homepageUrl.length > 18 ? homepageUrl.substring(0, 16) + "..." : homepageUrl) : "未設定";
+    const hpEl = document.getElementById('profile-homepage');
+    if (hpEl) hpEl.innerText = homepageText;
+
+    // 閲覧履歴
+    const historyData = p.history || p.recentLocations || p.viewHistory || "";
+    let historyText = "なし";
+    if (Array.isArray(historyData) && historyData.length > 0) {
+        historyText = historyData[historyData.length - 1];
+    } else if (typeof historyData === 'string' && historyData.trim() !== "") {
+        historyText = historyData;
+    }
+    if (historyText.length > 16) historyText = historyText.substring(0, 14) + "...";
+    const histEl = document.getElementById('profile-history');
+    if (histEl) histEl.innerText = historyText;
+
+    // 寄稿履歴
+    const contributionData = p.contributions || p.articles || p.postHistory || "";
+    let contributionText = "なし";
+    if (Array.isArray(contributionData) && contributionData.length > 0) {
+        contributionText = contributionData[contributionData.length - 1];
+    } else if (typeof contributionData === 'string' && contributionData.trim() !== "") {
+        contributionText = contributionData;
+    }
+    if (contributionText.length > 16) contributionText = contributionText.substring(0, 14) + "...";
+    const contrEl = document.getElementById('profile-contribution');
+    if (contrEl) contrEl.innerText = contributionText;
+
+    // 5. ウィンドウを表示する
+    // ※あなたのHTMLのIDが "profile-window" か "player-profile-window" かに合わせて調整してください
+    const windowId = document.getElementById('profile-window') ? 'profile-window' : 'player-profile-window';
+    const profileWin = document.getElementById(windowId);
+    if (profileWin) {
+        profileWin.style.display = 'block';
+    }
+	
+	// 🌟 【ここに追加！】ウィンドウを開く直前に装備スロットと図鑑を更新する
+    if (typeof updateProfileEquipment === 'function') {
+        updateProfileEquipment(p);
+    }
+    if (typeof updateProfileCardCollection === 'function') {
+        updateProfileCardCollection(p);
+    }
+
+    // 6. 右クリックメニューは閉じる
+    const contextMenu = document.getElementById('player-context-menu');
+    if (contextMenu) {
+        contextMenu.style.display = 'none';
+    }
 }
 
 // ============================================================
@@ -2681,10 +2773,25 @@ socket.on('updatePlayerList', (playerList) => {
     currentOnlinePlayers = playerList;
 });
 
+// ==========================================
+// 1. 共通のオフセット計算ヘルパー関数（外側に分離）
+// ==========================================
+function getButtonOffsetY(y, isHovered, isPressed) {
+    if (isPressed) return y; // アクティブ時は沈む分なし
+    return isHovered ? y - 1 : y; // ホバー時は -1px
+}
+
+// ==========================================
+// 2. 状態初期化 & イベントリスナー
+// ==========================================
 if (typeof GLOBAL_UI_STATE === 'undefined') {
     GLOBAL_UI_STATE = {};
 }
-GLOBAL_UI_STATE.globalEventBtn = { x: 32, y: 0, w: 76, h: 28, hovered: false, pressed: false };
+GLOBAL_UI_STATE.globalEventBtn = { x: 20, y: 0, w: 76, h: 28, hovered: false, pressed: false };
+GLOBAL_UI_STATE.globalLibraryBtn = { x: 106, y: 0, w: 76, h: 28, hovered: false, pressed: false }; // 💡 変更
+GLOBAL_UI_STATE.globalGalleryBtn = { x: 192, y: 0, w: 92, h: 28, hovered: false, pressed: false };
+// ※もし「本を書く」ボタンも併用する場合はこちらを生かしてください
+// GLOBAL_UI_STATE.globalWriteBookBtn = { x: 192, y: 0, w: 76, h: 28, hovered: false, pressed: false };
 
 if (!window._canvasUIEventsAttached) {
     window._canvasUIEventsAttached = true;
@@ -2692,26 +2799,89 @@ if (!window._canvasUIEventsAttached) {
         const rect = canvas.getBoundingClientRect();
         const mx = e.clientX - rect.left;
         const my = e.clientY - rect.top;
+        
         const eb = GLOBAL_UI_STATE.globalEventBtn;
-        if (eb) {
-            eb.hovered = (mx >= eb.x && mx <= eb.x + eb.w && my >= eb.y && my <= eb.y + eb.h);
-        }
+        if (eb) eb.hovered = (mx >= eb.x && mx <= eb.x + eb.w && my >= eb.y && my <= eb.y + eb.h);
+        
+        const lb = GLOBAL_UI_STATE.globalLibraryBtn;
+        if (lb) lb.hovered = (mx >= lb.x && mx <= lb.x + lb.w && my >= lb.y && my <= lb.y + lb.h);
+
+        const gb = GLOBAL_UI_STATE.globalGalleryBtn;
+        if (gb) gb.hovered = (mx >= gb.x && mx <= gb.x + gb.w && my >= gb.y && my <= gb.y + gb.h);
     });
+    
     canvas.addEventListener('mousedown', (e) => {
         const rect = canvas.getBoundingClientRect();
         const mx = e.clientX - rect.left;
         const my = e.clientY - rect.top;
+        
         const eb = GLOBAL_UI_STATE.globalEventBtn;
-        if (eb && eb.hovered) {
-            eb.pressed = true;
-        }
+        if (eb && eb.hovered) eb.pressed = true;
+        
+        const lb = GLOBAL_UI_STATE.globalLibraryBtn;
+        if (lb && lb.hovered) lb.pressed = true;
+
+        const gb = GLOBAL_UI_STATE.globalGalleryBtn;
+        if (gb && gb.hovered) gb.pressed = true;
     });
+    
     window.addEventListener('mouseup', () => {
-        if (GLOBAL_UI_STATE.globalEventBtn) {
-            GLOBAL_UI_STATE.globalEventBtn.pressed = false;
+        // 🎁 イベントボタンの処理
+        const eb = GLOBAL_UI_STATE.globalEventBtn;
+        if (eb) {
+            if (eb.pressed && eb.hovered) {
+                console.log('「イベント」ボタンがクリックされました！');
+                if (typeof gameWindows !== 'undefined' && gameWindows.event) {
+                    gameWindows.event.isOpen = !gameWindows.event.isOpen;
+                    // 🌟 開いた状態になったら最前面へ移動
+                    if (gameWindows.event.isOpen) {
+                        windowStack = windowStack.filter(item => item !== "event");
+                        windowStack.push("event");
+                    }
+                }
+            }
+            eb.pressed = false;
+        }
+        
+        // 📚 図書館ボタンの処理
+        const lb = GLOBAL_UI_STATE.globalLibraryBtn;
+        if (lb) {
+            if (lb.pressed && lb.hovered) {
+                console.log('「図書館」ボタンがクリックされました！');
+                if (typeof gameWindows !== 'undefined' && gameWindows.library) {
+                    gameWindows.library.isOpen = !gameWindows.library.isOpen;
+                    // 🌟 開いた状態になったら最前面へ移動
+                    if (gameWindows.library.isOpen) {
+                        windowStack = windowStack.filter(item => item !== "library");
+                        windowStack.push("library");
+                    }
+                }
+            }
+            lb.pressed = false;
+        }
+
+        // 🖼️ ギャラリーボタンの処理
+        const gb = GLOBAL_UI_STATE.globalGalleryBtn;
+        if (gb) {
+            if (gb.pressed && gb.hovered) {
+                console.log('「ギャラリー」ボタンがクリックされました！');
+                if (typeof gameWindows !== 'undefined' && gameWindows.gallery) {
+                    gameWindows.gallery.isOpen = !gameWindows.gallery.isOpen;
+                    // 🌟 開いた状態になったら最前面へ移動
+                    if (gameWindows.gallery.isOpen) {
+                        windowStack = windowStack.filter(item => item !== "gallery");
+                        windowStack.push("gallery");
+                    }
+                }
+            }
+            gb.pressed = false;
         }
     });
 }
+
+// ==========================================
+// 3. 各ボタンの描画関数
+// ==========================================
 
 function drawCanvasLeftEdgeEventButton(ctx) {
     const btnW = 76;
@@ -2726,19 +2896,13 @@ function drawCanvasLeftEdgeEventButton(ctx) {
     const isHovered = eb.hovered;
     const isPressed = eb.pressed;
 
-    // ホバー時は translateY(-1px) 相当のオフセット、アクティブ時は 0
-    let drawY = base_offset(baseY, isHovered, isPressed);
-    function base_offset(y, h, p) {
-        if (p) return y; // active時は沈む分なし or 戻す
-        return h ? y - 1 : y; // hover時は-1px
-    }
+    let drawY = getButtonOffsetY(baseY, isHovered, isPressed);
 
     eb.x = btnX; eb.y = drawY; eb.w = btnW; eb.h = btnH;
     GLOBAL_UI_STATE.globalEventBtn = eb;
 
     ctx.save();
 
-    // 影・グローの切り替え（pointShopBtnのbox-shadow再現）
     if (isPressed) {
         ctx.shadowColor = 'transparent';
         ctx.shadowBlur = 0;
@@ -2754,7 +2918,6 @@ function drawCanvasLeftEdgeEventButton(ctx) {
         ctx.shadowOffsetY = 2;
     }
 
-    // グラデーション生成
     const grad = ctx.createLinearGradient(btnX, drawY, btnX, drawY + btnH);
     if (isHovered) {
         grad.addColorStop(0, 'rgba(51, 65, 85, 0.9)');
@@ -2764,7 +2927,6 @@ function drawCanvasLeftEdgeEventButton(ctx) {
         grad.addColorStop(1, 'rgba(15, 23, 42, 0.9)');
     }
 
-    // 角丸背景を描画（radius: 5px）
     const r = 5;
     ctx.beginPath();
     if (ctx.roundRect) {
@@ -2775,23 +2937,19 @@ function drawCanvasLeftEdgeEventButton(ctx) {
     ctx.fillStyle = grad;
     ctx.fill();
 
-    // シャドウリセットして枠線・内側ハイライト描画
     ctx.shadowColor = 'transparent';
     ctx.shadowBlur = 0;
 
-    // メインボーダー
     ctx.strokeStyle = isHovered ? '#38bdf8' : 'rgba(96, 165, 250, 0.5)';
     ctx.lineWidth = 1;
     ctx.stroke();
 
-    // 通常時のインセット風シャドウシミュレーション（inset 0 0 6px rgba(96,165,250,0.15)相当）
     if (!isHovered && !isPressed) {
         ctx.strokeStyle = 'rgba(96, 165, 250, 0.15)';
         ctx.lineWidth = 1;
         ctx.strokeRect(btnX + 1.5, drawY + 1.5, btnW - 3, btnH - 3);
     }
 
-    // テキスト描画（font-weight: 600, color連動）
     ctx.fillStyle = isHovered ? '#ffffff' : '#60a5fa';
     ctx.font = '600 12px "Segoe UI", Tahoma, Geneva, Verdana, sans-serif';
     ctx.textAlign = 'center';
@@ -2800,6 +2958,1030 @@ function drawCanvasLeftEdgeEventButton(ctx) {
 
     ctx.restore();
 }
+
+function drawCanvasLibraryButton(ctx) {
+    const btnW = 76;
+    const btnH = 26;
+    const btnX = 106; 
+    const screenH = (typeof VIEW_CONFIG !== 'undefined' && VIEW_CONFIG.SCREEN_HEIGHT) 
+        ? VIEW_CONFIG.SCREEN_HEIGHT 
+        : (ctx.canvas ? ctx.canvas.height : 600);
+    const baseY = screenH - 420;
+
+    // 💡 globalLibraryBtn を使うように変更
+    const lb = GLOBAL_UI_STATE.globalLibraryBtn || { hovered: false, pressed: false };
+    const isHovered = lb.hovered;
+    const isPressed = lb.pressed;
+
+    let drawY = getButtonOffsetY(baseY, isHovered, isPressed);
+
+    lb.x = btnX; lb.y = drawY; lb.w = btnW; lb.h = btnH;
+    GLOBAL_UI_STATE.globalLibraryBtn = lb;
+
+    ctx.save();
+
+    if (isPressed) {
+        ctx.shadowColor = 'transparent';
+        ctx.shadowBlur = 0;
+    } else if (isHovered) {
+        ctx.shadowColor = 'rgba(56, 189, 248, 0.4)';
+        ctx.shadowBlur = 10;
+        ctx.shadowOffsetX = 0;
+        ctx.shadowOffsetY = 0;
+    } else {
+        ctx.shadowColor = 'rgba(0, 0, 0, 0.3)';
+        ctx.shadowBlur = 4;
+        ctx.shadowOffsetX = 0;
+        ctx.shadowOffsetY = 2;
+    }
+
+    const grad = ctx.createLinearGradient(btnX, drawY, btnX, drawY + btnH);
+    if (isHovered) {
+        grad.addColorStop(0, 'rgba(51, 65, 85, 0.9)');
+        grad.addColorStop(1, 'rgba(30, 41, 59, 0.95)');
+    } else {
+        grad.addColorStop(0, 'rgba(30, 41, 59, 0.8)');
+        grad.addColorStop(1, 'rgba(15, 23, 42, 0.9)');
+    }
+
+    const r = 5;
+    ctx.beginPath();
+    if (ctx.roundRect) {
+        ctx.roundRect(btnX, drawY, btnW, btnH, r);
+    } else {
+        ctx.rect(btnX, drawY, btnW, btnH);
+    }
+    ctx.fillStyle = grad;
+    ctx.fill();
+
+    ctx.shadowColor = 'transparent';
+    ctx.shadowBlur = 0;
+
+    ctx.strokeStyle = isHovered ? '#38bdf8' : 'rgba(96, 165, 250, 0.5)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    if (!isHovered && !isPressed) {
+        ctx.strokeStyle = 'rgba(96, 165, 250, 0.15)';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(btnX + 1.5, drawY + 1.5, btnW - 3, btnH - 3);
+    }
+
+    ctx.fillStyle = isHovered ? '#ffffff' : '#60a5fa';
+    ctx.font = '600 12px "Segoe UI", Tahoma, Geneva, Verdana, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('📚 図書館', btnX + btnW / 2, drawY + btnH / 2);
+
+    ctx.restore();
+}
+
+function drawCanvasGalleryButton(ctx) {
+    const btnW = 92;
+    const btnH = 26;
+    const btnX = 192; 
+    const screenH = (typeof VIEW_CONFIG !== 'undefined' && VIEW_CONFIG.SCREEN_HEIGHT) 
+        ? VIEW_CONFIG.SCREEN_HEIGHT 
+        : (ctx.canvas ? ctx.canvas.height : 600);
+    const baseY = screenH - 420;
+
+    const gb = GLOBAL_UI_STATE.globalGalleryBtn || { hovered: false, pressed: false };
+    const isHovered = gb.hovered;
+    const isPressed = gb.pressed;
+
+    let drawY = getButtonOffsetY(baseY, isHovered, isPressed);
+
+    gb.x = btnX; gb.y = drawY; gb.w = btnW; gb.h = btnH;
+    GLOBAL_UI_STATE.globalGalleryBtn = gb;
+
+    ctx.save();
+
+    if (isPressed) {
+        ctx.shadowColor = 'transparent';
+        ctx.shadowBlur = 0;
+    } else if (isHovered) {
+        ctx.shadowColor = 'rgba(56, 189, 248, 0.4)';
+        ctx.shadowBlur = 10;
+        ctx.shadowOffsetX = 0;
+        ctx.shadowOffsetY = 0;
+    } else {
+        ctx.shadowColor = 'rgba(0, 0, 0, 0.3)';
+        ctx.shadowBlur = 4;
+        ctx.shadowOffsetX = 0;
+        ctx.shadowOffsetY = 2;
+    }
+
+    const grad = ctx.createLinearGradient(btnX, drawY, btnX, drawY + btnH);
+    if (isHovered) {
+        grad.addColorStop(0, 'rgba(51, 65, 85, 0.9)');
+        grad.addColorStop(1, 'rgba(30, 41, 59, 0.95)');
+    } else {
+        grad.addColorStop(0, 'rgba(30, 41, 59, 0.8)');
+        grad.addColorStop(1, 'rgba(15, 23, 42, 0.9)');
+    }
+
+    const r = 5;
+    ctx.beginPath();
+    if (ctx.roundRect) {
+        ctx.roundRect(btnX, drawY, btnW, btnH, r);
+    } else {
+        ctx.rect(btnX, drawY, btnW, btnH);
+    }
+    ctx.fillStyle = grad;
+    ctx.fill();
+
+    ctx.shadowColor = 'transparent';
+    ctx.shadowBlur = 0;
+
+    ctx.strokeStyle = isHovered ? '#38bdf8' : 'rgba(96, 165, 250, 0.5)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    if (!isHovered && !isPressed) {
+        ctx.strokeStyle = 'rgba(96, 165, 250, 0.15)';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(btnX + 1.5, drawY + 1.5, btnW - 3, btnH - 3);
+    }
+
+    ctx.fillStyle = isHovered ? '#ffffff' : '#60a5fa';
+    ctx.font = '600 12px "Segoe UI", Tahoma, Geneva, Verdana, sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText('🖼️ ギャラリー', btnX + btnW / 2 - 40, drawY + btnH / 2);
+
+    ctx.restore();
+}
+
+function makeWindowDraggableWithDebug(windowElement, headerElement) {
+    if (!windowElement) {
+        console.error("❌ [Debug] windowElement が見つかりません！");
+        return;
+    }
+    if (!headerElement) {
+        console.error("❌ [Debug] headerElement が見つかりません！");
+        return;
+    }
+
+    console.log("✅ [Debug] ドラッグ機能を初期化しました。要素:", windowElement);
+
+    let isDragging = false;
+    let startX, startY;
+    let initialLeft, initialTop;
+
+    // 1. mousedownイベントの監視
+    headerElement.addEventListener('mousedown', (e) => {
+        console.log("🖱️ [Debug] mousedown検知. ターゲット:", e.target);
+
+        if (e.target.id === 'profile-close-btn') {
+            console.log("⚠️ [Debug] 閉じるボタンが押されたためドラッグをキャンセルします。");
+            return;
+        }
+
+        isDragging = true;
+        startX = e.clientX;
+        startY = e.clientY;
+        console.log(`📌 [Debug] ドラッグ開始座標 -> startX: ${startX}, startY: ${startY}`);
+
+        // 現在のCSSと位置の確認
+        const computed = window.getComputedStyle(windowElement);
+        console.log(`🔍 [Debug] 開始前のCSS position: ${computed.position}, transform: ${computed.transform}, left: ${computed.left}, top: ${computed.top}`);
+
+        const rect = windowElement.getBoundingClientRect();
+        console.log(`📐 [Debug] getBoundingClientRect() -> left: ${rect.left}, top: ${rect.top}, width: ${rect.width}, height: ${rect.height}`);
+
+        // スタイルの強制適用
+        windowElement.style.transform = 'none';
+        windowElement.style.position = 'fixed';
+        windowElement.style.left = `${rect.left}px`;
+        windowElement.style.top = `${rect.top}px`;
+
+        initialLeft = rect.left;
+        initialTop = rect.top;
+        console.log(`🔧 [Debug] 強制適用後のスタイル -> left: ${windowElement.style.left}, top: ${windowElement.style.top}`);
+
+        e.preventDefault();
+    });
+
+    // 2. mousemoveイベントの監視
+    document.addEventListener('mousemove', (e) => {
+        if (!isDragging) return; // 引っ張っていない時は何もしない
+
+        const dx = e.clientX - startX;
+        const dy = e.clientY - startY;
+
+        const newLeft = initialLeft + dx;
+        const newTop = initialTop + dy;
+
+        console.log(`🏃‍♂️ [Debug] ドラッグ中 -> dx: ${dx}, dy: ${dy} ==> 新座標(left: ${newLeft}, top: ${newTop})`);
+
+        windowElement.style.left = `${newLeft}px`;
+        windowElement.style.top = `${newTop}px`;
+    });
+
+    // 3. mouseupイベントの監視
+    document.addEventListener('mouseup', () => {
+        if (isDragging) {
+            console.log("🛑 [Debug] mouseup検知. ドラッグ終了。");
+        }
+        isDragging = false;
+    });
+}
+
+// 実行
+window.addEventListener('DOMContentLoaded', () => {
+    const profileWin = document.getElementById('profile-window');
+    const profileHeader = profileWin ? profileWin.querySelector('.profile-header') : null;
+    
+    makeWindowDraggableWithDebug(profileWin, profileHeader);
+});
+
+// 画面全体のどこがクリックされても監視し、アイテム交換ボタンなら反応する
+document.addEventListener("click", (event) => {
+    // クリックされた要素が #profile-btn-trade、またはその中身の場合
+    const tradeBtn = event.target.closest("#profile-btn-trade");
+    if (!tradeBtn) return; // 違う場所なら何もしない
+
+    const targetPlayer = window._selectedProfilePlayer;
+    if (!targetPlayer) {
+        console.log("選択中のプレイヤーがいません");
+        return;
+    }
+
+    console.log(`${targetPlayer.name} へアイテム交換申し込み（イベント委譲経由）`);
+
+    // 1. サーバーへトレード要求を送信
+    if (typeof socket !== 'undefined' && targetPlayer.id) {
+        const myHero = window.hero;
+        socket.emit('sendTradeRequest', {
+            targetId: targetPlayer.id,
+            senderName: myHero ? myHero.name : "自分",
+            model_id: myHero ? (myHero.model_id !== undefined ? myHero.model_id : (myHero.group || 0)) : 0,
+            charVar: myHero ? (myHero.charVar || 1) : 1
+        });
+    }
+
+    // 2. トレードウィンドウ側の自分の名前を設定
+    const myNameEl = document.getElementById("trade-my-name");
+    if (myNameEl) {
+        myNameEl.textContent = (typeof hero !== 'undefined' && hero && hero.name) ? hero.name : "自分";
+    }
+
+    // 3. トレードウィンドウを表示
+    const tradeWindow = document.getElementById("trade-window");
+    if (tradeWindow) {
+        tradeWindow.style.display = "block";
+        
+        if (typeof initTradeSlots === 'function') initTradeSlots();
+        if (typeof drawMyTradeAvatar === 'function') drawMyTradeAvatar(window.hero);
+    }
+
+    // 4. システムメッセージを表示
+    if (typeof addSystemMessage === 'function') {
+        addSystemMessage(`${targetPlayer.name}との交換を申し込みました。相手の参加を待っています...`);
+    }
+
+    // 5. プロフィールウィンドウを閉じる
+    window._isProfileWindowOpen = false;
+    window._selectedProfilePlayer = null;
+    
+    const profileWin = document.getElementById("profile-window");
+    if (profileWin) {
+        profileWin.style.display = "none";
+    }
+});
+
+// 確実に対象要素を取得してドラッグを有効化する即時実行関数
+(function() {
+    window.addEventListener('DOMContentLoaded', initProfileWindow);
+    setTimeout(initProfileWindow, 500); // タイミングズレ対策
+
+    function initProfileWindow() {
+        const profileWin = document.getElementById('profile-window');
+        if (!profileWin) return;
+
+        // 二重初期化の防止
+        if (profileWin.dataset.windowInitialized === "true") return;
+        profileWin.dataset.windowInitialized = "true";
+
+        const profileHeader = profileWin.querySelector('.profile-header');
+        const closeBtn = document.getElementById('profile-close-btn');
+
+        if (!profileHeader) {
+            console.warn("⚠️️ .profile-header が見つかりませんでした。");
+            return;
+        }
+
+        console.log("✅ プロフィールウィンドウの制御スクリプトが初期化されました！");
+
+        // --- 1. 閉じるボタンの処理 ---
+        if (closeBtn) {
+            closeBtn.addEventListener('click', () => {
+                console.log("❌ 閉じるボタンが押されました。ウィンドウを非表示にします。");
+                profileWin.style.display = 'none';
+            });
+        } else {
+            console.warn("⚠️ #profile-close-btn が見つかりませんでした。");
+        }
+
+        // --- 2. ドラッグ移動の処理 ---
+        let isDragging = false;
+        let startX, startY;
+        let initialLeft, initialTop;
+
+        profileHeader.addEventListener('mousedown', (e) => {
+            // 閉じるボタンが押されたときはドラッグさせない
+            if (e.target.id === 'profile-close-btn') return;
+
+            console.log("🖱️ タイトルバーを掴みました。");
+            isDragging = true;
+            startX = e.clientX;
+            startY = e.clientY;
+
+            // 現在の正確な画面位置を取得してピクセル固定に切り替え
+            const rect = profileWin.getBoundingClientRect();
+            profileWin.style.transform = 'none';
+            profileWin.style.position = 'fixed';
+            profileWin.style.left = `${rect.left}px`;
+            profileWin.style.top = `${rect.top}px`;
+
+            initialLeft = rect.left;
+            initialTop = rect.top;
+
+            e.preventDefault();
+        });
+
+        document.addEventListener('mousemove', (e) => {
+            if (!isDragging) return;
+
+            const dx = e.clientX - startX;
+            const dy = e.clientY - startY;
+
+            profileWin.style.left = `${initialLeft + dx}px`;
+            profileWin.style.top = `${initialTop + dy}px`;
+        });
+
+        document.addEventListener('mouseup', () => {
+            isDragging = false;
+        });
+    }
+})();
+
+// マウスが乗っている装備アイテムを一時保存する変数
+let activeHoverEquipment = null;
+
+function updateProfileEquipment(p) {
+    const container = document.getElementById("profile-equip-slots");
+    if (!container) return;
+
+    // 一旦中身をクリア
+    container.innerHTML = "";
+
+    const equipSlots = [
+        { label: "剣", types: ["sword", "weapon"] },
+        { label: "盾", types: ["shield"] },
+        { label: "マント", types: ["cloak", "cape"] },
+        { label: "ペンダント", types: ["pendant", "necklace"] },
+        { label: "指輪", types: ["ring"] },
+        { label: "ベルト", types: ["belt"] }
+    ];
+
+    equipSlots.forEach(slot => {
+        const slotEl = document.createElement("div");
+        slotEl.className = "profile-slot-item";
+
+        // プレイヤーのインベントリから装備中アイテムを探す
+        let equippedItem = null;
+        if (p && p.inventory && Array.isArray(p.inventory)) {
+            equippedItem = p.inventory.find(inv => {
+                if (!inv || !inv.isEquipped) return false;
+                const invType = String(inv.type || inv.name || "").toLowerCase();
+                return slot.types.some(t => invType.includes(t));
+            });
+        }
+
+        // ボーナス別のグローカラーを判定（アイテム画像の縁取り用）
+        let glowCssColor = null;
+        if (equippedItem && equippedItem.type && equippedItem.count > 0) {
+            if ((equippedItem.type === 'sword' || equippedItem.type === 'shield' || slot.types.includes('sword') || slot.types.includes('shield')) && 
+                equippedItem.totalALLStats !== undefined && 
+                equippedItem.totalFirstStats !== undefined) {
+                
+                let bonus = equippedItem.totalALLStats - equippedItem.totalFirstStats;
+                if (bonus >= 30) {
+                    glowCssColor = "#ff0000"; // 神級
+                } else if (bonus >= 25) {
+                    glowCssColor = "#00ff00"; // 超伝説
+                } else if (bonus >= 20) {
+                    glowCssColor = "#ffff00"; // 極上
+                } else if (bonus >= 15) {
+                    glowCssColor = "#ff00ff"; // 伝説
+                } else if (bonus >= 10) {
+                    glowCssColor = "#00ccff"; // 希少
+                }
+            }
+        }
+
+        // 🌟 スロット自体の背景は常にノーマル（null）で生成
+        const setSlotBackground = (isHovered) => {
+            if (typeof getCachedBagSlotImage === 'function') {
+                const canvas = getCachedBagSlotImage(38, null, isHovered);
+                if (canvas) {
+                    slotEl.style.backgroundImage = `url(${canvas.toDataURL()})`;
+                    slotEl.style.backgroundSize = "50px 50px";
+                    slotEl.style.backgroundPosition = "-6px -6px";
+                }
+            }
+        };
+
+        // 初期状態（通常時）の背景をセット
+        setSlotBackground(false);
+
+        // 描画および表示内容の分岐（未装備 or アイテム画像）
+        if (!equippedItem) {
+            const span = document.createElement("span");
+            span.className = "profile-slot-empty";
+            span.textContent = slot.label;
+            slotEl.appendChild(span);
+        } else {
+            const imageKey = equippedItem.image || equippedItem.type || equippedItem.name;
+            let imgObj = (typeof itemImages !== 'undefined') ? itemImages[imageKey] : null;
+
+            if (imgObj && imgObj.complete && imgObj.naturalWidth > 0) {
+                const img = document.createElement("img");
+                img.src = imgObj.src;
+                img.style.width = "32px";
+                img.style.height = "32px";
+                img.style.objectFit = "contain";
+                img.style.imageRendering = "-webkit-optimize-contrast";
+                img.style.imageRendering = "crisp-edges";
+                img.style.imageRendering = "pixelated";
+
+                // 🌟 アイテムの縁にだけレアリティのグロー効果を適用
+                if (glowCssColor) {
+                    img.style.filter = `drop-shadow(0 0 5px ${glowCssColor}) drop-shadow(0 0 1px ${glowCssColor})`;
+                }
+
+                slotEl.appendChild(img);
+            } else {
+                const span = document.createElement("span");
+                span.className = "profile-slot-text";
+                span.textContent = slot.label;
+                slotEl.appendChild(span);
+            }
+        }
+
+        // マウスホバー・移動・離脱の処理
+        slotEl.onmouseenter = (e) => {
+            if (typeof activeHoverEquipment !== 'undefined') {
+                activeHoverEquipment = equippedItem || null;
+            }
+            setSlotBackground(true);
+        };
+
+        slotEl.onmousemove = (e) => {
+            const stageCanvas = document.getElementById('stage');
+            if (stageCanvas) {
+                const stageRect = stageCanvas.getBoundingClientRect();
+                if (typeof mouseX !== 'undefined') mouseX = e.clientX - stageRect.left;
+                if (typeof mouseY !== 'undefined') mouseY = e.clientY - stageRect.top;
+            } else {
+                if (typeof mouseX !== 'undefined') mouseX = e.clientX + window.scrollX;
+                if (typeof mouseY !== 'undefined') mouseY = e.clientY + window.scrollY;
+            }
+        };
+        
+        slotEl.onmouseleave = () => {
+            if (typeof activeHoverEquipment !== 'undefined') {
+                activeHoverEquipment = null;
+            }
+            setSlotBackground(false);
+        };
+
+        container.appendChild(slotEl);
+    });
+}
+
+// カードBOOK側と完全に同じ「左上が切れた」角切り＆角丸パス生成関数
+function _profileCardPath(ctx, x, y, w, h, cut, radius) {
+    ctx.beginPath();
+    // スタートを左上の角切りの右側から開始
+    ctx.moveTo(x + cut, y);
+    // 右上へ
+    ctx.lineTo(x + w - radius, y);
+    ctx.arcTo(x + w, y, x + w, y + radius, radius);
+    // 右下へ
+    ctx.lineTo(x + w, y + h - radius);
+    ctx.arcTo(x + w, y + h, x + w - radius, y + h, radius);
+    // 左下へ
+    ctx.lineTo(x + radius, y + h);
+    ctx.arcTo(x, y + h, x, y + h - radius, radius);
+    // 左上へ向かい、左上の角切り斜め線へ
+    ctx.lineTo(x, y + cut);
+    ctx.lineTo(x + cut, y);
+    ctx.closePath();
+}
+
+function updateProfileCardCollection(p) {
+    const container = document.getElementById("profile-card-ranks");
+    if (!container) return;
+
+    container.innerHTML = "";
+
+    const bookRanks = [
+        { id: 1, color: "#fb923c" },
+        { id: 2, color: "#cbd5e1" },
+        { id: 3, color: "#fde047" },
+        { id: 4, color: "#ffffff" },
+        { id: 5, color: "#38bdf8" },
+        { id: 6, color: "#ff77ff" }
+    ];
+
+    let totalCompletedMonsters = 0;
+    let totalUniqueUnlocked = 0; 
+
+    // 各ランクごとの所持数をカウントするためのオブジェクト
+    const rankCounts = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 };
+
+    const targetCollection = p.playerCardCollection || p.cardCollection || (typeof playerCardCollection !== 'undefined' ? playerCardCollection : null);
+    
+    if (targetCollection) {
+        Object.keys(targetCollection).forEach(monsterKey => {
+            const ranks = targetCollection[monsterKey];
+            if (ranks) {
+                let isMonsterUnlocked = false;
+                let hasAllRanks = true;
+
+                for (let r = 1; r <= 6; r++) {
+                    let rankData = null;
+                    if (Array.isArray(ranks)) {
+                        rankData = ranks[r] || ranks[r - 1];
+                    } else if (typeof ranks === 'object') {
+                        rankData = ranks[r] || ranks[String(r)];
+                    }
+
+                    const isUnlocked = rankData && (rankData.unlocked === true || rankData.unlocked === 1 || rankData > 0);
+                    
+                    if (isUnlocked) {
+                        isMonsterUnlocked = true;
+                        // 各ランクごとの所持数を加算
+                        rankCounts[r]++;
+                    } else {
+                        hasAllRanks = false;
+                    }
+                }
+
+                if (isMonsterUnlocked) {
+                    totalUniqueUnlocked++; 
+                }
+
+                if (hasAllRanks) {
+                    totalCompletedMonsters++;
+                }
+            }
+        });
+    }
+
+    const maxCards = 102; // 総数（モンスターの種類数）
+
+    // --- 全体のタイトル・コンプ数の表示処理（1箇所にまとめる） ---
+    const titleContainer = document.getElementById("profile-collection-title"); 
+    if (titleContainer) {
+        const existingInfo = titleContainer.querySelector(".collection-comp-info");
+        if (existingInfo) existingInfo.remove();
+
+        const overallPercentage = Math.round((totalUniqueUnlocked / maxCards) * 100);
+
+        const compInfoEl = document.createElement("span");
+        compInfoEl.className = "collection-comp-info";
+        compInfoEl.textContent = ` コンプ数：${totalCompletedMonsters}（全体進捗: ${overallPercentage}%）`;
+        compInfoEl.style.marginLeft = "8px";
+        compInfoEl.style.fontSize = "0.9em";
+        compInfoEl.style.color = "#fbbf24"; 
+        compInfoEl.style.fontWeight = "normal";
+        titleContainer.appendChild(compInfoEl);
+    }
+
+    const canvasW = 38; 
+    const canvasH = 50; 
+    const cutSize = 4.5; 
+    const outerRadius = 1.5;
+
+    bookRanks.forEach(rInfo => {
+        const boxEl = document.createElement("div");
+        boxEl.className = "card-rank-box";
+        
+        boxEl.style.position = "relative";
+        boxEl.style.overflow = "hidden";
+        boxEl.style.display = "flex";
+        boxEl.style.flexDirection = "column";
+        boxEl.style.alignItems = "center";
+        boxEl.style.justifyContent = "center";
+        boxEl.style.boxSizing = "border-box";
+        boxEl.style.border = "none";
+        boxEl.style.width = `${canvasW}px`;
+        boxEl.style.height = `${canvasH}px`;
+
+        const canvas = document.createElement("canvas");
+        canvas.width = canvasW;
+        canvas.height = canvasH;
+        canvas.style.position = "absolute";
+        canvas.style.top = "0";
+        canvas.style.left = "0";
+        canvas.style.width = "100%";
+        canvas.style.height = "100%";
+        canvas.style.pointerEvents = "none";
+        boxEl.appendChild(canvas);
+
+        const c = canvas.getContext("2d");
+        c.imageSmoothingEnabled = false;
+
+        // 各ランクごとの所持数を表示するよう修正
+        const displayCount = rankCounts[rInfo.id] || 0; 
+        const hasUnlockedAny = displayCount > 0;
+
+        const cardDrawX = 1;
+        const cardDrawY = 1;
+        const cardW = canvasW - 2;
+        const cardH = canvasH - 2;
+
+        if (hasUnlockedAny) {
+            let theme = {
+                glowColor: "#f59e0b", lightBorder: "#fef08a",
+                gradTop: "#fde047", gradMid: "#eab308", gradBottom: "#a16207",
+                innerTop: "#fef3c7", innerMid: "#fde68a", innerBottom: "#d1c4a9",
+                isDiamond: false, isPlatinum: false, isRainbow: false
+            };
+
+            if (rInfo.id === 1) {
+                theme = { glowColor: "#b45309", lightBorder: "#fed7aa", gradTop: "#fb923c", gradMid: "#c2410c", gradBottom: "#7c2d12", innerTop: "#ffedd5", innerMid: "#fed7aa", innerBottom: "#c2410c", isDiamond: false, isRainbow: false, isPlatinum: false };
+            } else if (rInfo.id === 2) {
+                theme = { glowColor: "#94a3b8", lightBorder: "#e2e8f0", gradTop: "#cbd5e1", gradMid: "#64748b", gradBottom: "#334155", innerTop: "#f1f5f9", innerMid: "#cbd5e1", innerBottom: "#64748b", isDiamond: false, isRainbow: false, isPlatinum: false };
+            } else if (rInfo.id === 3) {
+                theme = { glowColor: "#f59e0b", lightBorder: "#fef08a", gradTop: "#fde047", gradMid: "#eab308", gradBottom: "#a16207", innerTop: "#fef3c7", innerMid: "#fde68a", innerBottom: "#d1c4a9", isDiamond: false, isRainbow: false, isPlatinum: false };
+            } else if (rInfo.id === 4) {
+                theme = { glowColor: "#e2e8f0", lightBorder: "#ffffff", gradTop: "#ffffff", gradMid: "#cbd5e1", gradBottom: "#64748b", innerTop: "#ffffff", innerMid: "#e2e8f0", innerBottom: "#cbd5e1", isDiamond: false, isPlatinum: true, isRainbow: false };
+            } else if (rInfo.id === 5) {
+                theme = { glowColor: "#6ee7b7", lightBorder: "#ffffff", gradTop: "#7dd3fc", gradMid: "#0d9488", gradBottom: "#042f2e", innerTop: "#ffffff", innerMid: "#2dd4bf", innerBottom: "#0f766e", isDiamond: true, isRainbow: false, isPlatinum: false };
+            } else if (rInfo.id === 6) {
+                theme = { glowColor: "#ff33ff", lightBorder: "#ffffff", gradTop: "#ffffff", gradMid: "#ff00aa", gradBottom: "#4400aa", innerTop: "#ffffff", innerMid: "#00ffff", innerBottom: "#ffdd00", isDiamond: false, isRainbow: true, isPlatinum: false };
+            }
+
+            // 外側の光彩
+            c.strokeStyle = theme.glowColor;
+            c.lineWidth = theme.isRainbow ? 4.5 : 3.5;
+            c.globalAlpha = theme.isRainbow ? 0.6 : 0.35;
+            if (typeof _profileCardPath === 'function') {
+                _profileCardPath(c, cardDrawX - 1, cardDrawY - 1, cardW + 2, cardH + 2, cutSize + 1, outerRadius + 1);
+            } else if (typeof _bookCardPath === 'function') {
+                _bookCardPath(c, cardDrawX - 1, cardDrawY - 1, cardW + 2, cardH + 2, cutSize + 1, outerRadius + 1);
+            }
+            c.stroke();
+
+            c.lineWidth = theme.isRainbow ? 2.5 : 2;
+            c.globalAlpha = theme.isRainbow ? 0.85 : 0.6;
+            if (typeof _profileCardPath === 'function') {
+                _profileCardPath(c, cardDrawX - 0.5, cardDrawY - 0.5, cardW + 1, cardH + 1, cutSize, outerRadius);
+            } else if (typeof _bookCardPath === 'function') {
+                _bookCardPath(c, cardDrawX - 0.5, cardDrawY - 0.5, cardW + 1, cardH + 1, cutSize, outerRadius);
+            }
+            c.stroke();
+            c.globalAlpha = 1.0;
+
+            // フレームのグラデーション描画
+            const frameGrad = c.createLinearGradient(cardDrawX, cardDrawY, cardDrawX, cardDrawY + cardH);
+            if (theme.isRainbow) {
+                frameGrad.addColorStop(0.00, "#ff2266");
+                frameGrad.addColorStop(0.20, "#ff8800");
+                frameGrad.addColorStop(0.40, "#ffee00");
+                frameGrad.addColorStop(0.60, "#00ffcc");
+                frameGrad.addColorStop(0.80, "#0088ff");
+                frameGrad.addColorStop(1.00, "#aa00ff");
+            } else if (theme.isDiamond) {
+                frameGrad.addColorStop(0.00, "#7dd3fc");
+                frameGrad.addColorStop(0.50, "#0284c7");
+                frameGrad.addColorStop(1.00, "#0369a1");
+            } else {
+                frameGrad.addColorStop(0, theme.gradTop);
+                frameGrad.addColorStop(0.5, theme.gradMid);
+                frameGrad.addColorStop(1, theme.gradBottom);
+            }
+            c.fillStyle = frameGrad;
+            if (typeof _profileCardPath === 'function') {
+                _profileCardPath(c, cardDrawX, cardDrawY, cardW, cardH, cutSize, outerRadius);
+            } else if (typeof _bookCardPath === 'function') {
+                _bookCardPath(c, cardDrawX, cardDrawY, cardW, cardH, cutSize, outerRadius);
+            }
+            c.fill();
+
+            c.strokeStyle = theme.lightBorder;
+            c.lineWidth = theme.isRainbow ? 1.5 : 1;
+            if (typeof _profileCardPath === 'function') {
+                _profileCardPath(c, cardDrawX, cardDrawY, cardW, cardH, cutSize, outerRadius);
+            } else if (typeof _bookCardPath === 'function') {
+                _bookCardPath(c, cardDrawX, cardDrawY, cardW, cardH, cutSize, outerRadius);
+            }
+            c.stroke();
+
+            // インナー領域
+            const innerMargin = 1.5;
+            const innerX = cardDrawX + innerMargin;
+            const innerY = cardDrawY + innerMargin;
+            const innerW = cardW - innerMargin * 2;
+            const innerH = cardH - innerMargin * 2;
+            const innerCut = Math.max(0, cutSize - innerMargin);
+            const innerRadius = Math.max(0, outerRadius - innerMargin);
+
+            const innerGrad = c.createLinearGradient(innerX, innerY, innerX, innerY + innerH);
+            if (theme.isRainbow) {
+                innerGrad.addColorStop(0.00, "#ffffff");
+                innerGrad.addColorStop(0.25, "#ff99ff");
+                innerGrad.addColorStop(0.50, "#00ffff");
+                innerGrad.addColorStop(0.75, "#ffff66");
+                innerGrad.addColorStop(1.00, "#ff6600");
+            } else if (theme.isDiamond) {
+                innerGrad.addColorStop(0.00, "#e0f2fe");
+                innerGrad.addColorStop(0.25, "#bae6fd");
+                innerGrad.addColorStop(0.50, "#38bdf8");
+                innerGrad.addColorStop(0.75, "#0284c7");
+                innerGrad.addColorStop(1.00, "#0369a1");
+            } else {
+                innerGrad.addColorStop(0, theme.innerTop);
+                innerGrad.addColorStop(0.5, theme.innerMid);
+                innerGrad.addColorStop(1, theme.innerBottom);
+            }
+            c.fillStyle = innerGrad;
+            if (typeof _profileCardPath === 'function') {
+                _profileCardPath(c, innerX, innerY, innerW, innerH, innerCut, innerRadius);
+            } else if (typeof _bookCardPath === 'function') {
+                _bookCardPath(c, innerX, innerY, innerW, innerH, innerCut, innerRadius);
+            }
+            c.fill();
+
+            // ハイライト各種
+            if (theme.isDiamond) {
+                c.save();
+                if (typeof _profileCardPath === 'function') {
+                    _profileCardPath(c, innerX, innerY, innerW, innerH, innerCut, innerRadius);
+                } else if (typeof _bookCardPath === 'function') {
+                    _bookCardPath(c, innerX, innerY, innerW, innerH, innerCut, innerRadius);
+                }
+                c.clip();
+                const shineGrad = c.createLinearGradient(innerX + innerW * 0.9, innerY + innerH * 0.1, innerX + innerW * 0.1, innerY + innerH * 0.9);
+                shineGrad.addColorStop(0.00, "rgba(255, 255, 255, 0.0)");
+                shineGrad.addColorStop(0.40, "rgba(255, 255, 255, 0.30)");
+                shineGrad.addColorStop(0.50, "rgba(255, 255, 255, 0.60)");
+                shineGrad.addColorStop(0.60, "rgba(255, 255, 255, 0.30)");
+                shineGrad.addColorStop(1.00, "rgba(255, 255, 255, 0.0)");
+                c.fillStyle = shineGrad;
+                c.fillRect(innerX, innerY, innerW, innerH);
+                c.restore();
+            }
+
+            if (theme.isRainbow) {
+                c.save();
+                if (typeof _profileCardPath === 'function') {
+                    _profileCardPath(c, innerX, innerY, innerW, innerH, innerCut, innerRadius);
+                } else if (typeof _bookCardPath === 'function') {
+                    _bookCardPath(c, innerX, innerY, innerW, innerH, innerCut, innerRadius);
+                }
+                c.clip();
+
+                const rainbowShine = c.createLinearGradient(innerX, innerY, innerX + innerW, innerY + innerH);
+                rainbowShine.addColorStop(0.00, "rgba(255, 255, 255, 0.7)");
+                rainbowShine.addColorStop(0.25, "rgba(255, 100, 255, 0.4)");
+                rainbowShine.addColorStop(0.50, "rgba(255, 255, 255, 0.8)");
+                rainbowShine.addColorStop(0.75, "rgba(0, 255, 255, 0.4)");
+                rainbowShine.addColorStop(1.00, "rgba(255, 255, 255, 0.7)");
+                c.fillStyle = rainbowShine;
+                c.fillRect(innerX, innerY, innerW, innerH);
+
+                c.shadowColor = "rgba(255, 0, 255, 0.9)";
+                c.shadowBlur = 12;
+                c.strokeStyle = "rgba(255, 255, 255, 0.9)";
+                c.lineWidth = 1.2;
+                if (typeof _profileCardPath === 'function') {
+                    _profileCardPath(c, innerX, innerY, innerW, innerH, innerCut, innerRadius);
+                } else if (typeof _bookCardPath === 'function') {
+                    _bookCardPath(c, innerX, innerY, innerW, innerH, innerCut, innerRadius);
+                }
+                c.stroke();
+                c.restore();
+            }
+
+            if (theme.isPlatinum) {
+                c.save();
+                if (typeof _profileCardPath === 'function') {
+                    _profileCardPath(c, innerX, innerY, innerW, innerH, innerCut, innerRadius);
+                } else if (typeof _bookCardPath === 'function') {
+                    _bookCardPath(c, innerX, innerY, innerW, innerH, innerCut, innerRadius);
+                }
+                c.clip();
+                const platShine = c.createLinearGradient(innerX, innerY, innerX + innerW, innerY + innerH);
+                platShine.addColorStop(0.00, "rgba(255, 255, 255, 0.35)");
+                platShine.addColorStop(0.35, "rgba(255, 255, 255, 0.45)");
+                platShine.addColorStop(0.55, "rgba(255, 255, 255, 0.10)");
+                platShine.addColorStop(1.00, "rgba(255, 255, 255, 0.0)");
+                c.fillStyle = platShine;
+                c.fillRect(innerX, innerY, innerW, innerH);
+                c.restore();
+            }
+
+        } else {
+            c.fillStyle = "rgba(15, 12, 10, 0.9)";
+            if (typeof _profileCardPath === 'function') {
+                _profileCardPath(c, cardDrawX, cardDrawY, cardW, cardH, cutSize, outerRadius);
+            } else if (typeof _bookCardPath === 'function') {
+                _bookCardPath(c, cardDrawX, cardDrawY, cardW, cardH, cutSize, outerRadius);
+            }
+            c.fill();
+            c.strokeStyle = "rgba(100, 90, 80, 0.3)";
+            c.lineWidth = 1;
+            if (typeof _profileCardPath === 'function') {
+                _profileCardPath(c, cardDrawX, cardDrawY, cardW, cardH, cutSize, outerRadius);
+            } else if (typeof _bookCardPath === 'function') {
+                _bookCardPath(c, cardDrawX, cardDrawY, cardW, cardH, cutSize, outerRadius);
+            }
+            c.stroke();
+        }
+
+        // 分数風レイアウトの構築
+        const textShadow = "0 1px 3px rgba(0,0,0,0.95), 0 0 4px rgba(0,0,0,0.85)";
+
+        const numeratorEl = document.createElement("span");
+        numeratorEl.className = "card-rank-num";
+        numeratorEl.textContent = displayCount;
+        numeratorEl.style.fontSize = "10.5px";
+        numeratorEl.style.fontWeight = "900";
+        numeratorEl.style.color = rInfo.id === 6 ? "#fffbcc" : "#ffffff"; 
+        numeratorEl.style.lineHeight = "1.0";
+        numeratorEl.style.zIndex = "1";
+        numeratorEl.style.textShadow = rInfo.id === 6 ? "0 1px 4px rgba(255,0,255,0.9), 0 0 6px rgba(0,255,255,0.8)" : textShadow;
+
+        const fractionLine = document.createElement("div");
+        fractionLine.style.width = "18px";
+        fractionLine.style.height = "1.5px";
+        fractionLine.style.backgroundColor = rInfo.id === 6 ? "rgba(255, 255, 255, 0.95)" : "rgba(255, 255, 255, 0.75)";
+        fractionLine.style.margin = "2px 0";
+        fractionLine.style.zIndex = "1";
+        fractionLine.style.boxShadow = "0 1px 2px rgba(0,0,0,0.9)";
+
+        const denominatorEl = document.createElement("span");
+        denominatorEl.className = "card-rank-den";
+        denominatorEl.textContent = maxCards;
+        denominatorEl.style.fontSize = "8px";
+        denominatorEl.style.fontWeight = "bold";
+        denominatorEl.style.color = "rgba(255, 255, 255, 0.9)";
+        denominatorEl.style.lineHeight = "1.0";
+        denominatorEl.style.zIndex = "1";
+        denominatorEl.style.textShadow = textShadow;
+
+        boxEl.appendChild(numeratorEl);
+        boxEl.appendChild(fractionLine);
+        boxEl.appendChild(denominatorEl);
+        
+        container.appendChild(boxEl);
+    });
+}
+
+// ==========================================
+// プロフィール用・リッチモンスターカード描画関数
+// ==========================================
+function drawProfileCard20261006(c, x, y, w, h, rank, isUnlocked, rankCard) {
+    const cutSize = 4;     // 角の削りサイズ
+    const outerRadius = 2; // 外周の角丸
+
+    // 1. レア度ごとのテーマ設定（BOOK版の美しさを踏襲）
+    let theme = {
+        glowColor: "#f59e0b", lightBorder: "#fef08a",
+        gradTop: "#fde047", gradMid: "#eab308", gradBottom: "#a16207",
+        innerTop: "#fef3c7", innerMid: "#fde68a", innerBottom: "#d1c4a9",
+        isDiamond: false, isPlatinum: false, isRainbow: false
+    };
+
+    if (rank === 1) {
+        // 銅
+        theme = { glowColor: "#b45309", lightBorder: "#fed7aa", gradTop: "#fb923c", gradMid: "#c2410c", gradBottom: "#7c2d12", innerTop: "#ffedd5", innerMid: "#fed7aa", innerBottom: "#c2410c", isDiamond: false, isPlatinum: false, isRainbow: false };
+    } else if (rank === 2) {
+        // 銀
+        theme = { glowColor: "#94a3b8", lightBorder: "#e2e8f0", gradTop: "#cbd5e1", gradMid: "#64748b", gradBottom: "#334155", innerTop: "#f1f5f9", innerMid: "#cbd5e1", innerBottom: "#64748b", isDiamond: false, isPlatinum: false, isRainbow: false };
+    } else if (rank === 3) {
+        // 金
+        theme = { glowColor: "#f59e0b", lightBorder: "#fef08a", gradTop: "#fde047", gradMid: "#eab308", gradBottom: "#a16207", innerTop: "#fef3c7", innerMid: "#fde68a", innerBottom: "#d1c4a9", isDiamond: false, isPlatinum: false, isRainbow: false };
+    } else if (rank === 4) {
+        // Pt（プラチナ）
+        theme = { glowColor: "#e2e8f0", lightBorder: "#ffffff", gradTop: "#ffffff", gradMid: "#cbd5e1", gradBottom: "#64748b", innerTop: "#ffffff", innerMid: "#e2e8f0", innerBottom: "#cbd5e1", isDiamond: false, isPlatinum: true, isRainbow: false };
+    } else if (rank === 5) {
+        // Dia（ダイヤモンド）
+        theme = { glowColor: "#6ee7b7", lightBorder: "#ffffff", gradTop: "#7dd3fc", gradMid: "#0d9488", gradBottom: "#042f2e", innerTop: "#ffffff", innerMid: "#2dd4bf", innerBottom: "#0f766e", isDiamond: true, isPlatinum: false, isRainbow: false };
+    } else if (rank === 6) {
+        // 虹
+        theme = { glowColor: "#ffeedd", lightBorder: "#ffffff", gradTop: "#ffffff", gradMid: "#ff77ff", gradBottom: "#220044", innerTop: "#ffffff", innerMid: "#00ffff", innerBottom: "#ffdd00", isDiamond: false, isPlatinum: false, isRainbow: true };
+    }
+
+    // 2. 未ロック時の処理
+    if (!isUnlocked) {
+        c.fillStyle = "rgba(10, 8, 6, 0.8)";
+        c.strokeStyle = "rgba(100, 90, 80, 0.3)";
+        c.lineWidth = 1;
+        _bookCardPath(c, x, y, w, h, cutSize, outerRadius);
+        c.fill();
+        c.stroke();
+        return;
+    }
+
+    // 3. 外側のグロー（光彩）エフェクト
+    c.save();
+    c.strokeStyle = theme.glowColor;
+    c.lineWidth = 3;
+    c.globalAlpha = 0.4;
+    _bookCardPath(c, x - 1, y - 1, w + 2, h + 2, cutSize + 1, outerRadius + 1);
+    c.stroke();
+    c.restore();
+
+    // 4. フレーム（外枠）のグラデーション描画
+    const frameGrad = c.createLinearGradient(x, y, x, y + h);
+    if (theme.isRainbow) {
+        frameGrad.addColorStop(0.00, "rgba(255, 120, 120, 1.0)");
+        frameGrad.addColorStop(0.20, "rgba(255, 200, 90, 1.0)");
+        frameGrad.addColorStop(0.40, "rgba(255, 255, 120, 1.0)");
+        frameGrad.addColorStop(0.60, "rgba(90, 255, 150, 1.0)");
+        frameGrad.addColorStop(0.80, "rgba(90, 230, 255, 1.0)");
+        frameGrad.addColorStop(1.00, "rgba(200, 120, 255, 1.0)");
+    } else if (theme.isDiamond) {
+        frameGrad.addColorStop(0.00, "#7dd3fc");
+        frameGrad.addColorStop(0.50, "#0284c7");
+        frameGrad.addColorStop(1.00, "#0369a1");
+    } else {
+        frameGrad.addColorStop(0, theme.gradTop);
+        frameGrad.addColorStop(0.5, theme.gradMid);
+        frameGrad.addColorStop(1, theme.gradBottom);
+    }
+    c.fillStyle = frameGrad;
+    _bookCardPath(c, x, y, w, h, cutSize, outerRadius);
+    c.fill();
+
+    // 5. 内側（インナー）の描画
+    const innerMargin = 1.5;
+    const innerX = x + innerMargin;
+    const innerY = y + innerMargin;
+    const innerW = w - innerMargin * 2;
+    const innerH = h - innerMargin * 2;
+    const innerCut = Math.max(0, cutSize - innerMargin);
+    const innerRadius = Math.max(0, outerRadius - innerMargin);
+
+    const innerGrad = c.createLinearGradient(innerX + innerW, innerY, innerX, innerY + innerH);
+    if (theme.isRainbow) {
+        innerGrad.addColorStop(0.00, "rgba(255, 150, 150, 1.0)");
+        innerGrad.addColorStop(0.50, "rgba(100, 255, 200, 1.0)");
+        innerGrad.addColorStop(1.00, "rgba(200, 150, 255, 1.0)");
+    } else if (theme.isDiamond) {
+        innerGrad.addColorStop(0.00, "#e0f2fe");
+        innerGrad.addColorStop(0.50, "#38bdf8");
+        innerGrad.addColorStop(1.00, "#0369a1");
+    } else {
+        innerGrad.addColorStop(0, theme.innerTop);
+        innerGrad.addColorStop(0.5, theme.innerMid);
+        innerGrad.addColorStop(1, theme.innerBottom);
+    }
+    c.fillStyle = innerGrad;
+    _bookCardPath(c, innerX, innerY, innerW, innerH, innerCut, innerRadius);
+    c.fill();
+
+    // 6. ダイヤモンド・プラチナ・虹の特別オーラ・光沢表現
+    if (theme.isDiamond) {
+        c.save();
+        _bookCardPath(c, innerX, innerY, innerW, innerH, innerCut, innerRadius);
+        c.clip();
+        const shineGrad = c.createLinearGradient(innerX + innerW * 0.9, innerY + innerH * 0.1, innerX + innerW * 0.1, innerY + innerH * 0.9);
+        shineGrad.addColorStop(0.40, "rgba(255, 255, 255, 0.30)");
+        shineGrad.addColorStop(0.50, "rgba(255, 255, 255, 0.60)");
+        shineGrad.addColorStop(0.60, "rgba(255, 255, 255, 0.30)");
+        c.fillStyle = shineGrad;
+        c.fillRect(innerX, innerY, innerW, innerH);
+        c.restore();
+    } else if (theme.isRainbow) {
+        c.save();
+        c.shadowColor = "rgba(255, 255, 255, 0.7)";
+        c.shadowBlur = 12;
+        _bookCardPath(c, innerX, innerY, innerW, innerH, innerCut, innerRadius);
+        c.strokeStyle = "rgba(255, 255, 255, 0.45)";
+        c.lineWidth = 1.0;
+        c.stroke();
+        c.restore();
+    } else if (theme.isPlatinum) {
+        c.save();
+        _bookCardPath(c, innerX, innerY, innerW, innerH, innerCut, innerRadius);
+        c.clip();
+        const platShine = c.createLinearGradient(innerX, innerY, innerX + innerW, innerY + innerH);
+        platShine.addColorStop(0.00, "rgba(255, 255, 255, 0.35)");
+        platShine.addColorStop(0.35, "rgba(255, 255, 255, 0.45)");
+        platShine.addColorStop(1.00, "rgba(255, 255, 255, 0.0)");
+        c.fillStyle = platShine;
+        c.fillRect(innerX, innerY, innerW, innerH);
+        c.restore();
+    }
+}
+// ※ ここにあった重複元の `_bookCardPath` の定義を完全に削除しました。
 
 // ============================================================
 // :::DRAW_ONLINE_LIST::: 👥 オンラインプレイヤー名簿（折りたたみ機能付き）
@@ -3033,8 +4215,8 @@ if (typeof window._selectedProfilePlayer === 'undefined') {
 canvas.addEventListener('click', (e) => {
     // 🌟 プロフィールウィンドウが開いている場合の操作判定
     if (window._isProfileWindowOpen && window._selectedProfilePlayer) {
-        const bgWidth = 340;
-        const bgHeight = 500; // 🌟 描画側と合わせるため、500に変更しました！
+        const bgWidth = 640; // 2カラム対応のため幅を拡張
+        const bgHeight = 540; 
         const startX = (VIEW_CONFIG.SCREEN_WIDTH - bgWidth) / 2;
         const startY = (VIEW_CONFIG.SCREEN_HEIGHT - bgHeight) / 2;
 
@@ -3047,8 +4229,8 @@ canvas.addEventListener('click', (e) => {
             return;
         }
 
-        // 2. 人気度＋1ボタンの判定
-        const popBtnX = startX + 185;
+        // 2. 人気度＋1ボタンの判定（1カラム目配置に対応）
+        const popBtnX = startX + 115;
         const popBtnY = startY + 99;
         const popBtnW = 68;
         const popBtnH = 18;
@@ -3059,17 +4241,25 @@ canvas.addEventListener('click', (e) => {
             return;
         }
 
-        // 3. 下部アクションボタン（グループ・カード交換・アイテム交換）の判定
-        const btnWidth = 92;
+        // 3. 下部アクションボタン（友達・グループ・カード交換・アイテム交換）の判定
+        const btnWidth = 142;
         const btnHeight = 32;
         const btnY = startY + bgHeight - 48;
         const btnGap = 8;
         
-        const groupBtnX = startX + 16;
+        const friendBtnX = startX + 16;
+        const groupBtnX = friendBtnX + btnWidth + btnGap;
         const cardTradeBtnX = groupBtnX + btnWidth + btnGap;
         const tradeBtnX = cardTradeBtnX + btnWidth + btnGap;
 
-        // ① グループ申し込み
+        // ① 友達申請
+        if (mouseX >= friendBtnX && mouseX <= friendBtnX + btnWidth && mouseY >= btnY && mouseY <= btnY + btnHeight) {
+            const targetPlayer = window._selectedProfilePlayer;
+            console.log(`${targetPlayer.name} へ友達申請`);
+            return;
+        }
+
+        // ② グループ申し込み
         if (mouseX >= groupBtnX && mouseX <= groupBtnX + btnWidth && mouseY >= btnY && mouseY <= btnY + btnHeight) {
             const targetPlayer = window._selectedProfilePlayer;
             console.log(`${targetPlayer.name} へグループ申し込み`);
@@ -3082,7 +4272,7 @@ canvas.addEventListener('click', (e) => {
             return;
         }
 
-        // ② カード交換申し込み
+        // ③ カード交換申し込み
         if (mouseX >= cardTradeBtnX && mouseX <= cardTradeBtnX + btnWidth && mouseY >= btnY && mouseY <= btnY + btnHeight) {
             const targetPlayer = window._selectedProfilePlayer;
             console.log(`${targetPlayer.name} へカード交換申し込み`);
@@ -3092,7 +4282,7 @@ canvas.addEventListener('click', (e) => {
             return;
         }
 
-        // ③ アイテム交換申し込み
+        // ④ アイテム交換申し込み
         if (mouseX >= tradeBtnX && mouseX <= tradeBtnX + btnWidth && mouseY >= btnY && mouseY <= btnY + btnHeight) {
             const targetPlayer = window._selectedProfilePlayer;
             console.log(`${targetPlayer.name} へアイテム交換申し込み`);
@@ -3105,11 +4295,6 @@ canvas.addEventListener('click', (e) => {
                     model_id: myHero ? (myHero.model_id !== undefined ? myHero.model_id : (myHero.group || 0)) : 0,
                     charVar: myHero ? (myHero.charVar || 1) : 1
                 });
-            }
-
-            const targetNameEl = document.getElementById("trade-target-name");
-            if (targetNameEl) {
-                //targetNameEl.textContent = "";
             }
 
             const myNameEl = document.getElementById("trade-my-name");
@@ -3142,7 +4327,7 @@ canvas.addEventListener('click', (e) => {
         return;
     }
 
-    if (window._isOnlineListOpen && typeof window._hoveredOnlineRow !== 'undefined' && window._hoveredOnlineRow >= 0) {
+	if (window._isOnlineListOpen && typeof window._hoveredOnlineRow !== 'undefined' && window._hoveredOnlineRow >= 0) {
         const targetPlayer = currentOnlinePlayers[window._hoveredOnlineRow];
         const actionType = window._hoveredOnlineBtn;
 
@@ -3150,6 +4335,11 @@ canvas.addEventListener('click', (e) => {
             if (actionType === 0) {
                 window._selectedProfilePlayer = targetPlayer;
                 window._isProfileWindowOpen = true;
+                
+                // 🌟 handleProfileClick() を使うための合わせ技
+                window.selectedPlayer = targetPlayer; // handleProfileClickが読めるようにセット
+                handleProfileClick(); // これを書くだけでOK！
+
                 console.log(`${targetPlayer.name} のプロフィールウィンドウを開きます`);
             } else if (actionType === 1) {
                 console.log(`${targetPlayer.name} の成果を開く`);
@@ -3161,18 +4351,26 @@ canvas.addEventListener('click', (e) => {
 });
 
 // プロフィールウィンドウのドラッグ用状態変数
-let profileWindowX = null; // 初期値はnull（未配置なら中央に表示）
+let profileWindowX = null; 
 let profileWindowY = null;
 let isDraggingProfile = false;
 let profileDragOffsetX = 0;
 let profileDragOffsetY = 0;
 
 // ============================================================
-// :::DRAW_PROFILE_WINDOW::: 👤 拡張プレイヤープロフィールウィンドウ（ドラッグ移動対応版）
+// :::DRAW_PROFILE_WINDOW::: 👤 拡張プレイヤープロフィールウィンドウ（2カラム対応版）
 // ============================================================
+
+// 1. 動物マッピングデータ（定数）
+const ANIMAL_MAP = {
+    0: "あひる", 1: "あらいぐま", 2: "いぬ", 3: "うさぎ", 4: "カピバラ",
+    5: "きのこ", 6: "くま", 7: "コアラ", 8: "ねこ", 9: "パンダ",
+    10: "ビーバー", 11: "ひよこ", 12: "ぶた", 13: "ペンギン", 14: "ラクーン", 15: "りす"
+};
+
+// 2. メインの描画関数
 function drawProfileWindow(tCtx) {
     if (!window._isProfileWindowOpen || !window._selectedProfilePlayer) {
-        // ウィンドウが閉じているときはドラッグ状態もリセット
         isDraggingProfile = false;
         return;
     }
@@ -3182,17 +4380,15 @@ function drawProfileWindow(tCtx) {
         p = window.hero;
     }
 
-    const bgWidth = 340;
-    const bgHeight = 500;
+    const bgWidth = 640;
+    const bgHeight = 540; 
     const cornerRadius = 12;
 
-    // 🌟 初回、またはウィンドウが開いた直立時は画面中央に配置する
     if (profileWindowX === null || profileWindowY === null) {
         profileWindowX = (VIEW_CONFIG.SCREEN_WIDTH - bgWidth) / 2;
         profileWindowY = (VIEW_CONFIG.SCREEN_HEIGHT - bgHeight) / 2;
     }
 
-    // 🌟 タイトルバー（上部36px）がドラッグされたときの移動処理
     if (isDraggingProfile && typeof mouseX !== 'undefined' && typeof mouseY !== 'undefined') {
         profileWindowX = mouseX - profileDragOffsetX;
         profileWindowY = mouseY - profileDragOffsetY;
@@ -3203,7 +4399,45 @@ function drawProfileWindow(tCtx) {
 
     ctx.save();
 
-    // 1. ウィンドウの背景パネル
+    // ウィンドウ背景・枠線・タイトルの描画
+    drawProfileWindowBackground(startX, startY, bgWidth, bgHeight, cornerRadius);
+
+    // 1カラム目（左側）：基本情報
+    drawProfileHeaderInfo(startX, startY, p);
+    
+    // カラム間の境界線
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.15)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(startX + 215, startY + 46);
+    ctx.lineTo(startX + 215, startY + bgHeight - 60);
+    ctx.stroke();
+
+    // 2カラム目（右側）：装備・メダル・図鑑・討伐履歴を各ボタン風パネルとして配置
+    const rightColX = startX + 230;
+    const rightColWidth = 390;
+
+    const hoverData = drawProfileEquipment(rightColX, startY + 44, rightColWidth, p);
+    drawProfileMedals(rightColX, startY + 164, rightColWidth, p);
+    drawProfileCardCollection(rightColX, startY + 242, rightColWidth, p);
+    drawProfileHuntHistory(rightColX, startY + 346, rightColWidth, p);
+
+    // 下部アクションボタン
+    drawProfileButtons(startX, startY, bgWidth, bgHeight);
+
+    // マウスカーソル追尾型ポップアップの描画
+    drawProfileTooltips(tCtx, hoverData.hoveredEquippedItem, hoverData.hoveredSlotInfo);
+
+    ctx.restore();
+}
+
+
+// ============================================================
+// サブ関数群（2カラムレイアウト対応版）
+// ============================================================
+
+// ウィンドウ背景・枠線・タイトル・閉じるボタン
+function drawProfileWindowBackground(startX, startY, bgWidth, bgHeight, cornerRadius) {
     ctx.fillStyle = "rgba(15, 23, 42, 0.95)";
     ctx.beginPath();
     if (ctx.roundRect) {
@@ -3213,12 +4447,10 @@ function drawProfileWindow(tCtx) {
     }
     ctx.fill();
 
-    // 2. ウィンドウの枠線
     ctx.strokeStyle = "#38bdf8";
     ctx.lineWidth = 1.5;
     ctx.stroke();
 
-    // 3. タイトルバー部分
     ctx.fillStyle = "#1e293b";
     ctx.beginPath();
     if (ctx.roundRect) {
@@ -3234,7 +4466,6 @@ function drawProfileWindow(tCtx) {
     ctx.textBaseline = "middle";
     ctx.fillText("プレイヤープロフィール", startX + 15, startY + 18);
 
-    // 4. 閉じる「×」ボタンの描画
     const closeBtnX = startX + bgWidth - 28;
     const closeBtnY = startY + 10;
     ctx.fillStyle = "rgba(239, 68, 68, 0.8)";
@@ -3244,8 +4475,11 @@ function drawProfileWindow(tCtx) {
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.fillText("×", closeBtnX + 9, closeBtnY + 9);
+}
 
-    // 5. プレイヤーアイコン
+
+// 1カラム目：アイコンと基本ステータス情報
+function drawProfileHeaderInfo(startX, startY, p) {
     const iconX = startX + 45;
     const iconY = startY + 75;
     const iconRadius = 24;
@@ -3269,7 +4503,6 @@ function drawProfileWindow(tCtx) {
     ctx.arc(iconX, iconY, iconRadius, 0, Math.PI * 2);
     ctx.stroke();
 
-    // 6. 基本情報
     ctx.textAlign = "left";
     ctx.textBaseline = "top";
     
@@ -3284,27 +4517,54 @@ function drawProfileWindow(tCtx) {
     ctx.fillStyle = "#7dd3fc";
     ctx.fillText(`CH.${p.channel || 1}`, startX + 130, startY + 68);
 
-    const animalMap = {
-        0: "あひる", 1: "あらいぐま", 2: "いぬ", 3: "うさぎ", 4: "カピバラ",
-        5: "きのこ", 6: "くま", 7: "コアラ", 8: "ねこ", 9: "パンダ",
-        10: "ビーバー", 11: "ひよこ", 12: "ぶた", 13: "ペンギン", 14: "ラクーン", 15: "りす"
-    };
-
     const rawModelId = (p.model_id !== undefined && p.model_id !== null) ? p.model_id : "";
-    const animalName = animalMap[String(rawModelId)] !== undefined ? animalMap[String(rawModelId)] : (rawModelId !== "" ? `ID:${rawModelId}` : "なし");
+    const animalName = ANIMAL_MAP[String(rawModelId)] !== undefined ? ANIMAL_MAP[String(rawModelId)] : (rawModelId !== "" ? `ID:${rawModelId}` : "なし");
 
     const popularity = p.popularity !== undefined ? p.popularity : 0;
     const guildName = p.guild || "無所属";
 
+    const rawTime = p.playTime !== undefined ? p.playTime : (p.totalTime !== undefined ? p.totalTime : 0);
+    const totalMinutes = Math.floor(rawTime / 60); 
+    const hours = Math.floor(totalMinutes / 60);
+    const minutes = totalMinutes % 60;
+    const timeText = hours > 0 ? `${hours}時間 ${minutes}分` : `${minutes}分`;
+
+    const communityName = p.community || p.communityName || "未加入";
+    const homepageUrl = p.homepage || p.website || p.url || "";
+    const homepageText = homepageUrl ? (homepageUrl.length > 18 ? homepageUrl.substring(0, 16) + "..." : homepageUrl) : "未設定";
+
+    const historyData = p.history || p.recentLocations || p.viewHistory || "";
+    let historyText = "なし";
+    if (Array.isArray(historyData) && historyData.length > 0) {
+        historyText = historyData[historyData.length - 1];
+    } else if (typeof historyData === 'string' && historyData.trim() !== "") {
+        historyText = historyData;
+    }
+    if (historyText.length > 16) historyText = historyText.substring(0, 14) + "...";
+
+    const contributionData = p.contributions || p.articles || p.postHistory || "";
+    let contributionText = "なし";
+    if (Array.isArray(contributionData) && contributionData.length > 0) {
+        contributionText = contributionData[contributionData.length - 1];
+    } else if (typeof contributionData === 'string' && contributionData.trim() !== "") {
+        contributionText = contributionData;
+    }
+    if (contributionText.length > 16) contributionText = contributionText.substring(0, 14) + "...";
+
     ctx.font = "11px Arial";
     ctx.fillStyle = "#cbd5e1";
-    ctx.fillText(`🐾 アニマル: ${animalName}`, startX + 82, startY + 86);
-    ctx.fillText(`⭐ 人気度: ${popularity}`, startX + 82, startY + 102);
-    ctx.fillText(`🛡️ ギルド: ${guildName}`, startX + 82, startY + 118);
+    ctx.fillText(`🐾 アニマル: ${animalName}`, startX + 16, startY + 124);
+    ctx.fillText(`⭐ 人気度: ${popularity}`, startX + 16, startY + 144);
+    ctx.fillText(`🛡️ ギルド: ${guildName}`, startX + 16, startY + 164);
+    ctx.fillText(`⏱️ プレイ時間: ${timeText}`, startX + 16, startY + 184);
+    ctx.fillText(`🌐 コミュニティ: ${communityName}`, startX + 16, startY + 204);
+    ctx.fillText(`🏠 HP: ${homepageText}`, startX + 16, startY + 224);
+    ctx.fillText(`📖 閲覧履歴: ${historyText}`, startX + 16, startY + 244);
+    ctx.fillText(`✍️ 寄稿履歴: ${contributionText}`, startX + 16, startY + 264);
 
-    // 人気度アップ小ボタン
-    const popBtnX = startX + 185;
-    const popBtnY = startY + 99;
+    // 人気度アップボタン
+    const popBtnX = startX + 115;
+    const popBtnY = startY + 95;
     const popBtnW = 68;
     const popBtnH = 18;
     ctx.fillStyle = "rgba(74, 222, 128, 0.25)";
@@ -3317,21 +4577,22 @@ function drawProfileWindow(tCtx) {
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.fillText("👍 ＋1する", popBtnX + popBtnW / 2, popBtnY + popBtnH / 2);
+}
 
-    // 水平区切り線
+
+// 2カラム目：装備アイテムセクション（単独ボタン風パネル）
+function drawProfileEquipment(colX, topY, colWidth, p) {
+    ctx.fillStyle = "rgba(0, 0, 0, 0.25)";
+    ctx.fillRect(colX, topY, colWidth, 110);
     ctx.strokeStyle = "rgba(255, 255, 255, 0.15)";
     ctx.lineWidth = 1;
-    ctx.beginPath();
-    ctx.moveTo(startX + 15, startY + 145);
-    ctx.lineTo(startX + bgWidth - 15, startY + 145);
-    ctx.stroke();
+    ctx.strokeRect(colX, topY, colWidth, 110);
 
-    // 7. 装備アイテムセクション
-    ctx.font = "bold 12px Arial";
+    ctx.font = "bold 11px Arial";
     ctx.fillStyle = "#f8fafc";
     ctx.textAlign = "left";
     ctx.textBaseline = "top";
-    ctx.fillText("装備アイテム", startX + 20, startY + 155);
+    ctx.fillText("装備アイテム", colX + 10, topY + 8);
 
     const equipSlots = [
         { label: "剣", types: ["sword", "weapon"] },
@@ -3342,27 +4603,22 @@ function drawProfileWindow(tCtx) {
         { label: "ベルト", types: ["belt"] }
     ];
 
-    const slotSize = 36;
-    const slotGap = 8;
-    const equipStartX = startX + 20;
-    const equipStartY = startY + 175;
+    const slotSize = 30;
+    const slotGap = 10;
+    const equipStartX = colX + 12;
+    const equipStartY = topY + 26;
 
     let hoveredEquippedItem = null;
     let hoveredSlotInfo = null;
 
     equipSlots.forEach((slot, idx) => {
-        const col = idx % 3; 
-        const row = Math.floor(idx / 3); 
-
-        const sx = equipStartX + col * (slotSize + slotGap + 12);
-        const sy = equipStartY + row * (slotSize + slotGap);
-
-        const absoluteSlotX = sx;
-        const absoluteSlotY = sy;
+        const col = idx % 6; 
+        const sx = equipStartX + col * (slotSize + slotGap);
+        const sy = equipStartY;
 
         const isHover = (typeof mouseX !== 'undefined' && typeof mouseY !== 'undefined' &&
-                         mouseX >= absoluteSlotX && mouseX <= absoluteSlotX + slotSize &&
-                         mouseY >= absoluteSlotY && mouseY <= absoluteSlotY + slotSize);
+                         mouseX >= sx && mouseX <= sx + slotSize &&
+                         mouseY >= sy && mouseY <= sy + slotSize);
 
         ctx.fillStyle = isHover ? "rgba(255, 255, 255, 0.15)" : "rgba(0, 0, 0, 0.4)";
         ctx.fillRect(sx, sy, slotSize, slotSize);
@@ -3388,7 +4644,7 @@ function drawProfileWindow(tCtx) {
         }
 
         if (!equippedItem) {
-            ctx.font = "9px Arial";
+            ctx.font = "8px Arial";
             ctx.fillStyle = "#94a3b8";
             ctx.textAlign = "center";
             ctx.textBaseline = "middle";
@@ -3398,15 +4654,14 @@ function drawProfileWindow(tCtx) {
             let img = (typeof itemImages !== 'undefined') ? itemImages[imageKey] : null;
 
             if (img && img.complete && img.naturalWidth > 0) {
-                const padding = 3;
+                const padding = 2;
                 const imgW = slotSize - padding * 2;
                 const imgH = slotSize - padding * 2;
-                
                 const glowCol = typeof getEquipGlowColor === 'function' ? getEquipGlowColor(equippedItem) : null;
 
                 ctx.save();
                 if (glowCol) {
-                    ctx.shadowBlur = 8;
+                    ctx.shadowBlur = 6;
                     ctx.shadowColor = glowCol;
                     ctx.strokeStyle = glowCol;
                     ctx.lineWidth = 2;
@@ -3415,32 +4670,92 @@ function drawProfileWindow(tCtx) {
                         ctx.roundRect(sx + 2, sy + 2, slotSize - 4, slotSize - 4, 3);
                         ctx.stroke();
                     }
-                } else {
-                    ctx.shadowBlur = 3;
-                    ctx.shadowColor = "rgba(0,0,0,0.4)";
                 }
-
                 ctx.drawImage(img, sx + padding, sy + padding, imgW, imgH);
                 ctx.restore();
             } else {
-                ctx.font = "8px Arial";
+                ctx.font = "7px Arial";
                 ctx.fillStyle = "#facc15";
                 ctx.textAlign = "center";
                 ctx.textBaseline = "middle";
-                ctx.fillText(equippedItem.name || "装備", sx + slotSize / 2, sy + slotSize / 2);
+                ctx.fillText(slot.label, sx + slotSize / 2, sy + slotSize / 2);
             }
         }
     });
 
-    // ==========================================
-    // 8. モンスターカードBOOK連動セクション（ランク1〜6）
-    // ==========================================
-    const cardSectionY = startY + 275;
-    ctx.font = "bold 12px Arial";
+    return { hoveredEquippedItem, hoveredSlotInfo };
+}
+
+
+// 2カラム目：所持メダルセクション（単独ボタン風パネル）
+function drawProfileMedals(colX, topY, colWidth, p) {
+    ctx.fillStyle = "rgba(0, 0, 0, 0.25)";
+    ctx.fillRect(colX, topY, colWidth, 68);
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.15)";
+    ctx.lineWidth = 1;
+    ctx.strokeRect(colX, topY, colWidth, 68);
+
+    ctx.font = "bold 11px Arial";
     ctx.fillStyle = "#f8fafc";
     ctx.textAlign = "left";
     ctx.textBaseline = "top";
-    ctx.fillText("モンスターカード図鑑 収集状況", startX + 20, cardSectionY);
+    ctx.fillText("所持メダル", colX + 10, topY + 8);
+
+    const medals = [
+        { key: "goldMedal", label: "金メダル", color: "#fde047" },
+        { key: "silverMedal", label: "銀メダル", color: "#cbd5e1" },
+        { key: "bronzeMedal", label: "銅メダル", color: "#fb923c" }
+    ];
+
+    const medalBoxW = 118;
+    const medalBoxH = 26;
+    const medalBoxGap = 8;
+    const medalStartX = colX + 12;
+    const medalStartY = topY + 28;
+
+    medals.forEach((mInfo, idx) => {
+        const mx = medalStartX + idx * (medalBoxW + medalBoxGap);
+        const my = medalStartY;
+
+        ctx.fillStyle = "rgba(0, 0, 0, 0.45)";
+        ctx.fillRect(mx, my, medalBoxW, medalBoxH);
+        ctx.strokeStyle = mInfo.color;
+        ctx.lineWidth = 1;
+        ctx.strokeRect(mx, my, medalBoxW, medalBoxH);
+
+        let medalCount = 0;
+        if (p.medals && typeof p.medals[mInfo.key] === 'number') {
+            medalCount = p.medals[mInfo.key];
+        } else if (typeof p[mInfo.key] === 'number') {
+            medalCount = p[mInfo.key];
+        }
+
+        ctx.font = "bold 10px Arial";
+        ctx.fillStyle = mInfo.color;
+        ctx.textAlign = "left";
+        ctx.textBaseline = "middle";
+        ctx.fillText(mInfo.label, mx + 8, my + medalBoxH / 2);
+
+        ctx.fillStyle = "#ffffff";
+        ctx.textAlign = "right";
+        ctx.fillText(`${medalCount}枚`, mx + medalBoxW - 8, my + medalBoxH / 2);
+    });
+}
+
+
+// 2カラム目：モンスターカード図鑑収集状況セクション（単独ボタン風パネル）
+function drawProfileCardCollection(colX, topY, colWidth, p) {
+    ctx.fillStyle = "rgba(0, 0, 0, 0.25)";
+    ctx.fillRect(colX, topY, colWidth, 94);
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.15)";
+    ctx.lineWidth = 1;
+    ctx.strokeRect(colX, topY, colWidth, 94);
+
+    ctx.font = "bold 11px Arial";
+    ctx.fillStyle = "#f8fafc";
+    ctx.textAlign = "left";
+    ctx.textBaseline = "top";
+    ctx.fillText("モンスターカード図鑑 収集状況", colX + 10, topY + 8);
 
     const bookRanks = [
         { id: 1, label: "銅", color: "#fb923c" },
@@ -3452,7 +4767,7 @@ function drawProfileWindow(tCtx) {
     ];
 
     const rankCounts = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0, 6: 0 };
-    const targetCollection = p.playerCardCollection || playerCardCollection;
+    const targetCollection = p.playerCardCollection || (typeof playerCardCollection !== 'undefined' ? playerCardCollection : null);
     
     if (targetCollection) {
         Object.keys(targetCollection).forEach(monsterKey => {
@@ -3467,11 +4782,11 @@ function drawProfileWindow(tCtx) {
         });
     }
 
-    const cardBoxW = 46;
-    const cardBoxH = 34;
-    const cardBoxGap = 4;
-    const cardStartX = startX + 20;
-    const cardStartY = cardSectionY + 20;
+    const cardBoxW = 57;
+    const cardBoxH = 44;
+    const cardBoxGap = 8;
+    const cardStartX = colX + 12;
+    const cardStartY = topY + 32;
 
     bookRanks.forEach((rInfo, idx) => {
         const bx = cardStartX + idx * (cardBoxW + cardBoxGap);
@@ -3487,38 +4802,109 @@ function drawProfileWindow(tCtx) {
         ctx.fillStyle = rInfo.color;
         ctx.textAlign = "center";
         ctx.textBaseline = "top";
-        ctx.fillText(rInfo.label, bx + cardBoxW / 2, by + 4);
+        ctx.fillText(rInfo.label, bx + cardBoxW / 2, by + 6);
 
         const count = rankCounts[rInfo.id] || 0;
-        ctx.font = "bold 11px Arial";
+        ctx.font = "bold 12px Arial";
         ctx.fillStyle = "#ffffff";
-        ctx.fillText(count, bx + cardBoxW / 2, by + 17);
+        ctx.fillText(count, bx + cardBoxW / 2, by + 22);
     });
+}
 
-    // ==========================================
-    // 9. 下部アクションボタン（3つ並び）
-    // ==========================================
-    const btnWidth = 92;
+
+// 2カラム目：討伐履歴セクション（単独ボタン風パネル）
+function drawProfileHuntHistory(colX, topY, colWidth, p) {
+    ctx.fillStyle = "rgba(0, 0, 0, 0.25)";
+    ctx.fillRect(colX, topY, colWidth, 84);
+    ctx.strokeStyle = "rgba(255, 255, 255, 0.15)";
+    ctx.lineWidth = 1;
+    ctx.strokeRect(colX, topY, colWidth, 84);
+
+    ctx.font = "bold 11px Arial";
+    ctx.fillStyle = "#f8fafc";
+    ctx.textAlign = "left";
+    ctx.textBaseline = "top";
+    ctx.fillText("討伐履歴（直近の戦果）", colX + 10, topY + 8);
+
+    const huntBoxW = colWidth - 24;
+    const huntBoxH = 42;
+    const huntBoxX = colX + 12;
+    const huntBoxY = topY + 28;
+
+    ctx.fillStyle = "rgba(0, 0, 0, 0.45)";
+    ctx.fillRect(huntBoxX, huntBoxY, huntBoxW, huntBoxH);
+    ctx.strokeStyle = "rgba(248, 113, 113, 0.4)";
+    ctx.lineWidth = 1;
+    ctx.strokeRect(huntBoxX, huntBoxY, huntBoxW, huntBoxH);
+
+    const huntData = p.huntHistory || p.recentHunts || p.defeatedMonsters || p.bossHistory || [];
+    let huntText1 = "最近の討伐記録はありません";
+    let huntText2 = "強敵に挑んで歴史に名を刻もう！";
+
+    if (Array.isArray(huntData) && huntData.length > 0) {
+        const latest = huntData[huntData.length - 1];
+        const secondLatest = huntData.length >= 2 ? huntData[huntData.length - 2] : null;
+
+        huntText1 = typeof latest === 'string' ? latest : (latest.name ? `${latest.name} （Lv.${latest.level || 1}）を討伐` : JSON.stringify(latest));
+        if (secondLatest) {
+            huntText2 = typeof secondLatest === 'string' ? secondLatest : (secondLatest.name ? `${secondLatest.name} （Lv.${secondLatest.level || 1}）を討伐` : "");
+        } else {
+            huntText2 = "";
+        }
+    } else if (typeof huntData === 'string' && huntData.trim() !== "") {
+        huntText1 = huntData;
+        huntText2 = "";
+    }
+
+    ctx.font = "10px Arial";
+    ctx.fillStyle = "#fca5a5";
+    ctx.textAlign = "left";
+    ctx.textBaseline = "top";
+    ctx.fillText(`⚔️ ${huntText1}`, huntBoxX + 8, huntBoxY + 6);
+
+    if (huntText2) {
+        ctx.fillStyle = "#94a3b8";
+        ctx.fillText(`📜 ${huntText2}`, huntBoxX + 8, huntBoxY + 22);
+    }
+}
+
+
+// 下部アクションボタン
+function drawProfileButtons(startX, startY, bgWidth, bgHeight) {
+    const btnWidth = 142;  
     const btnHeight = 32;
-    const btnY = startY + bgHeight - 48;
-    const btnGap = 8;
+    const btnY = startY + bgHeight - 48;  
+    const btnGap = 8;    
     
-    const groupBtnX = startX + 16;
+    const friendBtnX = startX + 16;
+    const groupBtnX = friendBtnX + btnWidth + btnGap;
     const cardTradeBtnX = groupBtnX + btnWidth + btnGap;
     const tradeBtnX = cardTradeBtnX + btnWidth + btnGap;
     
+    // ① 友達申請ボタン
+    ctx.fillStyle = "rgba(244, 114, 182, 0.2)";
+    ctx.fillRect(friendBtnX, btnY, btnWidth, btnHeight);
+    ctx.strokeStyle = "#f472b6";
+    ctx.lineWidth = 1;
+    ctx.strokeRect(friendBtnX, btnY, btnWidth, btnHeight);
+    
+    ctx.font = "bold 10px Arial";
+    ctx.fillStyle = "#f472b6";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("🤝 友達申請", friendBtnX + btnWidth / 2, btnY + btnHeight / 2);
+
+    // ② グループボタン
     ctx.fillStyle = "rgba(56, 189, 248, 0.2)";
     ctx.fillRect(groupBtnX, btnY, btnWidth, btnHeight);
     ctx.strokeStyle = "#38bdf8";
     ctx.lineWidth = 1;
     ctx.strokeRect(groupBtnX, btnY, btnWidth, btnHeight);
     
-    ctx.font = "bold 10px Arial";
     ctx.fillStyle = "#38bdf8";
-    ctx.textAlign = "center";
-    ctx.textBaseline = "middle";
-    ctx.fillText("👥 グループ", groupBtnX + btnWidth / 2, btnY + btnHeight / 2);
+    ctx.fillText("👥 グループ申し込み", groupBtnX + btnWidth / 2, btnY + btnHeight / 2);
 
+    // ③ カード交換ボタン
     ctx.fillStyle = "rgba(168, 85, 247, 0.2)";
     ctx.fillRect(cardTradeBtnX, btnY, btnWidth, btnHeight);
     ctx.strokeStyle = "#a855f7";
@@ -3528,6 +4914,7 @@ function drawProfileWindow(tCtx) {
     ctx.fillStyle = "#a855f7";
     ctx.fillText("🃏 カード交換", cardTradeBtnX + btnWidth / 2, btnY + btnHeight / 2);
 
+    // ④ アイテム交換ボタン
     ctx.fillStyle = "rgba(250, 204, 21, 0.2)";
     ctx.fillRect(tradeBtnX, btnY, btnWidth, btnHeight);
     ctx.strokeStyle = "#facc15";
@@ -3536,59 +4923,56 @@ function drawProfileWindow(tCtx) {
 
     ctx.fillStyle = "#facc15";
     ctx.fillText("🔄 アイテム交換", tradeBtnX + btnWidth / 2, btnY + btnHeight / 2);
+}
 
-    // ==========================================
-    // 10. マウスカーソル追尾型ポップアップの描画
-    // ==========================================
-    if (typeof mouseX !== 'undefined' && typeof mouseY !== 'undefined') {
-        if (hoveredEquippedItem && typeof drawItemTooltip === 'function') {
-            drawItemTooltip(tCtx, hoveredEquippedItem, mouseX + 12, mouseY + 12);
-        } else if (hoveredSlotInfo) {
-            ctx.save();
-            ctx.font = "11px 'Segoe UI', sans-serif";
-            const textMetrics = ctx.measureText(hoveredSlotInfo);
-            const boxW = textMetrics.width + 12;
-            const boxH = 20;
-            
-            const boxX = mouseX + 12;
-            const boxY = mouseY + 12;
 
-            ctx.fillStyle = "rgba(12, 17, 28, 0.92)";
-            ctx.strokeStyle = "rgba(255, 255, 255, 0.25)";
-            ctx.lineWidth = 1;
-            
-            if (ctx.roundRect) {
-                ctx.beginPath();
-                ctx.roundRect(boxX, boxY, boxW, boxH, 4);
-                ctx.fill();
-                ctx.stroke();
-            } else {
-                ctx.fillRect(boxX, boxY, boxW, boxH);
-                ctx.strokeRect(boxX, boxY, boxW, boxH);
-            }
+// マウスカーソル追尾型ポップアップ
+function drawProfileTooltips(tCtx, hoveredEquippedItem, hoveredSlotInfo) {
+    if (typeof mouseX === 'undefined' || typeof mouseY === 'undefined') return;
 
-            ctx.fillStyle = "#f8fafc";
-            ctx.textAlign = "center";
-            ctx.textBaseline = "middle";
-            ctx.fillText(hoveredSlotInfo, boxX + boxW / 2, boxY + boxH / 2);
-            ctx.restore();
+    if (hoveredEquippedItem && typeof drawItemTooltip === 'function') {
+        drawItemTooltip(tCtx, hoveredEquippedItem, mouseX + 12, mouseY + 12);
+    } else if (hoveredSlotInfo) {
+        ctx.save();
+        ctx.font = "11px 'Segoe UI', sans-serif";
+        const textMetrics = ctx.measureText(hoveredSlotInfo);
+        const boxW = textMetrics.width + 12;
+        const boxH = 20;
+        
+        const boxX = mouseX + 12;
+        const boxY = mouseY + 12;
+
+        ctx.fillStyle = "rgba(12, 17, 28, 0.92)";
+        ctx.strokeStyle = "rgba(255, 255, 255, 0.25)";
+        ctx.lineWidth = 1;
+        
+        if (ctx.roundRect) {
+            ctx.beginPath();
+            ctx.roundRect(boxX, boxY, boxW, boxH, 4);
+            ctx.fill();
+            ctx.stroke();
+        } else {
+            ctx.fillRect(boxX, boxY, boxW, boxH);
+            ctx.strokeRect(boxX, boxY, boxW, boxH);
         }
-    }
 
-    ctx.restore();
+        ctx.fillStyle = "#f8fafc";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(hoveredSlotInfo, boxX + boxW / 2, boxY + boxH / 2);
+        ctx.restore();
+    }
 }
 
 // マウスを押したとき（プロフィールのタイトルバー上ならドラッグ開始）
 window.addEventListener('mousedown', (e) => {
     if (!window._isProfileWindowOpen) return;
     
-    // 現在のプロフィールウィンドウの領域（幅340, 高さ500, タイトルバーの高さ36）
-    const bgWidth = 340;
-    const bgHeight = 500;
+    const bgWidth = 640;
+    const bgHeight = 540;
     const startX = profileWindowX;
     const startY = profileWindowY;
 
-    // マウス座標をキャンバス基準に合わせる（もし既にある共通変数 mouseX / mouseY があればそちらを使ってもOKです）
     const rect = canvas.getBoundingClientRect();
     const currentMouseX = e.clientX - rect.left;
     const currentMouseY = e.clientY - rect.top;
@@ -4169,69 +5553,71 @@ function drawGame(hero, others, enemies, items, platforms, ladders, damageTexts,
     // 5. エフェクトの描画
     drawEffects(damageTexts, hero, others);
 
-    // 6. UI（最前面）の描画
-    drawUIOverlay(hero);
-	
-	drawActiveItemHUD(hero);
+    // 6. 各種UIボタンの描画（🌟 ウィンドウの背後に隠れるように、ここで先に描画します！）
+    drawCanvasLeftEdgeEventButton(ctx);
+    drawCanvasLibraryButton(ctx);
+    //drawCanvasWriteBookButton(ctx);
+    drawCanvasGalleryButton(ctx);
 	
 	// 🌟 【HP・経験値バーの高さ（例: 24px）と外枠を完全統一してすぐ右に配置】
     // ※「バーの右端のX座標」「バーのY座標」「バーの高さ」を合わせて指定します
+    // 🌟 【時計をウィンドウの背後に配置】
+    // ウィンドウ（drawUIOverlayやdrawProfileWindow）よりも前に描画することで、ウィンドウが上に覆いかぶさります
     drawBarMatchedAnalogClock(ctx, 310, 20, 72);
+
+    // 7. UI（ウィンドウ等を含む最前面レイヤー）の描画（🌟 ボタンの「あと」に描画するため、ウィンドウが上に覆いかぶさります）
+    drawUIOverlay(hero);
+    
+    drawActiveItemHUD(hero);
     
     // 7. 特殊UI表示（チャンネル表示・マウス追従アイテム）
     //drawChannelHUD(hero);
-	
-	if (typeof drawOnlineList === 'function') {
-        drawOnlineList(ctx);
-    }
-	
-	// 🌟 tCtx が存在する場合だけ安全に実行する
+    
+    // 🌟 tCtx が存在する場合だけ安全に実行する
     if (typeof tCtx !== 'undefined' && tCtx !== null) {
         drawProfileWindow(tCtx);
     }
     
-	drawHeldItem();
-	
-	drawCanvasLeftEdgeEventButton(ctx);
-	
-	// 🌟 ここに追加！一番手前に通知を出す
+    drawHeldItem();
+    
+    // 🌟 ここに追加！一番手前に通知を出す
     if (typeof drawNotificationArea === 'function') {
         drawNotificationArea(ctx, VIEW_CONFIG.SCREEN_WIDTH, VIEW_CONFIG.SCREEN_HEIGHT);
     }
-	
-	// ==========================================
+    
+    // ==========================================
     // 🌟 【ここに追加！】トレード中のツールチップ描画
     // ==========================================
     if (typeof renderTradeTooltips === 'function') {
         renderTradeTooltips(ctx, hero);
     }
-	
+    
     // ==========================================
     // 🛠️ デバッグ表示（DEBUG_MODE が true の時のみ実行）
     // ==========================================
     if (DEBUG_MODE) {
         drawDebugLayer(hero, enemies, items, platforms);
-		// 🌟 追記：他プレイヤーの判定枠をメインCanvasに描く
-    if (typeof others !== 'undefined') {
-        // ctx は drawGame 内で使っているメインの Context を使用してください
-        for (let id in others) {
-            const p = others[id];
-            
-            ctx.strokeStyle = "red";
-            ctx.lineWidth = 2;
-            // キャラクターの座標(p.x, p.y)を中心に100pxの枠
-            ctx.strokeRect(p.x - 30, p.y - 50, 100, 100);
-            
-            // 座標点（黄色いドット）
-            ctx.fillStyle = "yellow";
-            ctx.beginPath();
-            ctx.arc(p.x, p.y, 5, 0, Math.PI * 2);
-            ctx.fill();
+        // 🌟 追記：他プレイヤーの判定枠をメインCanvasに描く
+        if (typeof others !== 'undefined') {
+            // ctx は drawGame 内で使っているメインの Context を使用してください
+            for (let id in others) {
+                const p = others[id];
+                
+                ctx.strokeStyle = "red";
+                ctx.lineWidth = 2;
+                // キャラクターの座標(p.x, p.y)を中心に100pxの枠
+                ctx.strokeRect(p.x - 30, p.y - 50, 100, 100);
+                
+                // 座標点（黄色いドット）
+                ctx.fillStyle = "yellow";
+                ctx.beginPath();
+                ctx.arc(p.x, p.y, 5, 0, Math.PI * 2);
+                ctx.fill();
+            }
         }
     }
-    }
-	
-	// 🌟 接続切れ時の描画（アニメーション付き）
+    
+    // 🌟 接続切れ時の描画（アニメーション付き）
     if (window.isDisconnected) {
         ctx.save();
         ctx.setTransform(1, 0, 0, 1, 0, 0); // 座標リセット
@@ -4272,6 +5658,18 @@ function drawGame(hero, others, enemies, items, platforms, ladders, damageTexts,
         
         ctx.restore();
     }
+	
+	// プロフィールウィンドウが閉じられたときはツールチップも消す
+const profileWin = document.getElementById("profile-window");
+if (profileWin && profileWin.style.display === "none") {
+    activeHoverEquipment = null;
+}
+
+// 🌟 マウスが乗っている装備品があれば、ご提示いただいたリッチなツールチップを描画する！
+if (activeHoverEquipment && typeof drawItemTooltip === 'function') {
+    // 引数: (描画するキャンバスのctx, アイテムデータ, マウスX座標, マウスY座標, 自分のヒーロー情報)
+    drawItemTooltip(tCtx, activeHoverEquipment, mouseX, mouseY, window.hero);
+}
 }
 
 // ============================================================
@@ -4990,6 +6388,7 @@ function closeTradeWindow() {
         updateOpponentTradeDisplay();
     }
 }
+
 // 💬 アラートの代わりにHTMLモーダルを表示する関数（自動生成版）
 function showTradeAlert(message) {
     // 既存のカスタムダイアログがあれば削除（二重表示防止）
@@ -5076,17 +6475,26 @@ function showTradeAlert(message) {
 let myTradeCurrency = 0;       // 自分がトレードに出している金額
 let opponentTradeCurrency = 0; // 相手がトレードに出している金額
 
-// 自分の通貨入力ダイアログを開く関数（HTMLモーダル＆UIアラート版）
+// 自分の通貨入力ダイアログを開く関数
 function openTradeCurrencyInput() {
+    console.log("🔍 openTradeCurrencyInput が呼ばれました！"); // ← ここを追加
+
     const modal = document.getElementById('trade-currency-modal');
     const titleEl = document.getElementById('trade-currency-title');
     const inputEl = document.getElementById('trade-currency-input');
     const confirmBtn = document.getElementById('trade-currency-confirm');
     const cancelBtn = document.getElementById('trade-currency-cancel');
 
-    if (!modal) return;
+    if (!modal) {
+        console.error("❌ trade-currency-modal が見つかりません！");
+        return;
+    }
+    if (!confirmBtn) {
+        console.error("❌ trade-currency-confirm ボタンが見つかりません！");
+        return;
+    }
 
-    // 🌟 【追加】相手が入室しているかチェック（未入室ならダイアログを開かせずにガード）
+    // 相手が入室しているかチェック
     const targetNameEl = document.getElementById('trade-target-name');
     const nameText = targetNameEl ? targetNameEl.innerText.trim() : "";
     const hasOpponent = nameText !== "" && !nameText.includes("待機中");
@@ -5096,27 +6504,26 @@ function openTradeCurrencyInput() {
         if (typeof showTradeAlert === 'function') {
             showTradeAlert("相手の入室を待っています...");
         }
-        return; // ← ここで処理をストップしてダイアログを開きません！
+        return;
     }
 
-    // タイトルを設定
     titleEl.textContent = "金額を入力";
     inputEl.value = myTradeCurrency;
     modal.style.display = 'block';
     inputEl.focus();
     inputEl.select();
 
-    // イベント重複を防ぐために一度リセット
     confirmBtn.onclick = null;
     cancelBtn.onclick = null;
 
-    // キャンセルボタン
     cancelBtn.onclick = () => {
         modal.style.display = 'none';
     };
 
     // 決定ボタン
     confirmBtn.onclick = () => {
+        console.log("🔍 決定ボタンがクリックされました！"); // ← ここを追加
+
         let amount = parseInt(inputEl.value, 10);
         
         if (isNaN(amount) || amount < 0) {
@@ -5124,7 +6531,6 @@ function openTradeCurrencyInput() {
             return;
         }
         
-        // 🌟 所持金が格納されている実際の変数に合わせる
         const currentMeso = (typeof hero !== 'undefined' && hero.gold !== undefined) ? hero.gold : 0;
         
         if (amount > currentMeso) {
@@ -5132,19 +6538,20 @@ function openTradeCurrencyInput() {
             return;
         }
         
-        // 一度置いた金額より少なくすることはできない！
         if (amount < myTradeCurrency) {
             showTradeAlert("一度トレードに提示した金額を減らすことはできません！");
             return;
         }
         
         myTradeCurrency = amount;
-        updateTradeCurrencyDisplay(); // 自分の画面を更新
+        updateTradeCurrencyDisplay();
         
-        // サーバーへ金額を送信する
+        console.log("📤 サーバーへ updateTradeOffer を送信します, gold:", myTradeCurrency); // ← ここを追加
+        
         if (typeof socket !== 'undefined') {
-            socket.emit('updateTradeOfferCurrency', {  // サーバー側のイベント名に合わせて調整してください
-                currency: myTradeCurrency,
+            socket.emit('updateTradeOffer', { 
+                tradeSlots: (typeof myTradeSlots !== 'undefined' ? myTradeSlots : []),
+                gold: myTradeCurrency,
                 targetId: window._currentTradePartnerId || null
             });
         }
@@ -5183,45 +6590,6 @@ function resetTradeSlots() {
     updateTradeCurrencyDisplay(); // 🌟 金額の表示も「0 Gold」などにリセット
 
     console.log("[Trade] トレードウィンドウが閉じられたため、陳列アイテムと通貨をリセットしました。");
-}
-
-// 🔄 トレード終了時（完了・キャンセル共通で使える）の完全リセット関数
-function resetTradeStateToDefault() {
-    // 1. 相手のIDやセッション情報を完全にクリア
-    window._currentTradeTargetId = null;
-    window._currentTradePartnerId = null;
-
-    // 2. 相手の名前表示を「待機中...」に戻す
-    const targetNameEl = document.getElementById('trade-target-name');
-    if (targetNameEl) {
-        targetNameEl.innerText = "（待機中...）";
-    }
-
-    // 3. 相手のキャラクターアバター（Canvas）をクリア
-    const oppAvatarCanvas = document.getElementById('trade-opponent-avatar-canvas');
-    if (oppAvatarCanvas) {
-        const ctx = oppAvatarCanvas.getContext('2d');
-        if (ctx) ctx.clearRect(0, 0, oppAvatarCanvas.width, oppAvatarCanvas.height);
-    }
-
-    // 4. 🌟 アイテムとゴールドのリセットは、お持ちのこの関数にお任せ！
-    if (typeof resetTradeSlots === 'function') {
-        resetTradeSlots();
-    }
-
-    // 5. オーバーレイ（準備完了チェックなどの半透明カバー）も非表示にする
-    const myOverlay = document.getElementById('my-trade-overlay');
-    const opponentOverlay = document.getElementById('opponent-trade-overlay');
-    if (myOverlay) myOverlay.style.display = 'none';
-    if (opponentOverlay) opponentOverlay.style.display = 'none';
-
-    // 6. 「準備完了」ボタンなどの状態も有効化に戻す
-    const readyBtn = document.getElementById('trade-ready-btn');
-    if (readyBtn) {
-        readyBtn.disabled = false;
-        readyBtn.innerText = "準備完了";
-        readyBtn.style.background = ""; 
-    }
 }
 
 // ============================================================
@@ -5790,6 +7158,12 @@ function drawGameWindows(hero) {
         }
         else if (windowName === "book") {
             drawBookWindow();
+        } // 📚 🖼️ 新しく追加するウィンドウの描画分岐
+        else if (windowName === "library") {
+            drawLibraryWindow();
+        }
+        else if (windowName === "gallery") {
+            drawGalleryWindow();
         }
 
         // 3. ソーシャル・コミュニティ系
@@ -5948,6 +7322,10 @@ function drawUIOverlay(hero) {
 			}
 		}
 	}
+	
+	if (typeof drawOnlineList === 'function') {
+        drawOnlineList(ctx);
+    }
 
     // ウィンドウ群の描画
     drawGameWindows(hero);
@@ -8234,14 +9612,21 @@ function drawTopStatusUI(hero) {
     const panelW = barWidth + 80;
     const panelH = 70;
 
-    // 🌟 角丸の半径（ちょっぴり丸めるための数値：3px）
+    // 🌟 角丸の半径
     const cornerRadius = 3;
 
-    // 🌟 HPバーの一時的な変色（フラグ）のカウントダウン処理
-    let isFlashing = false;
+    // 🌟 HPバーのフラグ・カウントダウン
+    let isHpFlashing = false;
     if (hero && hero.hpFlashTimer && hero.hpFlashTimer > 0) {
-        isFlashing = true;
+        isHpFlashing = true;
         hero.hpFlashTimer--;
+    }
+
+    // 🌟 【追加】EXPバーの一時的な変色（フラグ）のカウントダウン処理
+    let isExpFlashing = false;
+    if (hero && hero.expFlashTimer && hero.expFlashTimer > 0) {
+        isExpFlashing = true;
+        hero.expFlashTimer--;
     }
 
     ctx.save();
@@ -8272,7 +9657,6 @@ function drawTopStatusUI(hero) {
     const hpBarX = x + 70;
     const hpBarY = y + 15;
     
-    // HPバー背景
     ctx.fillStyle = "#222222";
     ctx.beginPath();
     if (ctx.roundRect) {
@@ -8282,18 +9666,17 @@ function drawTopStatusUI(hero) {
     }
     ctx.fill();
     
-    // HPバー中身（🌟 回復フラグが立っている間は真っ白に光らせる！）
     const currentHpW = Math.max(0, barWidth * hpRate);
     if (currentHpW > 0) {
-        if (isFlashing) {
-            ctx.fillStyle = "#ffffff"; // 光っている間は白く変色
+        if (isHpFlashing) {
+            const isWhite = Math.floor(hero.hpFlashTimer / 10) % 2 === 0;
+            ctx.fillStyle = isWhite ? "#ffffff" : "#2ecc71";
         } else {
-            ctx.fillStyle = hpRate > 0.3 ? "#2ecc71" : "#e74c3c"; // 通常時の色
+            ctx.fillStyle = hpRate > 0.3 ? "#2ecc71" : "#e74c3c";
         }
 
         ctx.beginPath();
         if (ctx.roundRect) {
-            // 中身の幅が角丸の直径より小さい場合の保険としてMath.maxを使用
             ctx.roundRect(hpBarX, hpBarY, Math.max(cornerRadius, currentHpW), barHeight, cornerRadius);
         } else {
             ctx.rect(hpBarX, hpBarY, currentHpW, barHeight);
@@ -8321,7 +9704,6 @@ function drawTopStatusUI(hero) {
         ctx.restore();
     }
     
-    // HPバー枠線
     ctx.strokeStyle = "rgba(255, 255, 255, 0.4)";
     ctx.lineWidth = 1.5;
     ctx.beginPath();
@@ -8332,7 +9714,6 @@ function drawTopStatusUI(hero) {
     }
     ctx.stroke();
 
-    // 10分割目盛り
     ctx.strokeStyle = "rgba(0, 0, 0, 0.4)";
     ctx.lineWidth = 1;
     const hpTickStart = hpBarY + (barHeight / 2);
@@ -8344,7 +9725,6 @@ function drawTopStatusUI(hero) {
         ctx.stroke();
     }
     
-    // HPテキスト
     ctx.fillStyle = "#fff";
     ctx.font = "bold 12px Arial";
     ctx.textAlign = "center";
@@ -8361,7 +9741,6 @@ function drawTopStatusUI(hero) {
     const expBarH = barHeight - 4;
     const expBarY = y + 40;
     
-    // EXP背景
     ctx.textAlign = "left";
     ctx.textBaseline = "alphabetic";
     ctx.fillStyle = "#222222";
@@ -8373,10 +9752,16 @@ function drawTopStatusUI(hero) {
     }
     ctx.fill();
     
-    // EXP中身
     const currentExpW = Math.max(0, barWidth * expRate);
     if (currentExpW > 0) {
-        ctx.fillStyle = "#f1c40f"; 
+        // 🌟 【変更】経験値フラグが立っている間は白と通常黄色(#f1c40f)に点滅させる！
+        if (isExpFlashing) {
+            const isWhite = Math.floor(hero.expFlashTimer / 10) % 2 === 0;
+            ctx.fillStyle = isWhite ? "#ffffff" : "#f1c40f";
+        } else {
+            ctx.fillStyle = "#f1c40f"; 
+        }
+
         ctx.beginPath();
         if (ctx.roundRect) {
             ctx.roundRect(hpBarX, expBarY, Math.max(cornerRadius, currentExpW), expBarH, cornerRadius);
@@ -8406,7 +9791,6 @@ function drawTopStatusUI(hero) {
         ctx.restore();
     }
     
-    // EXP枠線
     ctx.strokeStyle = "rgba(255, 255, 255, 0.4)";
     ctx.lineWidth = 1.5;
     ctx.beginPath();
@@ -8417,7 +9801,6 @@ function drawTopStatusUI(hero) {
     }
     ctx.stroke();
 
-    // 10分割目盛り
     ctx.strokeStyle = "rgba(0, 0, 0, 0.4)";
     ctx.lineWidth = 1;
     const expTickStart = expBarY + (expBarH / 2);
@@ -8429,14 +9812,12 @@ function drawTopStatusUI(hero) {
         ctx.stroke();
     }
     
-    // EXPラベル
     ctx.fillStyle = "#fff";
     ctx.font = "bold 10px Arial";
     ctx.shadowColor = "rgba(0, 0, 0, 0.7)";
     ctx.shadowBlur = 3;
     ctx.fillText("EXP", hpBarX - 30, expBarY + 11);
 
-    // EXPテキスト
     const expPercent = Math.min(100, (displayExp / nextMaxExp) * 100).toFixed(1);
     ctx.font = "bold 11px Arial";
     ctx.textAlign = "center";
@@ -8446,27 +9827,22 @@ function drawTopStatusUI(hero) {
 
     ctx.restore();
     
-    // 🌟 アラートタイマーが動いていたら、画面中央に文字を浮かび上がらせる
+    // アラートタイマー処理
     if (typeof window.healAlertTimer !== 'undefined' && window.healAlertTimer > 0) {
-        window.healAlertTimer--; // 1フレームずつ減らす
+        window.healAlertTimer--;
 
         ctx.save();
         ctx.font = "bold 24px Arial";
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
 
-        // 画面の中央あたりの座標（あるいはキャラの頭上など）
         const centerX = ctx.canvas.width / 2;
-        const centerY = ctx.canvas.height / 2 - 50; // 少し上に配置
-
-        // ふんわり上に浮かび上がる演出（タイマーに合わせてY座標を上にずらす）
+        const centerY = ctx.canvas.height / 2 - 50; 
         const floatOffsetY = (60 - window.healAlertTimer) * 0.5;
 
-        // 文字のフチ（黒）
         ctx.fillStyle = "black";
         ctx.fillText(window.healAlertText, centerX, centerY - floatOffsetY);
 
-        // 文字本体（鮮やかな黄緑色など）
         ctx.fillStyle = "#00ff66";
         ctx.fillText(window.healAlertText, centerX, centerY - floatOffsetY);
 
@@ -8485,6 +9861,15 @@ socket.on('player_healed', (data) => {
         // 🌟 HPバーを一時的に変色させるフラグ（60フレーム ＝ 約1秒間持続）
         hero.hpFlashTimer = 60; 
     }
+});
+
+socket.on('exp_updated', (data) => {
+    hero.exp = data.exp;
+    hero.level = data.level;
+    hero.maxExp = data.maxExp;
+    
+    // 🌟 経験値バーを白と黄色に点滅させる（60フレーム ＝ 約1秒間）
+    hero.expFlashTimer = 60;
 });
 
 // ============================================================
@@ -10586,6 +11971,34 @@ if (inventoryCanvas) {
             const vendingWin = document.getElementById('vending-window');
             const isVendingOpen = vendingWin && vendingWin.style.display === 'block';
 
+            // 🌟 トレードが開いていて、未入室またはロック済みの場合は操作をブロック
+            const tradeEl = document.getElementById('trade-window');
+            const isTradeOpen = (tradeEl && tradeEl.style.display !== 'none' && tradeEl.style.display !== '');
+            if (isTradeOpen) {
+                const targetNameEl = document.getElementById('trade-target-name');
+                const nameText = targetNameEl ? targetNameEl.innerText.trim() : "";
+                const hasOpponent = nameText !== "" && !nameText.includes("待機中");
+
+                const myOverlay = document.getElementById('my-trade-overlay');
+                const isMyLocked = myOverlay && myOverlay.style.display === 'block';
+
+                if (!hasOpponent) {
+                    console.log("⚠️ 相手が入室するまでアイテムを操作することはできません。");
+                    if (typeof showTradeAlert === 'function') {
+                        showTradeAlert("相手の入室を待っています...");
+                    }
+                    return;
+                }
+
+                if (isMyLocked) {
+                    console.log("⚠️ すでに準備完了（ロック）しているため、アイテムを操作できません。");
+                    if (typeof showTradeAlert === 'function') {
+                        showTradeAlert("すでに準備完了しています");
+                    }
+                    return;
+                }
+            }
+
             // 🌟 露店出品モードの処理
             if (item && isVendingOpen) {
                 let baseName = item.name || item.item_name || "アイテム";
@@ -10690,13 +12103,28 @@ if (inventoryCanvas) {
                 const isTradeOpen = (tradeEl && tradeEl.style.display !== 'none' && tradeEl.style.display !== '');
                 
                 if (isTradeOpen) {
-                    // 🌟 修正：初期値の「（待機中...）」が含まれているうちは陳列をガードする
                     const targetNameEl = document.getElementById('trade-target-name');
                     const nameText = targetNameEl ? targetNameEl.innerText.trim() : "";
                     const hasOpponent = nameText !== "" && !nameText.includes("待機中");
 
+                    const myOverlay = document.getElementById('my-trade-overlay');
+                    const isMyLocked = myOverlay && myOverlay.style.display === 'block';
+
                     if (!hasOpponent) {
                         console.log("⚠️ 相手が入室するまでアイテムを陳列することはできません。");
+                        if (typeof showTradeAlert === 'function') {
+                            showTradeAlert("相手の入室を待っています...");
+                        }
+                        lastBagClickTime = 0;
+                        lastBagClickIndex = -1;
+                        return;
+                    }
+
+                    if (isMyLocked) {
+                        console.log("⚠️ すでに準備完了（ロック）しているため、アイテムを追加できません。");
+                        if (typeof showTradeAlert === 'function') {
+                            showTradeAlert("すでに準備完了しています");
+                        }
                         lastBagClickTime = 0;
                         lastBagClickIndex = -1;
                         return;
@@ -10718,15 +12146,82 @@ if (inventoryCanvas) {
                         return;
                     }
 
-                    console.log(`[Trade] トレードスロットへアイテムを追加します: スロット ${clickedSlotIndex}`);
-                    
-                    myTradeSlots[emptySlotIndex] = { ...item, slot_index: clickedSlotIndex };
-                    updateMyTradeDisplay();
-                    
-                    socket.emit('updateTradeOffer', { 
-                        tradeSlots: myTradeSlots,
-                        targetId: window._currentTradePartnerId || null
-                    });
+                    // 🌟 複数所持している場合はトレード専用の数量選択モーダルを表示する
+                    const totalOwned = item.count || 1;
+
+                    if (totalOwned <= 1) {
+                        // 🌟 【修正箇所】1個しかない場合でも最新の空きスロットインデックスを再取得して安全に追加
+                        const directEmptyCheck = myTradeSlots.findIndex(slot => slot === null);
+                        if (directEmptyCheck === -1) {
+                            console.log("⚠️ トレードスロットがいっぱいです（最大9個まで）！");
+                            lastBagClickTime = 0;
+                            lastBagClickIndex = -1;
+                            return;
+                        }
+
+                        console.log(`[Trade] トレードスロットへアイテムを追加します: スロット ${clickedSlotIndex}`);
+                        
+                        myTradeSlots[directEmptyCheck] = { ...item, slot_index: clickedSlotIndex, count: 1 };
+                        updateMyTradeDisplay();
+                        
+                        socket.emit('updateTradeOffer', { 
+                            tradeSlots: myTradeSlots,
+                            targetId: window._currentTradePartnerId || null
+                        });
+                    } else {
+                        // 🌟 トレード専用モーダルを使用
+                        const modal = document.getElementById('trade-quantity-modal');
+                        const qInput = document.getElementById('trade-modal-quantity-input');
+                        const confirmBtn = document.getElementById('trade-modal-confirm-btn');
+                        const cancelBtn = document.getElementById('trade-modal-cancel-btn');
+
+                        if (modal && qInput) {
+                            document.getElementById('trade-modal-item-name').innerText = item.name || item.type || "アイテム";
+                            document.getElementById('trade-modal-max-quantity').innerText = totalOwned;
+                            
+                            qInput.value = totalOwned; // 初期値として全数セット
+                            qInput.disabled = false;
+                            modal.style.display = 'block';
+
+                            confirmBtn.onclick = null;
+                            cancelBtn.onclick = null;
+
+                            cancelBtn.onclick = () => {
+                                modal.style.display = 'none';
+                            };
+
+                            confirmBtn.onclick = () => {
+                                const tradeCount = parseInt(qInput.value);
+
+                                if (isNaN(tradeCount) || tradeCount <= 0 || tradeCount > totalOwned) {
+                                    alert("有効な数量を入力してください。");
+                                    return;
+                                }
+
+                                const currentEmptyIndex = myTradeSlots.findIndex(slot => slot === null);
+                                if (currentEmptyIndex === -1) {
+                                    alert("トレードスロットがいっぱいです！");
+                                    modal.style.display = 'none';
+                                    return;
+                                }
+
+                                myTradeSlots[currentEmptyIndex] = { 
+                                    ...item, 
+                                    slot_index: clickedSlotIndex, 
+                                    count: tradeCount 
+                                };
+                                updateMyTradeDisplay();
+                                
+                                socket.emit('updateTradeOffer', { 
+                                    tradeSlots: myTradeSlots,
+                                    targetId: window._currentTradePartnerId || null
+                                });
+
+                                if (typeof playMouseClickSound === 'function') playMouseClickSound();
+                                modal.style.display = 'none';
+                            };
+                        }
+                    }
 
                     selectedSlotIndex = -1;
                     lastBagClickTime = 0;
@@ -10787,7 +12282,21 @@ if (inventoryCanvas) {
         } else {
             // インベントリの枠外をクリックした場合
             lastBagClickIndex = -1;
-            if (typeof selectedSlotIndex !== 'undefined' && selectedSlotIndex !== -1) {
+
+            // 🌟 【修正】「バッグウィンドウの全体範囲内（隙間や背景）」をクリックしていたかどうかを判定
+            let isInsideBagWindow = false;
+            if (win && win.isOpen) {
+                // お使いのバッグウィンドウ全体の幅・高さに合わせて調整してください（例: 幅260, 高さ360など）
+                let totalBagWidth = 260; 
+                let totalBagHeight = 400; 
+
+                if (clickX >= bagX && clickX <= bagX + totalBagWidth && clickY >= bagY && clickY <= bagY + totalBagHeight) {
+                    isInsideBagWindow = true;
+                }
+            }
+
+            // バッグウィンドウの「完全な外側」をクリックしたときだけ捨てる処理を走らせる
+            if (!isInsideBagWindow && typeof selectedSlotIndex !== 'undefined' && selectedSlotIndex !== -1) {
                 const item = hero && hero.inventory && hero.inventory[selectedSlotIndex];
                 if (item && typeof openDropForm === 'function') {
                     openDropForm(selectedSlotIndex, item);
@@ -10795,6 +12304,9 @@ if (inventoryCanvas) {
                     inventoryCanvas.style.cursor = "grab";
                     return;
                 }
+            } else {
+                // ウィンドウ内の隙間をクリックした場合は、掴んでいたアイテムを離すだけで捨てない（あるいはそのままにする）場合の処理
+                // 必要であれば selectedSlotIndex = -1; などをここに置きます
             }
         }
     });
@@ -11400,6 +12912,9 @@ function drawWindows() {
         if (winType === "minimap")   drawMiniMapWindow();   // [M] ミニマップ
         if (winType === "journal")   drawJournalWindow();   // [J] 日記
         if (winType === "book")      drawBookWindow();      // [B] ブック
+		// 📚 🖼️ 新しく追加するウィンドウの描画分岐
+        if (winType === "library")  drawLibraryWindow();   // 図書館
+        if (winType === "gallery")  drawGalleryWindow();   // ギャラリー
 
         // --- ソーシャル・コミュニティ系 ---
         if (winType === "guild")     drawGuildWindow();     // [G] ギルド
@@ -13025,6 +14540,106 @@ function drawPartyWindow() {
     drawSimpleWindow("⚔️ Party", win.x, win.y, win.w, win.h);
 }
 
+function drawLibraryWindow() {
+    const win = gameWindows.library;
+    if (!win.isOpen) return;
+    
+    // 1. ウィンドウの基本枠を描画
+    drawSimpleWindow("📚 Library", win.x, win.y, win.w, win.h);
+
+    // 2. ボタン3つ用のレイアウト設定（長めのテキストに合わせて幅とすき間を調整）
+    const btnW = 102;   // ボタンの幅
+    const btnH = 34;    // ボタンの高さ
+    const spacing = 6;  // ボタン同士のすき間
+    const totalW = (btnW * 3) + (spacing * 2);
+    
+    // ウィンドウの中央に3つのボタンを配置するための開始X座標
+    const startX = win.x + (win.w - totalW) / 2;
+    const btnY = win.y + win.h - 60; // ウィンドウの下部から少し上
+
+    // ----------------------------------------------------
+    // ボタン①：「本を探す」
+    // ----------------------------------------------------
+    const searchX = startX;
+    drawStyledButton(searchX, btnY, btnW, btnH, '📖 本を探す');
+
+    // ----------------------------------------------------
+    // ボタン②：「シリーズから探す」
+    // ----------------------------------------------------
+    const seriesX = startX + btnW + spacing;
+    drawStyledButton(seriesX, btnY, btnW, btnH, '📚 シリーズから探す');
+
+    // ----------------------------------------------------
+    // ボタン③：「寄稿する」
+    // ----------------------------------------------------
+    const contributeX = startX + (btnW + spacing) * 2;
+    drawStyledButton(contributeX, btnY, btnW, btnH, '✍️ 寄稿する');
+}
+
+// 💡 共通のボタン描画用ヘルパー関数（コードをスッキリさせるため）
+function drawStyledButton(x, y, w, h, text) {
+    ctx.save();
+
+    // ボタンの背景グラデーション
+    const grad = ctx.createLinearGradient(x, y, x, y + h);
+    grad.addColorStop(0, 'rgba(30, 41, 59, 0.85)');
+    grad.addColorStop(1, 'rgba(15, 23, 42, 0.95)');
+
+    const r = 6;
+    ctx.beginPath();
+    if (ctx.roundRect) {
+        ctx.roundRect(x, y, w, h, r);
+    } else {
+        ctx.rect(x, y, w, h);
+    }
+    ctx.fillStyle = grad;
+    ctx.fill();
+
+    // ボタンの枠線
+    ctx.strokeStyle = 'rgba(96, 165, 250, 0.5)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    // ボタンの文字
+    ctx.fillStyle = '#60a5fa';
+    ctx.font = '600 12px "Segoe UI", sans-serif';
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(text, x + w / 2, y + h / 2);
+
+    ctx.restore();
+}
+
+function drawGalleryWindow() {
+    const win = gameWindows.gallery;
+    if (!win.isOpen) return;
+    
+    // 1. ウィンドウの基本枠を描画
+    drawSimpleWindow("🖼 Gallery", win.x, win.y, win.w, win.h);
+
+    // 2. ボタン2つ用のレイアウト設定（ウィンドウの下部付近に横並び）
+    const btnW = 120;   // ボタンの幅
+    const btnH = 34;    // ボタンの高さ
+    const spacing = 10; // ボタン同士のすき間
+    const totalW = (btnW * 2) + spacing;
+    
+    // ウィンドウの中央に2つのボタンを配置するための開始X座標
+    const startX = win.x + (win.w - totalW) / 2;
+    const btnY = win.y + win.h - 60; // ウィンドウの下部から少し上
+
+    // ----------------------------------------------------
+    // ボタン①：「寄贈したイメージ」
+    // ----------------------------------------------------
+    const listX = startX;
+    drawStyledButton(listX, btnY, btnW, btnH, '🖼 寄贈したイメージ');
+
+    // ----------------------------------------------------
+    // ボタン②：「寄贈する」
+    // ----------------------------------------------------
+    const donateX = startX + btnW + spacing;
+    drawStyledButton(donateX, btnY, btnW, btnH, '🎁 寄贈する');
+}
+
 function drawTradeWindow() {
     const win = gameWindows.trade;
     if (!win.isOpen) return;
@@ -13041,57 +14656,161 @@ function drawLogWindow() {
 function drawEventWindow() {
     const win = gameWindows.event;
     if (!win.isOpen) return;
+    
+    // 1. ウィンドウの基本枠を描画
     drawSimpleWindow("🎁 Event", win.x, win.y, win.w, win.h);
+
+    // 2. 「開催中のイベント」ボタンのレイアウト計算（少し長めのテキストに合わせて幅を調整）
+    const btnW = 140;
+    const btnH = 34;
+    const btnX = win.x + (win.w - btnW) / 2; // ウィンドウの中央
+    const btnY = win.y + win.h - 60;          // ウィンドウの下部から少し上
+
+    // 共通のボタン描画関数を使用
+    drawStyledButton(btnX, btnY, btnW, btnH, '📅 開催中のイベント');
 }
 
 // ============================================================
 // :::KEY_CONFIG_DATA::: ⌨️ キーコンフィグのデータと初期キーマップの定義
 // ============================================================
 let currentKeyConfig = {
-    status:      { label: 'ステータス',     key: 's', keyName: 'S' },
-    equipment:   { label: '装備',         key: 'e', keyName: 'E' },
-    inventory:   { label: 'インベントリ',   key: 'i', keyName: 'I' },
-    skill:       { label: 'スキル',       key: 'k', keyName: 'K' },
-    avatar:      { label: 'アバター',     key: 'a', keyName: 'A' },
-    upgrade:     { label: 'アップグレード', key: 'u', keyName: 'U' },
-    quest:       { label: 'クエスト',     key: 'q', keyName: 'Q' },
-    worldmap:    { label: 'ワールドマップ', key: 'w', keyName: 'W' },
-    minimap:     { label: 'ミニマップ',   key: 'm', keyName: 'M' },
-    journal:     { label: '日記',         key: 'j', keyName: 'J' },
-    book:        { label: 'ブック',       key: 'b', keyName: 'B' },
-    guild:       { label: 'ギルド',       key: 'g', keyName: 'G' },
-    friend:      { label: 'フレンドリスト', key: 'f', keyName: 'F' },
-    party:       { label: 'パーティ',     key: 'p', keyName: 'P' },
-    trade:       { label: 'トレード',     key: 't', keyName: 'T' },
-    log:         { label: 'ログ',         key: 'l', keyName: 'L' },
-    event:       { label: 'イベント',     key: 'n', keyName: 'N' },
-    options:     { label: 'オプション',   key: 'o', keyName: 'O' },
-    help:        { label: 'ヘルプ',       key: 'h', keyName: 'H' },
-    extra:       { label: 'エクストラ',   key: 'x', keyName: 'X' }
+    // 💡 初期配置するアクション（キー名は常に大文字で統一すると安全です）
+    pickup:    { label: '拾う',       key: 'pickup',    keyName: 'Z' },
+    attack:    { label: '攻撃',       key: 'attack',    keyName: 'X' },
+    jump:      { label: 'ジャンプ',   key: 'jump',      keyName: 'C' },
+    
+    status:        { label: 'ステータス',     key: 's', keyName: 'S' },
+    equipment:     { label: '装備',           key: 'e', keyName: 'E' },
+    inventory:     { label: 'インベントリ',     key: 'i', keyName: 'I' },
+    skill:         { label: 'スキル',         key: 'k', keyName: 'K' },
+    avatar:        { label: 'アバター',       key: 'a', keyName: 'A' },
+    upgrade:       { label: 'アップグレード', key: 'u', keyName: 'U' },
+    quest:         { label: 'クエスト',       key: 'q', keyName: 'Q' },
+    worldmap:      { label: 'ワールドマップ', key: 'w', keyName: 'W' },
+    minimap:       { label: 'ミニマップ',     key: 'm', keyName: 'M' },
+    journal:       { label: '日記',           key: 'j', keyName: 'J' },
+    book:          { label: 'ブック',         key: 'b', keyName: 'B' },
+    guild:         { label: 'ギルド',         key: 'g', keyName: 'G' },
+    friend:        { label: 'フレンドリスト', key: 'f', keyName: 'F' },
+    party:         { label: 'パーティ',       key: 'p', keyName: 'P' },
+    trade:         { label: 'トレード',       key: 't', keyName: 'T' },
+    log:           { label: 'ログ',           key: 'l', keyName: 'L' },
+    event:         { label: 'イベント',       key: 'n', keyName: null }, // 最初からプール
+    options:       { label: 'オプション',     key: 'o', keyName: 'O' },
+    help:          { label: 'ヘルプ',         key: 'h', keyName: 'H' }
 };
+
+// ============================================================
+// 🔄 キーコンフィグをデフォルト初期状態にリセットする関数
+// ============================================================
+function resetKeyConfigToDefault() {
+    if (!confirm("キーコンフィグを初期状態に戻しますか？")) {
+        return;
+    }
+
+    // 🌟 あなたの定義している正式な初期配置マスターデータ
+    const defaultKeyConfig = {
+        pickup:      { label: '拾う',        key: 'pickup',    keyName: 'Z' },
+        attack:      { label: '攻撃',        key: 'attack',    keyName: 'X' },
+        jump:        { label: 'ジャンプ',    key: 'jump',      keyName: 'C' },
+        
+        status:      { label: 'ステータス',    key: 's', keyName: 'S' },
+        equipment:   { label: '装備',          key: 'e', keyName: 'E' },
+        inventory:   { label: 'インベントリ',    key: 'i', keyName: 'I' },
+        skill:       { label: 'スキル',        key: 'k', keyName: 'K' },
+        avatar:      { label: 'アバター',      key: 'a', keyName: 'A' },
+        upgrade:     { label: 'アップグレード', key: 'u', keyName: 'U' },
+        quest:       { label: 'クエスト',      key: 'q', keyName: 'Q' },
+        worldmap:    { label: 'ワールドマップ', key: 'w', keyName: 'W' },
+        minimap:     { label: 'ミニマップ',    key: 'm', keyName: 'M' },
+        journal:     { label: '日記',          key: 'j', keyName: 'J' },
+        book:        { label: 'ブック',        key: 'b', keyName: 'B' },
+        guild:       { label: 'ギルド',        key: 'g', keyName: 'G' },
+        friend:      { label: 'フレンドリスト', key: 'f', keyName: 'F' },
+        party:       { label: 'パーティ',      key: 'p', keyName: 'P' },
+        trade:       { label: 'トレード',      key: 't', keyName: 'T' },
+        log:         { label: 'ログ',          key: 'l', keyName: 'L' },
+        event:       { label: 'イベント',      key: 'n', keyName: null }, // 最初からプール
+        options:     { label: 'オプション',    key: 'o', keyName: 'O' },
+        help:        { label: 'ヘルプ',        key: 'h', keyName: 'H' }
+    };
+
+    // 1. 現在のコンフィグを初期状態のコピーで上書きリセット
+    currentKeyConfig = JSON.parse(JSON.stringify(defaultKeyConfig));
+
+    // 2. 予備ボックス（プール）を再初期化する
+    if (typeof initKeyConfigPool === 'function') {
+        initKeyConfigPool();
+    }
+
+    // 3. 画面を再描画し、操作マッピングを更新する
+    if (typeof renderKeyboard === 'function') renderKeyboard();
+    if (typeof renderPool === 'function') renderPool();
+    if (typeof updateKeyMapFromConfig === 'function') updateKeyMapFromConfig();
+
+    // 4. 即座にサーバーへセーブを走らせてデータベース側も同期する
+    if (typeof saveGameData === 'function') {
+        saveGameData();
+    }
+
+    console.log("🔄 キーコンフィグをデフォルトに初期化しました");
+    alert("キーコンフィグを初期状態に戻しました！");
+}
+
+// ============================================================
+// 🌟 プール配列の安全な初期化（二重宣言を防ぐため let はつけない）
+// ============================================================
+//if (typeof poolActions === 'undefined') {
+//    var poolActions = [];
+//}
+
+// ============================================================
+// 🌟 プール配列の安全な初期化（重複を完全に防ぐ版）
+// ============================================================
+function initKeyConfigPool() {
+    poolActions = []; // 既存の中身をクリアして再構築
+    
+    // 💡 すでにプールに追加したアクションの重複を防ぐためのセット
+    const seenActionKeys = new Set();
+
+    for (const [actionKey, config] of Object.entries(currentKeyConfig)) {
+        // キー名が割り当てられておらず、かつまだプールに追加されていない場合のみ追加
+        if ((!config.keyName || config.keyName === '') && !seenActionKeys.has(actionKey)) {
+            seenActionKeys.add(actionKey);
+            poolActions.push({
+                actionKey: actionKey,
+                label: config.label
+            });
+        }
+    }
+}
+
+// 起動時に必ずプールを作る
+initKeyConfigPool();
 
 let waitingForKeyChange = null; 
 let isKeyConfigOpen = false;
 let optionsHitAreas = [];
 
+// ============================================================
 // 💡 確実に安全に keyMap を初期化・更新する関数
+// ============================================================
 function updateKeyMapFromConfig() {
-    // window.keyMap が未定義なら確実にオブジェクトとして生成
     if (typeof window.keyMap !== 'object' || window.keyMap === null) {
         window.keyMap = {};
     } else {
-        // 既存のプロパティをクリア
         for (const k in window.keyMap) {
             delete window.keyMap[k];
         }
     }
 
-    // 再マッピング
     for (const [actionKey, config] of Object.entries(currentKeyConfig)) {
-        if (config && config.key) {
-            window.keyMap[config.key.toLowerCase()] = actionKey;
+        if (config && config.keyName) {
+            window.keyMap[config.keyName.toLowerCase()] = actionKey;
         }
     }
+    
+    console.log("🔄 keyMap が現在のコンフィグから更新されました:", window.keyMap);
 }
 
 // グローバルスコープにも keyMap を紐付け
@@ -13102,9 +14821,8 @@ if (typeof window.keyMap === 'undefined') {
 // 初回起動時にマッピングを作成
 updateKeyMapFromConfig();
 
-
 // ============================================================
-// :::DRAW_OPTIONS_WINDOW::: ⚙️ オプション画面（キーコンフィグ対応版）
+// :::DRAW_OPTIONS_WINDOW::: ⚙️ 黄金＆ダーク仕様オプション画面（右側はみ出し完全防止版）
 // ============================================================
 function drawOptionsWindow() {
     const win = gameWindows.options;
@@ -13123,12 +14841,13 @@ function drawOptionsWindow() {
         targetCtx.textBaseline = "top";
         targetCtx.font = "12px 'MS PGothic', sans-serif";
 
-        let startY = win.y + 35;
-        const startX = win.x + 15;
+        let startY = win.y + 30;
+        const startX = win.x + 12;
+        const rowW = win.w - 24; 
 
         targetCtx.fillStyle = "#fbbf24";
         targetCtx.fillText("【 キーコンフィグ設定 】", startX, startY);
-        startY += 20;
+        startY += 18;
 
         if (waitingForKeyChange) {
             targetCtx.fillStyle = "#ef4444";
@@ -13137,21 +14856,20 @@ function drawOptionsWindow() {
             targetCtx.fillStyle = "#94a3b8";
             targetCtx.fillText("変更したい項目をクリックしてね", startX, startY);
         }
-        startY += 18;
+        startY += 16;
 
         for (const [actionKey, config] of Object.entries(currentKeyConfig)) {
-            targetCtx.fillStyle = "rgba(30, 41, 59, 0.6)";
-            targetCtx.strokeStyle = "rgba(255, 255, 255, 0.15)";
+            targetCtx.fillStyle = "rgba(30, 41, 59, 0.8)";
+            targetCtx.strokeStyle = "rgba(251, 191, 36, 0.3)";
             targetCtx.lineWidth = 1;
             
             const rowX = startX;
             const rowY = startY;
-            const rowW = win.w - 30;
-            const rowH = 20;
+            const rowH = 19; 
 
             if (targetCtx.roundRect) {
                 targetCtx.beginPath();
-                targetCtx.roundRect(rowX, rowY, rowW, rowH, 2);
+                targetCtx.roundRect(rowX, rowY, rowW, rowH, 3);
                 targetCtx.fill();
                 targetCtx.stroke();
             } else {
@@ -13159,22 +14877,36 @@ function drawOptionsWindow() {
                 targetCtx.strokeRect(rowX, rowY, rowW, rowH);
             }
 
-            targetCtx.fillStyle = "#ffffff";
-            targetCtx.fillText(config.label, rowX + 6, rowY + 3);
-
-            const keyBoxW = 40;
-            const keyBoxH = 14;
-            const keyBoxX = rowX + rowW - keyBoxW - 5;
+            // 🌟 【右側のはみ出し対策】キーボックスのサイズと配置を固定し、ラベルの描画最大幅を制限する
+            const keyBoxW = 45;
+            const keyBoxH = 13;
+            const keyBoxX = rowX + rowW - keyBoxW - 6; // 右端から綺麗に配置
             const keyBoxY = rowY + 3;
 
-            targetCtx.fillStyle = (waitingForKeyChange === actionKey) ? "#ef4444" : "rgba(15, 23, 42, 0.8)";
-            targetCtx.strokeStyle = "#38bdf8";
+            // ラベルがキーボックスに重ならないよう、描画幅の限界（Max Width）を設定するか文字を切り詰める配慮
+            targetCtx.fillStyle = "#ffffff";
+            
+            // canvasで文字が右側のキーボックスに被らないように安全マージン（キーボックスの手前まで）を計算
+            const maxLabelWidth = (keyBoxX - 6) - (rowX + 6);
+            
+            // もし文字が長すぎる場合に備えて、必要なら安全にレンダリング
+            targetCtx.save();
+            targetCtx.beginPath();
+            targetCtx.rect(rowX + 6, rowY + 4, maxLabelWidth, rowH - 4);
+            targetCtx.clip(); // 萬が一はみ出しそうになってもこの領域でクリップしてブロックする
+            
+            targetCtx.fillText(config.label, rowX + 6, rowY + 4);
+            targetCtx.restore();
+
+            // 🌟 キー表示ボックス
+            targetCtx.fillStyle = (waitingForKeyChange === actionKey) ? "#ef4444" : "rgba(15, 23, 42, 0.9)";
+            targetCtx.strokeStyle = "#fbbf24";
             targetCtx.strokeRect(keyBoxX, keyBoxY, keyBoxW, keyBoxH);
             targetCtx.fillRect(keyBoxX, keyBoxY, keyBoxW, keyBoxH);
 
-            targetCtx.fillStyle = "#f8fafc";
+            targetCtx.fillStyle = "#fbbf24";
             targetCtx.textAlign = "center";
-            targetCtx.fillText(config.keyName, keyBoxX + keyBoxW / 2, keyBoxY + 1);
+            targetCtx.fillText(config.keyName, keyBoxX + keyBoxW / 2, keyBoxY + 2);
             targetCtx.textAlign = "left";
 
             optionsHitAreas.push({
@@ -13183,19 +14915,21 @@ function drawOptionsWindow() {
                 x: rowX, y: rowY, w: rowW, h: rowH
             });
 
-            startY += 21;
+            startY += 21; 
         }
 
-        const backBtnX = win.x + 15;
+        const backBtnX = win.x + 12;
         const backBtnY = win.y + win.h - 28;
         const backBtnW = 60;
         const backBtnH = 20;
 
-        targetCtx.fillStyle = "rgba(71, 85, 105, 0.8)";
+        targetCtx.fillStyle = "rgba(71, 85, 105, 0.9)";
+        targetCtx.strokeStyle = "#94a3b8";
+        targetCtx.strokeRect(backBtnX, backBtnY, backBtnW, backBtnH);
         targetCtx.fillRect(backBtnX, backBtnY, backBtnW, backBtnH);
         targetCtx.fillStyle = "#ffffff";
         targetCtx.textAlign = "center";
-        targetCtx.fillText("◀ 戻る", backBtnX + backBtnW / 2, backBtnY + 3);
+        targetCtx.fillText("◀ 戻る", backBtnX + backBtnW / 2, backBtnY + 4);
 
         optionsHitAreas.push({
             type: 'backToOptions',
@@ -13206,40 +14940,86 @@ function drawOptionsWindow() {
         return;
     }
 
-    // --- 【通常オプション画面】 ---
+    // --- 【通常オプション画面（黄金＆ダーク仕様）】 ---
     targetCtx.textAlign = "left";
     targetCtx.textBaseline = "top";
-    targetCtx.font = "14px 'MS PGothic', sans-serif";
-    targetCtx.fillStyle = "#ffffff";
+    targetCtx.font = "12px 'MS PGothic', sans-serif";
 
-    const textX = win.x + 20;
-    const textY = win.y + 50;
-    const wikiIdText = `Wiki連携キー: ${win.wikiId || "読み込み中..."}`;
+    const startX = win.x + 15;
+    let currentY = win.y + 40;
 
-    targetCtx.fillStyle = "rgba(0, 0, 0, 0.5)";
-    targetCtx.fillText(wikiIdText, textX + 1, textY + 1);
+    const panelW = win.w - 30;
+    const panelH = 55;
+
+    targetCtx.fillStyle = "rgba(15, 23, 42, 0.85)";
+    targetCtx.strokeStyle = "#fbbf24";
+    targetCtx.lineWidth = 1.5;
+
+    if (targetCtx.roundRect) {
+        targetCtx.beginPath();
+        targetCtx.roundRect(startX, currentY, panelW, panelH, 6);
+        targetCtx.fill();
+        targetCtx.stroke();
+    } else {
+        targetCtx.fillRect(startX, currentY, panelW, panelH);
+        targetCtx.strokeRect(startX, currentY, panelW, panelH);
+    }
+
+    targetCtx.fillStyle = "#fbbf24";
+    targetCtx.font = "bold 11px 'MS PGothic', sans-serif";
+    targetCtx.fillText("🔗 Wiki連携キー", startX + 10, currentY + 8);
+
+    targetCtx.fillStyle = "#f8fafc";
+    targetCtx.font = "12px 'MS PGothic', sans-serif";
+    const wikiIdText = win.wikiId || "読み込み中...";
+    targetCtx.fillText(wikiIdText, startX + 10, currentY + 28);
+
+    const copyBtnW = 60;
+    const copyBtnH = 22;
+    const copyBtnX = startX + panelW - copyBtnW - 8;
+    const copyBtnY = currentY + 24;
+
+    const isCopied = win.copySuccess;
+
+    targetCtx.fillStyle = isCopied ? "#15803d" : "#b45309"; 
+    targetCtx.strokeStyle = isCopied ? "#4ade80" : "#fde047"; 
+    targetCtx.lineWidth = 1;
+
+    if (targetCtx.roundRect) {
+        targetCtx.beginPath();
+        targetCtx.roundRect(copyBtnX, copyBtnY, copyBtnW, copyBtnH, 4);
+        targetCtx.fill();
+        targetCtx.stroke();
+    } else {
+        targetCtx.fillRect(copyBtnX, copyBtnY, copyBtnW, copyBtnH);
+        targetCtx.strokeRect(copyBtnX, copyBtnY, copyBtnW, copyBtnH);
+    }
+
     targetCtx.fillStyle = "#ffffff";
-    targetCtx.fillText(wikiIdText, textX, textY);
-    
-    targetCtx.fillStyle = "#f9d448";
-    targetCtx.fillText("[コピー]", textX + 180, textY);
+    targetCtx.font = "bold 11px 'MS PGothic', sans-serif";
+    targetCtx.textAlign = "center";
+    targetCtx.fillText(isCopied ? "✨ 完了！" : "📋 コピー", copyBtnX + copyBtnW / 2, copyBtnY + 5);
+    targetCtx.textAlign = "left";
 
     optionsHitAreas.push({
         type: 'copyWikiId',
-        x: textX + 180, y: textY, w: 50, h: 20
+        x: copyBtnX, y: copyBtnY, w: copyBtnW, h: copyBtnH
     });
 
-    const cfgBtnX = win.x + 20;
-    const cfgBtnY = win.y + 90;
-    const cfgBtnW = win.w - 40;
-    const cfgBtnH = 30;
+    currentY += panelH + 15;
 
-    targetCtx.fillStyle = "rgba(30, 41, 59, 0.9)";
-    targetCtx.strokeStyle = "rgba(255, 255, 255, 0.2)";
+    const cfgBtnX = startX;
+    const cfgBtnY = currentY;
+    const cfgBtnW = panelW;
+    const cfgBtnH = 34;
+
+    targetCtx.fillStyle = "rgba(30, 41, 59, 0.95)";
+    targetCtx.strokeStyle = "rgba(251, 191, 36, 0.5)";
     targetCtx.lineWidth = 1;
+
     if (targetCtx.roundRect) {
         targetCtx.beginPath();
-        targetCtx.roundRect(cfgBtnX, cfgBtnY, cfgBtnW, cfgBtnH, 5);
+        targetCtx.roundRect(cfgBtnX, cfgBtnY, cfgBtnW, cfgBtnH, 6);
         targetCtx.fill();
         targetCtx.stroke();
     } else {
@@ -13248,8 +15028,9 @@ function drawOptionsWindow() {
     }
 
     targetCtx.fillStyle = "#38bdf8";
+    targetCtx.font = "bold 12px 'MS PGothic', sans-serif";
     targetCtx.textAlign = "center";
-    targetCtx.fillText("⌨️ キーボードコンフィグ設定", cfgBtnX + cfgBtnW / 2, cfgBtnY + 7);
+    targetCtx.fillText("⌨ キーボードコンフィグ設定", cfgBtnX + cfgBtnW / 2, cfgBtnY + 10);
 
     optionsHitAreas.push({
         type: 'openKeyConfig',
@@ -13259,68 +15040,72 @@ function drawOptionsWindow() {
     targetCtx.restore();
 }
 
-
 // ============================================================
-// :::OPTIONS_CLICK_HANDLER::: 🖱️ オプション画面のクリック処理
-// ============================================================
-function handleOptionsClick(clickX, clickY) {
-    const win = gameWindows.options;
-    if (!win.isOpen) return false;
-
-    for (const area of optionsHitAreas) {
-        if (clickX >= area.x && clickX <= area.x + area.w &&
-            clickY >= area.y && clickY <= area.y + area.h) {
-            
-            if (area.type === 'openKeyConfig') {
-                isKeyConfigOpen = true;
-                return true;
-            } else if (area.type === 'backToOptions') {
-                isKeyConfigOpen = false;
-                waitingForKeyChange = null;
-                return true;
-            } else if (area.type === 'keyConfigItem') {
-                waitingForKeyChange = area.action;
-                return true;
-            } else if (area.type === 'copyWikiId') {
-                if (win.wikiId && navigator.clipboard) {
-                    navigator.clipboard.writeText(win.wikiId);
-                }
-                return true;
-            }
-        }
-    }
-    return false;
-}
-
-// ============================================================
-// :::OPTIONS_CLICK_HANDLER::: 🖱️ オプション画面のクリック処理
+// :::OPTIONS_CLICK_HANDLER::: 🖱 オプション画面のクリック処理（デバッグ版）
 // ============================================================
 function handleOptionsClick(clickX, clickY) {
     const win = gameWindows.options;
     if (!win.isOpen) return false;
 
+    // 🌟 クリック位置と現在のヒットエリアの数をコンソールに出力
+    console.log(`【クリック検出】 X: ${clickX}, Y: ${clickY}`);
+    console.log("現在の登録ヒットエリア数:", optionsHitAreas.length);
+
+    // HTMLモーダルの要素を取得しておく
+    const keyConfigModal = document.getElementById('keyconfig-modal');
+
     for (const area of optionsHitAreas) {
         if (clickX >= area.x && clickX <= area.x + area.w &&
             clickY >= area.y && clickY <= area.y + area.h) {
             
+            console.log(`🎯 ヒットしました！ エリアタイプ: [${area.type}]`);
+
             if (area.type === 'openKeyConfig') {
+                console.log("【デバッグ】キーコンフィグボタンが押されました！");
                 isKeyConfigOpen = true;
+                
+                if (keyConfigModal) {
+                    console.log("【デバッグ】モーダル要素を発見しました！");
+                    keyConfigModal.style.display = 'block';
+                } else {
+                    console.error("【エラー】'keyconfig-modal' が見つかりません！");
+                }
+                
+                renderKeyboard();
                 return true;
+
             } else if (area.type === 'backToOptions') {
+                console.log("【デバッグ】「戻る」ボタンが押されました");
                 isKeyConfigOpen = false;
                 waitingForKeyChange = null;
+
+                if (keyConfigModal) keyConfigModal.style.display = 'none';
                 return true;
+
             } else if (area.type === 'keyConfigItem') {
+                console.log("【デバッグ】個別のキー設定項目がクリックされました:", area.action);
                 waitingForKeyChange = area.action;
                 return true;
+
             } else if (area.type === 'copyWikiId') {
+                console.log("【デバッグ】Wiki IDコピーボタンが押されました");
                 if (win.wikiId && navigator.clipboard) {
-                    navigator.clipboard.writeText(win.wikiId);
+                    navigator.clipboard.writeText(win.wikiId).then(() => {
+                        win.copySuccess = true;
+                        if (win.copyTimer) clearTimeout(win.copyTimer);
+                        win.copyTimer = setTimeout(() => {
+                            win.copySuccess = false;
+                        }, 1500);
+                    }).catch(err => {
+                        console.error("コピーに失敗しました:", err);
+                    });
                 }
                 return true;
             }
         }
     }
+    
+    console.log("⚠️ どのヒットエリアにも当たりませんでした。");
     return false;
 }
 
@@ -14566,6 +16351,15 @@ if (typeof lastClickTime === 'undefined') {
     var lastClickWindow = ''; // どこをクリックしたかを区別 ('top_bar' or 'bag_window')
 }
 
+// ============================================================
+// :::DOUBLE_CLICK_CONTROLLER::: 🖱️ 10スロット ＆ 50スロットバッグのダブルクリック判定
+// ============================================================
+if (typeof lastClickTime === 'undefined') {
+    var lastClickTime = 0;
+    var lastClickIndex = -1;
+    var lastClickWindow = ''; // どこをクリックしたかを区別 ('top_bar' or 'bag_window')
+}
+
 canvas.addEventListener('click', (event) => {
     const rect = canvas.getBoundingClientRect();
     const clickX = event.clientX - rect.left;
@@ -14687,14 +16481,60 @@ canvas.addEventListener('click', (event) => {
                     return;
                 }
 
+                // 🌟 5. 個数が2個以上、かつ装備品以外なら数量選択モーダルを表示
+                const itemCount = Number(item.count) || 1;
+                const isEquipment = (item.type === 'sword' || item.type === 'armor' || item.type === 'helmet' || item.type === 'shield'); 
+                
+                if (itemCount > 1 && !isEquipment) {
+                    if (typeof openTradeQuantityModal === 'function') {
+                        openTradeQuantityModal(item, itemCount, (selectedQty) => {
+                            // モーダル内で空きスロットを再確認して安全に追加
+                            const currentEmptyCheck = myTradeSlots.findIndex(slot => slot === null);
+                            if (currentEmptyCheck === -1) {
+                                console.log("⚠️ トレードスロットがいっぱいです（最大9個まで）！");
+                                return;
+                            }
+
+                            const tradeItem = { ...item };
+                            tradeItem.count = selectedQty;
+                            tradeItem.slot_index = targetIndex;
+
+                            myTradeSlots[currentEmptyCheck] = tradeItem;
+                            updateMyTradeDisplay();
+
+                            socket.emit('updateTradeOffer', { 
+                                tradeSlots: myTradeSlots,
+                                targetId: window._currentTradePartnerId || null
+                            });
+                        });
+
+                        selectedSlotIndex = -1;
+                        lastClickTime = 0;
+                        lastClickIndex = -1;
+                        lastClickWindow = '';
+                        return;
+                    } else {
+                        console.error("❌ openTradeQuantityModal 関数が見つかりません！");
+                    }
+                }
+
+                // 🌟 【修正箇所】直接追加ルートでも常に最新の空きスロットインデックスを再取得して安全に代入
+                const directEmptyCheck = myTradeSlots.findIndex(slot => slot === null);
+                if (directEmptyCheck === -1) {
+                    console.log("⚠️ トレードスロットがいっぱいです（最大9個まで）！");
+                    lastClickTime = 0;
+                    lastClickIndex = -1;
+                    lastClickWindow = '';
+                    return;
+                }
+
                 console.log(`[Trade] トレードスロットへアイテムを追加します: スロット ${targetIndex}`);
                 
-                // 空いているスロットにアイテムを登録して画面を更新
-                item.slot_index = targetIndex; // 重複チェック用に保持
-                myTradeSlots[emptySlotIndex] = item;
+                const tradeItemDirect = { ...item };
+                tradeItemDirect.slot_index = targetIndex; 
+                myTradeSlots[directEmptyCheck] = tradeItemDirect;
                 updateMyTradeDisplay();
                 
-                // 🌟 サーバーへ自分のトレード枠の中身を送信する
                 socket.emit('updateTradeOffer', { 
                     tradeSlots: myTradeSlots,
                     targetId: window._currentTradePartnerId || null
@@ -14702,7 +16542,6 @@ canvas.addEventListener('click', (event) => {
 
                 selectedSlotIndex = -1;
 
-                // 判定をリセットして終了
                 lastClickTime = 0;
                 lastClickIndex = -1;
                 lastClickWindow = '';
@@ -14713,17 +16552,14 @@ canvas.addEventListener('click', (event) => {
             const itemName = (item.name || "").toLowerCase();
             const itemType = (item.type || "").toLowerCase();
 
-            // 🛡️ より強力な装備品判定
             const isEquipment = itemType === 'sword' || itemType === 'shield' || 
                                 itemName.includes('剣') || itemName.includes('盾') ||
                                 itemName.includes('sword') || itemName.includes('shield');
 
             if (isEquipment) {
-                // 🌟 1. 装備品なら装備用のsocketを送信
                 console.log(`[Equip] スロット ${targetIndex} の装備品を脱着します: ${itemName}`);
                 socket.emit('equipItem', { slotIndex: targetIndex });
             } else {
-                // 🧪 2. 装備品以外（消費アイテムなど）
                 const targetItemName = item.name || item.type || "";
                 console.log(`[ItemUse] スロット ${targetIndex} の消費アイテムを使用します: ${targetItemName}`);
                 
@@ -14738,22 +16574,66 @@ canvas.addEventListener('click', (event) => {
 
             selectedSlotIndex = -1;
 
-            // 判定をリセット
             lastClickTime = 0;
             lastClickIndex = -1;
             lastClickWindow = '';
         } else {
-            // 1回目のクリックとして記録
             lastClickTime = currentTime;
             lastClickIndex = targetIndex;
             lastClickWindow = clickedWindowType;
         }
     } else {
-        // 有効なインベントリ枠外をクリックした場合はリセット
         lastClickIndex = -1;
         lastClickWindow = '';
     }
 });
+
+// トレード用の数量選択モーダルを表示する関数
+function openTradeQuantityModal(item, maxCount, onComplete) {
+    // すでに開いているモーダルがあれば削除
+    const existing = document.getElementById('trade-qty-modal');
+    if (existing) existing.remove();
+
+    // モーダルのHTML要素を動的生成
+    const modal = document.createElement('div');
+    modal.id = 'trade-qty-modal';
+    modal.style.cssText = `
+        position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+        background: rgba(0, 0, 0, 0.6); display: flex; justify-content: center; align-items: center; z-index: 9999;
+    `;
+
+    modal.innerHTML = `
+        <div style="background: #1e293b; padding: 20px; border-radius: 8px; color: #fff; width: 280px; text-align: center; border: 1px solid #475569;">
+            <h3 style="margin-top: 0; font-size: 16px;">数量を選択 (${item.name || item.type})</h3>
+            <p style="font-size: 13px; color: #94a3b8;">所持数: ${maxCount}</p>
+            <input type="number" id="trade-qty-input" value="1" min="1" max="${maxCount}" style="width: 80px; padding: 6px; font-size: 16px; text-align: center; background: #0f172a; color: #fff; border: 1px solid #64748b; border-radius: 4px;">
+            <div style="margin-top: 20px; display: flex; justify-content: space-around;">
+                <button id="trade-qty-cancel" style="padding: 6px 14px; background: #64748b; color: #fff; border: none; border-radius: 4px; cursor: pointer;">キャンセル</button>
+                <button id="trade-qty-ok" style="padding: 6px 14px; background: #3b82f6; color: #fff; border: none; border-radius: 4px; cursor: pointer;">決定</button>
+            </div>
+        </div>
+    `;
+
+    document.body.appendChild(modal);
+
+    const input = document.getElementById('trade-qty-input');
+    input.focus();
+    input.select();
+
+    // 決定ボタン
+    document.getElementById('trade-qty-ok').onclick = () => {
+        let val = parseInt(input.value, 10);
+        if (isNaN(val) || val < 1) val = 1;
+        if (val > maxCount) val = maxCount;
+        modal.remove();
+        onComplete(val);
+    };
+
+    // キャンセルボタン
+    document.getElementById('trade-qty-cancel').onclick = () => {
+        modal.remove();
+    };
+}
 
 // ============================================================
 // :::TRADE_TOOLTIP_RENDERER::: 🎨 ツールチップ描画処理（相手の変数名自動対応版）
@@ -14852,11 +16732,24 @@ function renderTradeTooltips(ctx, hero) {
     drawItemTooltip(tooltipCtx, hoveredTradeItem, renderX, renderY, hero);
 }
 
-// 相手がトレード枠を変更したときに関係データを受け取る
+// 相手がトレード枠や金額を変更したときに関係データを受け取る
 socket.on('syncOpponentTrade', (data) => {
-    if (data && data.tradeSlots) {
+    if (!data) return;
+
+    // 1. アイテムスロットの更新
+    if (data.tradeSlots) {
         opponentTradeSlots = data.tradeSlots;
-        updateOpponentTradeDisplay(); // 相手の画面を更新
+        updateOpponentTradeDisplay(); // 相手のアイテム画面を更新
+    }
+
+    // 🌟 2. 【追加】金額の更新を反映する
+    if (data.gold !== undefined && data.gold !== null) {
+        opponentTradeCurrency = Number(data.gold) || 0;
+        
+        // 金額の表示を更新する関数を呼ぶ（関数名が違っていたらお手元の名前に合わせてください）
+        if (typeof updateTradeCurrencyDisplay === 'function') {
+            updateTradeCurrencyDisplay();
+        }
     }
 });
 

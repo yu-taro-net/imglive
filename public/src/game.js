@@ -132,6 +132,663 @@ let lastReceivedTime = Date.now(); // 最後に通信した時間
 let isDisconnected = false;        // 切断されているかどうかのフラグ
 
 // ============================================================
+// 🌟 状態管理用変数
+// ============================================================
+let poolActions = []; // 予備ボックス内のアクション配列
+let selectedPoolAction = null; // プールから選択中のアクション（互換用）
+let activeDragging = null; // 現在「掴んでホバー中」の要素情報 { source: 'pool' | 'keyboard', actionKey, label, index }
+
+// ============================================================
+// 1. キーボード全体のレイアウトデータ（デフォルト割り当て除外版）
+// ============================================================
+const keyboardLayoutData = [
+    // 数字列
+    [
+        { key: 'ESC', w: 1 }, { key: '1', w: 1 }, { key: '2', w: 1 }, { key: '3', w: 1 }, 
+        { key: '4', w: 1 }, { key: '5', w: 1 }, { key: '6', w: 1 }, { key: '7', w: 1 }, 
+        { key: '8', w: 1 }, { key: '9', w: 1 }, { key: '0', w: 1 }
+    ],
+    // QWERTY列（Wのデフォルト割り当てを削除）
+    [
+        { key: 'TAB', w: 1.5 }, { key: 'Q', w: 1 }, { key: 'W', w: 1 }, 
+        { key: 'E', w: 1 }, { key: 'R', w: 1 }, { key: 'T', w: 1 }, { key: 'Y', w: 1 }, 
+        { key: 'U', w: 1 }, { key: 'I', w: 1 }, { key: 'O', w: 1 }, { key: 'P', w: 1 }
+    ],
+    // ASDF列（ホームポジションのA, S, Dのデフォルト割り当てを削除）
+    [
+        { key: 'CAPS', w: 1.8 }, { key: 'A', w: 1 }, 
+        { key: 'S', w: 1 }, { key: 'D', w: 1 }, 
+        { key: 'F', w: 1 }, { key: 'G', w: 1 }, { key: 'H', w: 1 }, 
+        { key: 'J', w: 1 }, { key: 'K', w: 1 }, { key: 'L', w: 1 }
+    ],
+    // ZXCV列
+    [
+        { key: 'SHIFT', w: 2.2 }, { key: 'Z', w: 1 }, { key: 'X', w: 1 }, 
+        { key: 'C', w: 1 }, { key: 'V', w: 1 }, { key: 'B', w: 1 }, 
+        { key: 'N', w: 1 }, { key: 'M', w: 1 }
+    ],
+    // 最下段（スペースキーや矢印キーのデフォルト割り当てを削除）
+    [
+        { key: 'CTRL', w: 1.5 }, { key: 'ALT', w: 1.5 }, 
+        { key: 'SPACE', w: 3.5 },
+        { key: '←', w: 1 },
+        { key: '↑', w: 1 },
+        { key: '↓', w: 1 },
+        { key: '→', w: 1 }
+    ]
+];
+
+// ============================================================
+// 🎮 キーボード入力を監視してコンフィグ通りにアクションを実行するシステム
+// ============================================================
+
+document.addEventListener('keydown', (e) => {
+    // 💡もし現在、他のテキスト入力欄にフォーカスしている場合は誤作動を防ぐため無視する
+    if (['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName)) {
+        return;
+    }
+
+    // 押されたキーの名前を取得（例: 'z', 'Z', ' ', 'ArrowUp', など）
+    const pressedKey = e.key;
+    const pressedKeyUpper = pressedKey.toUpperCase();
+
+    // currentKeyConfig を総当たりして、どの ação（アクション）に割り当てられているか探す
+    let matchedActionKey = null;
+
+    for (const [actionKey, config] of Object.entries(currentKeyConfig)) {
+        if (!config.keyName) continue;
+
+        let assignedKey = config.keyName;
+
+        // 表記ゆれの吸収（スペースや矢印キーなどの対応）
+        if (assignedKey.toLowerCase() === 'space' && pressedKey === ' ') {
+            matchedActionKey = actionKey;
+            break;
+        }
+        if (assignedKey.toUpperCase() === pressedKeyUpper) {
+            matchedActionKey = actionKey;
+            break;
+        }
+    }
+
+    // 一致するアクションが見つかった場合
+    if (matchedActionKey) {
+        // デフォルトのブラウザ挙動（ページのスクロールなど）を防ぎたい場合はコメントアウトを外す
+        // e.preventDefault(); 
+
+        executeGameAction(matchedActionKey);
+    }
+});
+
+// ============================================================
+// 🎯 アクションが実行されたときの処理を振り分ける関数
+// ============================================================
+function executeGameAction(actionKey) {
+    console.log(`🚀 アクション実行: [${actionKey}] がトリガーされました！`);
+
+    // ここに実際のゲーム側の処理（関数やウィンドウの開閉）を紐付けます
+    switch (actionKey) {
+        case 'pickup':
+            // 例: 足元のアイテムを拾う処理
+            // playerPickUpItem();
+            break;
+        case 'attack':
+            // 例: 攻撃処理
+            // playerAttack();
+            break;
+        case 'jump':
+            // 例: ジャンプ処理
+            // playerJump();
+            break;
+        case 'status':
+            // 例: ステータス画面の開閉
+            // toggleWindow('status');
+			drawStatusWindow();
+            break;
+        case 'inventory':
+            // 例: インベントリ画面の開閉
+            // toggleWindow('inventory');
+            break;
+        // 必要に応じて他のアクションも追加できます
+        default:
+            console.log(`ℹ️ アクション「${actionKey}」に対する処理が未定義です。`);
+            break;
+    }
+}
+
+// ============================================================
+// 🌟 2. 予備ボックスを描画する関数（重複完全防止フィルター付き・スマート版）
+// ============================================================
+function renderPool() {
+    const poolContainer = document.getElementById('keyboard-pool-container');
+    if (!poolContainer) return;
+
+    poolContainer.innerHTML = '';
+
+    if (typeof poolActions === 'undefined') return;
+
+    // プールエリア自体のクリックイベント（余白クリックで戻す対応）
+    if (poolContainer.dataset.clickInitialized !== "true") {
+        poolContainer.dataset.clickInitialized = "true";
+        poolContainer.addEventListener('click', (e) => {
+            if (e.target === poolContainer && activeDragging) {
+                e.stopPropagation();
+                cancelGrab();
+            }
+        });
+    }
+
+    // 🌟 【超重要】現在、メインキーボード側のどこかのキーに割り当てられている（keyNameが存在する）アクション名をすべて集める
+    const assignedActionKeys = new Set();
+    if (typeof currentKeyConfig !== 'undefined' && currentKeyConfig) {
+        for (const [actionKey, config] of Object.entries(currentKeyConfig)) {
+            // キー名が設定されている（＝メイン側に配置されている）ものは除外対象とする
+            if (config && config.keyName && config.keyName !== '') {
+                assignedActionKeys.add(actionKey);
+            }
+        }
+    }
+
+    // プール内のアイテムを回して描画する
+    poolActions.forEach((poolItem, index) => {
+        const actionIdentifier = poolItem.actionKey || poolItem.key;
+
+        // 🌟 【完全ガード】メインキーボード側にすでに配置されているアクションなら、プール側への描画を一切スキップ！
+        if (actionIdentifier && assignedActionKeys.has(actionIdentifier)) {
+            return; 
+        }
+
+        const itemEl = document.createElement('div');
+        itemEl.className = 'key-cap';
+        itemEl.style.width = '48px';
+        itemEl.style.height = '48px';
+        itemEl.style.cursor = 'pointer';
+        itemEl.style.display = 'flex';
+        itemEl.style.alignItems = 'center';
+        itemEl.style.justifyContent = 'center';
+        itemEl.style.textAlign = 'center';
+        itemEl.style.padding = '4px';
+        itemEl.style.boxSizing = 'border-box';
+
+        // 現在掴んでいるアイテムならハイライトする
+        if (activeDragging && activeDragging.source === 'pool' && activeDragging.index === index) {
+            itemEl.style.borderColor = '#ff00ff';
+            itemEl.style.background = 'rgba(255, 0, 255, 0.2)';
+        }
+
+        // 🌟 📦マークを取り除き、ラベル名のみをスマートに配置
+        itemEl.innerHTML = `
+            <span class="key-action-name" style="font-size: 11px; line-height: 1.2; word-break: break-all;">${poolItem.label}</span>
+        `;
+
+        itemEl.addEventListener('click', (e) => {
+            e.stopPropagation();
+
+            if (activeDragging) {
+                cancelGrab();
+                return;
+            }
+
+            startGrab({
+                source: 'pool',
+                index: index,
+                actionKey: actionIdentifier,
+                label: poolItem.label
+            }, e.clientX, e.clientY);
+        });
+
+        poolContainer.appendChild(itemEl);
+    });
+}
+
+// ============================================================
+// 🌟 3. キーボードを描画する関数（クリック配置・掴み取り対応版・完全同期修正版）
+// ============================================================
+function renderKeyboard() {
+    const container = document.getElementById('keyboard-visual-container');
+    if (!container) return;
+    
+    container.innerHTML = '';
+    const baseWidth = 48;
+
+    if (typeof keyboardLayoutData === 'undefined') return;
+
+    keyboardLayoutData.forEach(rowKeys => {
+        const rowEl = document.createElement('div');
+        rowEl.className = 'keyboard-row';
+
+        rowKeys.forEach(kData => {
+            const keyEl = document.createElement('div');
+            keyEl.className = 'key-cap';
+            keyEl.style.width = `${kData.w * baseWidth}px`;
+            keyEl.dataset.keyName = kData.key;
+
+            const textEl = document.createElement('span');
+            textEl.className = 'key-label';
+            textEl.textContent = kData.key;
+            keyEl.appendChild(textEl);
+
+            let assignedActionKey = null;
+            let assignedLabel = null;
+
+            // 💡 現在のコンフィグ（currentKeyConfig）から、このキーに割り当てられているものを逆引きする
+            if (typeof currentKeyConfig !== 'undefined') {
+                for (const [actionKey, config] of Object.entries(currentKeyConfig)) {
+                    if (!config.keyName) continue;
+                    
+                    let configKeyName = config.keyName;
+                    if (configKeyName === 'ArrowUp') configKeyName = '↑';
+                    if (configKeyName === 'ArrowDown') configKeyName = '↓';
+                    if (configKeyName === 'ArrowLeft') configKeyName = '←';
+                    if (configKeyName === 'ArrowRight') configKeyName = '→';
+                    if (configKeyName.toLowerCase() === 'space') configKeyName = 'SPACE';
+
+                    if (configKeyName.toUpperCase() === kData.key.toUpperCase()) {
+                        assignedActionKey = actionKey;
+                        assignedLabel = config.label;
+                        break;
+                    }
+                }
+            }
+
+            // 💡【修正点】レイアウト側の初期データ（kData.action等）に頼らず、現在のコンフィグ結果のみを正とする！
+            const effectiveAction = assignedActionKey;
+            const effectiveLabel = assignedLabel;
+
+            // 有効な機能が割り当てられている場合のみ描画する
+            if (effectiveLabel) {
+                keyEl.style.borderColor = '#00ffcc';
+                textEl.style.color = '#00ffcc';
+                keyEl.style.cursor = 'grab'; 
+                
+                const labelEl = document.createElement('span');
+                labelEl.className = 'key-action-name';
+                labelEl.textContent = effectiveLabel;
+                keyEl.appendChild(labelEl);
+                
+                if (effectiveAction) {
+                    keyEl.id = `key-action-${effectiveAction}`;
+                }
+            } else {
+                // 機能が割り当てられていない空のキー
+                keyEl.style.borderColor = '';
+                textEl.style.color = '';
+                keyEl.style.cursor = 'default';
+            }
+
+            // 🌟 キーボードのキーをクリックしたときの処理
+            keyEl.addEventListener('click', (e) => {
+                e.stopPropagation();
+
+                // パターンA：すでに何かを掴んでいて、そこに配置する場合
+                if (activeDragging) {
+                    placeGrabbedAction(kData.key);
+                } 
+                // パターンB：何も掴んでいなくて、このキーに機能がある場合 ➔ クリックして「掴む」
+                else if (effectiveLabel) {
+                    let targetActionKey = assignedActionKey;
+                    if (!targetActionKey) {
+                        for (const [aKey, config] of Object.entries(currentKeyConfig)) {
+                            if (aKey === effectiveAction) {
+                                targetActionKey = aKey;
+                                break;
+                            }
+                        }
+                    }
+
+                    // キーボード上から一旦剥がして掴む
+                    //if (typeof currentKeyConfig !== 'undefined' && currentKeyConfig[targetActionKey || effectiveAction]) {
+                    //    currentKeyConfig[targetActionKey || effectiveAction].keyName = null;
+                    //}
+
+                    startGrab({
+                        source: 'keyboard',
+                        actionKey: targetActionKey || effectiveAction,
+                        label: effectiveLabel
+                    }, e.clientX, e.clientY);
+                }
+            });
+
+            rowEl.appendChild(keyEl);
+        });
+
+        container.appendChild(rowEl);
+    });
+}
+
+// ============================================================
+// 🌟 4. 「掴んでホバーする」ための共通エンジン（通常時と完全一致版）
+// ============================================================
+function startGrab(dragData, clientX, clientY) {
+    activeDragging = dragData;
+
+    // 強制的に grabbing にするCSSクラスを追加
+    let grabStyleEl = document.getElementById('force-grabbing-style');
+    if (!grabStyleEl) {
+        grabStyleEl = document.createElement('style');
+        grabStyleEl.id = 'force-grabbing-style';
+        document.head.appendChild(grabStyleEl);
+    }
+    grabStyleEl.innerHTML = `*, *:hover { cursor: grabbing !important; }`;
+
+    // マウスに追従するゴースト要素を生成
+    const ghost = document.createElement('div');
+    ghost.id = 'drag-ghost-element';
+    ghost.className = 'key-cap';
+    ghost.style.position = 'fixed';
+    ghost.style.width = '48px';
+    ghost.style.height = '48px';
+    ghost.style.pointerEvents = 'none'; // 当たり判定を無効化
+    ghost.style.zIndex = '99999';
+    ghost.style.opacity = '0.9';
+    ghost.style.borderColor = '#00ffcc';
+    ghost.style.background = '#1a1a2e';
+    ghost.style.boxShadow = '0 8px 16px rgba(0,0,0,0.5)';
+    
+    ghost.style.left = `${clientX - 24}px`;
+    ghost.style.top = `${clientY - 24}px`;
+
+    // 💡【修正】通常時のキーボード描画と同じ構造・クラスを再現し、文字の大きさや位置を固定
+    ghost.innerHTML = `
+        <span class="key-action-name" style="color: #00ffcc;">${dragData.label}</span>
+    `;
+    document.body.appendChild(ghost);
+
+    document.addEventListener('mousemove', onGrabMouseMove);
+    
+    renderPool();
+    renderKeyboard();
+}
+
+// 🌐 掴んだ状態でマウスを動かしている時のハンドラー（requestAnimationFrameで爆速・滑らか追従）
+let latestMouseX = 0;
+let latestMouseY = 0;
+let isRafPending = false;
+
+function onGrabMouseMove(e) {
+    latestMouseX = e.clientX;
+    latestMouseY = e.clientY;
+
+    // 💡【改善】requestAnimationFrameを使って、画面の描画タイミング（リフレッシュレート）に完全同期させる
+    if (!isRafPending) {
+        isRafPending = true;
+        requestAnimationFrame(() => {
+            const ghost = document.getElementById('drag-ghost-element');
+            if (ghost) {
+                // 幅・高さ(48px)の半分(24px)を引いてカーソルの真中心に合わせる
+                ghost.style.left = `${latestMouseX - 24}px`;
+                ghost.style.top = `${latestMouseY - 24}px`;
+            }
+            isRafPending = false;
+        });
+    }
+}
+
+// ============================================================
+// 🌟 プールに安全にアクションを追加する共通関数（重複絶対に防止）
+// ============================================================
+function addActionToPool(actionKey, label) {
+    // すでにプール内（poolActions）に存在するかチェック
+    const exists = poolActions.some(item => item.actionKey === actionKey);
+    if (!exists) {
+        poolActions.push({
+            actionKey: actionKey,
+            label: label
+        });
+    }
+}
+
+// ============================================================
+// 🌐 別の場所をクリックして配置を完了させる関数（押し出し・重複完全防止版）
+// ============================================================
+function placeGrabbedAction(targetKeyName) {
+    if (!activeDragging) return;
+
+    if (targetKeyName && typeof currentKeyConfig !== 'undefined') {
+        let existingActionKey = null;
+        let existingLabel = null;
+
+        for (const [aKey, config] of Object.entries(currentKeyConfig)) {
+            if (!config.keyName) continue;
+            
+            let configKeyName = config.keyName;
+            if (configKeyName === 'ArrowUp') configKeyName = '↑';
+            if (configKeyName === 'ArrowDown') configKeyName = '↓';
+            if (configKeyName === 'ArrowLeft') configKeyName = '←';
+            if (configKeyName === 'ArrowRight') configKeyName = '→';
+            if (configKeyName.toLowerCase() === 'space') configKeyName = 'SPACE';
+
+            if (configKeyName.toUpperCase() === targetKeyName.toUpperCase()) {
+                existingActionKey = aKey;
+                existingLabel = config.label;
+                break;
+            }
+        }
+
+        // もし既に別のコンテンツが嵌め込まれていた場合 ➔ 予備ボックス（プール）へ押し出す！
+        if (existingActionKey && existingLabel) {
+            // 🌟 【修正】すでにプール内に同じアクションが存在しない場合のみ追加する（重複ガード）
+            const alreadyInPool = poolActions.some(item => item.actionKey === existingActionKey);
+            if (!alreadyInPool) {
+                poolActions.push({
+                    actionKey: existingActionKey,
+                    label: existingLabel
+                });
+            }
+            
+            currentKeyConfig[existingActionKey].keyName = null; // キーボード側からは一旦外す
+            console.log(`📦 元々あった「${existingLabel}」をプールへ押し出しました`);
+        }
+
+        // 1. プールからの配置だった場合
+        if (activeDragging.source === 'pool') {
+            if (currentKeyConfig[activeDragging.actionKey]) {
+                currentKeyConfig[activeDragging.actionKey].keyName = targetKeyName;
+            }
+            poolActions.splice(activeDragging.index, 1);
+        } 
+        // 2. キーボード同士の移動だった場合
+        else if (activeDragging.source === 'keyboard') {
+            if (currentKeyConfig[activeDragging.actionKey]) {
+                currentKeyConfig[activeDragging.actionKey].keyName = targetKeyName;
+            }
+        }
+
+        console.log(`✨ キー「${targetKeyName}」に「${activeDragging.label}」を配置しました！`);
+    }
+
+    cleanupGrab();
+    renderKeyboard();
+    renderPool();
+    
+    updateKeyMapFromConfig();
+	
+	// 🌟 【追加】キー配置が変わったので即座にサーバーへオートセーブする！
+    saveGameData();
+}
+
+// ============================================================
+// 🌐 掴み状態をキャンセルして元に戻す（プールに戻す等）関数（重複防止版）
+// ============================================================
+function cancelGrab() {
+    if (!activeDragging) return;
+
+    if (activeDragging.source === 'keyboard') {
+        if (typeof currentKeyConfig !== 'undefined' && currentKeyConfig[activeDragging.actionKey]) {
+            // 🌟 【修正】すでにプール内に同じアクションが存在しない場合のみ追加する（重複ガード）
+            const alreadyInPool = poolActions.some(item => item.actionKey === activeDragging.actionKey);
+            if (!alreadyInPool) {
+                poolActions.push({
+                    actionKey: activeDragging.actionKey,
+                    label: activeDragging.label
+                });
+            }
+            
+            currentKeyConfig[activeDragging.actionKey].keyName = null;
+        }
+    }
+    console.log(`📦 アクション「${activeDragging.label}」の掴みを解除しました`);
+
+    cleanupGrab();
+    renderKeyboard();
+    renderPool();
+	
+	// 🌟 【追加】キャンセルして配置が変わったので即座にサーバーへオートセーブする！
+    saveGameData();
+}
+
+// 🌐 掴み状態の終了処理（強制カーソル用CSSを削除）
+function cleanupGrab() {
+    document.removeEventListener('mousemove', onGrabMouseMove);
+    
+    // 💡【強力な対策】追加した強制CSSを削除してカーソルを元に戻す
+    const grabStyleEl = document.getElementById('force-grabbing-style');
+    if (grabStyleEl) {
+        grabStyleEl.remove();
+    }
+
+    const ghost = document.getElementById('drag-ghost-element');
+    if (ghost) ghost.remove();
+    activeDragging = null;
+}
+
+// 🌟 5. プール側へのドロップ処理の初期化（互換用ダミー）
+function setupPoolDropArea() {
+    // クリック制御に移行したため空でもOK
+}
+
+// ============================================================
+// 6. 自前のクリック監視（開閉対応版）
+// ============================================================
+if (document.getElementById('stage')) {
+    document.getElementById('stage').addEventListener('click', (event) => {
+        if (typeof gameWindows === 'undefined' || !gameWindows.options || !gameWindows.options.isOpen) {
+            return;
+        }
+
+        const rect = document.getElementById('stage').getBoundingClientRect();
+        const clickX = event.clientX - rect.left;
+        const clickY = event.clientY - rect.top;
+
+        if (typeof optionsHitAreas !== 'undefined') {
+            for (const area of optionsHitAreas) {
+                // 1. 「キーボードコンフィグ設定」ボタンが押されたとき（開く）
+                if (area.type === 'openKeyConfig') {
+                    if (clickX >= area.x && clickX <= area.x + area.w &&
+                        clickY >= area.y && clickY <= area.y + area.h) {
+                        
+                        gameWindows.options.isOpen = true;
+                        cleanupGrab(); // 開いたときはリセット
+                        
+                        renderKeyboard();
+                        if (typeof renderPool === 'function') {
+                            renderPool(); 
+                        }
+                        
+                        const modal = document.getElementById('keyconfig-modal');
+                        if (modal) modal.style.display = 'block';
+                        
+                        setupKeyConfigDraggable();
+                        
+                        if (typeof isKeyConfigOpen !== 'undefined') {
+                            isKeyConfigOpen = true;
+                        }
+                    }
+                }
+                
+                // 2. 「戻る」ボタンが押されたとき（閉じる）
+                if (area.type === 'backToOptions') {
+                    if (clickX >= area.x && clickX <= area.x + area.w &&
+                        clickY >= area.y && clickY <= area.y + area.h) {
+                        
+                        if (typeof isKeyConfigOpen !== 'undefined') {
+                            isKeyConfigOpen = false;
+                        }
+                        if (typeof waitingForKeyChange !== 'undefined') {
+                            waitingForKeyChange = null;
+                        }
+                        cleanupGrab();
+                        
+                        const modal = document.getElementById('keyconfig-modal');
+                        if (modal) modal.style.display = 'none';
+
+                        console.log("✨ キーボード設定ウィンドウを閉じました！");
+                    }
+                }
+            }
+        }
+    });
+}
+
+// ============================================================
+// 7. ドラッグ＆ドロップ（ウィンドウ移動用 - 非ネスト版）
+// ============================================================
+function setupKeyConfigDraggable() {
+    const modal = document.getElementById('keyconfig-modal');
+    const header = document.getElementById('keyconfig-header');
+    if (!modal || !header) return;
+
+    if (modal.dataset.draggableInitialized === "true") return;
+    modal.dataset.draggableInitialized = "true";
+
+    header.addEventListener('mousedown', onWindowMouseDown);
+
+    const closeBtn = document.getElementById('keyconfig-close-btn');
+    if (closeBtn) {
+        closeBtn.addEventListener('click', () => {
+            modal.style.display = 'none';
+            if (typeof isKeyConfigOpen !== 'undefined') isKeyConfigOpen = false;
+            cleanupGrab();
+        });
+    }
+}
+
+// 🪟 ウィンドウを掴み始めたときのハンドラー
+function onWindowMouseDown(e) {
+    const modal = document.getElementById('keyconfig-modal');
+    if (!modal) return;
+
+    const rect = modal.getBoundingClientRect();
+    const initialX = rect.left;
+    const initialY = rect.top;
+
+    modal.style.position = 'absolute';
+    modal.style.transform = 'none'; 
+    modal.style.left = initialX + 'px';
+    modal.style.top = initialY + 'px';
+
+    // ウィンドウ移動に必要なコンテキストを保持
+    window._windowDragContext = {
+        modal: modal,
+        startX: e.clientX,
+        startY: e.clientY,
+        initialX: initialX,
+        initialY: initialY
+    };
+
+    document.addEventListener('mousemove', onWindowMouseMove);
+    document.addEventListener('mouseup', onWindowMouseUp);
+}
+
+// 🪟 ウィンドウ移動中のハンドラー
+function onWindowMouseMove(e) {
+    if (!window._windowDragContext) return;
+    const { modal, startX, startY, initialX, initialY } = window._windowDragContext;
+
+    const dx = e.clientX - startX;
+    const dy = e.clientY - startY;
+    modal.style.left = (initialX + dx) + 'px';
+    modal.style.top = (initialY + dy) + 'px';
+}
+
+// 🪟 ウィンドウのドラッグを終了したときのハンドラー
+function onWindowMouseUp() {
+    window._windowDragContext = null;
+    document.removeEventListener('mousemove', onWindowMouseMove);
+    document.removeEventListener('mouseup', onWindowMouseUp);
+}
+
+// ============================================================
 // 🔊 [SECTION 3: RESOURCES] アセット・クラス定義
 // 役割: Playerクラスの定義や、画像・音声の初期化
 // ============================================================
@@ -174,8 +831,12 @@ class Player {
     // 🌟 追加：ノックバック・硬直状態の管理
     this.isStunned = false; 
     this.stunTimer = 0;
-	
-	this.isInvincible = false; // 最初は無敵ではありません
+    
+    this.isInvincible = false; // 最初は無敵ではありません
+
+    // 🌟 【追加】立ち止まり回復用のタイマーと直前のX座標記録
+    this.idleTimer = 0;
+    this.lastX = this.x;
   }
 
   // 🌟 【修正】移動のロジック（this.speed を反映）
@@ -304,6 +965,29 @@ class Player {
       this.jumpFrame = (this.jumpFrame || 0) + 1;
     }
 
+    // 🌟 追加：立ち止まり時のHP自動回復判定
+    // 地面にいて、HPが満タン未満で、硬直中でない状態のとき
+    if (grounded && this.hp < this.maxHp && !this.isStunned) {
+        // 前回のフレームから位置（X座標）が変わっていないかチェック
+        if (Math.abs(this.x - this.lastX) < 0.01) {
+            this.idleTimer++;
+            // 約1秒（60フレーム）静止し続けたら回復開始
+            if (this.idleTimer > 60) {
+                this.hp += 0.2; // 毎フレームの回復量（お好みで調整してください）
+                if (this.hp > this.maxHp) {
+                    this.hp = this.maxHp;
+                }
+            }
+        } else {
+            // 動いたらタイマーをリセット
+            this.idleTimer = 0;
+        }
+    } else {
+        this.idleTimer = 0;
+    }
+    // 現在のX座標を次フレームの比較用に保存
+    this.lastX = this.x;
+
     return grounded; 
   }
   
@@ -314,8 +998,8 @@ class Player {
     
     this.isAttacking = 20; 
     this.attackStartFrame = frame; 
-	
-	if (typeof playAttackSound === 'function') {
+    
+    if (typeof playAttackSound === 'function') {
         playAttackSound();
     }
   }
@@ -612,6 +1296,14 @@ function toggleEmotionPicker(event) {
         if (chatModeWrapper) chatModeWrapper.classList.remove('is-active');
     }
 
+    // 🌟 表情ボタンが押されたら、ステータス選択のメニューも強制的に閉じる
+    const statusModeWrapper = document.getElementById('custom-status-mode');
+    const statusOptions = document.getElementById('status-mode-options');
+    if (statusOptions && statusOptions.classList.contains('is-open')) {
+        statusOptions.classList.remove('is-open');
+        if (statusModeWrapper) statusModeWrapper.classList.remove('is-active');
+    }
+
     const popup = document.getElementById('emotion-picker-popup');
     if (!popup) {
         console.error("エラー: 'emotion-picker-popup' が見つかりません。");
@@ -636,7 +1328,7 @@ function toggleEmotionPicker(event) {
         isPickerInitialized = true;
     }
 
-    // 🌟 クラスの有無でフェードイン・フェードアウトを切り替え
+    // クラスの有無でフェードイン・フェードアウトを切り替え
     if (popup.classList.contains('is-open')) {
         popup.classList.remove('is-open');
     } else {
@@ -832,9 +1524,14 @@ chatIn.onkeydown = e => {
 function toggleChatModeDropdown(event) {
     if (event) event.stopPropagation();
 
-    // 感情ポップアップが開いていれば閉じる（競合防止）
+    // 感情ポップアップやステータス選択メニューが開いていれば閉じる（競合防止）
     const emotionPopup = document.getElementById('emotion-picker-popup');
     if (emotionPopup) emotionPopup.classList.remove('is-open');
+    
+    const statusOptions = document.getElementById('status-mode-options');
+    const statusWrapper = document.getElementById('custom-status-mode');
+    if (statusOptions) statusOptions.classList.remove('is-open');
+    if (statusWrapper) statusWrapper.classList.remove('is-active');
 
     const wrapper = document.getElementById('custom-chat-mode');
     const options = document.getElementById('chat-mode-options');
@@ -847,19 +1544,16 @@ function toggleChatModeDropdown(event) {
 
 // --- チャットモードを選択したときの処理 ---
 function selectChatMode(value, labelText) {
-    // 隠しinputに値を保存（他のプログラムや通信処理との互換性用）
     const hiddenInput = document.getElementById('chat-mode-value');
     if (hiddenInput) {
         hiddenInput.value = value;
     }
 
-    // 表示ラベルを書き換える
     const label = document.getElementById('chat-mode-label');
     if (label) {
         label.textContent = labelText;
     }
 
-    // メニューを閉じて、▲アイコンを▼に戻す
     const options = document.getElementById('chat-mode-options');
     const wrapper = document.getElementById('custom-chat-mode');
     
@@ -867,10 +1561,9 @@ function selectChatMode(value, labelText) {
         options.classList.remove('is-open');
     }
     if (wrapper) {
-        wrapper.classList.remove('is-active'); // 🌟 ここで矢印を▼に戻す
+        wrapper.classList.remove('is-active');
     }
 
-    // モード変更時の固有処理（内緒話オーバーレイの起動など）を呼び出す
     onChatModeChange(value);
 }
 
@@ -878,7 +1571,6 @@ function selectChatMode(value, labelText) {
 function onChatModeChange(value) {
     const mode = value || (document.getElementById('chat-mode-value') ? document.getElementById('chat-mode-value').value : 'all');
 
-    // 「内緒話 (whisper)」が選ばれたらオーバーレイを表示
     if (mode === 'whisper') {
         const overlay = document.getElementById('whisper-overlay');
         const input = document.getElementById('whisper-target-name');
@@ -887,22 +1579,93 @@ function onChatModeChange(value) {
         if (overlay && input) {
             overlay.style.display = 'block';
             input.value = ""; 
-            input.style.border = "1px solid #2e7d32"; // 枠線を緑に戻す
+            input.style.border = "1px solid #2e7d32";
             if (error) error.innerText = ""; 
             input.focus(); 
         }
     }
 }
 
-// --- メニューを閉じるときにラッパーの状態もリセットする補助 ---
-window.addEventListener('click', function(event) {
-    const chatModeWrapper = document.getElementById('custom-chat-mode');
-    const options = document.getElementById('chat-mode-options');
+
+// ==========================================
+// 💬 ステータスモード変更処理（チャットモードと完全同期）
+// ==========================================
+
+// --- ステータス選択・カスタムメニューの開閉 ---
+function toggleStatusModeDropdown(event) {
+    if (event) event.stopPropagation();
+
+    // 感情ポップアップやチャットモードメニューが開いていれば閉じる（競合防止）
+    const emotionPopup = document.getElementById('emotion-picker-popup');
+    if (emotionPopup) emotionPopup.classList.remove('is-open');
     
-    if (options && options.classList.contains('is-open')) {
+    const chatOptions = document.getElementById('chat-mode-options');
+    const chatWrapper = document.getElementById('custom-chat-mode');
+    if (chatOptions) chatOptions.classList.remove('is-open');
+    if (chatWrapper) chatWrapper.classList.remove('is-active');
+
+    const wrapper = document.getElementById('custom-status-mode');
+    const options = document.getElementById('status-mode-options');
+    
+    if (options && wrapper) {
+        options.classList.toggle('is-open');
+        wrapper.classList.toggle('is-active', options.classList.contains('is-open'));
+    }
+}
+
+// --- ステータスを選択したときの処理 ---
+function selectPlayerStatus(value, labelText) {
+    const hiddenInput = document.getElementById('status-mode-value');
+    if (hiddenInput) {
+        hiddenInput.value = value;
+    }
+
+    const label = document.getElementById('status-mode-label');
+    if (label) {
+        label.textContent = labelText;
+    }
+
+    const options = document.getElementById('status-mode-options');
+    const wrapper = document.getElementById('custom-status-mode');
+    
+    if (options) {
+        options.classList.remove('is-open');
+    }
+    if (wrapper) {
+        wrapper.classList.remove('is-active');
+    }
+
+    // ステータス変更のサーバー送信等の反映
+    if (typeof hero !== 'undefined' && hero) {
+        hero.currentStatus = (value === '通常') ? '' : value;
+        if (typeof socket !== 'undefined' && socket) {
+            socket.emit('update_status', { status: hero.currentStatus });
+        }
+    }
+}
+
+
+// ==========================================
+// 🌐 画面外クリック時の共通クローズ処理
+// ==========================================
+window.addEventListener('click', function(event) {
+    // チャットモードメニューを閉じる判定
+    const chatModeWrapper = document.getElementById('custom-chat-mode');
+    const chatOptions = document.getElementById('chat-mode-options');
+    if (chatOptions && chatOptions.classList.contains('is-open')) {
         if (!chatModeWrapper.contains(event.target)) {
-            options.classList.remove('is-open');
+            chatOptions.classList.remove('is-open');
             if (chatModeWrapper) chatModeWrapper.classList.remove('is-active');
+        }
+    }
+
+    // ステータスモードメニューを閉じる判定
+    const statusModeWrapper = document.getElementById('custom-status-mode');
+    const statusOptions = document.getElementById('status-mode-options');
+    if (statusOptions && statusOptions.classList.contains('is-open')) {
+        if (!statusModeWrapper.contains(event.target)) {
+            statusOptions.classList.remove('is-open');
+            if (statusModeWrapper) statusModeWrapper.classList.remove('is-active');
         }
     }
 });
@@ -1082,23 +1845,52 @@ function handleMovementAndLadder(hero, ladders) {
 }
 
 // ============================================================
-// :::HANDLE_ACTIONS::: ⚔️ アクション制御（ジャンプ・攻撃・回収）
+// :::HANDLE_ACTIONS::: ⚔️ アクション制御（ジャンプ・攻撃・回収・キーコンフィグ完全連動版）
 // ============================================================
 /**
  * 役割：
- * - ジャンプ：ハシゴからの飛び降りジャンプ、地面からのジャンプ処理
- * - 攻撃：キー押しっぱなしによる連続攻撃の開始処理
- * - 回収：Zキー押しっぱなしによるアイテムの高速回収処理（タイマー管理）
+ * - ジャンプ：ハシゴからの飛び降りジャンプ、地面からのジャンプ処理（動的キー対応）
+ * - 攻撃：キー押しっぱなしによる連続攻撃の開始処理（動的キー対応）
+ * - 回収：Zキー押しっぱなしによるアイテムの高速回収処理（タイマー管理・動的キー対応）
  * - 状態ガード：露店中はアクション不可
  */
 function handleActions(hero, items) {
 
     if (hero.is_vending) return; // 露店中はアクション（ジャンプ・攻撃・拾う）不可
+
+    // 💡 window.keyMap から指定したアクション（'jump', 'attack', 'pickup' 等）に
+    // 割り当てられている現在のキーが押されているかを判定する補助関数
+    function isActionPressed(actionName) {
+        if (typeof window.keyMap === 'undefined') return false;
+
+        for (const [keyName, mappedAction] of Object.entries(window.keyMap)) {
+            if (mappedAction === actionName) {
+                // keyName が大文字・小文字、あるいは 'KeyC' などの形式に対応
+                const cleanKey = keyName.toLowerCase();
+                
+                // 押し状態を keys 配列からチェック（多様なフォーマットをカバー）
+                if (
+                    keys[keyName] || 
+                    keys[cleanKey] || 
+                    keys[`Key${cleanKey.toUpperCase()}`] ||
+                    (cleanKey === 'space' && (keys['Space'] || keys[' ']))
+                ) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+    
+    // 各アクションの判定を変数に保持
+    const jumpPressed = isActionPressed('jump');
+    const attackPressed = isActionPressed('attack');
+    const pickupPressed = isActionPressed('pickup');
 	
     // ==========================================
-//   // E. ジャンプ (Cキー)
-// ==========================================
-    if (keys['KeyC']) {
+    // E. ジャンプ (動的キー対応)
+    // ==========================================
+    if (jumpPressed) {
         const currentJumpPower = hero.jumpPower !== undefined ? hero.jumpPower : GAME_SETTINGS.JUMP_POWER;
 
         if (hero.climbing) {
@@ -1132,21 +1924,21 @@ function handleActions(hero, items) {
     }
 
     // ==========================================
-    // F. 攻撃 (Xキー)
+    // F. 攻撃 (動的キー対応)
     // ==========================================
     // 🌟 押しっぱなし対応：Playerクラス内部の攻撃中判定に任せて連続実行
-    if (keys['KeyX']) {
+    if (attackPressed) {
         hero.startAttack(); 
     }
 
     // ==========================================
-    // G. アイテム取得 (Zキー)
+    // G. アイテム取得 (動的キー対応)
     // ==========================================
     // 🌟 タイマー管理による「押しっぱなし高速取得」
     if (typeof window.zKeyTimer === 'undefined') window.zKeyTimer = 0;
     if (window.zKeyTimer > 0) window.zKeyTimer--; // 毎フレームカウントダウン
 
-    if (keys['KeyZ']) {
+    if (pickupPressed) {
         if (window.zKeyTimer <= 0) {
             const target = items.find(it => {
                 // 距離計算ロジックを維持 (hero.x + 30 はキャラ中心)
@@ -1241,11 +2033,89 @@ startBtn.onclick = () => {
 */
 
 // ==========================================
-// 🔐 ログイン・開始処理（既存ロジック踏襲版）
+// 🔐 ネットワークフィード永続化＆管理システム
 // ==========================================
 
+// 1. ログのHTML要素を作るヘルパー関数
+function createLogElement(message, type, timeStr) {
+    const color = type === 'login' ? '#4CAF50' : '#ff6b6b';
+
+    const newLog = document.createElement('div');
+    newLog.setAttribute('data-log-type', type);
+    newLog.style.cssText = `color: ${color}; display: flex; align-items: center; gap: 6px;`;
+    newLog.innerHTML = `<span style="font-size: 9px; opacity: 0.7; font-family: monospace;">[${timeStr}]</span> ${message}`;
+    
+    return newLog;
+}
+
+// 2. 保存されているログを読み込んで画面に復元する関数
+function loadSavedLogs() {
+    const logContainer = document.getElementById('login-activity-log');
+    if (!logContainer) return;
+
+    const savedLogs = JSON.parse(localStorage.getItem('network_feed_logs') || '[]');
+
+    // 既存の中身をクリアして、保存データを流し込む
+    logContainer.innerHTML = '';
+
+    savedLogs.forEach(logData => {
+        const logElement = createLogElement(logData.message, logData.type, logData.timeStr);
+        logContainer.appendChild(logElement);
+    });
+}
+
+// 3. 画面にあるログをすべて集めて localStorage に保存する関数
+function saveLogsToStorage() {
+    const logContainer = document.getElementById('login-activity-log');
+    if (!logContainer) return;
+
+    const logsData = [];
+    const logElements = logContainer.children;
+
+    for (let el of logElements) {
+        const text = el.innerText;
+        const timeMatch = text.match(/\[(.*?)\]/);
+        const timeStr = timeMatch ? timeMatch[1] : '00:00';
+        const message = text.replace(/\[.*?\]\s*/, '');
+        const type = el.getAttribute('data-log-type') || (el.style.color.includes('ff6b6b') ? 'logout' : 'login');
+
+        logsData.push({ message, type, timeStr });
+    }
+
+    localStorage.setItem('network_feed_logs', JSON.stringify(logsData));
+}
+
+// 4. ログを追加して保存する関数
+function addNetworkLog(message, type = 'login') {
+    const logContainer = document.getElementById('login-activity-log');
+    if (!logContainer) return;
+
+    const now = new Date();
+    const timeStr = now.toTimeString().slice(0, 5);
+
+    const newLog = createLogElement(message, type, timeStr);
+    newLog.style.opacity = '0';
+    newLog.style.transform = 'translateY(-5px)';
+    newLog.style.transition = 'all 0.3s ease';
+
+    logContainer.insertBefore(newLog, logContainer.firstChild);
+
+    setTimeout(() => {
+        newLog.style.opacity = '1';
+        newLog.style.transform = 'translateY(0)';
+    }, 10);
+
+    const logs = logContainer.children;
+    if (logs.length > 20) {
+        logContainer.removeChild(logs[logs.length - 1]);
+    }
+
+    saveLogsToStorage();
+}
+
+
 // ============================================================
-// :::LOGIN_SYSTEM_INITIALIZER::: 🔐 ログイン＆登録システムの初期化（安全誘導版）
+// :::LOGIN_SYSTEM_INITIALIZER::: 🔐 ログイン＆登録システムの初期化
 // ============================================================
 const initLoginSystem = () => {
     const startBtn = document.getElementById('start-game-btn');
@@ -1253,11 +2123,15 @@ const initLoginSystem = () => {
     const nameInput = document.getElementById('user-name-input');
     const passwordInput = document.getElementById('user-pass-input');
     const loginError = document.getElementById('login-error');
+    const logContainer = document.getElementById('login-activity-log'); // ログエリアの存在もチェック
 
-    if (!startBtn || !registerBtn || !nameInput || !passwordInput) {
+    if (!startBtn || !registerBtn || !nameInput || !passwordInput || !logContainer) {
         setTimeout(initLoginSystem, 100);
         return;
     }
+
+    // ★ここで要素が確実に見つかったタイミングで、保存されたログを画面に復元！
+    loadSavedLogs();
 
     // --- 1. ログインボタンの処理 ---
     startBtn.onclick = () => {
@@ -1280,7 +2154,12 @@ const initLoginSystem = () => {
 
         nameInput.blur();
         passwordInput.blur();
+		
+		localStorage.setItem('current_username', userName);
         
+        // ネットワークフィードに自分のログインログを追加＆保存
+        addNetworkLog(`${userName} がログインしました`, 'login');
+
         if (typeof socket !== 'undefined' && socket.connected) {
             socket.emit('login', { 
                 username: userName, 
@@ -1316,10 +2195,10 @@ const initLoginSystem = () => {
         if (loginError) loginError.innerText = "";
 
         console.log("新規登録リクエスト送信:", userName);
-        socket.emit('register', { username: username, password: password });
+        socket.emit('register', { username: userName, password: password });
     };
 
-    // --- 3. サーバーからの新規登録レスポンス（データ保持・ボタン誘導型） ---
+    // --- 3. サーバーからの新規登録レスポンス ---
     if (!window.hasRegisteredListener) {
         window.hasRegisteredListener = true;
         socket.on('register_response', (data) => {
@@ -1327,17 +2206,12 @@ const initLoginSystem = () => {
 
             loginError.innerText = data.message;
             if (data.success) {
-                // ✅ 登録成功時は、名前とパスワードをそのまま保持したままにする！
-                loginError.style.color = "#00ffcc"; // 水色（成功）
+                loginError.style.color = "#00ffcc";
                 loginError.innerText = "✨ 登録完了しました！下の「Login」ボタンを押してゲームを開始してください。";
                 
                 nameInput.style.border = "1px solid #ccc";
                 passwordInput.style.border = "1px solid #ccc";
 
-                // パスワードは消さずに残すことで、ユーザーがそのままログインボタンを押せるようにする
-                console.log("登録成功！入力内容を保持したままログイン待ち...");
-
-                // 💡 ログインボタンを目立たせて「次これ押してね」と伝える
                 if (startBtn) {
                     const originalBorder = startBtn.style.border;
                     const originalShadow = startBtn.style.boxShadow;
@@ -1350,11 +2224,10 @@ const initLoginSystem = () => {
                         startBtn.style.boxShadow = originalShadow;
                     }, 4000);
                 }
-
             } else {
                 loginError.style.color = "#ff4444";
                 nameInput.style.border = "2px solid #ff4444";
-                passwordInput.style.border = "2px solid #ff4444";
+                passwordInput.style.border = "1px solid #ccc";
             }
         });
     }
@@ -1922,6 +2795,27 @@ socket.on('login_data', (data) => {
         
         console.log("✅ ゲームセッションを開始しました");
     }
+
+    // ==========================================
+    // 🌟 【ここを追加！】ログイン時にキーコンフィグを復元する処理
+    // ==========================================
+    if (data.keyConfig) {
+        currentKeyConfig = data.keyConfig;
+        console.log("📂 サーバーからキーコンフィグを復元しました:", currentKeyConfig);
+    } else if (data.stats && data.stats.keyConfig) {
+        currentKeyConfig = data.stats.keyConfig;
+        console.log("📂 サーバー(stats)からキーコンフィグを復元しました:", currentKeyConfig);
+    }
+
+    // 🔄 復元した設定をゲーム側の keyMap に即座に反映させる！
+    if (typeof updateKeyMapFromConfig === 'function') {
+        updateKeyMapFromConfig();
+    }
+
+    // もしキーコンフィグ画面のUIなどが定義されていれば再描画
+    if (typeof renderKeyboard === 'function') {
+        renderKeyboard();
+    }
 });
 
 // ============================================================
@@ -2340,41 +3234,49 @@ socket.on('state', (data) => {
         myHeroData.vending_title = oldVendingTitle;
     }
 
-    // B. インベントリの詳細項目復元
-    if (myHeroData.inventory && Array.isArray(myHeroData.inventory)) {
-        myHeroData.inventory.forEach((newItem) => {
-            if (!newItem) return;
+    // 🌟 【超重要ガード】今まさに整理中（ガード中）であれば、サーバー側の古いインベントリで上書きさせない！
+    if (typeof isOrganizingGuard !== 'undefined' && isOrganizingGuard) {
+        console.log("🛡️ [State Guard] 整理ガード中のため、サーバーからの古いインベントリ上書きをスキップします。");
+        if (window.hero && window.hero.inventory) {
+            myHeroData.inventory = window.hero.inventory;
+        }
+    } else {
+        // B. インベントリの詳細項目復元（通常時）
+        if (myHeroData.inventory && Array.isArray(myHeroData.inventory)) {
+            myHeroData.inventory.forEach((newItem) => {
+                if (!newItem) return;
 
-            const newKey = newItem.equipment_id || newItem.instanceId;
-            const oldItem = oldInventory.find(old => {
-                if (!old) return false;
+                const newKey = newItem.equipment_id || newItem.instanceId;
+                const oldItem = oldInventory.find(old => {
+                    if (!old) return false;
 
-                const oldKey = old.equipment_id || old.instanceId;
-                const isIdMatch = (newKey && oldKey && String(newKey) === String(oldKey));
-                const isSlotMatch = (newItem.slot_index === old.slot_index && newItem.id === old.id);
-                return isIdMatch || isSlotMatch;
-            });
+                    const oldKey = old.equipment_id || old.instanceId;
+                    const isIdMatch = (newKey && oldKey && String(newKey) === String(oldKey));
+                    const isSlotMatch = (newItem.slot_index === old.slot_index && newItem.id === old.id);
+                    return isIdMatch || isSlotMatch;
+                });
 
-            if (oldItem) {
-                const isDataLost = (typeof newItem.totalALLStats === 'undefined' || newItem.totalALLStats === 0);
-                if (isDataLost && oldItem.totalALLStats > 0) {
-                    const props = [
-                        'name', 'displayName', 'imageName', 'atk', 'matk', 'def',
-                        'str', 'dex', 'int', 'luk', 'maxHp', 'maxMp', 
-                        'totalFirstStats', 'totalALLStats'
-                    ];
-                    props.forEach(p => {
-                        if (newItem[p] === undefined || newItem[p] === 0 || newItem[p] === "") {
-                            newItem[p] = oldItem[p];
-                        }
-                    });
-                    if (!newItem.instanceId && oldItem.instanceId) newItem.instanceId = oldItem.instanceId;
-                    if (!newItem.equipment_id && oldItem.equipment_id) newItem.equipment_id = oldItem.equipment_id;
-                    if (!newItem.type && oldItem.type) newItem.type = oldItem.type;
-                    console.log(`🔧 Slot:${newItem.slot_index} (ID:${newKey}) の詳細を救出しました`);
-                }
-            }
-        });
+                if (oldItem) {
+                    const isDataLost = (typeof newItem.totalALLStats === 'undefined' || newItem.totalALLStats === 0);
+                    if (isDataLost && oldItem.totalALLStats > 0) {
+                        const props = [
+                            'name', 'displayName', 'imageName', 'atk', 'matk', 'def',
+                            'str', 'dex', 'int', 'luk', 'maxHp', 'maxMp', 
+                            'totalFirstStats', 'totalALLStats'
+                      ];
+                      props.forEach(p => {
+                          if (newItem[p] === undefined || newItem[p] === 0 || newItem[p] === "") {
+                              newItem[p] = oldItem[p];
+                          }
+                      });
+                      if (!newItem.instanceId && oldItem.instanceId) newItem.instanceId = oldItem.instanceId;
+                      if (!newItem.equipment_id && oldItem.equipment_id) newItem.equipment_id = oldItem.equipment_id;
+                      if (!newItem.type && oldItem.type) newItem.type = oldItem.type;
+                      console.log(`🔧 Slot:${newItem.slot_index} (ID:${newKey}) の詳細を救出しました`);
+                  }
+              }
+          });
+      }
     }
 
     // -------------------------------------------------------
@@ -2477,6 +3379,20 @@ socket.on('state', (data) => {
     if (typeof inventoryVisualBuffer !== 'undefined') {
         inventoryVisualBuffer = window.hero.inventory;
     }
+});
+
+// サーバーから新しいインベントリを受け取って画面を更新する
+socket.on('updateInventory', (newInventory) => {
+    if (window.hero) {
+        window.hero.inventory = newInventory;
+    }
+    if (typeof inventoryVisualBuffer !== 'undefined') {
+        inventoryVisualBuffer = newInventory;
+    }
+    console.log("🎒 インベントリが更新されました！", newInventory);
+    
+    // もし画面のインベントリUIを再描画する関数（例: drawInventoryやrenderInventoryなど）があればここで呼ぶ
+    // if (typeof renderInventory === 'function') renderInventory();
 });
 
 // ============================================================
@@ -3724,6 +4640,26 @@ function update() {
 
     // 3. 物理移動と接地判定
     let isTouchingAnything = hero.applyPhysics(platforms);
+
+    // 🌟 【修正】立ち止まっているときのHP自動回復（サーバーへ回復リクエストを送る方式）
+    if (isTouchingAnything && hero.hp < hero.maxHp && !hero.isStunned) {
+        if (!hero.vx || Math.abs(hero.vx) === 0) {
+            hero.idleTimer = (hero.idleTimer || 0) + 1;
+            
+            // 約1秒（60フレーム）静止し続けたらサーバーに回復を依頼する
+            if (hero.idleTimer >= 60) {
+                if (typeof socket !== 'undefined') {
+                    // サーバー側に回復処理をリクエスト（既存の player_healed イベントと連動させます）
+                    socket.emit('request_idle_heal'); 
+                }
+                hero.idleTimer = 0; // タイマーをリセット
+            }
+        } else {
+            hero.idleTimer = 0;
+        }
+    } else {
+        hero.idleTimer = 0;
+    }
 
     // 4. 戦闘・当たり判定
     if (!isModalOpen) {
@@ -5188,6 +6124,12 @@ function setTradeNames(myActualName, opponentActualName) {
 // :::TRADE_SYSTEM::: 🤝 スロット生成用関数（キャッシュ背景対応版・カーソル修正）
 // ============================================================
 function initTradeSlots() {
+
+	// 🌟 【ここを追加】トレード画面を開いた瞬間、自分のトレードスロットデータを必ず空にリセットする
+    if (typeof myTradeSlots !== 'undefined') {
+        myTradeSlots = new Array(9).fill(null);
+    }
+	
     const opponentGrid = document.getElementById('opponent-slot-grid');
     if (opponentGrid) {
         opponentGrid.innerHTML = '';
@@ -5520,19 +6462,51 @@ socket.on('tradeBothLocked', () => {
     // ここにトレード完了時の処理（アイテムの受け渡し確定、ウィンドウを閉じるなど）を書く
 });
 
+// ============================================================
 // 🌟 トレード完了時の受信処理
+// ============================================================
 if (typeof socket !== 'undefined') {
     socket.on('tradeCompleted', (data) => {
-        // メッセージを取得（サーバーから届いていなければデフォルト文言）
+        // メッセージを取得
         const message = data && data.message ? data.message : "トレードが正常に完了しました！";
 
-        // 💡 綺麗なHTMLモーダルダイアログで完了メッセージを表示
         if (typeof showTradeAlert === 'function') {
             showTradeAlert(message);
         } else if (typeof addSystemMessage === 'function') {
             addSystemMessage(message);
         } else {
-            alert(message); // フォールバック
+            alert(message);
+        }
+
+        // 🌟 【決定的な修正】自分がトレードに出していたスロット位置を空け、そこに相手からのアイテムを確実に反映する
+        if (hero && hero.inventory) {
+            // 1. まず、自分が今回トレードに出したアイテムの元スロット（slot_index）を自分のインベントリから消去（nullに）する
+            if (typeof myTradeSlots !== 'undefined' && Array.isArray(myTradeSlots)) {
+                myTradeSlots.forEach(slot => {
+                    if (slot && typeof slot.slot_index === 'number') {
+                        hero.inventory[slot.slot_index] = null; // 出した場所を確実に空にする
+                    }
+                });
+            }
+
+            // 2. サーバーから送られてきた最新インベントリ、あるいは相手からの受け取りアイテムを反映
+            const newInventory = data.inventory || data.updatedInventory || data.heroInventory;
+            if (newInventory && Array.isArray(newInventory)) {
+                // サーバーからのデータをベースにしつつ、もし位置がズレている場合は先頭の空きへ綺麗に詰める
+                const validItems = newInventory.filter(item => item !== null && item !== undefined);
+                const maxSlots = hero.inventory.length || 50;
+                
+                const cleanedInventory = new Array(maxSlots).fill(null);
+                for (let i = 0; i < validItems.length; i++) {
+                    cleanedInventory[i] = validItems[i];
+                }
+                hero.inventory = cleanedInventory;
+            }
+        }
+
+        // 💡 インベントリやバッグの描画を強制更新
+        if (typeof drawBagGrid === 'function') {
+            drawBagGrid();
         }
 
         // トレードウィンドウを閉じる
@@ -5541,10 +6515,39 @@ if (typeof socket !== 'undefined') {
             tradeWindow.style.display = "none";
         }
 
-        // 💡 ここで「完全リセット関数」を一発で呼び出す！
+        // 完全リセット関数を呼び出す
         if (typeof resetTradeStateToDefault === 'function') {
             resetTradeStateToDefault();
         }
+    });
+}
+
+// 🛑 トレードキャンセル・失敗専用の受信処理
+if (typeof socket !== 'undefined') {
+    socket.on('tradeCancelledBySystem', (data) => {
+        const message = data && data.message ? data.message : "トレードがキャンセルされました。";
+
+        // ダイアログでメッセージを表示
+        if (typeof showTradeAlert === 'function') {
+            showTradeAlert(message);
+        } else if (typeof addSystemMessage === 'function') {
+            addSystemMessage(message);
+        } else {
+            alert(message);
+        }
+
+        // トレードウィンドウを閉じる
+        const tradeWindow = document.getElementById("trade-window");
+        if (tradeWindow) {
+            tradeWindow.style.display = "none";
+        }
+
+        // トレード状態のリセット
+        if (typeof resetTradeStateToDefault === 'function') {
+            resetTradeStateToDefault();
+        }
+        
+        console.log("[Client] 🚫 トレードがシステムによってキャンセルされました:", message);
     });
 }
 
@@ -5591,7 +6594,7 @@ function resetTradeStateToDefault() {
     if (opponentOverlay) opponentOverlay.style.display = 'none';
 
     // 7. 「準備完了」ボタンなどの状態も有効化（または初期色）に戻す
-    const readyBtn = document.getElementById('trade-ready-btn'); // ボタンのIDは実際の環境に合わせてください
+    const readyBtn = document.getElementById('trade-ready-btn');
     if (readyBtn) {
         readyBtn.disabled = false;
         readyBtn.innerText = "準備完了";
@@ -5876,6 +6879,99 @@ function drawOpponentTradeAvatar(opponentData) {
 }
 
 // ============================================================
+// 🎒 インベントリ整理：クライアント側（楽観的UI & ガード）
+// ============================================================
+let isOrganizingGuard = false; // サーバーからの誤上書きを防ぐガードフラグ
+
+// 1. 整理ボタンが押されたときのメイン処理
+function organizeBagInventory() {
+    // ターゲットとなるインベントリ配列を取得（プロジェクトの仕様に合わせて調整）
+    let targetInventory = window.hero?.inventory || inventoryVisualBuffer;
+    if (!targetInventory || !Array.isArray(targetInventory)) return;
+
+    // 🌟 ガードをON（サーバーからの古いデータ上書きをブロック）
+    isOrganizingGuard = true;
+
+    // 🌟 【即時実行】サーバーを待たず、今この瞬間にローカルで綺麗に並び替える
+    const validItems = targetInventory.filter(item => item && item.type);
+    const maxSlots = targetInventory.length;
+
+    for (let i = 0; i < maxSlots; i++) {
+        if (i < validItems.length) {
+            targetInventory[i] = validItems[i];
+            targetInventory[i].slot_index = i; // インデックスも綺麗に更新
+        } else {
+            targetInventory[i] = null;
+        }
+    }
+
+    // 🌟 【即時描画】ラグなしで画面を更新
+    if (typeof inventoryVisualBuffer !== 'undefined') {
+        inventoryVisualBuffer = targetInventory;
+    }
+    if (typeof renderInventory === 'function') {
+        renderInventory();
+    } else if (typeof drawBagGrid === 'function') {
+        drawBagGrid();
+    }
+
+    console.log("⚡ [Client] 画面側の整理を即座に完了しました！");
+
+    // 🌟 【裏で通信】サーバーへ保存を依頼
+    if (typeof socket !== 'undefined') {
+        socket.emit('organizeInventory');
+    }
+}
+
+// 2. サーバーからのデータ同期イベント（ガード対応版）
+if (typeof socket !== 'undefined') {
+    // 通常の同期イベント
+    socket.on('inventory_update', (data) => {
+        if (isOrganizingGuard) {
+            console.log("🛡️ [Guard] 整理ガード中のため、通常同期データをスキップしました。");
+            return;
+        }
+        applyInventoryUpdate(data);
+    });
+
+    // 🌟 サーバーでのDB保存完了合図を受け取ったとき
+    socket.on('organizeComplete', (latestInventory) => {
+        console.log("✨ [Client] サーバーでのDB保存が完了しました。最新データを同期してガードを解除します。");
+        
+        applyInventoryUpdate(latestInventory);
+
+        // ガード解除
+        isOrganizingGuard = false;
+    });
+}
+
+// 共通のデータ適用・再描画ヘルパー関数
+function applyInventoryUpdate(data) {
+    const newInventory = Array.isArray(data) ? data : (data && data.inventory ? data.inventory : null);
+    if (!newInventory) return;
+
+    if (typeof inventoryVisualBuffer !== 'undefined') inventoryVisualBuffer = newInventory;
+    if (window.hero) window.hero.inventory = newInventory;
+
+    if (typeof renderInventory === 'function') {
+        renderInventory();
+    } else if (typeof drawBagGrid === 'function') {
+        drawBagGrid();
+    }
+}
+
+// 💡 整理ボタンとイベントを紐付ける
+window.addEventListener('load', () => {
+    const organizeBtn = document.getElementById('organize-inventory-btn');
+    if (organizeBtn) {
+        organizeBtn.onclick = () => {
+            organizeBagInventory();
+        };
+        console.log("[Inventory] 整理ボタンのクリックイベントを設定しました。");
+    }
+});
+
+// ============================================================
 // :::SAVE_GAME_DATA::: 💾 プレイヤーデータのサーバー同期（セーブ）
 // ============================================================
 /**
@@ -5909,7 +7005,9 @@ function saveGameData() {
         luk: hero.baseLuk !== undefined ? hero.baseLuk : (hero.luk || 4),
         // 🌟 データベースに保存するためのベース攻撃力（baseAtk）を送信
         atk: hero.baseAtk !== undefined ? hero.baseAtk : 13,
-        ap: hero.ap || 0
+        ap: hero.ap || 0,
+		// 🌟 【ここを追加！】現在のキーコンフィグ設定をセーブデータに混ぜる
+        keyConfig: typeof currentKeyConfig !== 'undefined' ? currentKeyConfig : {}
     };
 
     socket.emit('save_player_data', saveData);
@@ -5942,43 +7040,84 @@ window.addEventListener('load', () => {
     const savedToken = localStorage.getItem('game_token'); 
     const loadingCover = document.getElementById('loading-cover');
     const loginOverlay = document.getElementById('login-overlay');
+    const mainContainer = document.getElementById('main-container'); // 🌟 ゲーム画面本体
+    const uiContainer = document.getElementById('ui-container');       // 🌟 UI操作エリア（チャット等）
 
-    // タイムアウト設定：5秒経っても反応がなければ強制的にログイン画面へ
+    // ★最初からログインオーバーレイは透明にして操作を無効化（チラつき完全防止）
+    if (loginOverlay) {
+        loginOverlay.style.opacity = '0';
+        loginOverlay.style.pointerEvents = 'none';
+    }
+
+    // ★最初からゲーム画面とUIエリアも完全に隠しておく（リロード時のチラつき防止）
+    if (mainContainer) mainContainer.style.display = 'none';
+    if (uiContainer) uiContainer.style.display = 'none';
+
+    // タイムアウト設定：5秒経っても反応がなければ強制的にログイン画面を表示
     const timeoutTimer = setTimeout(() => {
         console.log("⏰ サーバー応答なし：タイムアウトしました");
         if (loadingCover) loadingCover.style.display = 'none';
-        if (loginOverlay) loginOverlay.style.display = 'block';
+        
+        // タイムアウト時は不透明度を戻して操作可能にする（ゲーム画面等は隠したまま）
+        if (loginOverlay) {
+            loginOverlay.style.opacity = '1';
+            loginOverlay.style.pointerEvents = 'auto';
+            loginOverlay.style.setProperty('display', 'flex', 'important');
+        }
     }, 5000); 
 
     if (savedToken) {
         console.log("📤 自動ログイン試行中...");
         socket.emit('auto_login', { token: savedToken });
         
-        // 【重要】サーバーから返事が来たら、タイマーをキャンセルする
-        socket.once('login_data', () => {
-            clearTimeout(timeoutTimer);
-			// 🔊 【ここに書く】オートログイン成功時の効果音を再生
-            //if (typeof playLoginSound === 'function') {
-            //    playLoginSound();
-            //}
+        // 【重要】サーバーから返事が来たら（自動ログイン成功！）
+        socket.once('login_data', (userData) => {
+            clearTimeout(timeoutTimer); // タイムアウトをキャンセル
+            console.log("✨ 自動ログイン成功！", userData);
+
+            // ローディングカバーを消し、ログインオーバーレイも透明のまま非表示に
+            if (loadingCover) loadingCover.style.display = 'none';
+            if (loginOverlay) {
+                loginOverlay.style.opacity = '0';
+                loginOverlay.style.pointerEvents = 'none';
+            }
+
+            // 🌟 自動ログイン成功なので、ここで初めてゲーム画面とUIエリアを出現させる！
+            if (mainContainer) mainContainer.style.display = 'flex';
+            if (uiContainer) uiContainer.style.display = 'flex';
         });
     } else {
-        clearTimeout(timeoutTimer); // タイマー不要なので解除
+        clearTimeout(timeoutTimer); // トークン不要なので解除
         console.log("⚠️ トークンなし、ログイン画面を表示");
         if (loadingCover) loadingCover.style.display = 'none';
-        if (loginOverlay) loginOverlay.style.display = 'block';
+        
+        // トークンがないのでログイン画面を表示する（ゲーム画面等は隠したまま）
+        if (loginOverlay) {
+            loginOverlay.style.opacity = '1';
+            loginOverlay.style.pointerEvents = 'auto';
+            loginOverlay.style.setProperty('display', 'flex', 'important');
+        }
     }
 });
 
 function logout() {
-    // 1. ブラウザからカギを捨てる
+    // 0. ログアウトするユーザー名を取得する（例: 保存されている名前、または入力欄などから）
+    // ※もし現在ログイン中のユーザー名を変数（例: currentUserName）で保持していればそれを使えます
+    const userName = localStorage.getItem('current_username') || 'プレイヤー';
+
+    // ★1. ネットワークフィードに「ログアウトしました」を記録＆保存！
+    addNetworkLog(`${userName} がログアウトしました`, 'logout');
+
+    // 2. ブラウザからカギを捨てる
     localStorage.removeItem('remember_token');
     
-    // 2. サーバーにカギの削除を依頼
+    // 3. サーバーにカギの削除を依頼
     socket.emit('logout');
     
-    // 3. 画面を更新してログイン画面へ
-    location.reload(); 
+    // 4. ログが localStorage に保存されるのをわずかに待ってから、画面を更新してログイン画面へ
+    setTimeout(() => {
+        location.reload(); 
+    }, 150); // 0.15秒後にリロード
 }
 
 // --- 👾 クライアント側で不足しているサーバーデータを補完 ---
@@ -6017,3 +7156,42 @@ const ENEMY_CATALOG = {
         h: 242
     }
 };
+
+// ============================================================
+// 🔍 ガチガチ・デバッグ監視システム
+// ============================================================
+(function() {
+    console.log("🛡️ デバッグ監視システムが有効化されました。操作を行ってください。");
+
+    // 1. currentKeyConfig の書き換わりを完全に監視する Proxy
+    let _debugConfigProxy = new Proxy(currentKeyConfig, {
+        set(target, property, value) {
+            console.warn(`🚨 [CONFIG変更] "${property}" が書き換えられました:`, value, new Error().stack);
+            target[property] = value;
+            return true;
+        }
+    });
+
+    // 2. クリックイベントやマウスアップの暴発を監視する大元キャッチャー
+    document.addEventListener('click', (e) => {
+        console.log("🖱️ [GLOBAL CLICK] ターゲット:", e.target, " / 親要素にキャンセル処理がないか確認");
+    }, true /* キャプチャフェーズで最速検知 */);
+
+    // 3. cancelGrab が呼ばれた瞬間にスタックトレース（どこから呼ばれたか）を出す
+    const _origCancelGrab = window.cancelGrab;
+    if (typeof _origCancelGrab === 'function') {
+        window.cancelGrab = function() {
+            console.error("❌ [CANCEL GRAB 検出] cancelGrab() が呼び出されました！ 呼び出し元:", new Error().stack);
+            return _origCancelGrab.apply(this, arguments);
+        };
+    }
+
+    // 4. placeGrabbedAction が呼ばれたときの引数と結果を監視
+    const _origPlaceAction = window.placeGrabbedAction;
+    if (typeof _origPlaceAction === 'function') {
+        window.placeGrabbedAction = function(targetKeyName) {
+            console.log(`🎯 [PLACE 実行] キー "${targetKeyName}" へ配置を試みます。activeDragging:`, activeDragging);
+            return _origPlaceAction.apply(this, arguments);
+        };
+    }
+})();

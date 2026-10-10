@@ -14,6 +14,151 @@
     </div>
 </div>
 
+<!-- キーコンフィグを表示するウィンドウの枠 -->
+<div id="keyconfig-modal" class="config-window" style="display: none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 20000; background: #181820; border: 1px solid #334155; border-radius: 8px; padding: 16px; width: 640px; box-shadow: 0 10px 25px rgba(0,0,0,0.5);">
+    
+    <!-- 🌟 ドラッグで掴めるヘッダー部分 -->
+    <div id="keyconfig-header" style="cursor: move; display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; border-bottom: 1px solid #334155; padding-bottom: 8px;">
+        <h2 style="margin: 0; font-size: 14px; color: #fbbf24;">⌨️ キーボード設定</h2>
+        <!-- 閉じる用の×ボタン -->
+        <button id="keyconfig-close-btn" style="background: transparent; border: none; color: #94a3b8; font-size: 16px; cursor: pointer;">✕</button>
+    </div>
+
+    <!-- 🌟 説明文とデフォルトリセットボタンを横並びにするエリア -->
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+        <p style="font-size: 12px; color: #94a3b8; margin: 0;">キーをクリック、またはドラッグ＆ドロップで配置を変更できます。</p>
+        <button id="reset-key-config-btn" onclick="resetKeyConfigToDefault()" style="background: #334155; color: #f8fafc; border: none; border-radius: 4px; padding: 4px 8px; font-size: 11px; cursor: pointer;">デフォルトに戻す</button>
+    </div>
+    
+    <!-- 🌟 未割り当てや一時退避用の「予備ボックスエリア」 -->
+    <div style="margin-bottom: 14px;">
+        <div style="font-size: 11px; color: #94a3b8; margin-bottom: 4px;">待機中アクション / 予備ボックス</div>
+        <div id="keyboard-pool-container" style="display: flex; gap: 6px; flex-wrap: wrap; min-height: 52px; padding: 6px; background: #121217; border: 1px dashed #334155; border-radius: 6px;">
+            <!-- ここに予備のキーキャップがJavaScriptで動的に生成されます -->
+        </div>
+    </div>
+
+    <!-- ここにJavaScriptでキーボードの図が自動生成されます -->
+    <div id="keyboard-visual-container"></div>
+</div>
+
+<!-- プレイヤープロフィールウィンドウ -->
+<div id="profile-window" class="profile-window" style="display: none;">
+  
+  <!-- タイトルバー（ドラッグ可能領域） -->
+  <div class="profile-header">
+    <span class="profile-title">プレイヤープロフィール</span>
+    <button id="profile-close-btn" class="profile-close-btn">×</button>
+  </div>
+
+  <!-- メインコンテンツ（2カラムレイアウト） -->
+  <div class="profile-body">
+    
+    <!-- 1カラム目：基本情報 -->
+    <div class="profile-col-left">
+      <div class="profile-user-info-area">
+        <div class="profile-avatar-wrapper">
+          <img id="profile-user-icon" src="" alt="Avatar" />
+        </div>
+        <div class="profile-text-meta">
+          <div id="profile-name" class="profile-name">Player</div>
+          <div class="profile-sub-meta">
+            <span id="profile-level" class="profile-lv">Lv.1</span>
+            <span id="profile-channel" class="profile-ch">CH.1</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 人気度＋1ボタン -->
+      <button id="profile-pop-btn" class="profile-pop-btn">👍 ＋1する</button>
+
+      <!-- ステータス一覧 -->
+      <ul class="profile-stats-list">
+        <li><span>🐾 アニマル:</span> <span id="profile-animal">なし</span></li>
+        <li><span>⭐ 人気度:</span> <span id="profile-popularity">0</span></li>
+        <li><span>🛡️ ギルド:</span> <span id="profile-guild">無所属</span></li>
+        <li><span>⏱️ プレイ時間:</span> <span id="profile-time">0分</span></li>
+        <li><span>🌐 コミュニティ:</span> <span id="profile-community">未加入</span></li>
+        <li><span>🏠 HP:</span> <span id="profile-homepage">未設定</span></li>
+        <li><span>📖 閲覧履歴:</span> <span id="profile-history">なし</span></li>
+        <li><span>✍️ 寄稿履歴:</span> <span id="profile-contribution">なし</span></li>
+        <li><span>💖 推しキャラ:</span> <span id="profile-oshi-chara">未設定</span></li>
+        <li><span>✨ 推しスポット:</span> <span id="profile-oshi-spot">未設定</span></li>
+        <!-- 🎁 推しスポットの下にステータス形式で追加 -->
+        <li><span>🎁 ほしいもの:</span> <span id="profile-wish">未設定</span></li>
+      </ul>
+    </div>
+
+    <!-- 2カラム目：装備・メダル・図鑑・討伐履歴 -->
+    <div class="profile-col-right">
+      
+      <!-- 装備アイテムパネル -->
+      <div class="profile-panel">
+        <div class="profile-panel-title">装備アイテム</div>
+        <div id="profile-equip-slots" class="profile-equip-grid">
+          <!-- JSで6つのスロット（剣・盾・マント・ペンダント・指輪・ベルト）を生成 -->
+        </div>
+      </div>
+
+      <!-- 所持メダルパネル -->
+      <div class="profile-panel">
+        <div class="profile-panel-title">所持メダル</div>
+        <div class="profile-medal-grid">
+          <div class="medal-box gold"><span>金メダル</span><span id="profile-medal-gold">0枚</span></div>
+          <div class="medal-box silver"><span>銀メダル</span><span id="profile-medal-silver">0枚</span></div>
+          <div class="medal-box bronze"><span>銅メダル</span><span id="profile-medal-bronze">0枚</span></div>
+        </div>
+      </div>
+
+      <!-- モンスターカード図鑑パネル -->
+      <div class="profile-panel">
+        <div id="profile-collection-title" class="profile-panel-title">モンスターカード図鑑 収集状況</div>
+        <div id="profile-card-ranks" class="profile-card-grid">
+          <!-- JSで銅・銀・金・Pt・Dia・虹の6ランクを生成 -->
+        </div>
+      </div>
+
+      <!-- 討伐履歴パネル -->
+      <div class="profile-panel">
+        <div class="profile-panel-title">討伐履歴（直近の戦果）</div>
+        <div class="profile-hunt-box">
+          <div id="profile-hunt-1" class="hunt-text">⚔️️ 最近の討伐記録はありません</div>
+          <div id="profile-hunt-2" class="hunt-text sub">📜 強敵に挑んで歴史に名を刻もう！</div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- 下部アクションボタンエリア -->
+  <div class="profile-footer">
+    <button id="profile-btn-friend" class="profile-action-btn pink">🤝 友達申請</button>
+    <button id="profile-btn-group" class="profile-action-btn blue">👥 グループ申し込み</button>
+    <button id="profile-btn-card-trade" class="profile-action-btn purple">🃏 カード交換</button>
+    <button id="profile-btn-trade" class="profile-action-btn yellow">🔄 アイテム交換</button>
+  </div>
+
+</div>
+
+<!-- 📦 トレード用数量選択モーダル -->
+<div id="trade-quantity-modal" style="display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #222; color: #fff; padding: 20px; border: 2px solid #555; z-index: 10000; border-radius: 8px; width: 280px; box-shadow: 0 4px 15px rgba(0,0,0,0.5);">
+    <h3 style="margin-top: 0; font-size: 16px; text-align: center;">アイテム数量選択</h3>
+    
+    <div style="margin-bottom: 15px; text-align: center; font-size: 14px; color: #ccc;">
+        <span id="trade-modal-item-name" style="color: #fff; font-weight: bold;">アイテム名</span><br>
+        <span style="font-size: 12px;">(所持数: <span id="trade-modal-max-quantity">0</span>)</span>
+    </div>
+
+    <div style="margin-bottom: 15px; text-align: center;">
+        <input type="number" id="trade-modal-quantity-input" min="1" value="1" style="width: 90%; padding: 8px; font-size: 16px; box-sizing: border-box; background: #111; color: #fff; border: 1px solid #777; border-radius: 4px;" placeholder="個数を入力">
+    </div>
+
+    <div style="display: flex; justify-content: space-between;">
+        <button id="trade-modal-confirm-btn" style="padding: 6px 15px; background: #28a745; color: white; border: none; border-radius: 4px; cursor: pointer; flex: 1; margin-right: 5px;">決定</button>
+        <button id="trade-modal-cancel-btn" style="padding: 6px 15px; background: #dc3545; color: white; border: none; border-radius: 4px; cursor: pointer; flex: 1; margin-left: 5px;">キャンセル</button>
+    </div>
+</div>
+
 <!-- 💰 トレード通貨入力モーダル -->
 <div id="trade-currency-modal" style="display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #222; color: #fff; padding: 20px; border: 2px solid #555; z-index: 10000; border-radius: 8px; width: 280px; box-shadow: 0 4px 15px rgba(0,0,0,0.5);">
     <h3 id="trade-currency-title" style="margin-top: 0; font-size: 16px; text-align: center;">金額を入力</h3>
@@ -35,11 +180,15 @@
 <!-- インベントリウィンドウ全体的外枠 -->
 <div id="inventory-window" class="game-window" style="display: none;">
     
-    <!-- ウィンドウのタイトルバー -->
-    <div class="window-header">
-        <span>インベントリ</span>
+    <!-- インベントリウィンドウのタイトルバー内などに配置 -->
+<div class="window-header">
+    <span>インベントリ</span>
+    <div>
+        <!-- 🌟 新しく追加する「アイテム整理」ボタン -->
+        <button id="organize-inventory-btn" style="margin-right: 8px; padding: 2px 8px; cursor: pointer; font-size: 12px;">整理</button>
         <button id="inventory-close-btn" class="close-btn">&times;</button>
     </div>
+</div>
 
     <!-- アイテムタブ（装備・消費・ETC） -->
 	<!--
@@ -192,41 +341,86 @@
     backdrop-filter: blur(4px);
 "></div>
 
-<!-- ログイン画面 -->
-<div id="login-overlay">
-  <div class="login-card">
-    <h2>Img Project</h2>
+<!-- ログイン画面（幅拡張・チャンネル完全フィット版） -->
+<div id="login-overlay" style="display:none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(10, 10, 15, 0.85); backdrop-filter: blur(8px); display: flex; align-items: center; justify-content: center; z-index: 9999;">
+  
+  <!-- カード全体の幅を 440px に拡張 -->
+  <div class="login-card" style="background: linear-gradient(135deg, rgba(20, 20, 30, 0.95), rgba(10, 10, 15, 0.98)); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 14px; padding: 30px 28px; width: 440px; max-width: 92vw; box-shadow: 0 20px 40px rgba(0,0,0,0.6); color: #fff; font-family: sans-serif; box-sizing: border-box;">
     
-    <!-- モードの切り替えや案内をわかりやすくするサブテキスト -->
-    <p id="form-mode-desc" style="color:#aaa; font-size:12px; margin:0 0 10px 0;">
-      アカウントをお持ちでない方は、名前とパスワードを入力して「新規登録」を押してください。
-    </p>
-
-    <p style="color:#888; font-size:12px; margin:0 0 5px 0;">NAME / PASSWORD</p>
-    
-    <input type="text" id="user-name-input" class="login-input" placeholder="NAME" maxlength="10">
-    <input type="password" id="user-pass-input" class="login-input" placeholder="****" autocomplete="new-password">
-    
-    <p style="color:#888; font-size:12px; margin:0 0 5px 0;">SELECT CHANNEL</p>
-    <div class="ch-btn-grid">
-      <button type="button" id="ch-btn-1" class="ch-btn active" onclick="selectChannel(1)">01</button>
-      <button type="button" id="ch-btn-2" class="ch-btn" onclick="selectChannel(2)">02</button>
-      <button type="button" id="ch-btn-3" class="ch-btn" onclick="selectChannel(3)">03</button>
-      <button type="button" id="ch-btn-4" class="ch-btn" onclick="selectChannel(4)">04</button>
-      <button type="button" id="ch-btn-5" class="ch-btn" onclick="selectChannel(5)">05</button>
+    <!-- ヘッダー：タイトルとサーバー稼働インジケーター -->
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 22px;">
+      <div>
+        <h2 style="margin: 0; font-size: 20px; letter-spacing: 1.5px; color: #fff; font-weight: 700;">IMG PROJECT</h2>
+        <p id="form-mode-desc" style="color: #777; font-size: 10px; margin: 3px 0 0 0; letter-spacing: 0.5px;">ENTER THE VIRTUAL WORLD</p>
+      </div>
+      <div style="display: flex; align-items: center; gap: 6px; font-size: 10px; color: #4CAF50; background: rgba(76, 175, 80, 0.1); padding: 4px 10px; border-radius: 20px; border: 1px solid rgba(76, 175, 80, 0.2);">
+        <span style="width: 6px; height: 6px; background-color: #4CAF50; border-radius: 50%; box-shadow: 0 0 8px #4CAF50;"></span>
+        ONLINE
+      </div>
     </div>
 
-    <!-- エラーメッセージや成功メッセージの表示領域 -->
-    <div id="login-error" style="font-size:12px; margin:8px 0; min-height:16px;"></div>
-
-    <div class="btn-group">
-      <!-- ログインボタン -->
-      <button id="start-game-btn" class="primary-btn">ログインして遊ぶ</button>
-      <!-- 新規登録ボタン -->
-      <button id="register-btn" class="primary-btn" style="color:#ff80ff; border-color:#ff80ff;">新規登録する</button>
+    <!-- 入力セクション -->
+    <div style="display: flex; flex-direction: column; gap: 12px; margin-bottom: 18px;">
+      <div>
+        <label style="display: block; font-size: 10px; color: #888; margin-bottom: 4px; letter-spacing: 0.5px;">IDENTIFIER / NAME</label>
+        <input type="text" id="user-name-input" class="login-input" placeholder="プレイヤー名" maxlength="10" style="width: 100%; background: rgba(0,0,0,0.35); border: 1px solid #333; border-radius: 6px; padding: 10px 12px; color: #fff; font-size: 16px; box-sizing: border-box; outline: none;">
+      </div>
+      <div>
+        <label style="display: block; font-size: 10px; color: #888; margin-bottom: 4px; letter-spacing: 0.5px;">PASSWORD</label>
+        <input type="password" id="user-pass-input" class="login-input" placeholder="••••••••" autocomplete="new-password" style="width: 100%; background: rgba(0,0,0,0.35); border: 1px solid #333; border-radius: 6px; padding: 10px 12px; color: #fff; font-size: 16px; box-sizing: border-box; outline: none;">
+      </div>
     </div>
-    
-    <button onclick="joinAsGuest()" style="display:none; margin-top:20px; background:none; border:none; color:#666; cursor:pointer; text-decoration:underline;">ゲストで遊ぶ</button>
+
+    <!-- チャンネル選択セクション（黄金解・完全フィット版） -->
+    <div style="margin-bottom: 18px; width: 100%; box-sizing: border-box;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+        <label style="font-size: 10px; color: #888; letter-spacing: 0.8px; font-weight: 600;">SELECT CHANNEL</label>
+      </div>
+      
+      <div class="ch-btn-grid">
+        <button type="button" id="ch-btn-1" class="ch-btn active" onclick="selectChannel(1)">01 (0人)</button>
+        <button type="button" id="ch-btn-2" class="ch-btn" onclick="selectChannel(2)">02 (0人)</button>
+        <button type="button" id="ch-btn-3" class="ch-btn" onclick="selectChannel(3)">03 (0人)</button>
+        <button type="button" id="ch-btn-4" class="ch-btn" onclick="selectChannel(4)">04 (0人)</button>
+        <button type="button" id="ch-btn-5" class="ch-btn" onclick="selectChannel(5)">05 (0人)</button>
+      </div>
+    </div>
+
+    <!-- ネットワークフィード（IN/OUTライブログ） -->
+    <div style="margin-bottom: 18px;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+        <span style="font-size: 10px; color: #666; letter-spacing: 0.5px;">NETWORK FEED</span>
+        <span style="font-size: 9px; color: #4CAF50; font-family: monospace;">LIVE</span>
+      </div>
+      <div id="login-activity-log" style="background: rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.05); border-radius: 6px; padding: 8px 10px; font-size: 11px; color: #aaa; height: 52px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; scrollbar-width: thin;">
+        <div style="color: #4CAF50; display: flex; align-items: center; gap: 6px;">
+          <span style="font-size: 9px; opacity: 0.7; font-family: monospace;">[18:42]</span> PlayerA がログインしました
+        </div>
+        <div style="color: #ff6b6b; display: flex; align-items: center; gap: 6px;">
+          <span style="font-size: 9px; opacity: 0.7; font-family: monospace;">[18:40]</span> PlayerB がログアウトしました
+        </div>
+      </div>
+    </div>
+
+    <!-- エラーメッセージ領域 -->
+    <div id="login-error" style="font-size: 11px; color: #ff5252; margin-bottom: 12px; min-height: 14px; text-align: center;"></div>
+
+    <!-- アクションボタン群 -->
+    <div style="display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px;">
+      <button id="start-game-btn" class="primary-btn" style="width: 100%; background: linear-gradient(135deg, #4f46e5, #3b82f6); border: none; border-radius: 6px; padding: 12px; color: #fff; font-weight: bold; font-size: 14px; cursor: pointer; box-shadow: 0 4px 12px rgba(59,130,246,0.3);">ログインして遊ぶ</button>
+      <button id="register-btn" class="primary-btn" style="width: 100%; background: transparent; border: 1px solid rgba(255,255,255,0.15); border-radius: 6px; padding: 10px; color: #ff80ff; font-size: 12px; cursor: pointer;">アカウント新規登録</button>
+    </div>
+
+    <!-- フッター（メンテナンス情報 ＆ 中央揃えの屋号） -->
+    <div style="border-top: 1px solid rgba(255,255,255,0.06); padding-top: 12px; font-size: 10px; color: #666; display: flex; flex-direction: column; gap: 6px;">
+      <div style="display: none; color: #888;">
+        <span>次回メンテナンス:</span> <span style="color: #aaa;">2026.10.07 (Wed) 14:00〜</span>
+      </div>
+      <div style="text-align: center;">
+        <span style="font-size: 12px; font-weight: bold; letter-spacing: 1.5px; font-family: monospace; color: #aaa;">© imgdata</span>
+      </div>
+    </div>
+
   </div>
 </div>
 

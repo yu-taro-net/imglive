@@ -228,7 +228,9 @@ const COMBAT_FORMULA = {
 
 const activeLogins = {}; // 🌐 現在ログイン中のユーザーIDとsocket.idを管理するマップ
 
+// ============================================================
 // 【重要】既存のログイン処理を切り出した関数
+// ============================================================
 async function performLogin(socket, user, token, channel, group, style_id) {
     try {
         // 🔒 すでに同じユーザー（user.id）が別の場所でログインしていないかチェック
@@ -281,6 +283,20 @@ async function performLogin(socket, user, token, channel, group, style_id) {
         const stats = statsResults[0];
         const finalStyleId = (stats.style_id !== null && stats.style_id !== undefined) ? stats.style_id : 1;
 
+        // 🌟 【追加】データベースから保存されていたキーコンフィグを安全に読み込む（空なら無視する安全ガード付き）
+        let savedKeyConfig = null;
+        try {
+            const rawConfig = stats.key_config || stats.keyConfig;
+            if (rawConfig) {
+                const parsed = typeof rawConfig === 'string' ? JSON.parse(rawConfig) : rawConfig;
+                if (parsed && typeof parsed === 'object' && Object.keys(parsed).length > 0) {
+                    savedKeyConfig = parsed;
+                }
+            }
+        } catch (kcErr) {
+            console.error('⚠️ キーコンフィグのパースに失敗しました:', kcErr);
+        }
+
         // インベントリロード
         const savedInventory = await loadUserInventory(user.id);
         const fixedInventory = Array(50).fill(null);
@@ -294,41 +310,37 @@ async function performLogin(socket, user, token, channel, group, style_id) {
         });
 		
 		// 🌟 【追加①】ここで図鑑データをロードする！
-        // 🌟 【修正版】ログイン時の図鑑データロード処理
-let playerCardCollection = {};
-try {
-    const [cardRows] = await pool.query(
-        'SELECT monster_id, card_rank, count, unlocked, is_favorite, kill_count, bonus_claimed, first_acquired_time, last_acquired_time FROM player_monster_cards WHERE user_id = ?', 
-        [userId]
-    );
-    
-    cardRows.forEach(row => {
-        const monsterKey = row.monster_id.toLowerCase();
-        const rank = row.card_rank; // 1〜6のランク
+        let playerCardCollection = {};
+        try {
+            const [cardRows] = await pool.query(
+                'SELECT monster_id, card_rank, count, unlocked, is_favorite, kill_count, bonus_claimed, first_acquired_time, last_acquired_time FROM player_monster_cards WHERE user_id = ?', 
+                [userId]
+            );
+            
+            cardRows.forEach(row => {
+                const monsterKey = row.monster_id.toLowerCase();
+                const rank = row.card_rank; // 1〜6のランク
 
-        // モンスターごとのオブジェクトがなければ作成
-        if (!playerCardCollection[monsterKey]) {
-            playerCardCollection[monsterKey] = {};
+                // モンスターごとのオブジェクトがなければ作成
+                if (!playerCardCollection[monsterKey]) {
+                    playerCardCollection[monsterKey] = {};
+                }
+
+                // 🌟 ランクごとにデータを格納する（ネスト構造）
+                playerCardCollection[monsterKey][rank] = {
+                    count: row.count,
+                    unlocked: row.unlocked === 1,
+                    cardRank: rank, // 念のため保持
+                    isFavorite: row.is_favorite === 1,
+                    killCount: row.kill_count,
+                    bonusClaimed: row.bonus_claimed === 1,
+                    firstAcquiredTime: row.first_acquired_time,
+                    lastAcquiredTime: row.last_acquired_time
+                };
+            });
+        } catch (cardErr) {
+            console.error('❌ ログイン時の図鑑データロードに失敗しました:', cardErr);
         }
-
-        // 🌟 ランクごとにデータを格納する（ネスト構造）
-        playerCardCollection[monsterKey][rank] = {
-            count: row.count,
-            unlocked: row.unlocked === 1,
-            cardRank: rank, // 念のため保持
-            isFavorite: row.is_favorite === 1,
-            killCount: row.kill_count,
-            bonusClaimed: row.bonus_claimed === 1,
-            firstAcquiredTime: row.first_acquired_time,
-            lastAcquiredTime: row.last_acquired_time
-        };
-    });
-    
-	// 停止 2026-9-24
-    //console.log(`[Card Load] ユーザー ID:${userId} のカード図鑑をロード完了。取得レコード数: ${cardRows.length}`);
-} catch (cardErr) {
-    console.error('❌ ログイン時の図鑑データロードに失敗しました:', cardErr);
-}
 
         // 🌟 装備中のステータス合計
         let totalStr = 0;
@@ -340,10 +352,6 @@ try {
 
         fixedInventory.forEach((invItem, idx) => {
             if (invItem && invItem.isEquipped) {
-                // 🔍 【デバッグ追加】装備品ごとの中身を正確に確認
-				// 停止 2026-9-24
-                //console.log(`[DEBUG EQUIP CHECK] スロット${idx} (${invItem.name}): maxHp=${invItem.maxHp}, hp=${invItem.hp}`);
-
                 totalStr += Number(invItem.str) || 0;
                 totalDex += Number(invItem.dex) || 0;
                 totalLuk += Number(invItem.luk) || 0;
@@ -352,10 +360,6 @@ try {
                 totalMaxMp += Number(invItem.maxMp) || Number(invItem.mp) || 0; // 🌟 追加
             }
         });
-
-        // 🔍 【デバッグ追加】合算されたボーナス値の確認
-		// 停止 2026-9-24
-        //console.log(`[DEBUG BONUS] 算出された totalMaxHp ボーナス:`, totalMaxHp);
 
         // 基礎値 ＋ 装備ボーナス
         const baseStr = stats.str || 4;
@@ -366,10 +370,6 @@ try {
         const finalDex = baseDex + totalDex;
         const finalLuk = baseLuk + totalLuk;
 
-        // 🌟 【デバッグ追加】DBから取れた生の stats.atk を確認
-		// 停止 2026-9-24
-        //console.log(`🔍 [DEBUG LOGIN] user_id: ${user.id}, DBから取得した stats.atk の値:`, stats.atk);
-
         // 🌟 データベースの player_atk_table から現在のレベルに対応する ATK を取得
         let dbAtk = 13; // デフォルト値
         try {
@@ -379,8 +379,6 @@ try {
             );
             if (atkRows && atkRows.length > 0) {
                 dbAtk = atkRows[0].atk;
-				// 停止 2026-9-24
-                //console.log(`✅ [DEBUG LOGIN] player_atk_table から取得成功: level ${stats.level} -> atk ${dbAtk}`);
             } else {
                 console.log(`⚠️ [DEBUG LOGIN] player_atk_table に level ${stats.level} が見つかりません`);
             }
@@ -404,25 +402,16 @@ try {
 
         const finalAtk = dbAtk + totalWeaponAtk;
         
-        // 🌟 【デバッグ追加】最終決定された各ATKの数値をログ出力
-		// 停止 2026-9-24
-        //console.log(`🎯 [DEBUG LOGIN] 最終計算結果 -> dbAtk(ベース): ${dbAtk}, totalWeaponAtk(武器): ${totalWeaponAtk}, finalAtk(合算): ${finalAtk}`);
-
         const selectedChannel = parseInt(channel) || 1;
         const roomName = `channel_${selectedChannel}`;
         
-        // 🌟 修正：データベースに保存されている max_hp をベース値として取得する
-        // 🌟 データベースの列名揺れ（max_hp / maxhp）に完全対応し、確実にベース値を取得する
+        // 🌟 データベースに保存されている max_hp をベース値として取得する
         const baseMaxHp = Number(stats.max_hp !== undefined ? stats.max_hp : (stats.maxhp !== undefined ? stats.maxhp : 100));
         const baseMaxMp = Number(stats.max_mp !== undefined ? stats.max_mp : (stats.maxmp !== undefined ? stats.maxmp : 50));
         
         // 🌟 基礎HP ＋ 現在装備しているアイテムの合計HPボーナスを足したものを最終最大HPにする
         const finalMaxHp = baseMaxHp + totalMaxHp;
         const finalMaxMp = baseMaxMp + totalMaxMp;
-
-        // 🔍 【デバッグ追加】最終HPがどう計算されたか確認
-		// 停止 2026-9-24
-        //console.log(`[DEBUG HP CALC] DBのbaseMaxHp(${stats.max_hp}) + 装備bonus(${totalMaxHp}) = 最終予測maxHp(${finalMaxHp})`);
 
         // プレイヤーオブジェクト作成
         players[socket.id] = {
@@ -442,7 +431,7 @@ try {
             maxHp: finalMaxHp,
             baseMaxMp: baseMaxMp,
             bonusMaxMp: totalMaxMp,
-            maxMp: finalMaxMp,
+            maxMp: finalMaxHp,
 
             mp: stats.mp,
             map_id: stats.map_id,
@@ -476,8 +465,9 @@ try {
             jumpPower: 15.0,
             
             inventory: fixedInventory,
-			cardCollection: playerCardCollection, // 🌟 【追加②】プレイヤーのデータに持たせる
-			is_vending: false
+            cardCollection: playerCardCollection, // 🌟 【追加②】プレイヤーのデータに持たせる
+            keyConfig: savedKeyConfig,             // 🌟 【追加】サーバーから読み込んだキーコンフィグをメモリに保持
+            is_vending: false
         };
 
         socket.join(roomName);
@@ -499,12 +489,12 @@ try {
                 style_id: finalStyleId,
                 hp: players[socket.id].hp,
                 max_hp: players[socket.id].maxHp,
-                baseMaxHp: baseMaxHp,     // 🌟 クライアント用に追加送信
-                bonusMaxHp: totalMaxHp,   // 🌟 クライアント用に追加送信
+                baseMaxHp: baseMaxHp,    // 🌟 クライアント用に追加送信
+                bonusMaxHp: totalMaxHp,  // 🌟 クライアント用に追加送信
                 mp: stats.mp,
                 max_mp: players[socket.id].maxMp,
-                baseMaxMp: baseMaxMp,     // 🌟 クライアント用に追加送信
-                bonusMaxMp: totalMaxMp,   // 🌟 クライアント用に追加送信
+                baseMaxMp: baseMaxMp,    // 🌟 クライアント用に追加送信
+                bonusMaxMp: totalMaxMp,  // 🌟 クライアント用に追加送信
                 gold: stats.gold,
                 map_id: stats.map_id,
                 x: stats.pos_x,
@@ -530,21 +520,21 @@ try {
                 weaponAtk: totalWeaponAtk,
 
                 speed: players[socket.id].speed,
-                jumpPower: players[socket.id].jumpPower
+                jumpPower: players[socket.id].jumpPower,
+
+                // 🌟 キー設定が存在する場合のみ含めて送信
+                ...(savedKeyConfig ? { keyConfig: savedKeyConfig } : {})
             },
             message: 'ログイン成功！'
         });
-        
-		// 2026-8-30停止
-        //console.log("【ログイン時インベントリ確認】4番目(index 3):", fixedInventory[3]);
-
+		
         socket.emit('inventory_update', fixedInventory);
 		
 		// 🌟 【追加③】クライアントへ最新の図鑑データを送信！
         socket.emit('card_collection_update', players[socket.id].cardCollection);
 		
         socket.to(roomName).emit('player_joined', players[socket.id]);
-        
+		
         socket.username = user.username;
 
     } catch (err) {
@@ -879,11 +869,11 @@ socket.on('register', async (data) => {
 });
 
         // ============================================================
-// :::SAVE::: 💾 ステータス保存 (Save Data) 処理
+// :::SAVE::: 💾 ステータス保存 (Save Data) 処理（キーコンフィグ対応版）
 // ============================================================
 socket.on('save_player_data', async (data) => {
-    // data には { userId, level, exp, gold, hp, maxHp, mp, maxMp, mapId, x, y, str, dex, luk, ap } が入っている想定
-    const { userId, level, exp, gold, hp, maxHp, mp, maxMp, mapId, x, y, str, dex, luk, ap } = data;
+    // 🌟 data から keyConfig も受け取るように追加
+    const { userId, level, exp, gold, hp, maxHp, mp, maxMp, mapId, x, y, str, dex, luk, ap, keyConfig } = data;
 
     if (!userId) return;
 
@@ -918,20 +908,36 @@ socket.on('save_player_data', async (data) => {
         }
     } catch (atkErr) {
         console.error(`❌ [DB ERROR] レベル ${level} の ATK 取得に失敗しました:`, atkErr.message);
-        // 万が一テーブルからの取得に失敗した場合は、現在のメモリ上の値をフォールバックとして使う
         saveAtk = player.baseAtk !== undefined ? player.baseAtk : 13;
     }
 
     // プレイヤーオブジェクト側のベース攻撃力も最新に更新しておく
     player.baseAtk = saveAtk;
 
-    // 🌟 SQLに送るパラメータの配列（最新の saveMaxHp, saveMaxMp, saveAtk を設定）
-    const saveParams = [level, exp, gold, hp, saveMaxHp, mp, saveMaxMp, mapId, x, y, saveStr, saveDex, saveLuk, saveAtk, ap, dbUserId];
+    // 🌟 キーコンフィグが送られてきている場合、プレイヤーメモリ側も更新＆JSON化して保存準備
+    let saveKeyConfigJson = null;
+    if (keyConfig) {
+        player.keyConfig = keyConfig; // メモリ側も更新
+        saveKeyConfigJson = typeof keyConfig === 'string' ? keyConfig : JSON.stringify(keyConfig);
+    } else if (player.keyConfig) {
+        saveKeyConfigJson = typeof player.keyConfig === 'string' ? player.keyConfig : JSON.stringify(player.keyConfig);
+    }
 
+    // 🌟 SQLに送るパラメータの配列に `saveKeyConfigJson` を追加
+    const saveParams = [
+        level, exp, gold, hp, saveMaxHp, mp, saveMaxMp, 
+        mapId, x, y, saveStr, saveDex, saveLuk, saveAtk, ap, 
+        saveKeyConfigJson, // 🌟 追加パラメータ
+        dbUserId
+    ];
+
+    // 🌟 UPDATE文に `key_config = ?` を追加
+    // ※もしデータベース側のカラム名が `keyconfig` の場合は `keyconfig = ?` に書き換えてください
     const sql = `
         UPDATE player_stats 
         SET level = ?, exp = ?, gold = ?, hp = ?, max_hp = ?, mp = ?, max_mp = ?, 
-            map_id = ?, pos_x = ?, pos_y = ?, str = ?, dex = ?, luk = ?, atk = ?, ap = ?
+            map_id = ?, pos_x = ?, pos_y = ?, str = ?, dex = ?, luk = ?, atk = ?, ap = ?,
+            key_config = ?
         WHERE user_id = ?
     `;
 
@@ -939,8 +945,7 @@ socket.on('save_player_data', async (data) => {
         const [result] = await pool.query(sql, saveParams);
 
         if (result && result.affectedRows > 0) {
-			// 2026-8-27停止
-            //console.log(`✅ [SAVE SUCCESS] ${player.name} (DB_ID: ${dbUserId}) の保存に成功しました (Lv: ${level}, ATK: ${saveAtk})`);
+            // 保存成功（必要に応じてログ出力）
         } else {
             console.warn(`⚠️ [SAVE WARNING] DB ID: ${dbUserId} が見つかりませんでした (affectedRows: 0)`);
         }
@@ -1153,6 +1158,112 @@ socket.on('cancelTrade', (data) => {
         });
     } else {
         console.log("⚠️ targetId が存在しないため、相手に通知できませんでした。"); // 🌟 これを追加
+    }
+});
+
+// ============================================================
+// 🧹 インベントリ整理：サーバー側（DBの個数死守 ＆ メモリの画像保持・エラー解消版）
+// ============================================================
+socket.on('organizeInventory', async () => {
+    try {
+        const player = players[socket.id];
+        const userId = player ? (player.dbId || player.db_id) : null;
+        if (!player || !player.inventory || !userId) return;
+
+        const maxSlots = 50;
+        const currentInventory = player.inventory; // 現在のメモリ上のデータ（画像データなどを含む）
+
+        const connection = await pool.getConnection();
+        try {
+            await connection.beginTransaction();
+
+            // 🌟 1. まずデータベースから、本当の個数（quantity）を含めた最新データを取得！
+            const [dbRows] = await connection.query(
+                'SELECT * FROM user_inventory WHERE user_id = ?',
+                [userId]
+            );
+
+            // 2. DBの正しい個数と、メモリ上の画像データを完璧にマージする
+            const validItems = dbRows.filter(row => row && row.item_type).map(row => {
+                // メモリ上から、同じアイテム（IDやスロットが一致するもの）を探して画像データを拝借する
+                const memoryItem = currentInventory.find(it => it && (it.id === row.id || it.slot_index === row.slot_index)) || {};
+
+                return {
+                    ...memoryItem,                        // 🌟 メモリから「画像データや名前」を完璧に引き継ぐ！
+                    ...row,                               // 🌟 DBから最新のIDやフラグを引き継ぐ
+                    quantity: Number(row.quantity) || 1,  // 🌟 数量は絶対にDBの正しい値を死守する！
+                    type: row.item_type                   // 表記ゆれ対策
+                };
+            });
+
+            // 3. 新しいインベントリ配列を作成（最大50スロット）
+            const newInventory = new Array(maxSlots).fill(null);
+            
+            for (let i = 0; i < maxSlots; i++) {
+                if (i < validItems.length) {
+                    const item = { ...validItems[i] };
+                    item.slot_index = i; // スロット番号を綺麗に振り直す
+                    newInventory[i] = item;
+                } else {
+                    newInventory[i] = null;
+                }
+            }
+
+            // 4. 一旦、現在のインベントリデータをDBからすべて削除
+            await connection.query('DELETE FROM user_inventory WHERE user_id = ?', [userId]);
+
+            // 5. 綺麗に並び替えたデータを、正しい個数とスロット番号でDBに再インサート
+            for (let i = 0; i < validItems.length; i++) {
+                const item = validItems[i];
+                const safeItemId = item.item_id || item.id || item.type || 'unknown';
+
+                await connection.query(
+                    `INSERT INTO user_inventory 
+                    (user_id, item_type, slot_index, item_id, quantity, is_equipped, instance_id, equipment_id) 
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+                    [
+                        userId,
+                        item.item_type || item.type,
+                        i, // 綺麗に並べたスロット番号
+                        safeItemId,
+                        item.quantity, // 🌟 DBから取ってきた正しい個数を書き込む！
+                        item.is_equipped ? 1 : 0,
+                        item.instance_id || null,
+                        item.equipment_id || null
+                    ]
+                );
+            }
+
+            await connection.commit();
+            
+            // 6. プレイヤーのメモリ上のインベントリを更新
+            player.inventory = newInventory;
+
+        } catch (dbErr) {
+            await connection.rollback();
+            throw dbErr;
+        } finally {
+            connection.release();
+        }
+
+        // 7. クライアントへ完了の合図を送信
+        socket.emit('inventory_update', player.inventory);
+        socket.emit('organizeComplete', player.inventory);
+
+        if (typeof sendState === 'function') {
+            sendState();
+        }
+
+        if (typeof debugChat === 'function') {
+            debugChat(`🧹 [Server] インベントリの整理（DBの個数死守 ＆ 画像保持）が完了しました。`);
+        }
+
+    } catch (e) {
+        if (typeof debugChat === 'function') {
+            debugChat(`❌ organizeInventoryエラー: ${e.message}`, 'error');
+        } else {
+            console.error(`❌ organizeInventoryエラー: ${e.message}`);
+        }
     }
 });
 
@@ -3202,6 +3313,28 @@ socket.on('updateTradeOffer', (data) => {
 });
 */
 
+// サーバー側のイメージ
+socket.on('request_idle_heal', () => {
+    // 🌟 例1: playersオブジェクトから socket.id で取得する場合
+    const player = players[socket.id]; 
+    
+    // 🌟 例2: もし socket に直接プレイヤーが紐づいているならこちらの場合もあります
+    // const player = socket.player;
+
+    if (!player) return; // プレイヤーが見つからなければ何もしない
+
+    player.hp += 1;
+    if (player.hp > player.maxHp) {
+        player.hp = player.maxHp;
+    }
+    
+    // クライアントへ送信
+    socket.emit('player_healed', {
+        hp: player.hp,
+        healAmount: 1
+    });
+});
+
 // ============================================================
 // :::CONSUME::: 🧪 消費アイテムの使用処理（DBカタログ連動型）
 // ============================================================
@@ -3342,6 +3475,13 @@ socket.on('useConsumableItem', async (data) => {
                         player.hp = Math.min(player.maxHp, player.hp + 100);
                     }
                     console.log(`[Server] プレイヤーが 絶品ミルクティー を使用しました。`);
+                    
+                    // 🌟 クライアントにHP回復を通知する
+                    socket.emit('player_healed', {
+                        hp: player.hp,
+                        healAmount: 100
+                    });
+
                     break;
 
                 case 'scroll_star':
@@ -3709,7 +3849,66 @@ if (typeof LOG !== 'undefined' && LOG.GRAY) {
     }
 });
 
-// 🔄 双方のインベントリ・ゴールド間でアイテムと通貨を移動・交換する関数（ダイアログ通知対応）
+// ============================================================
+// 🧠 【安全版】スタックを考慮してインベントリに収まるかシミュレーションする関数
+// ============================================================
+function canAcceptTradeItems(player, receivingItems, givingOfferSlots) {
+    let inventory = JSON.parse(JSON.stringify(player.inventory));
+
+    // 1. 自分が手放すアイテムのぶんをインベントリから一旦空ける
+    if (Array.isArray(givingOfferSlots)) {
+        givingOfferSlots.forEach(slot => {
+            if (slot && typeof slot.slot_index === 'number') {
+                inventory[slot.slot_index] = null;
+            }
+        });
+    }
+
+    // 2. 相手から貰うアイテムを詰めていく
+    if (Array.isArray(receivingItems)) {
+        for (const item of receivingItems) {
+            // ★【超重要】アイテムデータ自体が null や undefined の場合はスキップする
+            if (!item) continue;
+
+            let remainingCount = Number(item.count) || 1;
+
+            // まず、すでに同じアイテム（idが一致）があるスロットを探して加算する
+            for (let i = 0; i < inventory.length; i++) {
+                if (inventory[i] !== null && inventory[i].id === item.id) {
+                    inventory[i].count = (Number(inventory[i].count) || 1) + remainingCount;
+                    remainingCount = 0;
+                    break;
+                }
+            }
+
+            // まだ入り切らなかった分は、空きスロット（null）に突っ込む
+            if (remainingCount > 0) {
+                let placed = false;
+                for (let i = 0; i < inventory.length; i++) {
+                    if (inventory[i] === null) {
+                        inventory[i] = { 
+                            id: item.id, 
+                            type: item.type, 
+                            count: remainingCount 
+                        };
+                        placed = true;
+                        break;
+                    }
+                }
+                // 空きスロットもスタック先もなかった場合は入り切らない！
+                if (!placed) {
+                    return false;
+                }
+            }
+        }
+    }
+
+    return true; // すべてのアイテムが綺麗に収まった！
+}
+
+// ============================================================
+// 🔄 修正版：安全にアイテムを交換・移動する関数（スタック考慮型）
+// ============================================================
 function executeItemTrade(socketIdA, socketIdB) {
     const playerA = players[socketIdA];
     const playerB = players[socketIdB];
@@ -3723,7 +3922,28 @@ function executeItemTrade(socketIdA, socketIdB) {
         return;
     }
 
-    // 1. 💰 ゴールドの計算と player_stats への保存
+    // 🌟 【修正】単純な空き数比較から、スタックを考慮した賢い判定に置き換え！
+    const canA = canAcceptTradeItems(playerA, offerB.tradeSlots, offerA.tradeSlots);
+    const canB = canAcceptTradeItems(playerB, offerA.tradeSlots, offerB.tradeSlots);
+
+    if (!canA || !canB) {
+        console.log("[Server] ❌ 双方のインベントリに空き（またはスタックの余裕）がないため、トレードを中止します");
+
+        const cancelMessage = 'インベントリの空きが足りないため、交換がキャンセルされました。';
+
+        // キャンセル専用イベントで通知
+        io.to(socketIdA).emit('tradeCancelledBySystem', { message: cancelMessage });
+        io.to(socketIdB).emit('tradeCancelledBySystem', { message: cancelMessage });
+
+        cleanupTrade(socketIdA, socketIdB);
+        return; // トレード中断
+    }
+
+    // ==========================================
+    // 以降は通常の安全なトレード処理（ゴールド、アイテム移動など）
+    // ==========================================
+
+    // 1. 💰 ゴールドの計算と保存
     const goldA = Number(offerA.gold) || 0;
     const goldB = Number(offerB.gold) || 0;
 
@@ -3734,39 +3954,112 @@ function executeItemTrade(socketIdA, socketIdB) {
     const userIdB = playerB.dbId || playerB.db_id || playerB.id;
 
     if (userIdA && typeof pool !== 'undefined') {
-        pool.query(`UPDATE player_stats SET gold = ? WHERE user_id = ?`, [playerA.gold, userIdA]).catch(err => {
-            console.error("[Server Error] プレイヤーAのゴールドDB保存失敗:", err.message);
-        });
+        pool.query(`UPDATE player_stats SET gold = ? WHERE user_id = ?`, [playerA.gold, userIdA]).catch(err => console.error(err));
     }
     if (userIdB && typeof pool !== 'undefined') {
-        pool.query(`UPDATE player_stats SET gold = ? WHERE user_id = ?`, [playerB.gold, userIdB]).catch(err => {
-            console.error("[Server Error] プレイヤーBのゴールドDB保存失敗:", err.message);
-        });
+        pool.query(`UPDATE player_stats SET gold = ? WHERE user_id = ?`, [playerB.gold, userIdB]).catch(err => console.error(err));
     }
 
-    // 2. 📦 装備アイテムの移動
-    transferOfferToPlayer(playerA, playerB, offerA.tradeSlots);
-    transferOfferToPlayer(playerB, playerA, offerB.tradeSlots);
+    // 🌟 【第1フェーズ】アイテムの消去
+    removeOfferItemsFromPlayer(playerA, offerA.tradeSlots);
+    removeOfferItemsFromPlayer(playerB, offerB.tradeSlots);
 
-    // 3. クライアントに最新のインベントリとゴールドを送信
+    // 🌟 【第2フェーズ】アイテムの配置
+    addOfferItemsToPlayer(playerB, playerA, offerA.tradeSlots); 
+    addOfferItemsToPlayer(playerA, playerB, offerB.tradeSlots); 
+
+    // 3. クライアントに最新情報を送信
     io.to(socketIdA).emit('updateInventory', playerA.inventory);
     io.to(socketIdA).emit('updateGold', playerA.gold);
 
     io.to(socketIdB).emit('updateInventory', playerB.inventory);
     io.to(socketIdB).emit('updateGold', playerB.gold);
 
-    // 🌟 4. 【追加】双方のクライアントに「交換完了ダイアログ」を表示させるための通知を送る
+    // 4. 完了通知とウィンドウを閉じる
     io.to(socketIdA).emit('tradeCompleted', { message: 'トレードが正常に完了しました！' });
     io.to(socketIdB).emit('tradeCompleted', { message: 'トレードが正常に完了しました！' });
 
-    // 5. 双方のクライアントにトレードウィンドウを閉じる指示を送る
     io.to(socketIdA).emit('closeTradeWindow');
     io.to(socketIdB).emit('closeTradeWindow');
 
-    // 6. サーバー側のトレード情報を完全にリセット・クリーンアップする
     cleanupTrade(socketIdA, socketIdB);
-    
-    console.log("[Server] 🎉 アイテムとゴールドの交換が完了し、完了通知とウィンドウリセットを行いました！");
+    console.log("[Server] 🎉 トレード完了（フェーズ分離による完全同期処理）");
+}
+
+// ── 補助関数1：アイテムを減らす・消すだけの処理 ──
+function removeOfferItemsFromPlayer(player, offeredItems) {
+    if (!player.inventory || !Array.isArray(player.inventory)) return;
+
+    offeredItems.forEach(item => {
+        if (!item) return;
+        const tradeCount = item.count || 1;
+        const slotIndex = item.slot_index !== undefined ? item.slot_index : player.inventory.findIndex(slot => slot && slot.type === item.type);
+
+        if (slotIndex !== -1 && player.inventory[slotIndex]) {
+            const sourceItem = player.inventory[slotIndex];
+            const currentCount = sourceItem.count || 1;
+
+            const userId = player.dbId || player.db_id || (typeof player.id === 'number' ? player.id : null);
+
+            if (currentCount > tradeCount) {
+                sourceItem.count = currentCount - tradeCount;
+                if (userId && typeof pool !== 'undefined') {
+                    pool.query(`UPDATE user_inventory SET count = ? WHERE user_id = ? AND slot_index = ?`, [sourceItem.count, userId, slotIndex]).catch(err => {});
+                }
+            } else {
+                player.inventory[slotIndex] = null;
+                if (userId && typeof pool !== 'undefined') {
+                    pool.query(`DELETE FROM user_inventory WHERE user_id = ? AND slot_index = ?`, [userId, slotIndex]).catch(err => {});
+                }
+            }
+        }
+    });
+}
+
+// ── 補助関数2：相手のアイテムを追加するだけの処理 ──
+function addOfferItemsToPlayer(toPlayer, fromPlayer, offeredItems) {
+    if (!toPlayer.inventory || !Array.isArray(toPlayer.inventory)) return;
+
+    offeredItems.forEach(item => {
+        if (!item) return;
+        const tradeCount = item.count || 1;
+
+        const cleanItem = { ...item };
+        delete cleanItem.originalIndex;
+        delete cleanItem.slot_index;
+        cleanItem.count = tradeCount;
+        cleanItem.isEquipped = false;
+        cleanItem.equipped = false;
+        cleanItem.eMark = false;
+
+        const isEquip = cleanItem.type === 'sword' || cleanItem.type === 'shield' || 
+                        (cleanItem.name && (cleanItem.name.includes('剣') || cleanItem.name.includes('盾')));
+
+        let stackedIndex = -1;
+        if (!isEquip) {
+            stackedIndex = toPlayer.inventory.findIndex(slot => {
+                if (!slot) return false;
+                return slot.type === cleanItem.type && (slot.name === cleanItem.name);
+            });
+        }
+
+        if (stackedIndex !== -1) {
+            const existingItem = toPlayer.inventory[stackedIndex];
+            existingItem.count = (existingItem.count || 1) + tradeCount;
+            if (typeof saveInventoryToDB === 'function') {
+                saveInventoryToDB(toPlayer, existingItem, stackedIndex);
+            }
+        } else {
+            // 💡 ここで「自分がアイテムを出したことで確実に空いているスロット」が先頭から綺麗に空きとして見つかるようになります！
+            const emptyIndex = toPlayer.inventory.findIndex(slot => slot === null);
+            if (emptyIndex !== -1) {
+                toPlayer.inventory[emptyIndex] = cleanItem;
+                if (typeof saveInventoryToDB === 'function') {
+                    saveInventoryToDB(toPlayer, cleanItem, emptyIndex);
+                }
+            }
+        }
+    });
 }
 
 // 🧹 トレード情報のクリーンアップ用ヘルパー関数
@@ -3777,59 +4070,100 @@ function cleanupTrade(socketIdA, socketIdB) {
     delete tradePartners[socketIdB];
 }
 
-// 📦 個別の移動処理（提供側から消し、受け取り側に追加するヘルパー）
+// 📦 個別の移動処理（提供側から個数分減らし、受け取り側に追加するヘルパー）
 function transferOfferToPlayer(fromPlayer, toPlayer, offeredItems) {
     offeredItems.forEach(item => {
         if (!item) return;
 
-        // ① 渡す側のインベントリから削除
+        const tradeCount = item.count || 1; // 提示された個数
+
+        // ① 渡す側のインベントリから減算、または削除
         if (fromPlayer.inventory && Array.isArray(fromPlayer.inventory)) {
-            const foundIndex = fromPlayer.inventory.findIndex(slot => {
-                if (!slot) return false;
-                return slot.name === item.name && slot.type === item.type;
-            });
+            // item.slot_index（元々のインベントリ上の位置）を使って正確に対象を特定する
+            const slotIndex = item.slot_index !== undefined ? item.slot_index : fromPlayer.inventory.findIndex(slot => slot && slot.type === item.type);
 
-            if (foundIndex !== -1) {
-                fromPlayer.inventory[foundIndex] = null;
-                console.log(`[Server] 🗑️ 渡した側のインベントリからアイテムを削除しました (Index: ${foundIndex})`);
+            if (slotIndex !== -1 && fromPlayer.inventory[slotIndex]) {
+                const sourceItem = fromPlayer.inventory[slotIndex];
+                const currentCount = sourceItem.count || 1;
 
-                // 🌟 【修正】user_inventory テーブルから該当スロットのレコードを削除する
-                const userId = fromPlayer.dbId || fromPlayer.db_id || (typeof fromPlayer.id === 'number' ? fromPlayer.id : null);
-                if (userId && typeof pool !== 'undefined') {
-                    const deleteSql = `DELETE FROM user_inventory WHERE user_id = ? AND slot_index = ?`;
-                    pool.query(deleteSql, [userId, foundIndex]).catch(err => {
-                        console.error("[Server Error] 渡した側のDBスロット削除に失敗しました:", err.message);
-                    });
+                if (currentCount > tradeCount) {
+                    // 一部だけ渡した場合：持っていた側の個数を減らす
+                    sourceItem.count = currentCount - tradeCount;
+                    console.log(`[Server] 📉 渡した側のアイテム個数を減らしました (Slot: ${slotIndex}, 残り: ${sourceItem.count})`);
+
+                    // DB側の個数も更新
+                    const userId = fromPlayer.dbId || fromPlayer.db_id || (typeof fromPlayer.id === 'number' ? fromPlayer.id : null);
+                    if (userId && typeof pool !== 'undefined') {
+                        pool.query(`UPDATE user_inventory SET count = ? WHERE user_id = ? AND slot_index = ?`, [sourceItem.count, userId, slotIndex]).catch(err => {
+                            console.error("[Server Error] 渡した側のDB個数更新に失敗しました:", err.message);
+                        });
+                    }
+                } else {
+                    // 全部渡した場合：スロットを空にする
+                    fromPlayer.inventory[slotIndex] = null;
+                    console.log(`[Server] 🗑️ 渡した側のインベントリからアイテムを削除しました (Index: ${slotIndex})`);
+
+                    const userId = fromPlayer.dbId || fromPlayer.db_id || (typeof fromPlayer.id === 'number' ? fromPlayer.id : null);
+                    if (userId && typeof pool !== 'undefined') {
+                        const deleteSql = `DELETE FROM user_inventory WHERE user_id = ? AND slot_index = ?`;
+                        pool.query(deleteSql, [userId, slotIndex]).catch(err => {
+                            console.error("[Server Error] 渡した側のDBスロット削除に失敗しました:", err.message);
+                        });
+                    }
                 }
             } else {
                 console.warn("[Server Warning] 渡した側のインベントリから該当アイテムが見つかりませんでした");
             }
         }
 
-        // ② 受け取る側のインベントリの空きスロットを探して追加
+        // ② 受け取る側のインベントリに追加（スタック、または空きスロットへ）
         if (toPlayer.inventory && Array.isArray(toPlayer.inventory)) {
-            const emptyIndex = toPlayer.inventory.findIndex(slot => slot === null);
-            if (emptyIndex !== -1) {
-                // トレード用の一時プロパティを除外してクリーンなアイテムデータとして格納
-                const cleanItem = { ...item };
-                delete cleanItem.originalIndex;
-                delete cleanItem.slot_index;
-				
-				// 🌟 【追加】受け取る側に渡す前に、装備中フラグ（Eマーク）を強制的にオフにする！
-                cleanItem.isEquipped = false;
-                cleanItem.equipped = false;
-                cleanItem.eMark = false; // ※もしお使いのフラグ名が別のもの（例: is_equipped など）なら、それに合わせて調整してください
+            const cleanItem = { ...item };
+            delete cleanItem.originalIndex;
+            delete cleanItem.slot_index;
+            cleanItem.count = tradeCount; // 渡された個数をセット
+            
+            cleanItem.isEquipped = false;
+            cleanItem.equipped = false;
+            cleanItem.eMark = false;
 
-                toPlayer.inventory[emptyIndex] = cleanItem;
-                console.log(`[Server] ✨ 受け取る側のインベントリに追加しました (Index: ${emptyIndex})`);
+            // 🌟 装備品かどうかを判定する簡易関数（必要に応じて条件を調整してください）
+            const isEquip = cleanItem.type === 'sword' || cleanItem.type === 'shield' || 
+                            (cleanItem.name && (cleanItem.name.includes('剣') || cleanItem.name.includes('盾')));
 
-                // 受け取った側は通常の saveInventoryToDB で安全に保存
+            let stackedIndex = -1;
+
+            // 1. 装備品以外で、すでに同じアイテムが相手のインベントリに存在するか探す
+            if (!isEquip) {
+                stackedIndex = toPlayer.inventory.findIndex(slot => {
+                    if (!slot) return false;
+                    return slot.type === cleanItem.type && (slot.name === cleanItem.name);
+                });
+            }
+
+            if (stackedIndex !== -1) {
+                // 💡 すでに持っている場合は個数をプラスして合算する
+                const existingItem = toPlayer.inventory[stackedIndex];
+                existingItem.count = (existingItem.count || 1) + tradeCount;
+                console.log(`[Server] ➕ 既存のアイテムスロットに個数を加算しました (Index: ${stackedIndex}, 合計: ${existingItem.count})`);
+
+                // データベース上の個数も更新
                 if (typeof saveInventoryToDB === 'function') {
-                    saveInventoryToDB(toPlayer, cleanItem, emptyIndex);
-                    console.log(`[Server] 💾 受け取った側のDB保存(saveInventoryToDB)を呼び出しました`);
+                    saveInventoryToDB(toPlayer, existingItem, stackedIndex);
                 }
             } else {
-                console.warn("[Server Warning] 受け取り側のインベントリがいっぱいです！");
+                // 2. 同じものがない場合、または装備品の場合は通常の空きスロットを探して追加
+                const emptyIndex = toPlayer.inventory.findIndex(slot => slot === null);
+                if (emptyIndex !== -1) {
+                    toPlayer.inventory[emptyIndex] = cleanItem;
+                    console.log(`[Server] ✨ 受け取る側のインベントリに追加しました (Index: ${emptyIndex}, 個数: ${tradeCount})`);
+
+                    if (typeof saveInventoryToDB === 'function') {
+                        saveInventoryToDB(toPlayer, cleanItem, emptyIndex);
+                    }
+                } else {
+                    console.warn("[Server Warning] 受け取り側のインベントリがいっぱいです！");
+                }
             }
         }
     });
@@ -5026,13 +5360,16 @@ function addExperience(player, amount, socket) {
     let requiredExp = LEVEL_TABLE[player.level] || (player.level * 100);
     player.maxExp = requiredExp;
 
-	// 2026-8-30停止
+    // 2026-8-30停止
     //debugChat(`[EXP] ${player.name}: +${amount} (Total: ${player.exp} / Next: ${requiredExp})`);
+
+    let leveledUp = false; // 🌟 レベルアップ判定用フラグ
 
     // 3. レベルアップ判定（whileを使うと、一気に2レベル上がる場合にも対応できます）
     while (player.exp >= requiredExp) {
         player.exp -= requiredExp; // 経験値を引いて余りを繰り越す
         player.level = (Number(player.level) || 1) + 1;
+        leveledUp = true; // 🌟 レベルアップ発生
         
         // 🌟 AP（能力ポイント）の加算
         player.ap = (Number(player.ap) || 0) + 5; 
@@ -5060,6 +5397,20 @@ function addExperience(player, amount, socket) {
 
         console.log(`[LEVEL UP] ${player.name} が Lv.${player.level} になりました！ (MaxHP: ${player.maxHp})`);
         debugChat(`🎊${player.name}がレベル${player.level}に上がりました！最大HPが${player.maxHp}に増加し、体力が全回復しました！`);
+    }
+
+    // ==========================================
+    // 🌟 【追加】計算とレベルアップ判定の最後にクライアントへ通知する
+    // ==========================================
+    if (socket) {
+        socket.emit('exp_updated', {
+            exp: player.exp,
+            level: player.level,
+            maxExp: player.maxExp,
+            hp: player.hp,
+            maxHp: player.maxHp,
+            leveledUp: leveledUp
+        });
     }
 }
 
@@ -5830,6 +6181,28 @@ if (text.startsWith('/levelup')) {
         console.log(`🆙 プレイヤー ${player.name} のレベルを ${levelsToAdd} 上げました！（現在 Lv.${player.level}）`);
     }
     return type = true; // または return true;
+}
+
+if (text.startsWith('/fillbag')) {
+    const player = players[socket.id];
+
+    if (player && player.inventory && Array.isArray(player.inventory)) {
+        let addedCount = 0;
+
+        for (let i = 0; i < player.inventory.length; i++) {
+            if (player.inventory[i] === null) {
+                player.inventory[i] = {
+                    type: 'paper',
+                    count: 1
+                };
+                addedCount++;
+            }
+        }
+
+        socket.emit('updateInventory', player.inventory);
+        socket.emit('showSystemMessage', { message: `インベントリを埋め尽くしました！` });
+    }
+    return true;
 }
 
 if (text.startsWith('/gacha')) {
@@ -7117,6 +7490,14 @@ async function loadUserInventory(userId) {
                 }
             }
 
+            // 🌟 カタログデータが見つからなかった場合の安全なフォールバック（日本語対応）
+            let fallbackName = row.item_type;
+            if (itemId === 'avatar' || row.item_type === 'avatar') {
+                fallbackName = 'アバター変更チケット';
+            } else if (itemId === 'sweets') {
+                fallbackName = 'おいしいケーキ';
+            } // (必要に応じて他の特殊なアイテムもここに追加可能)
+
             const item = {
                 slot_index: row.slot_index,
                 type: row.item_type,
@@ -7125,8 +7506,8 @@ async function loadUserInventory(userId) {
                 count: row.quantity,
                 isEquipped: row.is_equipped === 1,
                 instanceId: row.equipment_id,
-                displayName: resolvedDisplayName || row.item_type, // 🌟 DBから引いた display_name
-                price: resolvedPrice                               // 🌟 DBから引いた price
+                displayName: resolvedDisplayName || fallbackName, // 🌟 カタログが取れなくても日本語名になる！
+                price: resolvedPrice                            
             };
 
             // 装備品（equipment_idがある場合）はステータスも付与

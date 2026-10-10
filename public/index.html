@@ -35,23 +35,34 @@
 <body style="justify-content: center;">
 
 <!-- 🌟 これが一番上のカバー（ローディング画面） -->
-    <div id="loading-cover" style="
-        position: fixed; 
-        top: 0; left: 0; 
-        width: 100%; height: 100%; 
-        background: #000; /* 黒背景ならチラつきが全く見えません */
-        z-index: 9999; /* ログイン画面(z-index:1000など)より高くする */
-        display: flex; 
-        justify-content: center; 
-        align-items: center; 
-        color: white;
-    ">
-        <div class="spinner"></div>
-        <div class="loading-text">Now Loading<span class="dots-box"><span class="d1">.</span><span class="d2">.</span><span class="d3">.</span></span></div>
+<div id="loading-cover" style="
+    position: fixed; 
+    top: 0; left: 0; 
+    width: 100%; height: 100%; 
+    background: #000; 
+    z-index: 9999; 
+    display: flex; 
+    flex-direction: column; 
+    justify-content: center; 
+    align-items: center; 
+    gap: 20px; 
+    color: white;
+">
+    <!-- スピナーと原寸サイズアイコンを重ね合わせるコンテナ -->
+    <div style="position: relative; display: flex; justify-content: center; align-items: center; width: 48px; height: 48px;">
+        <!-- クルクル回るスピナー -->
+        <div class="spinner" style="position: absolute; width: 100%; height: 100%; top: 0; left: 0; box-sizing: border-box;"></div>
+        
+        <!-- ど真ん中に配置する原寸サイズのアイコン画像 -->
+        <img src="//imglive.net/badge.png" alt="Icon" style="position: absolute; max-width: none; max-height: none; object-fit: contain;">
     </div>
+    
+    <!-- ローディングテキスト -->
+    <div class="loading-text">Now Loading<span class="dots-box"><span class="d1">.</span><span class="d2">.</span><span class="d3">.</span></span></div>
+</div>
 
 <!-- ゲーム画面本体 -->
-<div id="main-container" style="display: flex; gap: 20px; align-items: flex-start;">
+<div id="main-container" style="display: none; gap: 20px; align-items: flex-start;">
   
   <div id="game-wrapper" style="
     position: relative; 
@@ -95,7 +106,7 @@
 </div>
 
 <!-- UI操作エリア全体 -->
-<div id="ui-container" style="display: flex; flex-direction: column; gap: 8px;">
+<div id="ui-container" style="display: none; flex-direction: column; gap: 8px;">
   
   <!-- 🌟 チャット入力行（高さ43pxで統一） -->
   <div class="chat-row" style="display: flex; align-items: center; gap: 8px; position: relative;">
@@ -110,10 +121,35 @@
       <div id="emotion-picker-popup" class="emotion-popup"></div>
     </div>
 
-    <!-- 2番目：チャットモード選択UIトリガー（高さ43px） -->
+    <!-- 🌟 コンディション表示UI（CSS修正対応版） -->
+    <div id="player-condition-box" class="custom-select-wrapper" style="height: 43px; box-sizing: border-box; display: flex; align-items: center;">
+      <div class="custom-select-trigger auto-width" style="height: 43px; box-sizing: border-box; display: flex; align-items: center; gap: 6px; padding: 0 12px;">
+        <span style="font-size: 13px;" title="現在のコンディション">🔋</span>
+        <span id="player-condition-label" style="font-size: 11px; color: #38bdf8; font-weight: bold;">85%</span>
+      </div>
+    </div>
+
+    <!-- 2番目：今何してる？ステータス選択UI（高さ43px） -->
+    <div id="custom-status-mode" class="custom-select-wrapper" style="height: 43px; box-sizing: border-box; display: flex; align-items: center;">
+      <div id="status-mode-trigger" class="custom-select-trigger" onclick="toggleStatusModeDropdown(event)" style="
+        height: 43px; box-sizing: border-box; display: flex; align-items: center; padding: 0 10px; cursor: pointer;
+      ">
+        <span id="status-mode-label">💬 通常</span>
+        <span class="custom-arrow">▼</span>
+      </div>
+      <div id="status-mode-options" class="custom-options">
+        <div class="custom-option" onclick="selectPlayerStatus('通常', '💬 通常')">💬 通常</div>
+        <div class="custom-option" onclick="selectPlayerStatus('ページ執筆中', '✍️ ページ執筆中')">✍️ ページ執筆中</div>
+        <div class="custom-option" onclick="selectPlayerStatus('お勉強中', '📚 お勉強中')">📚 お勉強中</div>
+        <div class="custom-option" onclick="selectPlayerStatus('食事中', '🍱 食事中')">🍱 食事中</div>
+      </div>
+    </div>
+    <input type="hidden" id="status-mode-value" value="通常">
+
+    <!-- 3番目：チャットモード選択UIトリガー（高さ43px） -->
     <div id="custom-chat-mode" class="custom-select-wrapper" style="height: 43px; box-sizing: border-box; display: flex; align-items: center;">
       <div id="chat-mode-trigger" class="custom-select-trigger" onclick="toggleChatModeDropdown(event)" style="
-        height: 43px; box-sizing: border-box; display: flex; align-items: center; padding: 0 10px;
+        height: 43px; box-sizing: border-box; display: flex; align-items: center; padding: 0 10px; cursor: pointer;
       ">
         <span id="chat-mode-label">全体</span>
         <span class="custom-arrow">▼</span>
@@ -127,7 +163,7 @@
     </div>
     <input type="hidden" id="chat-mode-value" value="all">
 
-    <!-- 3番目：メッセージ入力欄（高さ43px） -->
+    <!-- 4番目：メッセージ入力欄（高さ43px） -->
     <input type="text" id="chat-in" placeholder="メッセージを入力してEnter..." style="
       flex: 1; min-width: 180px; max-width: 440px; height: 43px; box-sizing: border-box; padding: 0 12px;
     ">
