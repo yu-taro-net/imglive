@@ -229,7 +229,7 @@ const COMBAT_FORMULA = {
 const activeLogins = {}; // 🌐 現在ログイン中のユーザーIDとsocket.idを管理するマップ
 
 // ============================================================
-// 【重要】既存のログイン処理を切り出した関数
+// 【重要】既存のログイン処理を切り出した関数（修正版）
 // ============================================================
 async function performLogin(socket, user, token, channel, group, style_id) {
     try {
@@ -276,9 +276,10 @@ async function performLogin(socket, user, token, channel, group, style_id) {
             return;
         }
 
-        // 🌟 ログインした瞬間の最新の連携状態をDBから取得
-        const [userStatusRows] = await pool.query('SELECT is_linked FROM users WHERE id = ?', [user.id]);
+        // 🌟 ログインした瞬間の最新の連携状態と、人気度（fame）をDBから取得
+        const [userStatusRows] = await pool.query('SELECT is_linked, fame FROM users WHERE id = ?', [user.id]);
         const isLinked = userStatusRows[0] ? (userStatusRows[0].is_linked === 1) : false;
+        const userFame = userStatusRows[0] ? (userStatusRows[0].fame || 0) : 0; // 🌟 データベースから人気度を取得
 
         const stats = statsResults[0];
         const finalStyleId = (stats.style_id !== null && stats.style_id !== undefined) ? stats.style_id : 1;
@@ -308,8 +309,8 @@ async function performLogin(socket, user, token, channel, group, style_id) {
                 fixedInventory[sIdx] = item;
             }
         });
-		
-		// 🌟 【追加①】ここで図鑑データをロードする！
+        
+        // 🌟 【追加①】ここで図鑑データをロードする！
         let playerCardCollection = {};
         try {
             const [cardRows] = await pool.query(
@@ -418,6 +419,7 @@ async function performLogin(socket, user, token, channel, group, style_id) {
             dbId: user.id,
             id: user.id,
             name: user.username,
+            popularity: userFame, // 🌟 【追加】ここでデータベースの人気度（fame）を保持する！
             channel: selectedChannel,
             gold: Number(stats.gold || 0),
             level: stats.level,
@@ -431,7 +433,7 @@ async function performLogin(socket, user, token, channel, group, style_id) {
             maxHp: finalMaxHp,
             baseMaxMp: baseMaxMp,
             bonusMaxMp: totalMaxMp,
-            maxMp: finalMaxHp,
+            maxMp: finalMaxMp, // (※もともとの記述に合わせた修正)
 
             mp: stats.mp,
             map_id: stats.map_id,
@@ -466,7 +468,7 @@ async function performLogin(socket, user, token, channel, group, style_id) {
             
             inventory: fixedInventory,
             cardCollection: playerCardCollection, // 🌟 【追加②】プレイヤーのデータに持たせる
-            keyConfig: savedKeyConfig,             // 🌟 【追加】サーバーから読み込んだキーコンフィグをメモリに保持
+            keyConfig: savedKeyConfig,            // 🌟 【追加】サーバーから読み込んだキーコンフィグをメモリに保持
             is_vending: false
         };
 
@@ -477,24 +479,26 @@ async function performLogin(socket, user, token, channel, group, style_id) {
             success: true,
             id: user.id,
             username: user.username,
+            popularity: userFame, // 🌟 クライアント側でも初期値として受け取れるように追加
             channel: selectedChannel,
             token: token,
             is_linked: isLinked,
             is_online: true,
             stats: {
                 level: stats.level,
+                popularity: userFame, // 🌟 stats内にも持たせておくと安心
                 exp: stats.exp,
-                requiredExp: requiredExp, // 💡 クライアント側で (〇〇%) を計算するためのプロパティ
+                requiredExp: requiredExp, 
                 model_id: stats.model_id,
                 style_id: finalStyleId,
                 hp: players[socket.id].hp,
                 max_hp: players[socket.id].maxHp,
-                baseMaxHp: baseMaxHp,    // 🌟 クライアント用に追加送信
-                bonusMaxHp: totalMaxHp,  // 🌟 クライアント用に追加送信
+                baseMaxHp: baseMaxHp,    
+                bonusMaxHp: totalMaxHp,  
                 mp: stats.mp,
                 max_mp: players[socket.id].maxMp,
-                baseMaxMp: baseMaxMp,    // 🌟 クライアント用に追加送信
-                bonusMaxMp: totalMaxMp,  // 🌟 クライアント用に追加送信
+                baseMaxMp: baseMaxMp,    
+                bonusMaxMp: totalMaxMp,  
                 gold: stats.gold,
                 map_id: stats.map_id,
                 x: stats.pos_x,
@@ -527,15 +531,20 @@ async function performLogin(socket, user, token, channel, group, style_id) {
             },
             message: 'ログイン成功！'
         });
-		
+        
         socket.emit('inventory_update', fixedInventory);
-		
-		// 🌟 【追加③】クライアントへ最新の図鑑データを送信！
+        
+        // 🌟 【追加③】クライアントへ最新の図鑑データを送信！
         socket.emit('card_collection_update', players[socket.id].cardCollection);
-		
+        
         socket.to(roomName).emit('player_joined', players[socket.id]);
-		
+        
         socket.username = user.username;
+        
+        // 🌟 【追加】ログインが完全に完了したので、フレンドたちに通知する！
+        if (typeof notifyFriendsToRefresh === 'function') {
+            await notifyFriendsToRefresh(user.id);
+        }
 
     } catch (err) {
         console.error("❌ performLogin処理エラー:", err);
@@ -696,7 +705,7 @@ socket.on('logout', async () => {
 // ==========================================
 
 // ============================================================
-// :::JOIN::: --- 1. 参加処理の修正（既存ロジック踏襲・サウンド通知追加版） ---
+// :::JOIN::: --- 1. 参加処理の修正（デバッグ行追加版） ---
 // ============================================================
 socket.on('join', data => {
     try {
@@ -726,7 +735,6 @@ socket.on('join', data => {
             p.charVar = selectedCharVar;
 
             // 🚨【整合性担保のための安全処理】
-            // 2回目の本番loginで読み込まれた後に届く決定値(group: 14等)を、メモリのjob_idへ確実に同期させます
             if (selectedGroup !== 0) {
                 p.job_id = selectedGroup;
             }
@@ -735,22 +743,87 @@ socket.on('join', data => {
             socket.to(roomName).emit('player_joined_sound');
 
             // 🌟 追加：【全チャンネル対応】ログイン通知を全員（io.emit）に飛ばす
-            // これにより、別チャンネルにいるユーザーの画面にも通知が表示されます
             io.emit('globalNotification', {
                 message: `${p.name} 様がログインしました。`,
                 color: "#FFFFFF",
-                senderId: socket.id, // 🌟 これを自分自身で判定するために追加
+                senderId: socket.id,
                 type: 'LOGIN'
             });
             
             emitPlayerList();
+            
+            // 🌟 入室したプレイヤーに向けて、同じチャンネル内で開かれている露店の情報を送信する
+            if (p && typeof active_venders !== 'undefined') {
+                Object.values(active_venders).forEach(shop => {
+                    if (shop.channel === channel) {
+                        // 🛑 【ガチ検証デバッグ行】送信直前の店舗データを完全出力
+                        console.log(`🔍 [SERVER DEBUG] 露店情報を送信します -> 店主DB_ID: ${shop.dbId}, 店主名:${shop.name}, 送信座標: X=${shop.x}, Y=${shop.y}, タイトル:${shop.vending_title}`);
+
+                        socket.emit('vending_opened', {
+                            id: shop.dbId || shop.owner_id, // 永続IDを優先
+                            dbId: shop.dbId,
+                            name: shop.name || shop.owner_name || p.name, // 👈 【重要】ここ店主の名前を確実に送る！
+                            owner_name: shop.name || shop.owner_name || p.name, // 👈 予備として両方指定
+                            vending_title: shop.vending_title,
+                            title: shop.vending_title,
+                            mode: shop.mode || 'monster',
+                            vending_mode: shop.vending_mode || 'monster',
+                            items: shop.items,
+                            x: shop.x,
+                            y: shop.y
+                        });
+                    }
+                });
+            }
 
             // 🌟 【一番簡単な重複対策】この接続でまだログを出していなければ1回だけ出す
             if (!socket.hasLoggedJoin) {
                 socket.hasLoggedJoin = true;
                 debugChat(`👋 ${userName} さんが チャンネル ${channel} に参加しました（キャラID: ${p.group}）`);
             }
-            //LOG.SYS(`[入室データ確認] ${JSON.stringify(p)}`);
+
+            // ========================================================
+            // 🌟🌟🌟 【新規追加】ログイン時の不在時売上ダイアログ通知処理 🌟🌟🌟
+            // ========================================================
+            (async () => {
+                try {
+                    const playerDbId = Number(p.dbId || p.user_id || p.id);
+                    if (playerDbId) {
+                        const [salesLogs] = await pool.query(
+                            `SELECT * FROM offline_sales_log WHERE seller_user_id = ?`,
+                            [playerDbId]
+                        );
+
+                        if (salesLogs && salesLogs.length > 0) {
+                            let totalEarnings = 0;
+                            let summaryList = [];
+
+                            salesLogs.forEach(log => {
+                                summaryList.push({
+                                    buyerName: log.buyer_name,
+                                    itemName: log.item_name,
+                                    quantity: log.quantity,
+                                    totalPrice: log.total_price
+                                });
+                                totalEarnings += log.total_price;
+                            });
+
+                            // 🌟 チャットではなく、専用のダイアログ表示イベントをクライアントへ送信
+                            socket.emit('show_offline_sales_dialog', {
+                                sales: summaryList,
+                                totalEarnings: totalEarnings
+                            });
+
+                            // 通知した履歴はデータベースから削除
+                            await pool.query(`DELETE FROM offline_sales_log WHERE seller_user_id = ?`, [playerDbId]);
+                            console.log(`[Vending] ${p.name} (DB ID:${playerDbId}) の不在時売上ダイアログデータを送信し、ログを消去しました。`);
+                        }
+                    }
+                } catch (salesErr) {
+                    console.error("❌ [VENDING_ERROR] ログイン時の売上通知取得に失敗しました:", salesErr.message);
+                }
+            })();
+            // ========================================================
         }
     } catch (e) {
         debugChat(`❌ joinエラー: ${e.message}`, 'error');
@@ -1268,51 +1341,76 @@ socket.on('organizeInventory', async () => {
 });
 
         // ============================================================
-// :::DISCONNECT::: 👋 接続解除 (Disconnect) 処理
+// :::DISCONNECT::: 👋 接続解除 (Disconnect) 処理（座標保持・修正版）
 // ============================================================
-socket.on('disconnect', () => {
+socket.on('disconnect', async () => {
     LOG.SYS(`ユーザーが切断しました: ${socket.id}`);
-	debugChat("[DISCONN] Disconnected | ID: " + socket.id);
-	
+    debugChat("[DISCONN] Disconnected | ID: " + socket.id);
+    
     try {
-        // プレイヤーデータを取得
         const p = players[socket.id];
-        
-        // 🌟 優先度：p.name があればそれを使用し、なければ socket.username、最後に socket.id を使用
         const name = p ? p.name : (socket.username || socket.id);
 
-        // 🌟 【追加】もしトレード中だったら、相手に切断されたことを知らせてペアを解除する
+        if (p && p.dbId) {
+            await notifyFriendsToRefresh(p.dbId);
+        }
+
         const partnerSocketId = tradePartners[socket.id];
         if (partnerSocketId) {
-            // 相手の画面に「相手が切断しました」と伝えてトレードウィンドウを強制的に閉じるイベント
             io.to(partnerSocketId).emit('tradeCancelled', { reason: 'opponent_disconnected' });
-            
-            // 相手側の記憶も消去
             delete tradePartners[partnerSocketId];
             LOG.SYS(`[Trade] 切断に伴いトレードを中止しました（相手: ${partnerSocketId}）`);
         }
-        delete tradePartners[socket.id]; // 自分の記憶も消去
+        delete tradePartners[socket.id];
 
-        // 🌟 露店を開設していた場合、全体リストから削除する
-        if (active_venders[socket.id]) {
-            delete active_venders[socket.id];
-            LOG.SYS(`[Vending] 切断に伴い露店を閉鎖しました: ${name}`);
+        // 🌟 露店を開設していた場合の処理（座標死守版）
+        if (p && p.is_vending) {
+            // 💡 すでに active_venders に登録されている既存データの x と y を事前に退避しておく！
+            let existingX = p.x;
+            let existingY = p.y;
             
-            // ✅ 閲覧中の全ユーザーに閉店を通知
-            io.emit('vending_closed', { id: socket.id });
+            // 既存の active_venders を socket.id または dbId で探して古い座標を回収する
+            for (const key in active_venders) {
+                const shop = active_venders[key];
+                if (shop.dbId === p.dbId || key === socket.id) {
+                    if (shop.x !== undefined && shop.y !== undefined) {
+                        existingX = shop.x; // 👈 過去に保存した死守すべき初期座標
+                        existingY = shop.y;
+                    }
+                }
+            }
+
+            if (!active_venders[socket.id]) {
+                active_venders[socket.id] = {};
+            }
+
+            // 切断時：タイトルやアイテムは更新するが、x と y は絶対に古い初期座標を維持する！
+            active_venders[socket.id] = {
+                ...active_venders[socket.id],
+                owner_id: socket.id,
+                dbId: p.dbId || p.id,
+                name: p.name,
+                x: existingX, // 👈 過去の固定座標を死守！
+                y: existingY, // 👈 過去の固定座標を死守！
+                vending_title: p.vending_title,
+                is_vending: true,
+                vending_items: p.vending_items ? JSON.parse(JSON.stringify(p.vending_items)) : [],
+                inventory: p.inventory ? JSON.parse(JSON.stringify(p.inventory)) : []
+            };
+
+            LOG.SYS(`[Vending] ${name} が切断しましたが、無人露店（初期位置 X=${existingX}, Y=${existingY}）を維持します。`);
+        } else if (active_venders[socket.id]) {
+            LOG.SYS(`[Vending] ${name} が切断しましたが、既存の無人露店（看板）を維持します。`);
         }
 
         debugChat(`📴 切断されました: ${name}`);
 
-        // プレイヤーデータの削除
         delete players[socket.id];
 
-        // 🌟 【重要】 二重ログイン防止用の名前紐付けを解除
         if (socket.username) {
             delete socket.username;
         }
 
-        // リストの更新
         emitPlayerList();
 
     } catch (e) {
@@ -1535,7 +1633,7 @@ socket.on('chat', (data) => {
 		// ============================================================
 // :::CHANNEL::: --- チャンネル変更処理（既存ロジックを完全踏襲） ---
 // ============================================================
-socket.on('change_channel', (data) => {
+socket.on('change_channel', async (data) => { // 🌟 非同期処理（async）にする
     const { newChannel } = data;
     const player = players[socket.id];
     
@@ -1579,6 +1677,11 @@ socket.on('change_channel', (data) => {
     // 🌟 追記：全チャンネル対応のプレイヤーリストを更新して全員に通知
     if (typeof emitPlayerList === 'function') {
         emitPlayerList();
+    }
+
+    // 🌟 【ここを追加！】チャンネルが変わったので、フレンドたちに「リストを更新して！」と通知する
+    if (player.dbId && typeof notifyFriendsToRefresh === 'function') {
+        await notifyFriendsToRefresh(player.dbId);
     }
     
     console.log(`[Channel] ${player.name} moved to ${newRoom}. Room population: ${Object.keys(roomPlayers).length}`);
@@ -2226,53 +2329,92 @@ socket.on('sell_request', async (data) => {
 // ============================================================
 
 // ============================================================
-// :::OPEN_VENDING::: 🛒 露店開設イベント (在庫連動・予約管理)
+// :::OPEN_VENDING::: 🛒 サーバー側露店開設イベント (ガチガチデバッグ版)
 // ============================================================
 socket.on('open_vending', (data) => {
     const p = players[socket.id];
     
-    // プレイヤーが存在しない場合は中断
-    if (!p) return;
+    // 🌟 【デバッグ1】イベント受信時：プレイヤー情報が存在するか確認
+    console.log(`\n=================== [SHOP DEBUG SERVER: START] ===================`);
+    console.log(`1. open_vending 受信 | socket.id: ${socket.id}`);
+    console.log(`   p (プレイヤーデータ) 存在: ${!!p}`);
+    if (p) {
+        console.log(`   p.name: "${p.name}" | p.dbId: ${p.dbId} | p.vending_title: "${p.vending_title}"`);
+    } else {
+        console.error(`❌ エラー: players[${socket.id}] が見つかりません！`);
+        return;
+    }
 
     // 🌟 店名を確定させてサーバー側の変数に保存
     const inputTitle = data.title || data.vending_title || p.vending_title || "No Name Shop";
     p.vending_title = inputTitle;
 
+    // 🌟 クライアントから送られたモード（有人/無人）を保存（デフォルトは monster）
+    const vendingMode = data.mode || data.vending_mode || 'monster';
+    p.vending_mode = vendingMode;
+    p.mode = vendingMode;
+
+    // --- 🌟 座標の固定処理（型とIDの揺れを完全カバー） ---
+    let shopX = p.x;
+    let shopY = p.y;
+
+    const ownerUniqueId = p.dbId ? String(p.dbId) : null;
+    let existingVenderKey = null;
+
+    if (ownerUniqueId) {
+        for (const key in active_venders) {
+            const v = active_venders[key];
+            const vDbId = v.dbId ? String(v.dbId) : null;
+            if ((vDbId === ownerUniqueId || String(v.owner_id) === ownerUniqueId) && (v.mode === 'monster' || v.vending_mode === 'monster')) {
+                existingVenderKey = key;
+                break;
+            }
+        }
+    }
+
+    if (vendingMode === 'monster' && existingVenderKey) {
+        shopX = active_venders[existingVenderKey].x;
+        shopY = active_venders[existingVenderKey].y;
+        console.log(`2. 既存無人店舗の座標を保持: (X=${shopX}, Y=${shopY})`);
+        if (existingVenderKey !== socket.id) {
+            delete active_venders[existingVenderKey];
+        }
+    } else {
+        console.log(`2. 新規無人店舗の登録: (初期位置 X=${shopX}, Y=${shopY})`);
+    }
+
     // --- 🌟 ロジック踏襲: 準備中（アイテム0）なら状態更新も通知もしない ---
     if (!data.items || data.items.length === 0) {
         p.is_vending = false; 
-        p.vending_items = []; // プレイヤー情報のリストもリセット
+        p.vending_items = []; 
 
         active_venders[socket.id] = {
             dbId: p.dbId,
+            owner_id: p.dbId || socket.id,
             name: p.name,
-            vending_title: p.vending_title, 
+            vending_title: p.vending_title,        
+            mode: vendingMode,        
+            vending_mode: vendingMode,
             channel: p.channel,
             map_id: p.map_id, 
-            x: p.x,
-            y: p.y,
+            x: shopX, 
+            y: shopY,
             items: [] 
         };
 
-        console.log(`[Vending] ${p.name} は準備中のため、同期通知をスキップしました: ${p.vending_title}`);
-        return; // ❌ アイテムがない場合はここで終了
+        console.log(`3. 準備中のため同期通知スキップ`);
+        console.log(`=================== [SHOP DEBUG SERVER: END] ===================\n`);
+        return; 
     }
 
-    // --- ここから下は「アイテムが1つ以上ある場合」のみ実行される ---
-
-    // 🌟 【修正ポイント】
-    // クライアントから送られた「出品データ」を整理する。
-    // ここではインベントリ (p.inventory) から個数を引かずに、
-    // 「どのスロット(originalIndex)から何個(count)出すか」という情報だけを保存する。
     const formattedVendingItems = data.items.map(vItem => {
-        // インベントリの現物を確認
         const invItem = p.inventory[vItem.originalIndex];
         if (invItem) {
             return {
-                ...invItem,       // アイテムの基本情報（名前、画像など）
-                count: vItem.count, // 出品したい数
-                price: vItem.price, // 販売価格
-                originalIndex: vItem.originalIndex // 🌟 重要：売れた時に減らすためのスロット番号
+                ...invItem,       
+                count: vItem.count, 
+                price: vItem.price, 
+                originalIndex: vItem.originalIndex 
             };
         }
         return null;
@@ -2280,80 +2422,98 @@ socket.on('open_vending', (data) => {
 
     // 1. サーバー側のプレイヤー個別の状態を正式に「開店中」に更新
     p.is_vending = true;
-    
-    // 🔥 整理した出品リストを保存（売れた瞬間にここを参照してインベントリを減らす）
     p.vending_items = formattedVendingItems;
 
     // 2. 外部管理用の active_venders に詳細情報を登録
     active_venders[socket.id] = {
         dbId: p.dbId,
+        owner_id: p.dbId || socket.id,
         name: p.name,
         vending_title: p.vending_title,
+        mode: vendingMode,        
+        vending_mode: vendingMode,
         channel: p.channel,
         map_id: p.map_id, 
-        x: p.x,
-        y: p.y,
+        x: shopX, 
+        y: shopY,
         items: formattedVendingItems
     };
 
-    // 3. 全員（同じチャンネルの人）に開店を知らせる
-    io.to(`channel_${p.channel}`).emit('vending_opened', {
-        id: socket.id,
+    // 🌟 【デバッグ2】active_venders 登録直後のデータ確認
+    console.log(`3. active_venders[${socket.id}] に登録した内容:`, active_venders[socket.id]);
+
+    // 3. 全員（同じチャンネルの人）に送信するペイロードオブジェクトを作成
+    const emitPayload = {
+        id: p.dbId || socket.id,
+        dbId: p.dbId,
+        name: p.name, // 👈 ここに値が入っているかログで確認！
+        owner_name: p.name,
         vending_title: p.vending_title,
         title: p.vending_title,
-        items: formattedVendingItems, // 受信を確実にする
-        x: p.x,
-        y: p.y
-    });
+        mode: vendingMode,        
+        vending_mode: vendingMode,
+        items: formattedVendingItems, 
+        x: shopX, 
+        y: shopY
+    };
 
-    console.log(`[Vending] ${p.name} が在庫連動モードで開店しました: ${p.vending_title}`);
+    // 🌟 【デバッグ3】クライアントへ emit 直前のデータ確認
+    console.log(`4. vending_opened で送信(emit)するデータ:`, emitPayload);
+    console.log(`=================== [SHOP DEBUG SERVER: END] ===================\n`);
+
+    // 全員に送信
+    io.to(`channel_${p.channel}`).emit('vending_opened', emitPayload);
 });
 
-// ============================================================
-// :::GET_VENDING::: 🛒 📡 露店の商品リスト要求とカタログデータ結合
-// ============================================================
 socket.on('request_vending_data', async (data) => {
-    const ownerId = data.ownerId;
+    const ownerId = String(data.ownerId); // 文字列に統一して比較
     
-    // 1. 全プレイヤーの中から、店主(ownerId)のデータを探す
-    const owner = players[ownerId]; 
+    console.log(`\n========== 🔍 [VENDING_DEBUG] 📦 商品データ要求を受信: ownerId = ${ownerId} ==========`);
 
-    console.log(`\n========== 🔍 [VENDING_GIGA_DEBUG] START: ${ownerId} ==========`);
+    // 1. onlineOwner のチェック
+    let onlineOwner = players[ownerId];
+    if (!onlineOwner) {
+        // もし ownerId がソケットIDではなくキャラID等の場合も考慮して players から探す
+        for (let sId in players) {
+            const p = players[sId];
+            if (sId === ownerId || String(p.dbId) === ownerId || String(p.id) === ownerId) {
+                onlineOwner = p;
+                break;
+            }
+        }
+    }
 
-    if (owner && owner.is_vending) {
+    // 2. offlineShop (active_venders) のチェック（キーや内部の dbId, owner_id を総当たりで探す）
+    let offlineShop = null;
+    if (typeof active_venders !== 'undefined') {
+        for (let key in active_venders) {
+            const shop = active_venders[key];
+            if (key === ownerId || String(shop.dbId) === ownerId || String(shop.owner_id) === ownerId) {
+                offlineShop = shop;
+                break;
+            }
+        }
+    }
+
+    console.log(`[DEBUG] onlineOwner 発見?:`, !!onlineOwner);
+    console.log(`[DEBUG] offlineShop 発見?:`, !!offlineShop);
+
+    if ((onlineOwner && onlineOwner.is_vending) || offlineShop) {
         console.log(`[Vending] ${ownerId} の商品リストをカタログ情報を紐付けて返信します`);
 
-        // --- 🌟 店主のインベントリから詳細情報を抽出して結合する ---
-        // DB照会を行うために Promise.all を使用します
-        const itemsWithDetails = await Promise.all((owner.vending_items || []).map(async (vItem, idx) => {
+        const rawItemsList = onlineOwner ? (onlineOwner.vending_items || []) : (offlineShop.items || []);
+        console.log(`[DEBUG] 処理対象の生アイテムリスト数:`, rawItemsList.length);
+
+        const itemsWithDetails = await Promise.all(rawItemsList.map(async (vItem, idx) => {
             if (!vItem) return null;
 
-            console.log(`\n--- 📦 [Item:${idx}] の解析開始 ---`);
-            console.log(`[DEBUG] 1. 出品データ(vItem):`, JSON.stringify(vItem));
-
-            // 店主のインベントリ(inventory)から元のアイテム情報を参照
-            const sIdx = vItem.originalIndex;
-            const invItem = (owner.inventory && owner.inventory[sIdx]) 
-                ? owner.inventory[sIdx] 
-                : null;
-
-            if (invItem) {
-                console.log(`[DEBUG] 2. 在庫データ(invItem)発見:`, JSON.stringify(invItem));
-            } else {
-                console.warn(`[DEBUG] 2. 在庫データ(invItem)が inventory[${sIdx}] に見つかりません`);
-            }
-
-            // 🌟 IDの確定（型を数値に変換して確実に判定できるようにします）
-            const rawId = vItem.id || vItem.item_id || (invItem ? invItem.item_id : null);
+            const rawId = vItem.id || vItem.item_id || vItem.data?.item_id;
             const resolvedId = (rawId !== undefined && rawId !== null) ? Number(rawId) : 0;
-            console.log(`[DEBUG] 3. 確定したID: ${resolvedId} (型: ${typeof rawId})`);
 
-            // 🌟 DBからマスター情報を一本釣り（3つのテーブルを振り分け）
             let dbMaster = null;
             let tableName = "";
 
             if (resolvedId > 0) {
-                // IDの番台によって参照テーブルを決定
                 if (resolvedId >= 100 && resolvedId < 200) {
                     tableName = "item_equip_catalog";
                 } else if (resolvedId >= 200 && resolvedId < 300) {
@@ -2364,55 +2524,41 @@ socket.on('request_vending_data', async (data) => {
 
                 if (tableName) {
                     try {
-                        // 🌟 【修正の決定打】WHERE句を id から item_id に変更
-                        console.log(`[DEBUG] 4. SQL実行: SELECT * FROM ${tableName} WHERE item_id = ${resolvedId}`);
                         const [rows] = await pool.query(`SELECT * FROM ${tableName} WHERE item_id = ?`, [resolvedId]);
-                        
                         if (rows && rows.length > 0) {
                             dbMaster = rows[0];
-                            console.log(`[DEBUG] 4. ✅ DB照合成功 (${tableName}):`, JSON.stringify(dbMaster));
-                        } else {
-                            console.error(`[DEBUG] 4. ❌ DB照合失敗: ${tableName} に item_id:${resolvedId} が存在しません`);
                         }
                     } catch (dbErr) {
-                        console.error(`[DEBUG] 4. ‼️ SQLエラー:`, dbErr.message);
+                        console.error(`[DEBUG] SQLエラー:`, dbErr.message);
                     }
-                } else {
-                    console.warn(`[DEBUG] 4. ⚠️ 該当するカタログテーブルが判定できませんでした (ID: ${resolvedId})`);
                 }
             }
 
             const resItem = {
                 ...vItem,
-                // クライアント側の描画ロジックが期待する 'data' 階層を動的に生成
                 data: {
                     item_id: resolvedId,
-                    // 🌟 修正：DBの display_name を最優先に変更
-                    display_name: dbMaster?.display_name || dbMaster?.name || vItem.display_name || vItem.name || (invItem ? (invItem.display_name || invItem.name) : null) || `不明(ID:${resolvedId})`,
-                    image_name: dbMaster?.image_name || vItem.image_name || vItem.imageName || (invItem ? (invItem.image_name || invItem.image || invItem.type) : null) || "default",
-                    type: dbMaster?.type || vItem.type || (invItem ? invItem.type : 'item'),
-                    // ランク判定（グロー効果）に必要なステータスも引き継ぐ
-                    totalALLStats: vItem.totalALLStats ?? (invItem ? invItem.totalALLStats : undefined),
-                    totalFirstStats: vItem.totalFirstStats ?? (invItem ? invItem.totalFirstStats : undefined)
+                    display_name: dbMaster?.display_name || dbMaster?.name || vItem.display_name || vItem.name || vItem.data?.display_name || `不明(ID:${resolvedId})`,
+                    image_name: dbMaster?.image_name || vItem.image_name || vItem.imageName || vItem.data?.image_name || "default",
+                    type: dbMaster?.type || vItem.type || vItem.data?.type || 'item',
+                    totalALLStats: vItem.totalALLStats ?? vItem.data?.totalALLStats,
+                    totalFirstStats: vItem.totalFirstStats ?? vItem.data?.totalFirstStats
                 }
             };
 
-            console.log(`[DEBUG] 5. 最終送信データ名: "${resItem.data.display_name}"`);
             return resItem;
         }));
 
         const finalItems = itemsWithDetails.filter(i => i !== null);
-        console.log(`\n[Vending] 送信準備完了: ${finalItems.length}件のアイテム`);
-        console.log(`========== 🔍 [VENDING_GIGA_DEBUG] END: ${ownerId} ==========\n`);
+        console.log(`[Vending] 送信準備完了: ${finalItems.length}件のアイテム`);
 
-        // 2. 要求したクライアントだけに、その店の商品リストを送り返す
         socket.emit('vending_data_res', {
-            ownerId: ownerId,
+            ownerId: data.ownerId,
             items: finalItems 
         });
     } else {
-        console.warn(`[Vending] 店主 ${ownerId} が見つからないか、閉店しています`);
-        socket.emit('vending_data_res', { ownerId: ownerId, items: [] });
+        console.warn(`❌ [Vending] 店主 ${ownerId} が見つからないか、閉店しています`);
+        socket.emit('vending_data_res', { ownerId: data.ownerId, items: [] });
     }
 });
 
@@ -2434,7 +2580,17 @@ socket.on('vending_buy_req', async (data) => {
     }
 
     const buyer = players[buyerId];
-    const seller = players[ownerId];
+    // 🌟 修正：オンラインの players にいなければ、active_venders から店主データを安全に取得する
+    let seller = players[ownerId];
+    if (!seller && typeof active_venders !== 'undefined') {
+        for (let key in active_venders) {
+            const shop = active_venders[key];
+            if (key === String(ownerId) || String(shop.dbId) === String(ownerId) || String(shop.owner_id) === String(ownerId)) {
+                seller = shop;
+                break;
+            }
+        }
+    }
 
     if (!buyer || !seller) {
         console.error("└─ [エラー] プレイヤーデータが見つかりません. buyer:", !!buyer, "seller:", !!seller);
@@ -2464,8 +2620,21 @@ socket.on('vending_buy_req', async (data) => {
 
         if (!buyerDbId || !sellerDbId) throw new Error(`数値ID特定不可`);
 
-        // 🌟 【重要】メモリ上の露店データからアイテムを特定
-        const itemInVending = seller.vending_items?.find(i => i && String(i.db_id || i.id) === String(dbIdRaw));
+        // 🌟 【調査用】保持されている vending_items の中身を丸ごとログに出力して確認
+        console.log("├─ [DEBUG] 保持されている vending_items 一覧:", JSON.stringify(seller.vending_items));
+
+        // 🌟 修正：多様なIDの持ち方に対応して柔軟にメモリ照合する
+        const itemInVending = seller.vending_items?.find(i => {
+            if (!i) return false;
+            const targetId = String(dbIdRaw);
+            return (
+                String(i.db_id) === targetId ||
+                String(i.id) === targetId ||
+                String(i.item_id) === targetId ||
+                String(i.data?.item_id) === targetId ||
+                String(i.originalIndex) === targetId
+            );
+        });
         console.log("├─ [3.露店メモリ照合]:", itemInVending ? "✅ 発見" : "❌ 未発見", itemInVending);
 
         if (!itemInVending) throw new Error("VENDING_DATA_MISMATCH");
@@ -2488,10 +2657,18 @@ socket.on('vending_buy_req', async (data) => {
         // 🌟 数量と価格 (確実に数値化)
         const buyQty = Number(itemInVending.count || itemInVending.quantity || 1); 
         const pricePerOne = Number(itemInVending.price); 
-        const totalPrice = pricePerOne * buyQty;         
+        const totalPrice = pricePerOne * buyQty;        
+
+        // 🌟🌟🌟 【新規追加】所持金が足りているかの厳密なチェック 🌟🌟🌟
+        const currentBuyerGold = buyer.gold !== undefined ? Number(buyer.gold) : (Number(buyer.money) || 0);
+        console.log(`├─ [4.所持金チェック]: 所持金=${currentBuyerGold}, 必要金額=${totalPrice}`);
+
+        if (currentBuyerGold < totalPrice) {
+            throw new Error("NOT_ENOUGH_GOLD");
+        }
 
         // 判定：装備品かどうか
-		const isEquipment = itemType.includes('shield') || itemType.includes('sword');
+        const isEquipment = itemType.includes('shield') || itemType.includes('sword');
         let finalSlotIndex = -1;
         let isNewSlot = true;
         let mergedDbId = null;
@@ -2540,7 +2717,10 @@ socket.on('vending_buy_req', async (data) => {
 
         // --- ✅ 🧠 メモリ上のデータ「完全同期」 ---
         if (buyer.gold !== undefined) buyer.gold -= totalPrice;
+        else if (buyer.money !== undefined) buyer.money -= totalPrice;
+
         if (seller.gold !== undefined) seller.gold += totalPrice;
+        else if (seller.money !== undefined) seller.money += totalPrice;
 
         // 1. 【販売者側メモリ】
         if (Array.isArray(seller.inventory)) {
@@ -2613,15 +2793,33 @@ socket.on('vending_buy_req', async (data) => {
             }
         }
 
+        const purchasedName = targetItem?.display_name || targetItem?.name || "アイテム";
+
+        // ========================================================
+        // 🌟 【新規追加】販売者がオフライン（無人露店）の場合、売上ログをDBに保存する
+        // ========================================================
+        const isSellerOffline = !players[ownerId]; // オンラインの players にいなければオフライン（無人）
+        if (isSellerOffline) {
+            try {
+                await connection.query(
+                    `INSERT INTO offline_sales_log (seller_user_id, buyer_name, item_name, quantity, total_price) VALUES (?, ?, ?, ?, ?)`,
+                    [sellerDbId, buyer.name, purchasedName, buyQty, totalPrice]
+                );
+                console.log(`│ [VENDING] オフライン中の店主(DB ID:${sellerDbId})宛ての売上ログを保存しました。`);
+            } catch (logErr) {
+                console.error(`❌ [VENDING_ERROR] 売上ログの保存に失敗しました:`, logErr.message);
+            }
+        }
+        // ========================================================
+
         // --- ✅ 📡 クライアント送信 ---
         const finalGold = buyer.gold !== undefined ? buyer.gold : (buyer.money || 0);
-        const purchasedName = targetItem?.display_name || targetItem?.name || "アイテム";
 
         socket.emit('vending_buy_success', { dbId: dbIdRaw, newMoney: finalGold });
         socket.emit('inventory_update', { inventory: buyer.inventory }); 
         socket.emit('system_message', { text: `${purchasedName} x${buyQty} を購入しました。` });
 
-        io.to(ownerId).emit('vending_item_sold', { dbId: dbIdRaw, newMoney: (seller.gold || 0), buyerName: buyer.name });
+        io.to(ownerId).emit('vending_item_sold', { dbId: dbIdRaw, newMoney: (seller.gold || seller.money || 0), buyerName: buyer.name });
         io.to(ownerId).emit('inventory_update', { inventory: seller.inventory });
 
         // 🌟🌟🌟 【完売チェック：自動閉店ロジック】 🌟🌟🌟
@@ -2646,10 +2844,138 @@ socket.on('vending_buy_req', async (data) => {
     } catch (err) {
         if (connection) await connection.rollback();
         console.error("❌ [VENDING_ERROR]:", err);
-        socket.emit('system_message', { text: `購入エラー: ${err.message}` });
+
+        let errorMsg = `購入エラー: ${err.message}`;
+        if (err.message === "NOT_ENOUGH_GOLD") {
+            errorMsg = "所持金が足りません。";
+        }
+        socket.emit('system_message', { text: errorMsg });
     } finally {
         if (connection) connection.release();
     }
+});
+
+// ============================================================
+// :::CLOSE_VENDING::: 🛑 露店閉鎖・管理リスト削除・閉店通知 (堅牢版)
+// ============================================================
+socket.on('close_vending', () => {
+    const p = players[socket.id];
+    if (!p) return;
+
+    // 1. サーバー側のプレイヤー状態を「非開店」に更新
+    p.is_vending = false;
+    p.vending_items = [];
+    p.vending_title = "";
+
+    // 2. active_venders リストから socket.id または dbId が一致するものを全削除
+    if (active_venders[socket.id]) {
+        delete active_venders[socket.id];
+    }
+
+    const ownerUniqueId = p.dbId ? String(p.dbId) : null;
+    if (ownerUniqueId) {
+        for (const key in active_venders) {
+            const v = active_venders[key];
+            const vDbId = v.dbId ? String(v.dbId) : null;
+            if (vDbId === ownerUniqueId || String(v.owner_id) === ownerUniqueId) {
+                delete active_venders[key];
+            }
+        }
+    }
+
+    // 3. 同じチャンネルの全員に「看板を消して」と通知（persistentId や socket.id を含める）
+    io.to(`channel_${p.channel}`).emit('vending_closed', {
+        id: socket.id,
+        dbId: p.dbId,
+        owner_id: p.dbId || socket.id
+    });
+
+    console.log(`[Vending] ${p.name} が露店を完全に閉じました。`);
+});
+
+// サーバー側で現在展開されている無人露店をすべて保存しておく配列
+const offlineVendingShops = [];
+
+// ============================================================
+// :::OPEN_OFFLINE_VENDING::: 🛒 無人露店の開設・更新通知（デバッグ強化版）
+// ============================================================
+socket.on('open_offline_vending', (data) => {
+    const p = players[socket.id];
+    
+    // 🛑 デバッグログ 1: イベント受信時の基本情報
+    console.log("--------------------------------------------------育");
+    console.log("[DEBUG 1: 受信データ]", {
+        socketId: socket.id,
+        playerFound: !!p,
+        dbId: p ? p.dbId : "不明",
+        playerName: p ? p.name : "不明",
+        receivedX: data.x,
+        receivedY: data.y,
+        shopTitle: data.title
+    });
+
+    if (!p) {
+        console.log("❌ [DEBUG ERROR] プレイヤーデータが存在しないため処理を中断します。");
+        return;
+    }
+
+    const ownerUniqueId = p.dbId || socket.id; 
+    let existingShop = offlineVendingShops.find(shop => shop.owner_id === ownerUniqueId);
+    const shopMode = data.mode || data.vending_mode || 'monster';
+    
+    // 🛑 デバッグログ 2: 既存店舗の検索結果
+    console.log("[DEBUG 2: 既存店舗検索]", {
+        ownerUniqueId: ownerUniqueId,
+        shopAlreadyExists: !!existingShop,
+        previousShopCoords: existingShop ? { x: existingShop.x, y: existingShop.y } : "なし"
+    });
+
+    if (existingShop) {
+        // 🛑 デバッグログ 3: 上書き前の確認
+        console.log("[DEBUG 3: 既存店舗の更新処理]", {
+            action: "タイトルや商品は更新しますが、座標(x,y)は固定を維持します",
+            oldX: existingShop.x,
+            oldY: existingShop.y,
+            ignoredNewX: data.x, // 上書きせずに無視するはずの座標
+            ignoredNewY: data.y
+        });
+
+        existingShop.title = data.title;
+        existingShop.items = data.items;
+        existingShop.mode = shopMode;
+        existingShop.socket_id = socket.id;
+
+        // 💡 万が一ここで座標が書き換わっていないか確認するため、あえて既存の x, y を死守するログ
+        console.log("[DEBUG 3-完了] 保持中の固定座標:", { x: existingShop.x, y: existingShop.y });
+
+    } else {
+        // 🛑 デバッグログ 4: 新規作成
+        console.log("[DEBUG 4: 新規店舗の登録]", {
+            registerX: data.x || 0,
+            registerY: data.y || 0
+        });
+
+        offlineVendingShops.push({
+            owner_id: ownerUniqueId, 
+            socket_id: socket.id,
+            owner_name: p.name || socket.playerName || "名無し",
+            title: data.title || "いらっしゃいませ！",
+            items: data.items || [],
+            mode: shopMode,
+            vending_mode: shopMode,
+            x: data.x || 0, 
+            y: data.y || 0  
+        });
+    }
+
+    // 🛑 デバッグログ 5: 現在の全店舗リストの座標一覧を出力
+    console.log("[DEBUG 5: 現在管理されている全無人店舗の座標リスト]", 
+        offlineVendingShops.map(s => ({ id: s.owner_id, name: s.owner_name, x: s.x, y: s.y }))
+    );
+    console.log("----------------------------------------------------");
+
+    // マップにいる全員に最新の露店一覧をブロードキャスト送信
+    io.emit('sync_offline_vending_shops', offlineVendingShops);
 });
 
 // ------------------------------------------------------------
@@ -2703,30 +3029,6 @@ socket.on('move', (data) => {
         if (data.emotionId !== undefined) {
             p.emotionId = data.emotionId;
         }
-    }
-});
-
-// ============================================================
-// :::CLOSE_VENDING::: 🛑 露店閉鎖・管理リスト削除・閉店通知
-// ============================================================
-socket.on('close_vending', () => {
-    const p = players[socket.id];
-    if (p) {
-        // 1. サーバー側の状態を「非開店」に更新
-        p.is_vending = false;
-        // 店名は保持しておいても良いが、看板を表示させないためにフラグを優先
-        
-        // 2. 外部管理用のリストから削除
-        if (active_venders[socket.id]) {
-            delete active_venders[socket.id];
-        }
-
-        // 3. 周囲のプレイヤーに「看板を消して」と通知
-        io.to(`channel_${p.channel}`).emit('vending_closed', {
-            id: socket.id
-        });
-
-        console.log(`[Vending] ${p.name} が露店を閉じました。`);
     }
 });
 
@@ -3336,6 +3638,421 @@ socket.on('request_idle_heal', () => {
 });
 
 // ============================================================
+// 🤝 フレンドシステム関連の Socket.io イベント
+// ============================================================
+
+// ============================================================
+// 1. フレンド申請を送る処理
+// ============================================================
+socket.on('send_friend_request', async (data) => {
+    console.log("==========================================");
+    console.log("🔍 [DEBUG] 1. 'send_friend_request' 受信 (socket.id:", socket.id, ")");
+
+    try {
+        const senderPlayer = players[socket.id];
+        if (!senderPlayer) {
+            console.error("❌ [ERROR] players[socket.id] が見つかりません（未ログイン状態）");
+            socket.emit('friend_response', { success: false, message: 'ログイン情報が確認できません。' });
+            return;
+        }
+
+        const senderId = senderPlayer.dbId; 
+        const senderUsername = senderPlayer.name;
+
+        console.log(`🔍 [DEBUG] 送信者 -> dbId: ${senderId}, name: ${senderUsername}`);
+
+        if (!senderId || !senderUsername) {
+            socket.emit('friend_response', { success: false, message: 'ユーザー情報が不完全です。' });
+            return;
+        }
+
+        const targetUsername = data.targetUsername ? data.targetUsername.trim() : '';
+        console.log(`🔍 [DEBUG] 宛先ターゲット名: [${targetUsername}]`);
+
+        if (!targetUsername) {
+            socket.emit('friend_response', { success: false, message: '相手のユーザー名を入力してください。' });
+            return;
+        }
+
+        if (targetUsername === senderUsername) {
+            socket.emit('friend_response', { success: false, message: '自分自身にフレンド申請は送れません。' });
+            return;
+        }
+
+        // 宛先ユーザー検索
+        const [targetRows] = await pool.query('SELECT id, username FROM users WHERE username = ?', [targetUsername]);
+        console.log(`🔍 [DEBUG] ユーザー検索結果:`, targetRows);
+
+        if (targetRows.length === 0) {
+            console.log(`⚠️ [DEBUG] 指定したユーザーが見つからないため中断します`);
+            socket.emit('friend_response', { success: false, message: '指定したユーザーが見つかりません。' });
+            return;
+        }
+        const receiverId = targetRows[0].id;
+        console.log(`🔍 [DEBUG] 宛先 receiverId: ${receiverId}`);
+
+        // 既存関係チェック
+        const [existing] = await pool.query(
+            `SELECT * FROM friendships 
+             WHERE (sender_id = ? AND receiver_id = ?) 
+                OR (sender_id = ? AND receiver_id = ?)`,
+            [senderId, receiverId, receiverId, senderId]
+        );
+        console.log(`🔍 [DEBUG] 既存のフレンド関係チェック結果:`, existing);
+
+        if (existing.length > 0) {
+            const rel = existing[0];
+            console.log(`⚠️ [DEBUG] すでに何らかの関係が存在します (status: ${rel.status})`);
+            if (rel.status === 'accepted') {
+                socket.emit('friend_response', { success: false, message: 'すでにフレンド登録されています。' });
+            } else {
+                socket.emit('friend_response', { success: false, message: 'すでにフレンド申請中、または保留中の関係があります。' });
+            }
+            return;
+        }
+
+        console.log(`🔍 [DEBUG] データベースに新規申請をインサートします...`);
+        await pool.query(
+            'INSERT INTO friendships (sender_id, receiver_id, status) VALUES (?, ?, ?)',
+            [senderId, receiverId, 'pending']
+        );
+
+        socket.emit('friend_response', { success: true, message: `${targetUsername} さんにフレンド申請を送りました！` });
+
+        // 宛先のオンライン判定と通知送信
+        const receiverSocketId = activeLogins[receiverId];
+        console.log(`🔍 [DEBUG] activeLogins 確認 -> receiverId(${receiverId}) の socketId:`, receiverSocketId);
+
+        if (receiverSocketId) {
+            io.to(receiverSocketId).emit('friend_request_received', {
+                senderId: senderId,
+                senderUsername: senderUsername
+            });
+            console.log(`🚀 相手 (${receiverSocketId}) へフレンド申請通知を送信しました！`);
+        } else {
+            console.log(`⚠️ 相手 (${targetUsername}) はオフライン（activeLoginsにいません）`);
+        }
+        console.log("==========================================");
+
+    } catch (err) {
+        console.error('❌ フレンド申請エラー:', err);
+        socket.emit('friend_response', { success: false, message: 'フレンド申請の送信に失敗しました。' });
+    }
+});
+
+
+// ============================================================
+// 1. フレンド申請を「承認」する処理
+// ============================================================
+socket.on('accept_friend_request', async (data) => {
+    try {
+        const receiverPlayer = players[socket.id];
+        if (!receiverPlayer) {
+            console.error("❌ [ERROR] 承認時: players[socket.id] が見つかりません（未ログイン状態）");
+            socket.emit('friend_response', { success: false, message: 'ログイン情報が確認できません。' });
+            return;
+        }
+
+        const userId = receiverPlayer.dbId; // 承認する側（自分）のDB ID
+        const currentUsername = receiverPlayer.name; // 自分の名前
+        const senderId = data.senderId; // 申請を送ってきた人のDB ID
+
+        if (!userId) {
+            socket.emit('friend_response', { success: false, message: 'ユーザー情報が不完全です。' });
+            return;
+        }
+
+        // 自分宛ての 'pending' な申請が存在するか確認
+        const [rows] = await pool.query(
+            'SELECT * FROM friendships WHERE sender_id = ? AND receiver_id = ? AND status = ?',
+            [senderId, userId, 'pending']
+        );
+
+        if (rows.length === 0) {
+            socket.emit('friend_response', { success: false, message: '有効なフレンド申請が見つかりません。' });
+            return;
+        }
+
+        // ステータスを 'accepted' に更新
+        await pool.query(
+            'UPDATE friendships SET status = ? WHERE sender_id = ? AND receiver_id = ?',
+            ['accepted', senderId, userId]
+        );
+
+        socket.emit('friend_response', { success: true, message: 'フレンド申請を承認しました！' });
+        console.log(`✨ フレンド承認成功: user(${userId}) と sender(${senderId}) がフレンドになりました`);
+
+        // 🌟 自分のフレンドリストを強制リフレッシュ
+        socket.emit('refresh_friend_list');
+
+        // 申請者側もオンラインなら、リアルタイムでフレンド成立を通知・更新させる
+        const senderSocketId = activeLogins[senderId];
+        if (senderSocketId) {
+            io.to(senderSocketId).emit('friend_request_accepted', {
+                friendId: userId,
+                friendUsername: currentUsername
+            });
+            io.to(senderSocketId).emit('refresh_friend_list'); // 相手のリストも更新させる
+            console.log(`🚀 申請者 (${senderSocketId}) へフレンド成立通知とリスト更新を送信しました！`);
+        }
+
+    } catch (err) {
+        console.error('❌ フレンド承認エラー:', err);
+        socket.emit('friend_response', { success: false, message: 'フレンドの承認に失敗しました。' });
+    }
+});
+
+// ============================================================
+// 2. フレンド申請を「拒否」する処理
+// ============================================================
+socket.on('reject_friend_request', async (data) => {
+    try {
+        const receiverPlayer = players[socket.id];
+        if (!receiverPlayer) return;
+
+        const receiverId = receiverPlayer.dbId;
+        const senderId = data.senderId;
+
+        // データベース上の 'pending' レコードを削除する
+        await pool.query(
+            `DELETE FROM friendships 
+             WHERE sender_id = ? AND receiver_id = ? AND status = 'pending'`,
+            [senderId, receiverId]
+        );
+
+        socket.emit('friend_response', { success: true, message: 'フレンド申請を拒否しました。' });
+        console.log(`🗑️ フレンド申請が拒否されたため、DBから削除しました (sender: ${senderId} -> receiver: ${receiverId})`);
+
+        // 🌟 自分のフレンドリストをリフレッシュ
+        socket.emit('refresh_friend_list');
+
+        // 相手（送信者）もログインしていればリストを更新させる
+        const senderSocketId = activeLogins[senderId];
+        if (senderSocketId) {
+            io.to(senderSocketId).emit('refresh_friend_list');
+        }
+
+    } catch (err) {
+        console.error('❌ フレンド申請拒否エラー:', err);
+        socket.emit('friend_response', { success: false, message: 'フレンド申請の拒否に失敗しました。' });
+    }
+});
+
+// ============================================================
+// 3. 自分で送った申請を「取消（キャンセル）」する処理 【新設】
+// ============================================================
+socket.on('cancel_friend_request', async (data) => {
+    try {
+        const senderPlayer = players[socket.id];
+        if (!senderPlayer) {
+            console.error("❌ [ERROR] 取消時: players[socket.id] が見つかりません（未ログイン状態）");
+            socket.emit('friend_response', { success: false, message: 'ログイン情報が確認できません。' });
+            return;
+        }
+
+        const senderId = senderPlayer.dbId; // 取消す側（自分 = 送信者）のDB ID
+        const receiverId = data.receiverId; // 申請の宛先だった相手のDB ID
+
+        if (!senderId || !receiverId) {
+            socket.emit('friend_response', { success: false, message: 'ユーザー情報が不完全です。' });
+            return;
+        }
+
+        // 自分（sender_id）から相手（receiver_id）への 'pending' な申請が存在するか確認＆削除
+        const [result] = await pool.query(
+            `DELETE FROM friendships 
+             WHERE sender_id = ? AND receiver_id = ? AND status = 'pending'`,
+            [senderId, receiverId]
+        );
+
+        if (result.affectedRows === 0) {
+            socket.emit('friend_response', { success: false, message: '該当する送信中の申請が見つかりません。' });
+            return;
+        }
+
+        socket.emit('friend_response', { success: true, message: 'フレンド申請を取り消しました。' });
+        console.log(`🗑️ 申請取消成功: sender(${senderId}) から receiver(${receiverId}) への申請を削除しました`);
+
+        // 🌟 自分のフレンドリストをリフレッシュ
+        socket.emit('refresh_friend_list');
+
+        // 相手（受信予定だった側）もオンラインならリストを更新させる
+        const receiverSocketId = activeLogins[receiverId];
+        if (receiverSocketId) {
+            io.to(receiverSocketId).emit('refresh_friend_list');
+            console.log(`🚀 相手 (${receiverSocketId}) のフレンドリスト更新通知を送信しました！`);
+        }
+
+    } catch (err) {
+        console.error('❌ フレンド申請取消エラー:', err);
+        socket.emit('friend_response', { success: false, message: 'フレンド申請の取消に失敗しました。' });
+    }
+});
+
+// ============================================================
+// 3. フレンド一覧・申請一覧を取得する処理
+// ============================================================
+socket.on('get_friend_list', async () => {
+    try {
+        const player = players[socket.id];
+        if (!player) return;
+        const userId = player.dbId;
+
+        if (!userId) return;
+
+        // 🌟 JOIN を LEFT JOIN に変更して、データが欠損しないように安全ガードする
+        const [friendRows] = await pool.query(
+            `SELECT f.*, 
+                    u1.username AS sender_name, 
+                    u2.username AS receiver_name 
+               FROM friendships f
+          LEFT JOIN users u1 ON f.sender_id = u1.id
+          LEFT JOIN users u2 ON f.receiver_id = u2.id
+              WHERE f.sender_id = ? OR f.receiver_id = ?`,
+            [userId, userId]
+        );
+
+        // 🔍 【デバッグ追加】データベースから取得できた「生データ」をそのままサーバーのコンソールに出力
+        console.log(`🔍 [DEBUG get_friend_list] ユーザーID ${userId} のフレンドシップ生データ:`, friendRows);
+
+        const friends = [];
+        const pendingRequests = [];
+
+        friendRows.forEach(row => {
+            const isSender = (row.sender_id === userId);
+            const otherId = isSender ? row.receiver_id : row.sender_id;
+            // 🌟 万が一ユーザー名が取得できなかった場合の安全フォールバック
+            const otherName = isSender ? (row.receiver_name || `User#${row.receiver_id}`) : (row.sender_name || `User#${row.sender_id}`);
+
+            if (row.status === 'accepted') {
+                const onlineSocketId = activeLogins[otherId];
+                const onlinePlayer = onlineSocketId ? players[onlineSocketId] : null;
+
+                friends.push({
+                    id: otherId,
+                    username: otherName,
+                    isOnline: !!onlinePlayer,
+                    channel: onlinePlayer ? (onlinePlayer.channel || 1) : 1,
+                    level: onlinePlayer ? (onlinePlayer.level || 1) : 1
+                });
+            } else if (row.status === 'pending') {
+                // 🔍 【デバッグ追加】pending行が見つかったか個別にチェック
+                console.log(`🔍 [DEBUG pending check] rowID: ${row.id}, sender: ${row.sender_id}, receiver: ${row.receiver_id}, 現在のuserId: ${userId}, isSender: ${isSender}`);
+
+                // 🌟 変更点：受信側だけでなく、送信側（自分が送ったもの）もリストに含める！
+                if (!isSender) {
+                    // 📥 相手から自分に届いている申請（承認・拒否ができる）
+                    pendingRequests.push({
+                        type: 'received',
+                        senderId: row.sender_id,
+                        username: otherName,
+                        created_at: row.created_at
+                    });
+                } else {
+                    // 📤 自分から相手に送って返事を待っている申請（送信中）
+                    pendingRequests.push({
+                        type: 'sent',
+                        receiverId: row.receiver_id,
+                        username: otherName,
+                        created_at: row.created_at
+                    });
+                }
+            }
+        });
+
+        console.log(`🔍 [DEBUG get_friend_list] 最終的な pendingRequests の中身:`, pendingRequests);
+
+        socket.emit('friend_list_data', {
+            success: true,
+            friends: friends,
+            pendingRequests: pendingRequests
+        });
+
+    } catch (err) {
+        console.error('❌ フレンド一覧取得エラー:', err);
+        socket.emit('friend_response', { success: false, message: 'フレンド情報の取得に失敗しました。' });
+    }
+});
+
+// ============================================================
+// ⭐ 人気度（Fame）を上げる処理（1日1回制限付き）
+// ============================================================
+socket.on('increase_fame', async (data) => {
+    try {
+        const player = players[socket.id];
+        if (!player) return;
+
+        const myDbId = player.dbId; // 自分のDB ID
+        const targetSocketId = data.targetId; // クライアントから送られてきた相手のsocket.id
+
+        // 1. オンラインのプレイヤーリストから相手の情報を取得
+        const targetPlayer = players[targetSocketId];
+        if (!targetPlayer) {
+            socket.emit('fame_response', { success: false, message: '対象のプレイヤーが見つかりません（オフラインの可能性）' });
+            return;
+        }
+
+        const targetDbId = targetPlayer.dbId; // 相手のデータベース上のID
+
+        // 2. 自分自身には上げられない
+        if (myDbId === targetDbId) {
+            socket.emit('fame_response', { success: false, message: '自分自身に人気度は上げられません。' });
+            return;
+        }
+
+        // 🌟 3. 【追加】今日（直近24時間以内、または同日）すでにこの相手に人気度を上げていないかチェック
+        // ※ ここでは「過去24時間以内」に同じ相手に送っていないかをチェックするクエリの例です
+        const [existingLogs] = await pool.query(
+            `SELECT * FROM fame_logs 
+              WHERE giver_id = ? AND receiver_id = ? 
+                AND created_at >= NOW() - INTERVAL 1 DAY`,
+            [myDbId, targetDbId]
+        );
+
+        if (existingLogs.length > 0) {
+            socket.emit('fame_response', { success: false, message: 'このプレイヤーには、本日の人気度をすでに上げています。' });
+            return;
+        }
+
+        // 4. データベースから最新の情報を取得
+        const [targetRows] = await pool.query('SELECT id, username, fame FROM users WHERE id = ?', [targetDbId]);
+        if (targetRows.length === 0) {
+            socket.emit('fame_response', { success: false, message: '対象のプレイヤーデータがデータベースに見つかりません。' });
+            return;
+        }
+
+        // 5. データベースの fame を +1 更新
+        await pool.query('UPDATE users SET fame = fame + 1 WHERE id = ?', [targetDbId]);
+        
+        // 🌟 6. 【追加】履歴テーブル（fame_logs）に今回の記録を保存する
+        await pool.query(
+            'INSERT INTO fame_logs (giver_id, receiver_id) VALUES (?, ?)',
+            [myDbId, targetDbId]
+        );
+
+        const newFame = targetRows[0].fame + 1;
+
+        // 本人へ成功を通知
+        socket.emit('fame_response', { 
+            success: true, 
+            message: `${targetRows[0].username} の人気度を上げました！ (現在: ${newFame})` 
+        });
+
+        // 7. 相手がオンラインならリアルタイムで通知を送る
+        io.to(targetSocketId).emit('fame_increased', {
+            fromUsername: player.name,
+            newFame: newFame
+        });
+
+        console.log(`⭐ 人気度アップ成功: ${player.name} -> ${targetRows[0].username} (Fame: ${newFame})`);
+
+    } catch (err) {
+        console.error('❌ 人気度アップエラー:', err);
+        socket.emit('fame_response', { success: false, message: '人気度の変更に失敗しました。' });
+    }
+});
+
+// ============================================================
 // :::CONSUME::: 🧪 消費アイテムの使用処理（DBカタログ連動型）
 // ============================================================
 socket.on('useConsumableItem', async (data) => {
@@ -3848,6 +4565,34 @@ if (typeof LOG !== 'undefined' && LOG.GRAY) {
         debugChat(`🚨 Socket接続処理で重大な不具合: ${globalError.message}`, 'error');
     }
 });
+
+// 📌 自分とフレンド関係の人たち全員に「リストを更新して！」と伝える関数
+async function notifyFriendsToRefresh(userId) {
+    try {
+        // 1. データベースから「自分とフレンド関係（status = 'accepted'）」の人を全員探す
+        const [rows] = await pool.query(
+            `SELECT sender_id, receiver_id FROM friendships 
+             WHERE (sender_id = ? OR receiver_id = ?) AND status = 'accepted'`,
+            [userId, userId]
+        );
+
+        // 2. 見つかったフレンド一人ひとりを確認
+        rows.forEach(row => {
+            // フレンド側のDB IDを特定
+            const friendDbId = (row.sender_id === userId) ? row.receiver_id : row.sender_id;
+            
+            // そのフレンドが今現在、オンライン（activeLoginsにいる）かチェック
+            const friendSocketId = activeLogins[friendDbId]; 
+
+            // フレンドがオンラインなら、その人の画面に向けて「フレンドリストを再取得して！」という合図を送る
+            if (friendSocketId) {
+                io.to(friendSocketId).emit('refresh_friend_list');
+            }
+        });
+    } catch (err) {
+        console.error('フレンドへの通知エラー:', err);
+    }
+}
 
 // ============================================================
 // 🧠 【安全版】スタックを考慮してインベントリに収まるかシミュレーションする関数
@@ -4769,7 +5514,8 @@ function debugChat(message, type = 'info') {
         io.emit('chat', {
             id: 'SYSTEM_LOG',
             name: `${icon} ${safeType.toUpperCase()}`,
-            text: `[${time}] <span style="color: ${cssColor};">${message}</span>`
+            text: `<span style="color: ${cssColor};">${message}</span>`,
+            time: time // 👈 左側に表示するための時間を独立して渡す
         });
 
         // 💻 サーバー側の黒い画面（コンソール）
@@ -6952,10 +7698,10 @@ async function handlePickup(socket) {
                 player.lastBagWarningTime = now;
                 console.log(`[DEBUG] バッグがいっぱいで拾えません (${player.name || socket.id})`);
                 socket.emit('chat', {
-                    id: 'SYSTEM_LOG',
-                    name: '⚠️ 警告',
-                    text: `[${new Date().toLocaleTimeString('ja-JP', { timeZone: 'Asia/Tokyo', hour: '2-digit', minute: '2-digit' })}] バッグがいっぱいで拾えません！`
-                });
+                id: 'SYSTEM_LOG',
+                name: '⚠️ 警告',
+                text: `バッグがいっぱいで拾えません！`
+            });
             }
             return;
         }
@@ -6977,9 +7723,13 @@ async function handlePickup(socket) {
             );
 
             if (isMonsterCard) {
-                // 🌟 プレイヤーが持っていそうなIDプロパティを総当たりで探索して特定する（undefined対策）
-                const dbUserId = player.db_id || player.userId || player.id_in_db || (typeof player.id === 'number' ? player.id : 39);
+                // 🌟 正しくプレイヤー自身のデータベースID（dbId または id）を特定する
+const dbUserId = player.dbId || player.db_id || player.userId || (typeof player.id === 'number' ? player.id : null);
 
+if (!dbUserId) {
+    console.error("❌ [Pickup Error] プレイヤーのデータベースIDが特定できません:", player.name);
+    return;
+}
                 // 🌟 【自動復元セーフガード】
                 if (!player.cardCollection || typeof player.cardCollection !== 'object' || Object.keys(player.cardCollection).length === 0) {
                     // 停止 2026-9-24
@@ -7075,7 +7825,7 @@ async function handlePickup(socket) {
                 socket.emit('chat', {
                     id: 'SYSTEM_LOG',
                     name: '🃏 図鑑',
-                    text: `[${new Date().toLocaleTimeString('ja-JP', { timeZone: 'Asia/Tokyo', hour: '2-digit', minute: '2-digit' })}] ${removedItem.name || 'モンスターカード'} [${rankName}] をMonster Bookに登録しました！（累計: ${totalRankCount}枚）`
+                    text: `${removedItem.name || 'モンスターカード'} [${rankName}] をMonster Bookに登録しました！（累計: ${totalRankCount}枚）`
                 });
 				
 				// 🌟 【新規追加】画面上のフローティングログ等で使える専用ログイベントを送信
@@ -7187,7 +7937,7 @@ async function handlePickup(socket) {
                             socket.emit('chat', {
                                 id: 'SYSTEM_LOG',
                                 name: '📦 バッグ',
-                                text: `[${new Date().toLocaleTimeString('ja-JP', { timeZone: 'Asia/Tokyo', hour: '2-digit', minute: '2-digit' })}] ${correctName} をバッグに移動しました！`
+                                text: `${correctName} をバッグに移動しました！`
                             });
                         }
                     }
@@ -7232,6 +7982,9 @@ async function saveMonsterCardToDB(playerOrUserId, monsterKey, cardRank) {
             }
         }
 
+        // 🌟 【超重要】ここで実際にどんな値が渡され、何に解決されたかを出力する！
+        console.log(`🔍 [DEBUG saveMonsterCard] 渡された引数:`, playerOrUserId, `→ 決定された userId:`, userId, `(モンスター: ${monsterKey}, ランク: ${cardRank})`);
+
         if (!userId || typeof userId !== 'number' || isNaN(userId)) {
             console.error("❌ カードDB保存エラー: 有効な数値のuser_idを特定できませんでした。渡された値:", playerOrUserId);
             return;
@@ -7239,7 +7992,6 @@ async function saveMonsterCardToDB(playerOrUserId, monsterKey, cardRank) {
 
         const now = Date.now();
         
-        // 🌟 card_rank を含めて INSERT / UPDATE するクエリ
         const query = `
             INSERT INTO player_monster_cards 
             (user_id, monster_id, card_rank, count, unlocked, first_acquired_time, last_acquired_time) 
@@ -8139,18 +8891,38 @@ function getJSTDate() {
 // ============================================================
 // :::EMIT_PLAYER_LIST::: 👤 全プレイヤーリストの集計・共有放送
 // ============================================================
-function emitPlayerList() {
-    const playerList = Object.values(players).map(p => ({
-        id: p.id || socket.id, // プレイヤー識別用IDがあればあると便利
-        name: p.name || 'Player',
-        channel: p.channel || 1,
-        level: p.level || 1,
-        model_id: p.model_id || 1,   // 🌟 p.group ではなく正しい model_id を渡す
-        popularity: p.popularity || 0,
-        guild: p.guild || "無所属",
-        inventory: p.inventory || [] // 🌟 ここでインベントリ（装備・所持品）を必ず含める！
-    }));
-    io.emit('updatePlayerList', playerList);
+async function emitPlayerList() {
+    try {
+        const playerList = [];
+        for (const socketId in players) {
+            const p = players[socketId];
+            
+            // 🌟 念のため、毎回データベースの最新 fame を直接引いてくる（またはメモリの値を使う）
+            let currentFame = p.popularity !== undefined ? p.popularity : 0;
+            if (p.dbId) {
+                const [rows] = await pool.query('SELECT fame FROM users WHERE id = ?', [p.dbId]);
+                if (rows && rows.length > 0) {
+                    currentFame = rows[0].fame || 0;
+                    p.popularity = currentFame; // メモリも最新に更新
+                }
+            }
+
+            playerList.push({
+                id: p.id || p.dbId || socketId,
+                dbId: p.dbId,
+                name: p.name || 'Player',
+                channel: p.channel || 1,
+                level: p.level || 1,
+                model_id: p.model_id || 1,   
+                popularity: currentFame, // 🌟 確実に入った人気度を渡す
+                guild: p.guild || "無所属",
+                inventory: p.inventory || [] 
+            });
+        }
+        io.emit('updatePlayerList', playerList);
+    } catch (err) {
+        console.error("❌ emitPlayerList エラー:", err);
+    }
 }
 
 // ============================================================

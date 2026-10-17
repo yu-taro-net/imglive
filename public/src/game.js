@@ -37,6 +37,36 @@ const GLOBAL_SETTINGS = {
 const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
 
 // ============================================================
+// :::KEY_CONFIG_DATA::: ⌨️ キーコンフィグのデータと初期キーマップの定義
+// ============================================================
+let currentKeyConfig = {
+    // 💡 初期配置するアクション（キー名は常に大文字で統一すると安全です）
+    pickup:    { label: '拾う',       key: 'pickup',    keyName: 'Z' },
+    attack:    { label: '攻撃',       key: 'attack',    keyName: 'X' },
+    jump:      { label: 'ジャンプ',   key: 'jump',      keyName: 'C' },
+    
+    status:        { label: 'ステータス',     key: 's', keyName: 'S' },
+    equipment:     { label: '装備',           key: 'e', keyName: 'E' },
+    inventory:     { label: 'インベントリ',     key: 'i', keyName: 'I' },
+    skill:         { label: 'スキル',         key: 'k', keyName: 'K' },
+    avatar:        { label: 'アバター',       key: 'a', keyName: 'A' },
+    upgrade:       { label: 'アップグレード', key: 'u', keyName: 'U' },
+    quest:         { label: 'クエスト',       key: 'q', keyName: 'Q' },
+    worldmap:      { label: 'ワールドマップ', key: 'w', keyName: 'W' },
+    minimap:       { label: 'ミニマップ',     key: 'm', keyName: 'M' },
+    journal:       { label: '日記',           key: 'j', keyName: 'J' },
+    book:          { label: 'ブック',         key: 'b', keyName: 'B' },
+    guild:         { label: 'ギルド',         key: 'g', keyName: 'G' },
+    friend:        { label: 'フレンドリスト', key: 'f', keyName: 'F' },
+    party:         { label: 'パーティ',       key: 'p', keyName: 'P' },
+    trade:         { label: 'トレード',       key: 't', keyName: 'T' },
+    log:           { label: 'ログ',           key: 'l', keyName: 'L' },
+    event:         { label: 'イベント',       key: 'n', keyName: null }, // 最初からプール
+    options:       { label: 'オプション',     key: 'o', keyName: 'O' },
+    help:          { label: 'ヘルプ',         key: 'h', keyName: 'H' }
+};
+
+// ============================================================
 // :::SET_SOCKET_URL::: 📞 通信先サーバーURLの環境分岐設定
 // ============================================================
 const SOCKET_URL = isLocal 
@@ -53,6 +83,136 @@ const socket = io(SOCKET_URL, {
 });
 
 console.log(`接続先: ${SOCKET_URL}`); // 確認用にコンソールに表示
+
+// ============================================================
+// 🌟 システムメッセージをチャット欄（#msg-box）に追加する完全版関数
+// ============================================================
+function addSystemMessage(text) {
+    const msgBox = document.getElementById('msg-box');
+    if (!msgBox) {
+        console.warn("⚠️ [UI] メッセージボックス (#msg-box) が見つかりませんでした。テキスト:", text);
+        return;
+    }
+
+    // 1. 1行分のコンテナを作成
+    const messageDiv = document.createElement('div');
+    messageDiv.className = 'system-message-row';
+    messageDiv.style.cssText = `
+        display: flex;
+        align-items: baseline;
+        gap: 6px;
+        margin: 3px 0;
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        font-size: 12px;
+        line-height: 1.4;
+        word-break: break-all;
+    `;
+
+    // 2. 現在時刻を取得（例: [14:35]）
+    const now = new Date();
+    const hours = String(now.getHours()).padStart(2, '0');
+    const minutes = String(now.getMinutes()).padStart(2, '0');
+    const timeStr = `[${hours}:${minutes}]`;
+
+    // タイムスタンプ要素
+    const timeSpan = document.createElement('span');
+    timeSpan.innerText = timeStr;
+    timeSpan.style.cssText = `
+        color: #64748b;
+        font-size: 11px;
+        font-family: monospace;
+        flex-shrink: 0;
+    `;
+
+    // 3. バッジ要素（システム通知であることを示す「[通知]」などのタグ）
+    const badgeSpan = document.createElement('span');
+    badgeSpan.innerText = '[System]';
+    badgeSpan.style.cssText = `
+        background: rgba(250, 204, 21, 0.15);
+        color: #fde047;
+        border: 1px solid rgba(250, 204, 21, 0.4);
+        padding: 1px 4px;
+        border-radius: 3px;
+        font-size: 10px;
+        font-weight: bold;
+        flex-shrink: 0;
+    `;
+
+    // 4. メッセージ本文要素
+    const textSpan = document.createElement('span');
+    textSpan.innerText = text;
+    textSpan.style.cssText = `
+        color: #fef08a; /* ほんのりゴールドがかった見やすい明るい黄文字 */
+        text-shadow: 0 0 4px rgba(250, 204, 21, 0.2);
+    `;
+
+    // 要素を組み立ててメッセージボックスに追加
+    messageDiv.appendChild(timeSpan);
+    messageDiv.appendChild(badgeSpan);
+    messageDiv.appendChild(textSpan);
+
+    msgBox.appendChild(messageDiv);
+
+    // 5. 常に最新のメッセージが一番下に見えるように自動スクロール
+    msgBox.scrollTop = msgBox.scrollHeight;
+
+    // （おまけ）もしメッセージが溜まりすぎて重くならないよう、古いものを自動削除したい場合はここに記述可能
+    // 例：100件を超えたら古いものを消すなど
+    while (msgBox.children.length > 100) {
+        msgBox.removeChild(msgBox.firstChild);
+    }
+}
+
+// 🌟 画面中央にスタイリッシュなHTMLアラートを表示する関数
+function showCustomAlert(message, isSuccess = true) {
+    // すでに存在していれば使い回す、なければ新規作成
+    let alertBox = document.getElementById('custom-game-alert');
+    if (!alertBox) {
+        alertBox = document.createElement('div');
+        alertBox.id = 'custom-game-alert';
+        // サイバー・MMO風のスタイリッシュなCSSを適用
+        alertBox.style.cssText = `
+            position: fixed;
+            top: 20%;
+            left: 50%;
+            transform: translate(-50%, -50%) scale(0.9);
+            background: rgba(15, 23, 42, 0.95);
+            border: 2px solid ${isSuccess ? '#38bdf8' : '#f43f5e'};
+            color: #ffffff;
+            padding: 15px 30px;
+            border-radius: 8px;
+            font-family: 'Segoe UI', sans-serif;
+            font-size: 14px;
+            font-weight: bold;
+            box-shadow: 0 0 25px ${isSuccess ? 'rgba(56, 189, 248, 0.5)' : 'rgba(244, 63, 94, 0.5)'};
+            z-index: 99999;
+            opacity: 0;
+            transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+            pointer-events: none;
+            text-align: center;
+            letter-spacing: 1px;
+        `;
+        document.body.appendChild(alertBox);
+    }
+
+    // 枠の色やメッセージを設定
+    alertBox.style.borderColor = isSuccess ? '#38bdf8' : '#f43f5e';
+    alertBox.style.boxShadow = isSuccess ? '0 0 25px rgba(56, 189, 248, 0.5)' : '0 0 25px rgba(244, 63, 94, 0.5)';
+    alertBox.innerText = message;
+
+    // 表示アニメーション（フワッと浮き出る）
+    requestAnimationFrame(() => {
+        alertBox.style.opacity = '1';
+        alertBox.style.transform = 'translate(-50%, -50%) scale(1)';
+    });
+
+    // 2.5秒後に自動でフワッと消す
+    clearTimeout(alertBox.hideTimer);
+    alertBox.hideTimer = setTimeout(() => {
+        alertBox.style.opacity = '0';
+        alertBox.style.transform = 'translate(-50%, -50%) scale(0.9)';
+    }, 2500);
+}
 
 // ==========================================
 // 🌟 2. 相手からのグループ招待を受信する処理（ここに配置！）
@@ -107,6 +267,181 @@ if (typeof socket !== 'undefined') {
         window._currentTradeTargetId = null;
     });
 }
+
+// ============================================================
+// 🤝 フレンド申請の受信・受諾・拒否クライアント処理
+// ============================================================
+let pendingFriendSenderId = null; // 申請してきた相手のIDを一時保持
+
+if (typeof socket !== 'undefined') {
+    // サーバーから「フレンド申請が届いたよ」という通知を受け取ったとき
+    socket.on('friend_request_received', (data) => {
+        console.log("==========================================");
+        console.log("📥 [CLIENT DEBUG] 'friend_request_received' を受信しました！");
+        console.log("📥 [CLIENT DEBUG] 受け取ったデータ:", data);
+        
+        pendingFriendSenderId = data.senderId;
+
+        const textEl = document.getElementById('friend-invite-text');
+        console.log("📥 [CLIENT DEBUG] #friend-invite-text 要素:", textEl);
+        if (textEl) {
+            textEl.textContent = `'${data.senderUsername}'様からフレンド申請です`;
+            console.log("📥 [CLIENT DEBUG] テキスト書き換え成功:", textEl.textContent);
+        } else {
+            console.error("❌ [CLIENT ERROR] #friend-invite-text がDOMに見つかりません！");
+        }
+
+        const popup = document.getElementById('friend-invite-popup');
+        console.log("📥 [CLIENT DEBUG] #friend-invite-popup 要素:", popup);
+        if (popup) {
+            popup.style.display = 'block';
+            console.log("📥 [CLIENT DEBUG] ポップアップを表示状態(display: block)にしました！");
+        } else {
+            console.error("❌ [CLIENT ERROR] #friend-invite-popup がDOMに見つかりません！");
+        }
+        console.log("==========================================");
+    });
+
+    // （オプション）相手が承認されたときの通知を受け取る場合
+    socket.on('friend_request_accepted', (data) => {
+        if (typeof addSystemMessage === 'function') {
+            addSystemMessage(`${data.friendUsername} さんとフレンドになりました！`);
+        }
+    });
+}
+
+// ⭕ 画面上の受諾ボタンが押されたとき
+function acceptFriendRequestUI() {
+    if (!pendingFriendSenderId) return;
+
+    if (typeof socket !== 'undefined') {
+        // サーバーへ承認イベントを送信
+        socket.emit('accept_friend_request', { senderId: pendingFriendSenderId });
+    }
+
+    // ポップアップを隠す
+    const popup = document.getElementById('friend-invite-popup');
+    if (popup) popup.style.display = 'none';
+    pendingFriendSenderId = null;
+
+    if (typeof addSystemMessage === 'function') {
+        addSystemMessage("フレンド申請を承認しました。");
+    }
+}
+
+// ❌ 画面上の拒否ボタンが押されたとき
+function rejectFriendRequestUI() {
+    // ポップアップを隠す
+    const popup = document.getElementById('friend-invite-popup');
+    if (popup) popup.style.display = 'none';
+    
+    const senderIdToReject = pendingFriendSenderId;
+    pendingFriendSenderId = null;
+    
+    // 必要であればサーバーへ拒否を伝えるイベントを送ることも可能（今回は単に閉じてもOK）
+    if (typeof socket !== 'undefined' && senderIdToReject) {
+         socket.emit('reject_friend_request', { senderId: senderIdToReject });
+    }
+
+    if (typeof addSystemMessage === 'function') {
+        addSystemMessage("フレンド申請を拒否しました。");
+    }
+}
+
+// 現在表示しているプロセスのターゲットIDを保持する変数
+let currentProfileUserId = null;
+
+// 1. 「＋1する」ボタンが押されたときの処理
+const popBtn = document.getElementById('profile-pop-btn');
+if (popBtn) {
+    popBtn.addEventListener('click', () => {
+        console.log("🖱️ ＋1するボタンが押されました！ currentProfileUserId =", currentProfileUserId);
+
+        if (!currentProfileUserId) {
+            console.warn("⚠️ 相手のユーザーIDが設定されていません！");
+            return;
+        }
+
+        if (typeof socket !== 'undefined' && socket.emit) {
+            console.log("🚀 サーバーへ increase_fame を送信します targetId:", currentProfileUserId);
+            socket.emit('increase_fame', { targetId: currentProfileUserId });
+        } else {
+            console.error("❌ socketが定義されていません！");
+        }
+    });
+}
+
+// ============================================================
+// 2. サーバーから結果を受け取るリスナー（プロフィール即時反映＆アラート対応版）
+// ============================================================
+socket.on('fame_response', (data) => {
+    if (data.success) {
+        // ① チャット欄（#msg-box）にシステムメッセージを残す
+        if (typeof addSystemMessage === 'function') {
+            addSystemMessage(data.message);
+        }
+        
+        // ② 画面中央に自作のカッコいいHTMLアラートをポップアップさせる！
+        showCustomAlert(data.message, true);
+
+        // ③ 🌟 開いているプロフィール画面の人気度（#profile-popularity）を即時＋１する！
+        const popSpan = document.getElementById('profile-popularity');
+        if (popSpan) {
+            let currentFame = parseInt(popSpan.innerText, 10) || 0;
+            currentFame += 1;
+            popSpan.innerText = currentFame;
+
+            // 演出として数値を一瞬青く光らせる
+            popSpan.style.color = '#38bdf8';
+            setTimeout(() => {
+                popSpan.style.color = '';
+            }, 1000);
+        }
+
+    } else {
+        const errorText = `❌ ${data.message}`;
+
+        // ① チャット欄に残す
+        if (typeof addSystemMessage === 'function') {
+            addSystemMessage(errorText);
+        }
+
+        // ② 画面中央に失敗用の赤枠カスタムアラートをポップアップさせる！
+        showCustomAlert(errorText, false);
+    }
+});
+
+// ============================================================
+// 3. 相手が人気度を上げられたときのリアルタイム通知＆プロフィール即時反映
+// ============================================================
+socket.on('fame_increased', (data) => {
+    // ① 開いているプロフィール画面の数値（#profile-popularity）をリアルタイムで更新
+    const popSpan = document.getElementById('profile-popularity');
+    if (popSpan) {
+        if (data.newFame !== undefined) {
+            popSpan.innerText = data.newFame;
+        } else {
+            let currentFame = parseInt(popSpan.innerText, 10) || 0;
+            popSpan.innerText = currentFame + 1;
+        }
+
+        // 上がった瞬間に数値を青く光らせる演出
+        popSpan.style.color = '#38bdf8';
+        setTimeout(() => {
+            popSpan.style.color = '';
+        }, 1500);
+    }
+
+    // ② チャット欄（#msg-box）にシステムメッセージを残す
+    if (typeof addSystemMessage === 'function') {
+        addSystemMessage(`⭐ ${data.fromUsername} さんから人気度を上げられました！ (現在の人気度: ${data.newFame})`);
+    }
+
+    // ③ 必要であれば画面中央にカスタムアラートも出す
+    if (typeof showCustomAlert === 'function') {
+        showCustomAlert(`⭐ ${data.fromUsername} さんから人気度を上げられました！`, true);
+    }
+});
 
 // ============================================================
 // 📊 [SECTION 2: STATE] クライアント・ステート
@@ -1764,13 +2099,15 @@ function handlePlayerInput(hero, items, ladders, chatIn) {
 /**
  * 役割：
  * - 露店中・硬直中（Stun）の操作ガード
+ *   （※有人露店中は移動禁止、無人露店中は移動許可）
  * - 左右移動の処理と伏せ状態の判定
  * - ハシゴの接触判定・中心への吸着・昇降ロジックの管理
  */
 function handleMovementAndLadder(hero, ladders) {
 
-    // 🌟 追加：露店を開いている間は移動・ハシゴ操作を禁止
-    if (hero.is_vending) return;
+    // 🌟 【修正】有人露店（player）を開いている間だけ移動・ハシゴ操作を禁止する
+    // ※ 無人露店（monster）の場合は、店を出しながらでも自由に歩き回れます！
+    if (hero.is_vending && hero.vending_mode === 'player') return;
 	
     // 🌟 修正：硬直中（ノックバック中）は入力を受け付けない
     if (hero.isStunned) {
@@ -1845,6 +2182,31 @@ function handleMovementAndLadder(hero, ladders) {
 }
 
 // ============================================================
+// 💡 ヘルパー関数：指定されたアクションキーが押されているかを判定
+// ============================================================
+function isActionPressed(actionName) {
+    if (typeof window.keyMap === 'undefined') return false;
+
+    for (const [keyName, mappedAction] of Object.entries(window.keyMap)) {
+        if (mappedAction === actionName) {
+            // keyName が大文字・小文字、あるいは 'KeyC' などの形式に対応
+            const cleanKey = keyName.toLowerCase();
+            
+            // 押し状態を keys 配列からチェック（多様なフォーマットをカバー）
+            if (
+                keys[keyName] || 
+                keys[cleanKey] || 
+                keys[`Key${cleanKey.toUpperCase()}`] ||
+                (cleanKey === 'space' && (keys['Space'] || keys[' ']))
+            ) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+// ============================================================
 // :::HANDLE_ACTIONS::: ⚔️ アクション制御（ジャンプ・攻撃・回収・キーコンフィグ完全連動版）
 // ============================================================
 /**
@@ -1852,37 +2214,15 @@ function handleMovementAndLadder(hero, ladders) {
  * - ジャンプ：ハシゴからの飛び降りジャンプ、地面からのジャンプ処理（動的キー対応）
  * - 攻撃：キー押しっぱなしによる連続攻撃の開始処理（動的キー対応）
  * - 回収：Zキー押しっぱなしによるアイテムの高速回収処理（タイマー管理・動的キー対応）
- * - 状態ガード：露店中はアクション不可
+ * - 状態ガード：有人露店中のみアクション不可（無人露店中はアクション可能）
  */
 function handleActions(hero, items) {
 
-    if (hero.is_vending) return; // 露店中はアクション（ジャンプ・攻撃・拾う）不可
+    // 🌟 有人露店（player）を開いている間だけアクションを不可にする
+    // ※ 無人露店（monster）の場合は、店番をモンスターに任せて自由にジャンプ・攻撃・回収ができます！
+    if (hero.is_vending && hero.vending_mode === 'player') return;
 
-    // 💡 window.keyMap から指定したアクション（'jump', 'attack', 'pickup' 等）に
-    // 割り当てられている現在のキーが押されているかを判定する補助関数
-    function isActionPressed(actionName) {
-        if (typeof window.keyMap === 'undefined') return false;
-
-        for (const [keyName, mappedAction] of Object.entries(window.keyMap)) {
-            if (mappedAction === actionName) {
-                // keyName が大文字・小文字、あるいは 'KeyC' などの形式に対応
-                const cleanKey = keyName.toLowerCase();
-                
-                // 押し状態を keys 配列からチェック（多様なフォーマットをカバー）
-                if (
-                    keys[keyName] || 
-                    keys[cleanKey] || 
-                    keys[`Key${cleanKey.toUpperCase()}`] ||
-                    (cleanKey === 'space' && (keys['Space'] || keys[' ']))
-                ) {
-                    return true;
-                }
-            }
-        }
-        return false;
-    }
-    
-    // 各アクションの判定を変数に保持
+    // 各アクションの判定を変数に保持（外出したヘルパー関数を利用）
     const jumpPressed = isActionPressed('jump');
     const attackPressed = isActionPressed('attack');
     const pickupPressed = isActionPressed('pickup');
@@ -2698,6 +3038,9 @@ socket.on('login_data', (data) => {
         hero.isLinked = data.is_linked;
         hero.isOnline = data.is_online;
         
+        // 🌟 【追加】hero に人気度（popularity）を反映
+        hero.popularity = data.popularity !== undefined ? data.popularity : (data.stats && data.stats.popularity !== undefined ? data.stats.popularity : 0);
+        
         console.log("【ログイン処理】受け取ったデータ:", data);
         console.log("【ログイン処理】更新後のhero:", hero);
         
@@ -2705,6 +3048,9 @@ socket.on('login_data', (data) => {
         if (typeof players !== 'undefined' && players[socket.id]) {
             players[socket.id].isLinked = data.is_linked;
             players[socket.id].isOnline = data.is_online;
+            
+            // 🌟 【追加】players[socket.id] にも人気度（popularity）を反映
+            players[socket.id].popularity = hero.popularity;
             
             if (data.stats) {
                 players[socket.id].speed = data.stats.speed || 5.0;
@@ -2719,11 +3065,11 @@ socket.on('login_data', (data) => {
         if (data.stats) {
             hero.level = data.stats.level || 1;
             hero.exp   = data.stats.exp || 0;
-            hero.requiredExp = data.stats.requiredExp || 100; // 💡 【追加】次のレベルに必要な経験値
+            hero.requiredExp = data.stats.requiredExp || 100; // 💡 次のレベルに必要な経験値
             hero.hp    = data.stats.hp || 100;
             hero.maxHp = data.stats.max_hp || 100;
             
-            // 🌟 【追加】サーバーから送られてきたHP/MPのベース値とボーナス値を hero に反映
+            // 🌟 サーバーから送られてきたHP/MPのベース値とボーナス値を hero に反映
             hero.baseMaxHp = data.stats.baseMaxHp !== undefined ? data.stats.baseMaxHp : hero.maxHp;
             hero.bonusMaxHp = data.stats.bonusMaxHp !== undefined ? data.stats.bonusMaxHp : 0;
 
@@ -2738,7 +3084,7 @@ socket.on('login_data', (data) => {
             hero.y     = data.stats.y || 400;
             hero.jobId = data.stats.job_id || 0;
             
-            // 🌟 【追加】サーバーから送られてきた攻撃力の詳細を hero に反映
+            // 🌟 サーバーから送られてきた攻撃力の詳細を hero に反映
             hero.atk = data.stats.atk || 13;
             hero.baseAtk = data.stats.baseAtk || 13;
             hero.weaponAtk = data.stats.weaponAtk || 0;
@@ -2748,7 +3094,6 @@ socket.on('login_data', (data) => {
             hero.jumpPower = data.stats.jumpPower || 10.0;
 
             // 🌟 ログイン時にデータベースから素のステータスを受け取る
-            // ※もし data.stats に baseStr があればそちらを優先、なければ str をベースにする
             hero.baseStr = data.stats.baseStr !== undefined ? data.stats.baseStr : (data.stats.str || 4);
             hero.baseDex = data.stats.baseDex !== undefined ? data.stats.baseDex : (data.stats.dex || 4);
             hero.baseLuk = data.stats.baseLuk !== undefined ? data.stats.baseLuk : (data.stats.luk || 4);
@@ -2758,7 +3103,6 @@ socket.on('login_data', (data) => {
             if (typeof recalcPlayerStats === 'function') {
                 recalcPlayerStats();
             } else {
-                // 万が一関数がなければベース値をそのままセット
                 hero.str = hero.baseStr;
                 hero.dex = hero.baseDex;
                 hero.luk = hero.baseLuk;
@@ -2780,14 +3124,17 @@ socket.on('login_data', (data) => {
         });
         
         socket.emit('get_account_info');
+        
+        // 🌟 ログインしてゲームが始まった瞬間にフレンドリストも要求する！
+        socket.emit('get_friend_list');
 
         if (typeof audioCtx !== 'undefined' && audioCtx.state === 'suspended') audioCtx.resume();
         if (typeof playBGM === 'function') playBGM();
 
         // すでにループが動いていなければ、1回だけ起動する
         if (typeof update === 'function' && !window.isGameLoopRunning) {
-            window.isGameLoopRunning = true; // 「起動したぞ！」というフラグを立てる
-            update(); // 初回起動
+            window.isGameLoopRunning = true; 
+            update(); 
             console.log("✅ ゲームループを1回だけ起動しました");
         } else {
             console.log("⚠️ すでにループは動いています");
@@ -2797,7 +3144,7 @@ socket.on('login_data', (data) => {
     }
 
     // ==========================================
-    // 🌟 【ここを追加！】ログイン時にキーコンフィグを復元する処理
+    // 🌟 ログイン時にキーコンフィグを復元する処理
     // ==========================================
     if (data.keyConfig) {
         currentKeyConfig = data.keyConfig;
@@ -3460,71 +3807,149 @@ socket.on('level_up_effect', (data) => {
 });
 
 // ============================================================
-// :::ON_CHAT::: 💬 チャットログ・吹き出しの受信管理
+// :::ON_CHAT::: 💬 チャットログ・吹き出しの受信管理（全デザイン統一版）
 // ============================================================
-/**
- * 役割：
- * - サーバーからのチャットデータ受信
- * - タイプ別（全体・グループ・友達・内緒話・システム）のUI表示とカラーリング
- * - 名前クリックによる内緒話先設定（`setWhisperTarget`）のUI構築
- * - 頭上の吹き出し生成と、古い吹き出しの即時リセット（nullクリア）
- */
 socket.on('chat', data => {
-  // --- 1. 左下のログ表示 ---
-  const div = document.createElement('div');
-  
-  // 🌟 色の設定
-  let color = '#ffffff'; // デフォルト（通常・全体）を白に設定
-  
-  // 🌟 判定：特定のタイプがある場合に色を上書き
+  const msgBox = document.getElementById('msg-box');
+  if (!msgBox) return;
+
+  // 🌟 1. サーバーからのデバッグ・システムログ（id: 'SYSTEM_LOG'）の処理
+  if (data.id === 'SYSTEM_LOG') {
+    const badgeText = data.name || '🤖 SYSTEM';
+    
+    const messageDiv = document.createElement('div');
+    messageDiv.className = 'system-message-row';
+    messageDiv.style.cssText = `
+        display: flex;
+        align-items: baseline;
+        gap: 6px;
+        margin: 3px 0;
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        font-size: 12px;
+        line-height: 1.4;
+        word-break: break-all;
+    `;
+
+    // タイムスタンプ要素（統一デザイン）
+    const timeSpan = document.createElement('span');
+    const timeStr = data.time ? `[${data.time}]` : `[${new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}]`;
+    timeSpan.innerText = timeStr;
+    timeSpan.style.cssText = `
+        color: #64748b;
+        font-size: 11px;
+        font-family: monospace;
+        flex-shrink: 0;
+    `;
+
+    // システムバッジ要素
+    const badgeSpan = document.createElement('span');
+    badgeSpan.innerText = badgeText;
+    badgeSpan.style.cssText = `
+        background: rgba(250, 204, 21, 0.15);
+        color: #fde047;
+        border: 1px solid rgba(250, 204, 21, 0.4);
+        padding: 1px 4px;
+        border-radius: 3px;
+        font-size: 10px;
+        font-weight: bold;
+        flex-shrink: 0;
+    `;
+
+    // メッセージ本文要素
+    const textSpan = document.createElement('span');
+    textSpan.innerHTML = data.text; 
+
+    messageDiv.appendChild(timeSpan);
+    messageDiv.appendChild(badgeSpan);
+    messageDiv.appendChild(textSpan);
+
+    msgBox.appendChild(messageDiv);
+    msgBox.scrollTop = msgBox.scrollHeight;
+
+    while (msgBox.children.length > 100) {
+        msgBox.removeChild(msgBox.firstChild);
+    }
+    return;
+  }
+
+  // --- 2. 通常のプレイヤーチャット / 友達 / グループ / 内緒話の処理 ---
+  const messageDiv = document.createElement('div');
+  messageDiv.style.cssText = `
+      display: flex;
+      align-items: baseline;
+      gap: 6px;
+      margin: 3px 0;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      font-size: 12px;
+      line-height: 1.4;
+      word-break: break-all;
+  `;
+
+  // 🌟 統一されたタイムスタンプ要素
+  const timeSpan = document.createElement('span');
+  const timeStr = data.time ? `[${data.time}]` : `[${new Date().toLocaleTimeString('ja-JP', { hour: '2-digit', minute: '2-digit' })}]`;
+  timeSpan.innerText = timeStr;
+  timeSpan.style.cssText = `
+      color: #64748b;
+      font-size: 11px;
+      font-family: monospace;
+      flex-shrink: 0;
+  `;
+
+  // 🌟 色とタイプの判定
+  let color = '#ffffff'; 
   if (data.type === 'group') color = '#ff80ff';   // グループ（ピンク）
   if (data.type === 'system') color = '#ffff99';  // システム（黄色）
-  if (data.type === 'friend') color = '#ff9900';  // 🌟 友達（メイプルオレンジ）
+  if (data.type === 'friend') color = '#ff9900';  // 友達（オレンジ）
   
-  // 🌟 メイプル風内緒話の判定
   const isWhisper = data.type === 'whisper' || data.isWhisper;
   if (isWhisper) {
-      // サーバー側から送られてくるメイプルグリーン（#00ff00）を適用
-      color = data.color || '#00ff00'; 
+      color = data.color || '#00ff00'; // 内緒話（緑）
   }
 
-  // 🌟 名前部分をクリックできるように改造
   const isSystem = data.type === 'system';
-  
-  // 🌟 メイプル仕様：内緒話の時は名前の後のコロン（:）を表示しない
   const separator = isWhisper ? '' : ':';
 
-  const nameSpan = isSystem 
-    ? `<strong style="color:${color}">${data.name}${separator}</strong>` 
-    : `<strong style="color:${color}; cursor:pointer; ${isWhisper ? 'font-weight:bold;' : ''}" onclick="setWhisperTarget('${data.name}')">${data.name}${separator}</strong>`;
+  // 🌟 名前部分の構築
+  const nameSpan = document.createElement('strong');
+  nameSpan.style.cssText = `color: ${color}; ${isWhisper ? 'font-weight: bold;' : ''}`;
+  if (!isSystem) {
+      nameSpan.style.cursor = 'pointer';
+      nameSpan.onclick = () => setWhisperTarget(data.name.replace(/\s*\[CH\.\d+\].*$/, '').trim());
+  }
+  nameSpan.innerText = `${data.name}${separator}`;
 
-  // ログにメッセージを追加
-  // 🌟 名前(nameSpan)も本文も、上記で判定した color (友達ならオレンジ) が適用されます
-  div.innerHTML = `<span style="color:#888;font-size:10px;margin-right:4px;">${data.time || ''}</span>` +
-                  nameSpan + 
-                  ` <span style="color:${color}; ${isWhisper ? 'font-weight:bold;' : ''}">${data.text}</span>`;
-  
-  if (msgBox) {
-    msgBox.appendChild(div);
-    msgBox.scrollTop = msgBox.scrollHeight;
+  // 🌟 メッセージ本文の構築
+  const textSpan = document.createElement('span');
+  textSpan.style.cssText = `color: ${color}; ${isWhisper ? 'font-weight: bold;' : ''}`;
+  textSpan.innerText = data.text;
+
+  // 要素を組み立てて追加
+  messageDiv.appendChild(timeSpan);
+  messageDiv.appendChild(nameSpan);
+  messageDiv.appendChild(textSpan);
+
+  msgBox.appendChild(messageDiv);
+  msgBox.scrollTop = msgBox.scrollHeight;
+
+  // メモリ保護（100件制限）
+  while (msgBox.children.length > 100) {
+      msgBox.removeChild(msgBox.firstChild);
   }
 
-  // --- 2. 頭上の吹き出し表示の判定 ---
-  // 🌟 修正ポイント：内緒話だけでなく、グループや友達チャットの場合もここで中断（吹き出しを出さない）
+  // --- 3. 頭上の吹き出し表示の判定 ---
   if (isWhisper || data.type === 'group' || data.type === 'friend') {
       return; 
   }
 
-  // 🌟 吹き出し用データ作成
   const chatData = { text: data.text, timer: 120 };
 
-  // 🌟 修正：新しい吹き出しを出す前に null を代入して古いものを即座に消去する
   if (data.id === socket.id) {
-    hero.chat = null; // 一旦クリア
-    setTimeout(() => { hero.chat = chatData; }, 0); // 即時セット
+    hero.chat = null; 
+    setTimeout(() => { hero.chat = chatData; }, 0); 
   } else if (others[data.id]) {
-    others[data.id].chat = null; // 一旦クリア
-    setTimeout(() => { others[data.id].chat = chatData; }, 0); // 即時セット
+    others[data.id].chat = null; 
+    setTimeout(() => { others[data.id].chat = chatData; }, 0); 
   }
 });
 
@@ -4705,6 +5130,11 @@ function update() {
     if (typeof drawNotifications === 'function' && typeof ctx !== 'undefined') {
         drawNotifications(ctx);
     }
+	
+	// 🌟 【追加】ここで無人露店の看板を描画する！
+    if (typeof renderOfflineVendingSigns === 'function' && typeof ctx !== 'undefined') {
+        renderOfflineVendingSigns(ctx, frame);
+    }
 
     // 🌟 【ツールチップ描画】バッグと装備の両方に対応
     if (typeof tCtx !== 'undefined') {
@@ -4735,6 +5165,371 @@ function update() {
 
     requestAnimationFrame(update); // 次のフレームへ
 }
+
+/*
+// 🌍 現在ワールドに存在する露店の看板データを保持する配列
+let activeOfflineShops = [];
+
+// 1. サーバーからの開店・閉店通知を受け取る
+if (typeof socket !== 'undefined') {
+    // 露店が開いたときの通知
+    socket.on('vending_opened', (data) => {
+        // data には { id, vending_title, title, x, y, items } が入ってきます
+        const shopId = data.id;
+        const shopTitle = data.vending_title || data.title || "いらっしゃいませ！";
+
+        // 既にリストにあるかチェック
+        let existingIndex = activeOfflineShops.findIndex(shop => shop.owner_id === shopId);
+        if (existingIndex !== -1) {
+            activeOfflineShops[existingIndex].title = shopTitle;
+            activeOfflineShops[existingIndex].x = data.x;
+            activeOfflineShops[existingIndex].y = data.y;
+        } else {
+            activeOfflineShops.push({
+                owner_id: shopId,
+                title: shopTitle,
+                x: data.x,
+                y: data.y
+            });
+        }
+        console.log("露店の看板データを同期しました。現在の店舗数:", activeOfflineShops.length);
+    });
+
+    // 露店が閉じた（完売や手動終了）ときの通知
+    socket.on('vending_closed', (data) => {
+        // data.id は閉店したプレイヤーのID
+        activeOfflineShops = activeOfflineShops.filter(shop => shop.owner_id !== data.id);
+        console.log("露店が閉店したため、看板を削除しました。残りの店舗数:", activeOfflineShops.length);
+    });
+}
+*/
+
+// ============================================================
+// :::RENDER_OFFLINE_VENDING_SIGNS::: ⛺ 無人露店の小屋（名前位置微調整・文字色白版）
+// ============================================================
+function renderOfflineVendingSigns(ctx, frame) {
+    if (!activeOfflineShops || activeOfflineShops.length === 0) return;
+
+    activeOfflineShops.forEach(shop => {
+	
+        // 🌟 【最重要ガード】有人露店（player）のデータが混ざってきたら絶対にここで処理を中断する
+        const mode = shop.mode || shop.vending_mode || "";
+        if (mode === 'player') {
+            return; 
+        }
+
+        if (typeof hero !== 'undefined' && shop.ownerId === hero.id && hero.vending_mode === 'player') {
+            return;
+        }
+
+        const VENDING_MONSTER_TYPE = shop.monsterType || "Monster8"; 
+
+        const shopX = Math.round(shop.x || 0);
+        const shopY = Math.round(shop.y || 0);
+
+        ctx.save();
+
+        const monsterConf = (typeof MONSTER_CONFIGS !== 'undefined') 
+            ? MONSTER_CONFIGS.find(conf => String(conf.id) === String(VENDING_MONSTER_TYPE) || conf.name === VENDING_MONSTER_TYPE) 
+            : null;
+
+        const vendorEnemy = {
+            id: VENDING_MONSTER_TYPE,
+            type: VENDING_MONSTER_TYPE,
+            name: VENDING_MONSTER_TYPE,
+            scale: monsterConf ? (monsterConf.scale || 1.0) : 1.0,
+            x: shopX - 25,
+            y: shopY,
+            w: monsterConf ? (monsterConf.w || 50) : 183,
+            h: monsterConf ? (monsterConf.h || 50) : 133,
+            kbV: 0,
+            isFading: false,
+            waitTimer: 999
+        };
+
+        const checkKey = VENDING_MONSTER_TYPE + "Idle";
+        if (!sprites[checkKey] || sprites[checkKey].length === 0) {
+            ensureEnemySpritesLoaded(VENDING_MONSTER_TYPE, VENDING_MONSTER_TYPE);
+        }
+
+        const currentFrame = (typeof frame !== 'undefined') ? frame : (window.gameFrame || 0);
+        let { img, drawW, drawH, footY } = getEnemyVisualData(vendorEnemy, sprites, currentFrame, null);
+
+        let baseY;
+        if (shopY > VIEW_CONFIG.groundThreshold) {
+            baseY = VIEW_CONFIG.groundY;
+        } else {
+            let targetPlatformY = shopY;
+            if (typeof platforms !== 'undefined' && Array.isArray(platforms)) {
+                const matchedPlat = platforms.find(p => 
+                    shopX >= p.x && shopX <= p.x + p.w && shopY >= p.y - 70 && shopY <= p.y + 10
+                );
+                if (matchedPlat) {
+                    targetPlatformY = matchedPlat.y;
+                }
+            }
+            baseY = targetPlatformY;
+        }
+
+        const boxWidth = 145;   
+        const boxHeight = 28;  
+        
+        const monsterRealHeight = (img && footY) ? footY : 60;
+        
+        const kioskInsideHeight = monsterRealHeight + boxHeight + 8;
+        const kioskWidth = Math.max(145, drawW + 24);   
+        const roofHeight = 32;     
+        
+        const leftX = shopX - kioskWidth / 2;
+        const rightX = shopX + kioskWidth / 2;
+        const bottomY = baseY;
+        
+        const roofBaseY = bottomY - kioskInsideHeight; 
+        const roofApexY = roofBaseY - roofHeight;      
+
+        const boxX = shopX - (boxWidth / 2);
+        const boxY = roofBaseY + 4; 
+
+        // 1️⃣ 足元の敷物
+        ctx.fillStyle = "#653a1f";
+        ctx.strokeStyle = "#381d0c";
+        ctx.lineWidth = 2;
+        ctx.fillRect(leftX - 8, bottomY - 5, kioskWidth + 16, 6);
+        ctx.strokeRect(leftX - 8, bottomY - 5, kioskWidth + 16, 6);
+
+        ctx.strokeStyle = "#4a2810";
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(leftX, bottomY - 2); ctx.lineTo(rightX, bottomY - 2);
+        ctx.stroke();
+
+        ctx.fillStyle = "rgba(0, 0, 0, 0.35)";
+        ctx.beginPath();
+        ctx.ellipse(shopX, bottomY - 1, Math.max(24, drawW / 2.3), 5, 0, 0, Math.PI * 2);
+        ctx.fill();
+
+        // 2️⃣ 支柱
+        const drawPillar = (px, py, pw, ph) => {
+            ctx.fillStyle = "#78451b";
+            ctx.fillRect(px, py, pw, ph);
+            ctx.fillStyle = "#381d0c";
+            ctx.fillRect(px, py, 2, ph);
+            ctx.fillStyle = "#a26738";
+            ctx.fillRect(px + pw - 2, py, 2, ph);
+            ctx.strokeStyle = "#271206";
+            ctx.lineWidth = 1.5;
+            ctx.strokeRect(px, py, pw, ph);
+        };
+
+        drawPillar(leftX + 2, roofBaseY, 10, kioskInsideHeight - 5);
+        drawPillar(rightX - 12, roofBaseY, 10, kioskInsideHeight - 5);
+
+        // 3️⃣ 店番モンスター
+        if (img && img.complete && img.naturalWidth !== 0) {
+            ctx.save();
+            ctx.translate(shopX, baseY);
+            ctx.drawImage(img, -drawW / 2, -footY, drawW, drawH);
+            ctx.restore();
+        }
+
+        // 4️⃣ 屋根
+        const roofGrad = ctx.createLinearGradient(0, roofApexY, 0, roofBaseY);
+        roofGrad.addColorStop(0, "#d97706");
+        roofGrad.addColorStop(0.5, "#b45309");
+        roofGrad.addColorStop(1, "#78350f");
+
+        ctx.fillStyle = roofGrad;
+        ctx.strokeStyle = "#381d0c";
+        ctx.lineWidth = 3;
+        ctx.lineJoin = "round";
+
+        ctx.beginPath();
+        ctx.moveTo(shopX, roofApexY - 6);
+        ctx.lineTo(rightX + 12, roofBaseY + 4);
+        ctx.lineTo(leftX - 12, roofBaseY + 4);
+        ctx.closePath();
+        ctx.fill();
+        ctx.stroke();
+
+        ctx.strokeStyle = "#d97706";
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(shopX, roofApexY - 2);
+        ctx.lineTo(rightX + 8, roofBaseY + 1);
+        ctx.moveTo(shopX, roofApexY - 2);
+        ctx.lineTo(leftX - 8, roofBaseY + 1);
+        ctx.stroke();
+
+        // 5️⃣ 看板
+        const signBgGrad = ctx.createLinearGradient(0, boxY, 0, boxY + boxHeight);
+        signBgGrad.addColorStop(0, "#fef3c7");
+        signBgGrad.addColorStop(1, "#e7bc91");
+
+        ctx.fillStyle = signBgGrad;
+        ctx.strokeStyle = "#522e13";
+        ctx.lineWidth = 2.5;
+        
+        if (ctx.roundRect) {
+            ctx.beginPath();
+            ctx.roundRect(boxX, boxY, boxWidth, boxHeight, 4);
+            ctx.fill();
+            ctx.stroke();
+        } else {
+            ctx.fillRect(boxX, boxY, boxWidth, boxHeight);
+            ctx.strokeRect(boxX, boxY, boxWidth, boxHeight);
+        }
+
+        ctx.strokeStyle = "#c29b6f";
+        ctx.lineWidth = 1;
+        if (ctx.roundRect) {
+            ctx.beginPath();
+            ctx.roundRect(boxX + 3, boxY + 3, boxWidth - 6, boxHeight - 6, 2);
+            ctx.stroke();
+        }
+
+        ctx.fillStyle = "#381d0c";
+        ctx.fillRect(boxX + 5, boxY + 5, 2, 2);
+        ctx.fillRect(boxX + boxWidth - 7, boxY + 5, 2, 2);
+        ctx.fillRect(boxX + 5, boxY + boxHeight - 7, 2, 2);
+        ctx.fillRect(boxX + boxWidth - 7, boxY + boxHeight - 7, 2, 2);
+
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.font = "bold 11px 'Segoe UI', sans-serif";
+
+        let displayName = shop.title || "いらっしゃいませ！";
+        if (displayName.length > 13) {
+            displayName = displayName.substring(0, 12) + "…";
+        }
+
+        ctx.fillStyle = "rgba(255, 255, 255, 0.8)";
+        ctx.fillText(displayName, shopX + 1, boxY + (boxHeight / 2) + 2);
+
+        ctx.fillStyle = "#271206";
+        ctx.fillText(displayName, shopX, boxY + (boxHeight / 2) + 1);
+
+        // ------------------------------------------------------------
+        // 6️⃣ 露店小屋の足元ネームプレート（位置をほんの少し下げ、文字色を白に）
+        // ------------------------------------------------------------
+        const ownerName = shop.name || shop.owner_name || shop.username || shop.ownerName || "プレイヤー";
+        const merchantText = `${ownerName}の雇用商人`;
+        
+        const fontSize = (typeof VIEW_CONFIG !== 'undefined' && VIEW_CONFIG.playerName) ? VIEW_CONFIG.playerName.fontSize : "12px";
+        ctx.font = `bold ${fontSize} Arial`;
+        
+        const textWidth = ctx.measureText(merchantText).width;
+        const paddingW = (typeof VIEW_CONFIG !== 'undefined' && VIEW_CONFIG.playerName) ? VIEW_CONFIG.playerName.paddingW : 16;
+        const totalW = textWidth + paddingW;
+        
+        const bgW = totalW;
+        const bgH = 22; 
+        const bgX = shopX - (bgW / 2);
+        const bgY = bottomY + 5; // 👈 元の +3 から +5 に少し下げました
+        const radius = 4; 
+
+        ctx.fillStyle = "rgba(0, 0, 0, 0.5)";
+        ctx.beginPath();
+        ctx.moveTo(bgX + radius, bgY);
+        ctx.lineTo(bgX + bgW - radius, bgY);
+        ctx.quadraticCurveTo(bgX + bgW, bgY, bgX + bgW, bgY + radius);
+        ctx.lineTo(bgX + bgW, bgY + bgH - radius);
+        ctx.quadraticCurveTo(bgX + bgW, bgY + bgH, bgX + bgW - radius, bgY + bgH);
+        ctx.lineTo(bgX + radius, bgY + bgH);
+        ctx.quadraticCurveTo(bgX, bgY + bgH, bgX, bgY + bgH - radius);
+        ctx.lineTo(bgX, bgY + radius);
+        ctx.quadraticCurveTo(bgX, bgY, bgX + radius, bgY);
+        ctx.closePath();
+        ctx.fill();
+        
+        ctx.textBaseline = "middle";
+        const centerY = bgY + (bgH / 2);
+
+        ctx.fillStyle = "#ffffff"; // 👈 文字色を真っ白に変更
+        ctx.textAlign = "center";
+        ctx.fillText(merchantText, shopX, centerY - 1);
+        
+        ctx.textBaseline = "alphabetic";
+
+        ctx.restore();
+    });
+}
+
+// ============================================================
+// 🛒 不在時売上の確認ダイアログ表示処理（クライアント側）
+// ============================================================
+socket.on('show_offline_sales_dialog', (data) => {
+    // 既にあれば重複して作らないようにする
+    if (document.getElementById('offlineSalesModal')) return;
+
+    // モーダルの背景（半透明の黒幕）
+    const modalBg = document.createElement('div');
+    modalBg.id = 'offlineSalesModal';
+    modalBg.style.cssText = `
+        position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+        background: rgba(0, 0, 0, 0.6); display: flex; justify-content: center;
+        align-items: center; z-index: 99999; font-family: sans-serif;
+    `;
+
+    // モーダル本体（ウィンドウ）
+    const modalBox = document.createElement('div');
+    modalBox.style.cssText = `
+        background: #2c3e50; color: #ecf0f1; padding: 25px; border-radius: 10px;
+        width: 400px; max-width: 90%; box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+        text-align: center; border: 2px solid #f1c40f;
+    `;
+
+    // タイトル
+    const title = document.createElement('h3');
+    title.innerText = "🛒 お帰りなさい！";
+    title.style.cssText = "margin-top: 0; color: #f1c40f; font-size: 22px;";
+    modalBox.appendChild(title);
+
+    const subtitle = document.createElement('p');
+    subtitle.innerText = "不在の間に、以下の商品が売れました：";
+    subtitle.style.cssText = "font-size: 14px; color: #bdc3c7; margin-bottom: 15px;";
+    modalBox.appendChild(subtitle);
+
+    // 売上リストを表示するエリア
+    const listContainer = document.createElement('div');
+    listContainer.style.cssText = `
+        background: #34495e; padding: 10px; border-radius: 6px; max-height: 150px;
+        overflow-y: auto; text-align: left; font-size: 13px; margin-bottom: 15px;
+    `;
+
+    data.sales.forEach(s => {
+        const itemRow = document.createElement('div');
+        itemRow.style.cssText = "margin-bottom: 8px; border-bottom: 1px solid #4e6d8c; padding-bottom: 5px;";
+        itemRow.innerHTML = `👤 <b>${s.buyerName}</b> が <br>📦 <b>${s.itemName} x${s.quantity}</b> を <💰 <b>${s.totalPrice.toLocaleString()}メル</b> で購入`;
+        listContainer.appendChild(itemRow);
+    });
+    modalBox.appendChild(listContainer);
+
+    // 合計金額の表示
+    const totalDiv = document.createElement('div');
+    totalDiv.style.cssText = "font-size: 15px; font-weight: bold; margin-bottom: 20px; color: #2ecc71;";
+    totalDiv.innerText = `総売上: +${data.totalEarnings.toLocaleString()} メル`;
+    modalBox.appendChild(totalDiv);
+
+    // 確認ボタン（これを押すまで閉じない）
+    const okBtn = document.createElement('button');
+    okBtn.innerText = "確認する";
+    okBtn.style.cssText = `
+        background: #f1c40f; color: #2c3e50; border: none; padding: 10px 25px;
+        font-size: 16px; font-weight: bold; border-radius: 5px; cursor: pointer;
+        transition: background 0.2s;
+    `;
+    okBtn.onmouseover = () => okBtn.style.background = '#f39c12';
+    okBtn.onmouseout = () => okBtn.style.background = '#f1c40f';
+    
+    // ボタンをクリックしたらモーダルを消去
+    okBtn.onclick = () => {
+        modalBg.remove();
+    };
+    modalBox.appendChild(okBtn);
+
+    modalBg.appendChild(modalBox);
+    document.body.appendChild(modalBg);
+});
 
 // 20秒（20,000ミリ秒）ごとにアカウント情報を要求するタイマー
 /*
@@ -4981,83 +5776,170 @@ if (typeof hero !== 'undefined') {
 }
 
 // ============================================================
-// :::ON_VENDING_OPENED::: 🏪 露店開店通知の受信と同期
+// 🌍 露店の看板データを保持する配列
 // ============================================================
-/**
- * 役割：
- * - 露店開店データ（店名、アイテムリスト、座標）を受信
- * - 自キャラ（hero）または他者（others/otherPlayers）の露店状態を更新
- * - 商品リスト（vending_items）を保持し、看板クリック時の表示準備を整える
- * - 最新の座標情報を反映し、プレイヤーの同期精度を担保する
- */
-socket.on('vending_opened', (data) => {
-    const shopTitle = data.vending_title || data.title || "いらっしゃいませ！";
-    console.log(`露店開店の通知を受信: ${shopTitle} (ID: ${data.id})`);
+let activeOfflineShops = [];
 
-    if (data.id === socket.id) {
-        // 🌟 自分の看板を出す
-        if (typeof hero !== 'undefined') {
-            hero.is_vending = true;
-            hero.vending_title = shopTitle;
-            // 自分のアイテムリストも同期（任意）
-            hero.vending_items = data.items || [];
+// ============================================================
+// :::ON_VENDING_OPENED::: 🏪 位置完全固定・店主名保持・同期処理
+// ============================================================
+socket.on('vending_opened', (data) => {
+
+    // 🌟 【クライアント側デバッグ】
+    console.log(`📥 [CLIENT DEBUG] vending_opened を受信しました！`);
+    console.log(`   受信した raw data:`, data);
+    console.log(`   data.name: "${data ? data.name : 'undefined'}" | data.owner_name: "${data ? data.owner_name : 'undefined'}"`);
+    
+    console.group("🔍 [DEBUG VENDING OPENED] 受信データ解析");
+    console.log("1. サーバーから送られてきた raw data:", data);
+    console.log("現在の自 socket.id:", socket.id);
+
+    const shopTitle = data.vending_title || data.title || "いらっしゃいませ！";
+    const shopId = data.id;
+    const persistentId = data.dbId || data.owner_id || shopId; 
+    const shopMode = data.mode || data.vending_mode || 'monster';
+    
+    // 🌟 サーバーから送られてきた店主名を確実に取得（フォールバック付き）
+    const shopOwnerName = data.name || data.owner_name || "プレイヤー";
+
+    console.log("解析されたID・モード・名前:", { shopId, persistentId, shopMode, shopOwnerName, receivedX: data.x, receivedY: data.y });
+
+    // 🌟 【超重要】もし「自分自身の無人店舗」の場合、ブラウザの localStorage から過去の固定座標を復元する
+    let finalX = data.x;
+    let finalY = data.y;
+    const storageKey = `monster_shop_pos_${persistentId}`;
+
+    if (shopId === socket.id && shopMode === 'monster') {
+        const savedPos = localStorage.getItem(storageKey);
+        if (savedPos) {
+            const parsed = JSON.parse(savedPos);
+            finalX = parsed.x; 
+            finalY = parsed.y;
+            console.log("🌟 LocalStorage から無人店舗の初期固定座標を復元しました:", finalX, finalY);
+        } else {
+            // 初めて置いた瞬間なら、現在の座標を localStorage に保存する
+            localStorage.setItem(storageKey, JSON.stringify({ x: data.x, y: data.y }));
+            console.log("🌟 無人店舗の初期固定座標を新たに保存しました:", data.x, data.y);
+        }
+    }
+
+    // 既存の店を検索
+    let existingIndex = activeOfflineShops.findIndex(shop => 
+        shop.owner_id === persistentId || 
+        shop.id === persistentId || 
+        shop.owner_id === shopId || 
+        shop.id === shopId
+    );
+
+    console.log("既存ショップの検索結果 index:", existingIndex);
+
+    if (shopMode === 'player') {
+        if (existingIndex !== -1) {
+            console.log("有人モードのため、既存の無人リストから削除します");
+            activeOfflineShops.splice(existingIndex, 1);
         }
     } else {
-        // 🌟 他人の看板を出す
-        // 環境に合わせて otherPlayers か others を安全に取得
+        if (existingIndex !== -1) {
+            // 🛑 【重要チェック】既存店舗の場合、x と y は上書きしないルール
+            console.log("既存の無人店舗を発見！既存の保持座標(変更せず維持):", {
+                storedX: activeOfflineShops[existingIndex].x,
+                storedY: activeOfflineShops[existingIndex].y,
+                ignoredNewX: finalX,
+                ignoredNewY: finalY
+            });
+
+            activeOfflineShops[existingIndex].title = shopTitle;
+            activeOfflineShops[existingIndex].mode = shopMode;
+            activeOfflineShops[existingIndex].vending_mode = shopMode;
+            activeOfflineShops[existingIndex].socket_id = shopId;
+            activeOfflineShops[existingIndex].name = shopOwnerName;       // 👈 確実に名前を更新！
+            activeOfflineShops[existingIndex].owner_name = shopOwnerName; // 👈 確実に名前を更新！
+        } else {
+            console.log("既存店舗が見つからないため、【新規作成】として登録します（座標: X=", finalX, "Y=", finalY, ")");
+            activeOfflineShops.push({
+                id: persistentId,
+                owner_id: persistentId,
+                socket_id: shopId,
+                title: shopTitle,
+                mode: shopMode,
+                vending_mode: shopMode,
+                name: shopOwnerName,       // 👈 確実に名前を登録！
+                owner_name: shopOwnerName, // 👈 確実に名前を登録！
+                x: finalX, 
+                y: finalY  
+            });
+        }
+    }
+
+    console.log("7. 最終的な activeOfflineShops の中身:", JSON.parse(JSON.stringify(activeOfflineShops)));
+    console.groupEnd();
+
+    // --- キャラクターステータスへの反映 ---
+    if (shopId === socket.id) {
+        if (typeof hero !== 'undefined') {
+            hero.is_vending = true;
+            hero.vending_mode = shopMode;
+            hero.mode = shopMode;
+            hero.vending_title = shopTitle;
+            hero.vending_items = data.items || [];
+            hero.name = shopOwnerName; // 👈 ヒーロー側にも名前を同期
+        }
+    } else {
         const targetList = (typeof otherPlayers !== 'undefined') ? otherPlayers : (typeof others !== 'undefined' ? others : {});
-        const targetPlayer = targetList[data.id];
+        const targetPlayer = targetList[shopId];
         
         if (targetPlayer) {
             targetPlayer.is_vending = true;
+            targetPlayer.vending_mode = shopMode;
+            targetPlayer.mode = shopMode;
             targetPlayer.vending_title = shopTitle;
-            
-            // 🔥 【追加箇所】サーバーから届いた陳列アイテムを保存
-            // これにより、看板クリック時にこのリストを参照して表示できるようになります
             targetPlayer.vending_items = data.items || [];
+            targetPlayer.name = shopOwnerName; // 👈 他プレイヤー側にも名前を同期
             
-            // 座標の同期（データがある場合のみ）
-            if (data.x !== undefined) targetPlayer.x = data.x;
-            if (data.y !== undefined) targetPlayer.y = data.y;
-            
-            console.log(`プレイヤー ${data.id} の露店状態とアイテムリスト(${targetPlayer.vending_items.length}件)を反映しました: ${shopTitle}`);
+            if (shopMode === 'player') {
+                if (data.x !== undefined) targetPlayer.x = data.x;
+                if (data.y !== undefined) targetPlayer.y = data.y;
+            }
         }
     }
 });
 
 // ============================================================
-// :::ON_VENDING_CLOSED::: 🏪 露店閉店通知の受信とUIの終了処理
+// :::ON_VENDING_CLOSED::: 🏪 露店閉店通知の受信とUIの終了処理 (完全対応版)
 // ============================================================
-/**
- * 役割：
- * - 閉店通知を受信し、購入者の閲覧ウィンドウを強制クローズ
- * - 完売（sold_out）や中止（manual）に応じた通知モーダルの表示
- * - 閲覧状態のクリーンアップ（currentVendingOwnerIdのリセット）
- * - 店主側（自分）のステータスリセットとUI（開店ボタン）の復旧
- * - 他店主のステータス消去（targetPlayer.is_vending = false）
- */
 socket.on('vending_closed', (data) => {
-    console.log(`露店閉店の通知を受信 (ID: ${data.id}, 理由: ${data.reason || 'manual/disconnect'})`);
+    console.log(`露店閉店の通知を受信 (ID: ${data.id}, DB_ID: ${data.dbId}, 理由: ${data.reason || 'manual/disconnect'})`);
 
-    // --- 🛒 購入者側の強制終了ロジック ---
-    // 今開いている露店の店主ID(data.id)が、通知された閉店IDと一致する場合
-    if (typeof window.currentVendingOwnerId !== 'undefined' && window.currentVendingOwnerId === data.id) {
+    const closedId = data.dbId || data.owner_id || data.id;
+
+    // 🌟 1. 看板リスト（activeOfflineShops）から削除（IDの揺れを完全ガード）
+    activeOfflineShops = activeOfflineShops.filter(shop => {
+        const sId = String(shop.id || "");
+        const oId = String(shop.owner_id || "");
+        const sockId = String(shop.socket_id || "");
+        const targetId = String(closedId);
+        const rawId = String(data.id || "");
+
+        // 一致するIDがあればリストから除外（return false でフィルター）
+        const isMatch = sId === targetId || oId === targetId || sockId === rawId || sId === rawId || oId === rawId;
+        return !isMatch;
+    });
+
+    // 🌟 2. 購入者側のウィンドウ強制クローズ
+    if (typeof window.currentVendingOwnerId !== 'undefined' && (window.currentVendingOwnerId === data.id || String(window.currentVendingOwnerId) === String(closedId))) {
         const otherVendingWin = document.getElementById('other-vending-window');
         
-        // 🌟 ウィンドウが表示されている場合のみ、通知を出して閉じる
         if (otherVendingWin && otherVendingWin.style.display !== 'none') {
             otherVendingWin.style.display = 'none';
 
-            // ✅ 独自UIでメッセージを出し分け表示
             const noticeModal = document.getElementById('vending-notice-modal');
             const noticeText = document.getElementById('vending-notice-text');
             const closeBtn = document.getElementById('vending-notice-close-btn');
 
             if (noticeModal && noticeText) {
-                // 理由(reason)に基づいてテキストをセット
                 if (data.reason === 'sold_out') {
                     noticeText.innerText = "全ての商品が売り切れました。";
-                    noticeText.style.color = "#ffcc00"; // 完売はゴールド系の色
+                    noticeText.style.color = "#ffcc00";
                 } else {
                     noticeText.innerText = "販売者が販売を中止しました。";
                     noticeText.style.color = "#ffffff";
@@ -5065,55 +5947,55 @@ socket.on('vending_closed', (data) => {
 
                 noticeModal.style.display = 'block';
 
-                // 閉じるボタンの処理
-                closeBtn.onclick = () => {
-                    noticeModal.style.display = 'none';
-                };
+                if (closeBtn) {
+                    closeBtn.onclick = () => {
+                        noticeModal.style.display = 'none';
+                    };
+                }
             }
         }
         
-        // 閲覧状態のリセット
         window.currentVendingOwnerId = null;
-        window.currentHoverSlot = null; // ツールチップのクリア
+        window.currentHoverSlot = null;
     }
-    // ------------------------------------
 
-    if (data.id === socket.id) {
-        // 自分の状態をリセット
+    // 🌟 3. 店主（自分 または 他人）の状態リセット
+    if (data.id === socket.id || String(data.dbId) === String(hero?.dbId)) {
         if (typeof hero !== 'undefined') {
             hero.is_vending = false;
             hero.vending_title = "";
-            hero.vending_items = []; // アイテムデータもクリア
+            hero.vending_items = [];
+            hero.vending_mode = 'monster';
+            hero.mode = 'monster';
         }
         
-        // 自分の管理ウィンドウも開いていれば閉じる
-        const myVendingWin = document.getElementById('vending-window');
-        if (myVendingWin) {
-            myVendingWin.style.display = 'none';
-        }
+		// 停止 2026-10-17
+        //const myVendingWin = document.getElementById('vending-window');
+        //if (myVendingWin) {
+        //    myVendingWin.style.display = 'none';
+        //}
 
-        // --- 🌟 追加：ボタンのUI状態を元に戻す ---
         const btn = document.getElementById('vending-confirm-btn');
         if (btn) {
-            btn.innerText = "この内容で露店を開く";
+            btn.innerText = "✨ この内容で露店を開く";
             btn.disabled = false;
+            btn.setAttribute("onclick", "startVending()");
             btn.style.removeProperty('background');
             btn.style.removeProperty('border-color');
             btn.style.cursor = "pointer";
         }
-        // ------------------------------------
-
     } else {
-        // 他人の状態をリセット
         const targetList = (typeof otherPlayers !== 'undefined') ? otherPlayers : (typeof others !== 'undefined' ? others : {});
         const targetPlayer = targetList[data.id];
         
         if (targetPlayer) {
             targetPlayer.is_vending = false;
             targetPlayer.vending_title = "";
-            targetPlayer.vending_items = []; // アイテムデータもクリア
+            targetPlayer.vending_items = [];
         }
     }
+    
+    console.log("露店が閉店したため、看板を削除しました。残りの店舗数:", activeOfflineShops.length);
 });
 
 // ============================================================
@@ -5174,87 +6056,85 @@ function getVendingItemsData() {
 }
 
 // ============================================================
-// :::START_VENDING::: 🚀 露店販売開始処理・経済活動の起動
+// :::START_VENDING::: 🚀 露店販売開始処理・経済活動の起動（ウィンドウ維持 ＆ タイプロック版）
 // ============================================================
-/**
- * 役割：
- * - 開店前のアイテムリスト存在チェック（バリデーション）
- * - プレイヤー状態（hero.is_vending）の更新と店名同期
- * - 陳列アイテムデータの取得（荷造り）
- * - サーバーへの開店通知（open_vending）および状態同期（move）
- * - 開店中UIへの切り替え（ボタン無効化・グレーアウト）
- */
 function startVending() {
     const listContainer = document.getElementById('vending-item-list');
-    const btn = document.getElementById('vending-confirm-btn'); // ボタンのID
-    const titleInput = document.getElementById('vending-title-input'); // 店名入力欄のID
+    const btn = document.getElementById('vending-confirm-btn');
+    const titleInput = document.getElementById('vending-title-input');
     
-    // 🛒 1. チェック: リストにアイテムがあるか？ (既存ロジックを完全踏襲)
     if (!listContainer || listContainer.children.length === 0 || 
         listContainer.innerHTML.includes("アイテムがありません")) {
-        alert("販売するアイテムをリストに追加してください");
+        if (typeof showCustomAlert === 'function') {
+            showCustomAlert("販売するアイテムをリストに追加してください");
+        } else {
+            alert("販売するアイテムをリストに追加してください");
+        }
         return;
     }
 
-    // 🌟 2. 状態を更新
-    // 確実な送信のため、一度変数(inputTitle)に格納します
+    // 🌟 ラジオボタンから選択されたモードを確実に取得
+    const modeInputs = document.querySelectorAll('input[name="vending-mode"]');
+    const modeInput = document.querySelector('input[name="vending-mode"]:checked');
+    const vendingMode = modeInput ? modeInput.value : 'monster';
+
     let inputTitle = "いらっしゃいませ！";
     if (typeof hero !== 'undefined') {
         hero.is_vending = true; 
+        hero.vending_mode = vendingMode; 
+        hero.mode = vendingMode;        
         
-        // 🌟 入力欄から店名を取得
         inputTitle = (titleInput && titleInput.value.trim() !== "") 
-                        ? titleInput.value 
-                        : "いらっしゃいませ！";
+                    ? titleInput.value 
+                    : "いらっしゃいませ！";
         hero.vending_title = inputTitle;
     }
 
-    // 🛒 3. 陳列アイテムのデータを取得
     const vendingItems = typeof getVendingItemsData === 'function' ? getVendingItemsData() : []; 
 
-    // 📡 4. サーバーへ確定情報を送る
+    // 📡 サーバーへ送信
     if (typeof socket !== 'undefined' && typeof hero !== 'undefined') {
-        // A. 露店システムへの開店通知
         socket.emit('open_vending', {
             title: inputTitle,
-            items: vendingItems
+            items: vendingItems,
+            mode: vendingMode,        
+            vending_mode: vendingMode
         });
 
-        // 🌟 B. 看板を周囲に即時反映させるための強制同期
-        // open_vendingだけでは看板が出ない場合があるため、moveイベントで状態を確定させます
         socket.emit('move', {
             x: hero.x, y: hero.y, vx: hero.vx, dir: hero.dir,
             jumping: hero.jumping, isAttacking: hero.isAttacking,
             invincible: hero.invincible, climbing: hero.climbing,
             is_vending: true,
-            vending_title: inputTitle 
+            vending_title: inputTitle,
+            mode: vendingMode,        
+            vending_mode: vendingMode
         });
     }
 
-    // 🌟 5. ボタンのテキストと色を切り替え
+    // 🌟 【超重要】営業中は店番のタイプ（ラジオボタン）を変更できないようにロックする
+    modeInputs.forEach(input => {
+        input.disabled = true;
+    });
+
+    // 🌟 開店成功時はボタンを「完全に店を閉じる（閉店）」用に切り替える
     if (btn) {
-        btn.innerText = "露店を開いています";
-        btn.disabled = true; // 開店中はボタンを無効化
-        
-        // 🎨 既存のCSSに負けないよう important を付与してグレーアウト
-        btn.style.setProperty('background', '#888888', 'important');
-        btn.style.setProperty('border-color', '#666666', 'important');
-        btn.style.cursor = "default";
+        btn.innerText = "🛑 露店を完全に閉じる（閉店）";
+        btn.disabled = false;
+        btn.setAttribute("onclick", "forceCloseVending()");
+        btn.style.setProperty('background', 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)', 'important');
+        btn.style.setProperty('border-color', '#b91c1c', 'important');
+        btn.style.cursor = "pointer";
     }
-    
-    console.log("露店を開始しました。陳列数:", listContainer.children.length, "店名:", inputTitle);
+
+    // 💡 管理ウィンドウは閉じずに維持する
+
+    console.log(`[UI] ${vendingMode === 'monster' ? '無人露店（モンスター）' : '有人露店'}を開きました（ウィンドウ維持・タイプロック適用）！`);
 }
 
 // ============================================================
-// :::CLOSE_VENDING_MENU::: ❌ 露店管理メニューの閉鎖と経済活動の清算
+// :::CLOSE_VENDING_MENU::: ❌ 露店管理メニューの閉鎖（ウィンドウを閉じるだけ / 有人は閉店）
 // ============================================================
-/**
- * 役割：
- * - 露店管理ウィンドウ（vending-window）の非表示化
- * - プレイヤー状態（is_vending, vending_title）のリセット
- * - サーバーへの閉店通知（close_vending）および周辺同期（move）の発行
- * - UI要素（開店ボタン）の初期状態への復旧
- */
 function closeVendingMenu() {
     const win = document.getElementById('vending-window');
     const btn = document.getElementById('vending-confirm-btn');
@@ -5262,86 +6142,76 @@ function closeVendingMenu() {
     if (win) {
         win.style.display = 'none';
         
-        if (typeof hero !== 'undefined') {
-            hero.is_vending = false;
-            hero.vending_title = ""; 
-        }
+        const currentMode = (typeof hero !== 'undefined') ? (hero.vending_mode || hero.mode) : 'player';
 
-        if (typeof socket !== 'undefined' && typeof hero !== 'undefined') {
-            socket.emit('close_vending');
-
-            // 閉店状態を周囲に即時同期
-            socket.emit('move', {
-                x: hero.x, y: hero.y, vx: hero.vx, dir: hero.dir,
-                jumping: hero.jumping, isAttacking: hero.isAttacking,
-                invincible: hero.invincible, climbing: hero.climbing,
-                is_vending: false,
-                vending_title: "" 
-            });
-        }
-
-        if (btn) {
-            btn.innerText = "この内容で露店を開く";
-            btn.disabled = false;
-            // JSで付与した強制スタイルを解除
-            btn.style.removeProperty('background');
-            btn.style.removeProperty('border-color');
-            btn.style.cursor = "pointer";
+        // 💡 【分岐】有人（player）の場合のみ、ウィンドウを×ボタンで閉じたら完全閉店する
+        if (currentMode === 'player') {
+            forceCloseVending();
+        } else {
+            // 🌟 🤖 【無人(monster)の場合】
+            // 管理画面を閉じるだけで、お店番（無人露店）はそのまま営業を継続させる！
+            console.log("[UI] 管理ウィンドウを閉じましたが、無人露店（モンスターKiosk）の営業は継続します。");
         }
     }
 }
 
 // ============================================================
-// :::CLOSE_VENDING_MENU::: ❌ 露店管理メニューの閉鎖と経済活動の清算
+// :::FORCE_CLOSE_VENDING::: 🛑 無人・有人を問わず、露店を完全に終了する関数（タイプロック解除）
 // ============================================================
-/**
- * 役割：
- * - 露店管理ウィンドウ（vending-window）の非表示化
- * - プレイヤー状態（is_vending, vending_title）のリセット
- * - サーバーへの閉店通知（close_vending）および周辺同期（move）の発行
- * - UI要素（開店ボタン）のスタイル（background/border）をCSS定義に戻して復旧
- */
-function closeVendingMenu() {
+function forceCloseVending() {
     const win = document.getElementById('vending-window');
     const btn = document.getElementById('vending-confirm-btn');
+    const modeInputs = document.querySelectorAll('input[name="vending-mode"]');
 
-    if (win) {
-        // 1. HTMLウィンドウを非表示にする
-        win.style.display = 'none';
-        
-        // 2. 露店フラグをオフにする
-        if (typeof hero !== 'undefined') {
-            hero.is_vending = false;
-            hero.vending_title = ""; // 自分の画面から即座に消去
-        }
-
-        // 3. サーバーに閉店を通知
-        if (typeof socket !== 'undefined' && typeof hero !== 'undefined') {
-            socket.emit('close_vending'); // 閉店専用イベント
-
-            // move同期でも閉店を送信（既存の同期ロジックを維持）
-            socket.emit('move', {
-                x: hero.x, y: hero.y, vx: hero.vx, dir: hero.dir,
-                jumping: hero.jumping, isAttacking: hero.isAttacking,
-                invincible: hero.invincible, climbing: hero.climbing,
-                is_vending: false,
-                vending_title: "" 
-            });
-        }
-
-        // 🌟 4. ボタンの状態を元に戻す
-        if (btn) {
-            btn.innerText = "この内容で露店を開く";
-            btn.disabled = false;
-            
-            // 🎨 修正：JSで付与した強制スタイルを削除して、元のCSS（オレンジ）に戻します
-            btn.style.removeProperty('background');
-            btn.style.removeProperty('border-color');
-            btn.style.cursor = "pointer";
-        }
-
-        console.log("[UI] 露店を終了し、ボタンをリセットしました。");
+    if (typeof hero !== 'undefined') {
+        hero.is_vending = false;
+        hero.vending_title = "";
+        hero.vending_items = [];
     }
+
+    if (typeof socket !== 'undefined' && typeof hero !== 'undefined') {
+        socket.emit('close_vending');
+
+        socket.emit('move', {
+            x: hero.x, y: hero.y, vx: hero.vx, dir: hero.dir,
+            jumping: hero.jumping, isAttacking: hero.isAttacking,
+            invincible: hero.invincible, climbing: hero.climbing,
+            is_vending: false,
+            vending_title: ""
+        });
+    }
+
+    // クライアント側の無人露店リストからも削除
+    if (typeof activeOfflineShops !== 'undefined' && typeof hero !== 'undefined') {
+        const myPersistentId = hero.dbId || socket.id;
+        const index = activeOfflineShops.findIndex(s => String(s.id) === String(myPersistentId) || String(s.owner_id) === String(myPersistentId));
+        if (index !== -1) {
+            activeOfflineShops.splice(index, 1);
+        }
+    }
+
+	// 停止 2026-10-17
+    // ウィンドウを非表示にする
+    //if (win) {
+    //    win.style.display = 'none';
+    //}
+
+    // 🌟 【超重要】閉店したら店番タイプのラジオボタンのロックを解除する
+    modeInputs.forEach(input => {
+        input.disabled = false;
+    });
+
+    // ボタンの状態を元の「✨ この内容で露店を開く」に復旧
+    if (btn) {
+        btn.innerText = "✨ この内容で露店を開く";
+        btn.disabled = false;
+        btn.setAttribute("onclick", "startVending()");
+        btn.style.removeProperty('background');
+        btn.style.removeProperty('border-color');
+        btn.style.cursor = "pointer";
+    }
+
+    console.log("[UI] 露店を完全に終了し、店番選択のロックを解除しました。");
 }
 
 // ============================================================
@@ -7041,7 +7911,7 @@ window.addEventListener('load', () => {
     const loadingCover = document.getElementById('loading-cover');
     const loginOverlay = document.getElementById('login-overlay');
     const mainContainer = document.getElementById('main-container'); // 🌟 ゲーム画面本体
-    const uiContainer = document.getElementById('ui-container');       // 🌟 UI操作エリア（チャット等）
+    const uiContainer = document.getElementById('ui-container');      // 🌟 UI操作エリア（チャット等）
 
     // ★最初からログインオーバーレイは透明にして操作を無効化（チラつき完全防止）
     if (loginOverlay) {
@@ -7067,9 +7937,14 @@ window.addEventListener('load', () => {
     }, 5000); 
 
     if (savedToken) {
-        console.log("📤 自動ログイン試行中...");
-        socket.emit('auto_login', { token: savedToken });
-        
+        console.log("⏳ サーバーとの接続を待って自動ログイン試行中...");
+
+        // 🌟 【修正ポイント】ソケットの接続（connect）が完了してから自動ログインを送信する
+        socket.once('connect', () => {
+            console.log("📤 接続完了、自動ログイン送信！");
+            socket.emit('auto_login', { token: savedToken });
+        });
+
         // 【重要】サーバーから返事が来たら（自動ログイン成功！）
         socket.once('login_data', (userData) => {
             clearTimeout(timeoutTimer); // タイムアウトをキャンセル

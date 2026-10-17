@@ -57,10 +57,16 @@ async function setupAudio() {
         mouseover1:     loadAudioFile(`${IMAGE_DOMAIN}sound_assets/BtMouseOver.mp3`),
         mouseclick:     loadAudioFile(`${IMAGE_DOMAIN}sound_assets/BtMouseClick.mp3`),
         tab:            loadAudioFile(`${IMAGE_DOMAIN}sound_assets/Tab.mp3`),
-        menuup:         loadAudioFile(`${IMAGE_DOMAIN}sound_assets/MenuUp.mp3`),
-        menudown:       loadAudioFile(`${IMAGE_DOMAIN}sound_assets/MenuDown.mp3`),
+        // 2026-10-11更新
+        //menuup:       loadAudioFile(`${IMAGE_DOMAIN}sound_assets/MenuUp.mp3`),
+		menuup:			loadAudioFile(`${IMAGE_DOMAIN}sound_assets2/[s1_hover]DM-CGS-19.wav`),
+        // 2026-10-11更新
+        //menudown:     loadAudioFile(`${IMAGE_DOMAIN}sound_assets/MenuDown.mp3`),
+        menudown:       loadAudioFile(`${IMAGE_DOMAIN}sound_assets2/[s1_drop]DM-CGS-20.wav`),
         // 2026-8-12更新
-        equip:       loadAudioFile(`${IMAGE_DOMAIN}sound_assets2/[s1_euqip]JRPG_UI_Chibi_Menu_Open_01v2.wav`),
+        // 2026-10-11更新
+        equip:      	loadAudioFile(`${IMAGE_DOMAIN}sound_assets2/[s1_euqip]JRPG_UI_Chibi_Menu_Open_01v2.wav`),
+        //equip:      	loadAudioFile(`${IMAGE_DOMAIN}sound_assets2/[s3_equip]JRPG_UI_Fantasy_Item_Equip_01.wav`),
         // 2026-8-12更新
         levelup:        loadAudioFile(`${IMAGE_DOMAIN}sound_assets2/[s1_levelup]JRPG_UI_Chibi_System_Startup_01.wav`),
         // 2026-8-12更新

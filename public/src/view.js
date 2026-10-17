@@ -529,8 +529,8 @@ const gameWindows = {
     
     // --- ソーシャル・コミュニティ系 ---
     guild:      new GameWindow("guild", 200, 100, 400, 450),     // [G] ギルド
-    friend:     new GameWindow("friend", 550, 200, 220, 350),    // [F] フレンドリスト
-    party:      new GameWindow("party", 550, 200, 220, 300),     // [P] パーティ
+	friend: 	new GameWindow("friend", 400, 150, 320, 380),    // [F] フレンドリスト (幅を 220 → 320、高さを 350 → 380 に拡大)
+	party:      new GameWindow("party", 550, 200, 220, 300),     // [P] パーティ
     trade:      new GameWindow("trade", 150, 150, 500, 300),     // [T] トレード
     
     // --- システム・ログ・通知系 ---
@@ -807,8 +807,12 @@ const ENEMY_PLAN = [
 ];
 
 // ============================================================
-// :::LOAD_STATIC_IMAGES::: 🖼️ 元の「一番軽い構造」を完全維持したプラン対応版
+// :::LOAD_STATIC_IMAGES::: 🖼️ 元の「一番軽い構造」を完全維持したプラン対応版（無人露店アイコン対応）
 // ============================================================
+
+// 🌟 無人露店用のモンスターアイコンを sprites オブジェクト内（または専用変数）に安全にキャッシュする準備
+let monsterShopIcon = null;
+
 function loadStaticImages() {
     const allowedCharIds = ["Char01", "Char02", "Char03", "Char10", "Char13", "Char16", "Char19"];
 
@@ -818,14 +822,11 @@ function loadStaticImages() {
     let activeEnemyIds = ENEMY_PLAN.map(p => String(p.id));
 
     // 🌟 2. 【追加】もし現在画面上（またはゲーム内）に配置されている敵のデータ（enemiesなど）があれば、そのIDも強制的に含める！
-    // ※ グローバル変数として enemies が存在する場合の安全ガード付き
     if (typeof enemies !== 'undefined') {
-        // enemies が配列の場合と、チャンネルなどでオブジェクトになっている場合の両方に対応
         let currentEnemiesList = [];
         if (Array.isArray(enemies)) {
             currentEnemiesList = enemies;
         } else if (typeof enemies === 'object' && enemies !== null) {
-            // チャンネル別のオブジェクト構造に対応（chIdごとの配列をフラットにする）
             currentEnemiesList = Object.values(enemies).flat();
         }
 
@@ -913,6 +914,16 @@ function loadStaticImages() {
         img.src = `${IMAGE_DOMAIN}char_assets_enemy/DeathFx/skeleton-animation_${i}.png`;
         sprites["commonDeath"].push(img);
     }
+
+    // 🌟 【新規追加】無人露店用のモンスターアイコン（Monster8のtile000.png）を静的画像と同じ構造でロード
+    monsterShopIcon = new Image();
+    monsterShopIcon.crossOrigin = "anonymous";
+    monsterShopIcon.src = `${IMAGE_DOMAIN}char_assets_enemy/Monster8/Idle/tile000.png`;
+    monsterShopIcon.onload = () => {
+        if (typeof getBottomTransparentPadding === 'function') {
+            monsterShopIcon.autoPaddingY = getBottomTransparentPadding(monsterShopIcon, 10);
+        }
+    };
 }
 
 //loadStaticImages();
@@ -1338,6 +1349,14 @@ window.addEventListener('keydown', (e) => {
             console.log("Optionsを開いたのでIDを要求します");
             if (typeof socket !== 'undefined' && socket.emit) {
                 socket.emit('get_account_info'); 
+            }
+        }
+		
+		// 🌟 ここを追加！フレンドウィンドウが開いたときにリストをサーバーへ要求する
+        if (targetId === 'friend' && win.isOpen) {
+            console.log("Friendウィンドウを開いたのでリストを要求します");
+            if (typeof socket !== 'undefined' && socket.emit) {
+                socket.emit('get_friend_list');
             }
         }
         
@@ -2281,7 +2300,40 @@ canvas.addEventListener('mousedown', (event) => {
         }
     }
 
-    // 4. 🏪 他プレイヤーの露店看板クリック判定
+    // 4. 🏪 露店看板クリック判定（有人 ＆ 無人オフライン両対応版）
+    
+    // A. まずは無人（オフライン）の露店看板がクリックされたかチェック
+    if (typeof activeOfflineShops !== 'undefined' && activeOfflineShops.length > 0) {
+        for (let shop of activeOfflineShops) {
+            // 描画時と同じ看板のサイズ・位置計算
+            const boxWidth = 140;  // 横幅を屋根の端までしっかりカバー
+const boxHeight = 110; // 高さを屋根の上から地面・土台までしっかり伸ばす
+const boxX = (shop.x || 0) - (boxWidth / 2);
+const boxY = (shop.y || 0) - 85;  // 判定の上端を屋根のてっぺん付近まで持ち上げる
+
+            if (clickX >= boxX && clickX <= boxX + boxWidth &&
+                clickY >= boxY && clickY <= boxY + boxHeight) {
+                
+                console.log(`✅ [HIT] 無人露店の看板へのクリックを検知しました！ (OwnerId: ${shop.owner_id})`);
+                if (typeof playMouseClickSound === 'function') playMouseClickSound();
+
+                // openOtherPlayerVending に渡すための簡易オブジェクトを構築
+                const shopDataForWindow = {
+                    id: shop.owner_id,
+                    vending_title: shop.title
+                };
+
+                if (typeof openOtherPlayerVending === 'function') {
+                    openOtherPlayerVending(shopDataForWindow);
+                } else {
+                    console.warn("⚠️ [Error] 関数 openOtherPlayerVending が未定義です。");
+                }
+                return;
+            }
+        }
+    }
+
+    // B. 既存の有人露店看板のクリック判定
     const targetPlayers = (typeof others !== 'undefined') ? others : (typeof players !== 'undefined') ? players : {};
     
     for (let id in targetPlayers) {
@@ -2294,7 +2346,7 @@ canvas.addEventListener('mousedown', (event) => {
                 const isInsideY = clickY >= r.y && clickY <= r.y + r.h;
 
                 if (isInsideX && isInsideY) {
-                    console.log(`✅ [HIT] 露店看板へのクリックを検知しました！`);
+                    console.log(`✅ [HIT] 有人露店看板へのクリックを検知しました！`);
                     if (typeof playMouseClickSound === 'function') playMouseClickSound();
 
                     if (typeof openOtherPlayerVending === 'function') {
@@ -3241,6 +3293,49 @@ document.addEventListener("click", (event) => {
     }
 
     // 5. プロフィールウィンドウを閉じる
+    window._isProfileWindowOpen = false;
+    window._selectedProfilePlayer = null;
+    
+    const profileWin = document.getElementById("profile-window");
+    if (profileWin) {
+        profileWin.style.display = "none";
+    }
+});
+
+// ============================================================
+// 🤝 友達申請ボタンがクリックされたときの処理（イベント委譲経由）
+// ============================================================
+document.addEventListener("click", (event) => {
+    // クリックされた要素が #profile-btn-friend、またはその中身の場合
+    const friendBtn = event.target.closest("#profile-btn-friend");
+    if (!friendBtn) return; // 違う場所なら何もしない
+
+    const targetPlayer = window._selectedProfilePlayer;
+    if (!targetPlayer) {
+        console.log("選択中のプレイヤーがいません");
+        return;
+    }
+
+    console.log(`${targetPlayer.name} へ友達申請を送信（イベント委譲経由）`);
+
+    // 1. サーバーへフレンド申請を送信
+    if (typeof socket !== 'undefined' && targetPlayer.username) {
+        socket.emit('send_friend_request', { 
+            targetUsername: targetPlayer.username 
+        });
+    } else {
+        // もし username がなく name のみ保存されている場合のフォールバック
+        socket.emit('send_friend_request', { 
+            targetUsername: targetPlayer.name 
+        });
+    }
+
+    // 2. システムメッセージを表示
+    if (typeof addSystemMessage === 'function') {
+        addSystemMessage(`${targetPlayer.name} にフレンド申請を送りました！`);
+    }
+
+    // 3. プロフィールウィンドウを閉じる
     window._isProfileWindowOpen = false;
     window._selectedProfilePlayer = null;
     
@@ -4336,9 +4431,48 @@ canvas.addEventListener('click', (e) => {
                 window._selectedProfilePlayer = targetPlayer;
                 window._isProfileWindowOpen = true;
                 
+                // 🌟 currentProfileUserId に代入する
+                currentProfileUserId = targetPlayer.id;
+                
                 // 🌟 handleProfileClick() を使うための合わせ技
-                window.selectedPlayer = targetPlayer; // handleProfileClickが読めるようにセット
-                handleProfileClick(); // これを書くだけでOK！
+                window.selectedPlayer = targetPlayer; 
+                handleProfileClick(); 
+                
+                // ============================================================
+                // 🕵️‍♂️ ガチガチのデバッグ行（人気度0崩壊トルネードデバッグ）
+                // ============================================================
+                const popularitySpan = document.getElementById('profile-popularity');
+
+                console.group("⭐ [DEBUG] 人気度反映・ガチガチデバッグ開始");
+                console.log("1. クリックされた targetPlayer のオブジェクト:", targetPlayer);
+                console.log("2. targetPlayer.id / dbId:", targetPlayer ? targetPlayer.id : "不明", targetPlayer ? targetPlayer.dbId : "不明");
+                console.log("3. targetPlayer.popularity の値:", targetPlayer ? targetPlayer.popularity : "対象なし");
+                console.log("4. targetPlayer.fame の値:", targetPlayer ? targetPlayer.fame : "対象なし");
+                console.log("5. 検出された #profile-popularity 要素:", popularitySpan);
+
+                if (popularitySpan) {
+                    let finalPop = 0;
+                    if (targetPlayer) {
+                        if (targetPlayer.popularity !== undefined && targetPlayer.popularity !== null) {
+                            finalPop = targetPlayer.popularity;
+                            console.log("👉 判定: targetPlayer.popularity を採用:", finalPop);
+                        } else if (targetPlayer.fame !== undefined && targetPlayer.fame !== null) {
+                            finalPop = targetPlayer.fame;
+                            console.log("👉 判定: targetPlayer.fame を採用:", finalPop);
+                        } else {
+                            console.warn("⚠️ 警告: targetPlayer に popularity も fame も存在しません！オブジェクトの全キー一覧:", Object.keys(targetPlayer));
+                        }
+                    } else {
+                        console.error("❌ エラー: targetPlayer が null または undefined です！");
+                    }
+
+                    popularitySpan.innerText = finalPop;
+                    console.log(`✅ 最終的に画面（#profile-popularity）に書き込んだ値: ${finalPop}`);
+                } else {
+                    console.error("❌ エラー: DOM上に #profile-popularity 要素が見つかりません！HTMLのIDを確認してください。");
+                }
+                console.groupEnd();
+                // ============================================================
 
                 console.log(`${targetPlayer.name} のプロフィールウィンドウを開きます`);
             } else if (actionType === 1) {
@@ -5522,6 +5656,176 @@ socket.on('account_info_response', (data) => {
 });
 
 // ============================================================
+// 🌀 ポータルVFX & ✨ 発生源をほんの少し上に微調整したパーティクル管理
+// ============================================================
+
+// --- 1. 画像素材の準備 ---
+const portalImg = new Image();
+portalImg.src = 'portal_assets/Flare_Open_BOX_Blue.png';
+
+const starSheetImg = new Image();
+starSheetImg.src = 'portal_assets/Star_Sheet_Blue.png'; // 2x2スプライトシート[cite: 1]
+
+const sparkImg = new Image();
+sparkImg.src = 'portal_assets/Spark_Blue.png'; // 丸い光の粒
+
+let portalAnimationTime = 0;
+let portalParticles = []; // パーティクルを管理する配列
+
+/**
+ * ✨ 発生源の位置をほんの、ほんの少し上に微調整した生成関数
+ */
+function createPortalParticle(x, y, portalWidth, portalHeight) {
+    // 左右どちら側に偏っているか (-1:左端 〜 1:右端)
+    const side = (Math.random() - 0.5) * 2; 
+
+    // 🌟 微調整：0.15 からほんの少し上げて「0.12」に設定
+    const spawnY = y + (portalHeight * 0.09); 
+    const startX = x + side * (portalWidth * 0.2 * Math.random());
+    const startY = spawnY - Math.random() * 10;
+
+    // 50%の確率で「星(star)」か「丸い粒(spark)」かを決定
+    const particleType = Math.random() < 0.5 ? 'star' : 'spark';
+
+    // サイズを大きくばらつかせる計算（Math.powで小さな粒が多く、時々大きな星が混ざる）
+    const rand = Math.pow(Math.random(), 3); 
+    const variedSize = 10 + rand * 20; // 10px 〜 30px
+
+    portalParticles.push({
+        type: particleType, 
+        baseX: x, 
+        baseY: spawnY, 
+        x: startX,
+        y: startY,
+        side: side, 
+        
+        // 星の場合に使うスプライトのランダム選択 (0〜3)[cite: 1]
+        frameX: Math.floor(Math.random() * 2), 
+        frameY: Math.floor(Math.random() * 2), 
+        
+        // --- ゆっくり優雅なスピード設定 ---
+        speedY: 0.8 + Math.random() * 1.2, 
+        spreadFactor: 0.25 + Math.random() * 0.1, 
+        
+        // --- サイズと寿命 ---
+        size: variedSize, 
+        life: 1.0, 
+        // 🌟 寿命の減衰スピードを少し速く（数値を大きく）して、消えるのを早めました
+        decay: (0.012 + Math.random() * 0.012) / (variedSize / 15)
+    });
+}
+
+/**
+ * ポータル本体と、星＆Sparkのパーティクルをまとめて更新・描画する統合関数
+ */
+function updateAndDrawPortalVFX(ctx, x, y) {
+    if (!portalImg.complete) return;
+
+    portalAnimationTime += 0.04;
+
+    // --- 1. ポータル本体（Flare_Open_BOX_Blue.png）の描画 ---
+    const alpha = 0.75 + Math.sin(portalAnimationTime * 2) * 0.25; 
+    const scale = 1 + Math.sin(portalAnimationTime * 1.5) * 0.02; 
+    const baseWidth = 170; // ご希望のサイズ
+    const baseHeight = (portalImg.height / portalImg.width) * baseWidth;
+    const drawWidth = baseWidth * scale;
+    const drawHeight = baseHeight * scale;
+
+    ctx.save();
+    
+    // 座標の中心をポータルの位置に固定（上下移動なし）
+    ctx.translate(x, y);
+
+    // 🌟 1. 背面の光の広がり（グロー効果）
+    ctx.save();
+    ctx.globalAlpha = alpha * 0.35;
+    ctx.globalCompositeOperation = 'lighter';
+    const glowScale = 1.15;
+    ctx.drawImage(
+        portalImg,
+        - (drawWidth * glowScale) / 2,
+        - (drawHeight * glowScale) / 2,
+        drawWidth * glowScale,
+        drawHeight * glowScale
+    );
+    ctx.restore();
+
+    // 🌟 2. メインのポータル本体
+    ctx.save();
+    ctx.globalAlpha = alpha;
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.drawImage(
+        portalImg,
+        -drawWidth / 2,
+        -drawHeight / 2,
+        drawWidth,
+        drawHeight
+    );
+    ctx.restore();
+
+    ctx.restore(); // ポータルの座標復元
+
+    // --- ✨ 2. 星 ＆ Spark のパーティクルシステム ---
+    if (!starSheetImg.complete || !sparkImg.complete) return;
+
+    // 生成頻度（40%の確率で生成）
+    if (Math.random() < 0.40) {
+        createPortalParticle(x, y, drawWidth, drawHeight); 
+    }
+
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+
+    const spriteW = starSheetImg.width / 2;
+    const spriteH = starSheetImg.height / 2;
+
+    // --- ✨ パーティクルの更新と描画 ---
+    for (let i = portalParticles.length - 1; i >= 0; i--) {
+        const p = portalParticles[i];
+
+        p.life -= p.decay;
+        if (p.life <= 0) {
+            portalParticles.splice(i, 1);
+            continue;
+        }
+
+        // --- 🌟 ハの字の角度に沿った移動計算（ゆっくり上昇） ---
+        p.y -= p.speedY; 
+        
+        // 基準位置から上へ進んだ距離を計算
+        const riseDistance = p.baseY - p.y; 
+
+        // 上昇するにつれて、ポータルのハの字の角度に沿って外側へ広がる
+        p.x = (p.baseX + p.side * (drawWidth * 0.1)) + (p.side * riseDistance * p.spreadFactor);
+
+        // --- 🌟 描画 ---
+        ctx.globalAlpha = p.life * (0.6 + (p.size < 20 ? 0.2 : 0)); 
+        const currentDrawSize = p.size * (0.6 + p.life * 0.4); 
+
+        // 🌟 種類（星か丸い粒か）によって描画方法を切り替え
+        if (p.type === 'star') {
+            // 星の描画（スプライトシートから切り出し）[cite: 1]
+            ctx.drawImage(
+                starSheetImg,
+                p.frameX * spriteW, p.frameY * spriteH,
+                spriteW, spriteH,
+                p.x - currentDrawSize / 2, p.y - currentDrawSize / 2,
+                currentDrawSize, currentDrawSize
+            );
+        } else {
+            // Sparkの描画（丸い光の粒をそのまま描画）
+            ctx.drawImage(
+                sparkImg,
+                p.x - currentDrawSize / 2, p.y - currentDrawSize / 2,
+                currentDrawSize, currentDrawSize
+            );
+        }
+    }
+
+    ctx.restore();
+}
+
+// ============================================================
 // 🎨 [SECTION 7: RENDER] 描画エンジン
 // 役割: Canvasへの描画処理とメインループ(60FPS)
 // ============================================================
@@ -5546,6 +5850,15 @@ function drawGame(hero, others, enemies, items, platforms, ladders, damageTexts,
 
     // 3. 背景・マップの描画
     drawMap(platforms, ladders);
+	
+	// ==========================================
+    // 🌟 【ここに追加！】マップ上の特定位置にポータルを描画する
+    // ==========================================
+    //drawPortalOnScreen(ctx, 680, 530);
+	// ==========================================
+    // 🌟 【ここに配置！】ポータル ＆ 星のシュワシュワエフェクト
+    // ==========================================
+    updateAndDrawPortalVFX(ctx, 680, 531);
 
     // 4. 動体（エンティティ）の描画
     drawEntities(hero, others, enemies, items, frame);
@@ -5616,6 +5929,32 @@ function drawGame(hero, others, enemies, items, platforms, ladders, damageTexts,
             }
         }
     }
+	
+	// ==========================================
+        // 🌟 無人露店のクリック判定エリア（赤枠）の可視化
+        // ==========================================
+		/*
+        if (typeof activeOfflineShops !== 'undefined' && activeOfflineShops.length > 0) {
+            ctx.save();
+            for (let shop of activeOfflineShops) {
+                // 🌟 クリック判定と同じ数値を指定
+                const boxWidth = 140;
+                const boxHeight = 110;
+                const boxX = (shop.x || 0) - (boxWidth / 2);
+                const boxY = (shop.y || 0) - 85;
+
+                // 半透明の赤で塗りつぶし
+                ctx.fillStyle = 'rgba(255, 0, 0, 0.3)';
+                ctx.fillRect(boxX, boxY, boxWidth, boxHeight);
+
+                // 赤い枠線
+                ctx.strokeStyle = 'red';
+                ctx.lineWidth = 2;
+                ctx.strokeRect(boxX, boxY, boxWidth, boxHeight);
+            }
+            ctx.restore();
+        }
+		*/
     
     // 🌟 接続切れ時の描画（アニメーション付き）
     if (window.isDisconnected) {
@@ -6593,12 +6932,24 @@ function resetTradeSlots() {
 }
 
 // ============================================================
+// 💡 ヘルパー関数：はみ出る文字を「...」に省略する関数
+// ============================================================
+function getEllipsisText(ctx, text, maxWidth) {
+    if (ctx.measureText(text).width <= maxWidth) return text;
+    let truncated = text;
+    while (truncated.length > 0 && ctx.measureText(truncated + "...").width > maxWidth) {
+        truncated = truncated.slice(0, -1);
+    }
+    return truncated + "...";
+}
+
+// ============================================================
 // :::DRAW_VENDING_SIGN::: 🏪 露店看板のレンダリング（メイプル風・固定特大サイズ版）
 // ============================================================
 /**
  * 役割：
  * - プレイヤーの開店状態(is_vending)の監視とレンダリングのトリガー
- * - タイトルテキストの長さに関わらず、キャラ約2体分の固定幅（160px ※計算値）箱を生成
+ * - タイトルテキストの長さに関わらず、キャラ約2体分の固定幅（160px）箱を生成
  * - 他プレイヤー表示時の座標ズレ補正（manualOffsetX）の適用
  * - 看板エリアのクリック判定用データ（p.vending_rect）のCanvasへの登録
  * - 2行対応：長すぎるテキストは指定幅で折り返し、はみ出る分は「...」に省略
@@ -6606,6 +6957,10 @@ function resetTradeSlots() {
 function drawVendingSign(p) {
     // 🌟 露店フラグを絶対条件にします
     if (!p || !p.is_vending) return;
+	
+	// 🌟 追記: 無人モード（monster）の場合は、この有人用看板を表示しない！
+    const mode = p.mode || p.vending_mode || 'player';
+    if (mode === 'monster') return;
 
     // 同期処理で守られた p.vending_title を参照
     const title = p.vending_title || ""; 
@@ -6619,16 +6974,6 @@ function drawVendingSign(p) {
     let displayTitle = title;
     if (!title || title === "") {
         displayTitle = "いらっしゃいませ！"; 
-    }
-
-    // 💡 はみ出る文字を「...」に省略する関数（最大幅を超えたら切り詰める）
-    function getEllipsisText(text, maxWidth) {
-        if (ctx.measureText(text).width <= maxWidth) return text;
-        let truncated = text;
-        while (truncated.length > 0 && ctx.measureText(truncated + "...").width > maxWidth) {
-            truncated = truncated.slice(0, -1);
-        }
-        return truncated + "...";
     }
 
     // 🌟 📏 【サイズ固定】どんなタイトルでも常に固定幅・固定高さ
@@ -6746,9 +7091,9 @@ function drawVendingSign(p) {
         const line1 = displayTitle.slice(0, midIndex).trim();
         const line2 = displayTitle.slice(midIndex).trim();
 
-        // それぞれ省略処理をかける
-        const safeLine1 = getEllipsisText(line1, availableW);
-        const safeLine2 = getEllipsisText(line2, availableW);
+        // それぞれ省略処理をかける（外出したヘルパー関数を使用）
+        const safeLine1 = getEllipsisText(ctx, line1, availableW);
+        const safeLine2 = getEllipsisText(ctx, line2, availableW);
 
         // 装飾エリアと被らないようにY座標を計算して描画
         ctx.fillText(safeLine1, signX + paddingH, signY - (lineHeight / 2) - 2);
@@ -8342,7 +8687,7 @@ function drawPlayerUI(ctx, p, isMe, pW, frame) {
     // 名本のベース位置を計算
     let nameY = p.y + ((p.y > VIEW_CONFIG.groundThreshold) 
         ? VIEW_CONFIG.playerName.offsetY_ground 
-        : VIEW_CONFIG.playerName.offsetY_air);
+        : VIEW_CONFIG.playerName.offsetY_air) - 5;
     
     if (nameY < VIEW_CONFIG.playerName.safeMargin) {
         nameY = VIEW_CONFIG.playerName.safeMargin;
@@ -8406,7 +8751,7 @@ if (typeof window.enemyAuraCache === 'undefined') {
 }
 
 /**
- * 🕰️ アナログ時計のなかにデジタル表記（HH:MM）を融合させた描画関数
+ * 🕰️ アナログ時計のなかにデジタル表記（HH:MM）を融合させた描画関数（ログイン間ハイライト対応版）
  * @param {CanvasRenderingContext2D} ctx 
  * @param {number} x 配置するX座標
  * @param {number} y 配置するY座標
@@ -8464,6 +8809,32 @@ function drawBarMatchedAnalogClock(ctx, x, y, size = 72) {
     const secondAngle = (seconds * Math.PI) / 30 - Math.PI / 2;
     const minuteAngle = (minutes * Math.PI) / 30 + (seconds * Math.PI) / 1800 - Math.PI / 2;
     const hourAngle = ((hours % 12) * Math.PI) / 6 + (minutes * Math.PI) / 360 - Math.PI / 2;
+
+    // 🌟 【追加】ログイン時（またはセッション開始時）の短針の位置と現在の短針の間のエリアに色を塗る
+    // ※ グローバル変数などにログイン時の時間が保存されていればそれを使用（例: window.loginHour）
+    // なければ初回実行時の時間を自動でログイン時として保持します
+    if (typeof window.loginHour === 'undefined') {
+        window.loginHour = hours; 
+    }
+    
+    // ログイン時の短針の角度を計算
+    const loginHourAngle = ((window.loginHour % 12) * Math.PI) / 6 - Math.PI / 2;
+
+    // ログイン時の角度から現在の短針の角度までを扇状にハイライト
+    ctx.beginPath();
+    ctx.moveTo(centerX, centerY);
+    const highlightRadius = radius * 0.45; // 時針が届く長さに合わせる
+    ctx.arc(centerX, centerY, highlightRadius, loginHourAngle, hourAngle, false);
+    ctx.closePath();
+    
+    // 半透明の黄金色のハイライトで塗りつぶし
+    ctx.fillStyle = "rgba(250, 204, 21, 0.2)"; 
+    ctx.fill();
+
+    // 縁取りに少しだけラインを入れて美しく見せる
+    ctx.strokeStyle = "rgba(250, 204, 21, 0.4)";
+    ctx.lineWidth = 1;
+    ctx.stroke();
 
     // 時針
     ctx.strokeStyle = "#ffffff";
@@ -14528,11 +14899,386 @@ function drawGuildWindow() {
     drawSimpleWindow("🏰 Guild", win.x, win.y, win.w, win.h);
 }
 
+// クライアント側：サーバーから送られてきたフレンド一覧・申請一覧を保存する変数
+let friendsList = [];
+let pendingRequestsList = [];
+// 🌟 画面上に描画されているボタンの位置を覚えておく箱
+let requestButtonHitboxes = [];
+
+// サーバーからのデータ受信を受け取る
+socket.on('friend_list_data', (data) => {
+    if (data.success) {
+        friendsList = data.friends;             // 承認済みフレンド
+        pendingRequestsList = data.pendingRequests; // 届いている申請 ＆ 送信中の申請
+        console.log("📥 フレンドリスト更新:", friendsList);
+        console.log("📥 【確認】届いている申請の配列:", data.pendingRequests);
+        console.log("📥 【確認】受け取ったデータ全体:", data);
+    }
+});
+
+// 🌟 サーバーから「フレンドの状態が変わったよ！」とお知らせが来たときのリクエスト
+socket.on('refresh_friend_list', () => {
+    // 自動的に最新のフレンド一覧をサーバーに再要求する
+    socket.emit('get_friend_list');
+    console.log("🔄 フレンドのステータス変更を検知したため、リストを自動更新します。");
+});
+
 function drawFriendWindow() {
     const win = gameWindows.friend;
     if (!win.isOpen) return;
-    drawSimpleWindow("🤝 Friend List", win.x, win.y, win.w, win.h);
+	
+	// 🌟 【ここを追加！】ウィンドウを描き始める前に、古いボタンの位置情報を一度リセットする
+    requestButtonHitboxes = [];
+
+    // 🌟 画面外へのはみ出し防止クランプ
+    if (typeof VIEW_CONFIG !== 'undefined') {
+        if (win.x + win.w > VIEW_CONFIG.SCREEN_WIDTH) win.x = VIEW_CONFIG.SCREEN_WIDTH - win.w - 20;
+        if (win.y + win.h > VIEW_CONFIG.SCREEN_HEIGHT) win.y = VIEW_CONFIG.SCREEN_HEIGHT - win.h - 20;
+        if (win.x < 0) win.x = 20;
+        if (win.y < 0) win.y = 20;
+    }
+
+    // 1. ウィンドウのベースを描画（ゴージャスなウィンドウ枠）
+    drawSimpleWindow("Friend List", win.x, win.y, win.w, win.h);
+
+    const startX = win.x + 12;
+    let startY = win.y + 48; 
+    const listWidth = win.w - 24;
+    const listHeight = win.h - 64; 
+
+    // --- ① プレミアム感のある背景ベース ---
+    ctx.fillStyle = '#121620';
+    ctx.fillRect(startX, startY, listWidth, listHeight);
+
+    // 二重のインセット枠（ゴールド＆シャドウ風）
+    ctx.strokeStyle = '#080a0e';
+    ctx.strokeRect(startX, startY, listWidth, listHeight);
+    ctx.strokeStyle = '#3b485e';
+    ctx.strokeRect(startX + 1, startY + 1, listWidth - 2, listHeight - 2);
+
+    const contentStartX = startX + 8;
+    const rowWidth = listWidth - 16;
+    let currentY = startY + 10;
+
+    // 🌟 1. 届いているフレンド申請セクション（存在する場合のみ表示）
+    if (typeof pendingRequestsList !== 'undefined' && pendingRequestsList.length > 0) {
+        currentY = drawSectionHeader("🔔 フレンドリクエスト", pendingRequestsList.length, contentStartX, currentY, rowWidth, '#3d2a18', '#ed8936');
+        
+        pendingRequestsList.forEach(request => {
+            currentY = drawRequestRow(request, contentStartX, currentY, rowWidth);
+        });
+
+        currentY += 8; // セクション間の余白
+    }
+
+    // friendsList が存在する場合の処理
+    if (typeof friendsList !== 'undefined' && friendsList.length > 0) {
+        // オンラインとオフラインに振り分け
+        const onlineFriends = friendsList.filter(f => f.isOnline);
+        const offlineFriends = friendsList.filter(f => !f.isOnline);
+
+        // --- ② オンラインセクション ---
+        currentY = drawSectionHeader("🟢 ONLINE MEMBERS", onlineFriends.length, contentStartX, currentY, rowWidth, '#2a3d2c', '#48bb78');
+        
+        if (onlineFriends.length > 0) {
+            onlineFriends.forEach(friend => {
+                currentY = drawFriendRow(friend, contentStartX, currentY, rowWidth, true);
+            });
+        } else {
+            currentY = drawEmptyRow("オンラインのフレンドはいません", contentStartX, currentY, rowWidth);
+        }
+
+        currentY += 8; // セクション間の余白
+
+        // --- ③ オフラインセクション ---
+        currentY = drawSectionHeader("⚪ OFFLINE MEMBERS", offlineFriends.length, contentStartX, currentY, rowWidth, '#252930', '#718096');
+        
+        if (offlineFriends.length > 0) {
+            offlineFriends.forEach(friend => {
+                currentY = drawFriendRow(friend, contentStartX, currentY, rowWidth, false);
+            });
+        } else {
+            currentY = drawEmptyRow("オフラインのフレンドはいません", contentStartX, currentY, rowWidth);
+        }
+
+    } else {
+        if (!pendingRequestsList || pendingRequestsList.length === 0) {
+            ctx.fillStyle = '#a0aec0';
+            ctx.font = '12px sans-serif';
+            ctx.fillText("フレンドが登録されていません。", contentStartX + 10, currentY + 20);
+        }
+    }
 }
+
+// 📌 セクションヘッダー（見出し）を描画するヘルパー関数
+function drawSectionHeader(title, count, x, y, width, bgColor, textColor) {
+    ctx.fillStyle = bgColor;
+    ctx.fillRect(x, y, width, 22);
+    
+    ctx.strokeStyle = '#1b232f';
+    ctx.strokeRect(x, y, width, 22);
+
+    ctx.fillStyle = textColor;
+    ctx.font = 'bold 11px sans-serif';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillText(`${title} (${count})`, x + 8, y + 15);
+
+    return y + 26; // 次のY座標を返す
+}
+
+// 📌 1人分のフレンド行を描画するヘルパー関数（チャンネル・レベル対応版）
+function drawFriendRow(friend, x, y, width, isOnline) {
+    const rowHeight = 34;
+
+    // 行の背景
+    ctx.fillStyle = isOnline ? '#182432' : '#141820';
+    ctx.fillRect(x, y, width, rowHeight - 3);
+
+    ctx.strokeStyle = isOnline ? '#243447' : '#1b222d';
+    ctx.strokeRect(x, y, width, rowHeight - 3);
+
+    const centerY = y + (rowHeight - 3) / 2;
+
+    // 1. ステータスインジケーター（オンライン・オフラインのドット）
+    const dotX = x + 12;
+    ctx.fillStyle = isOnline ? '#00ff88' : '#555555';
+    ctx.fillRect(dotX - 3, centerY - 3, 6, 6);
+    ctx.strokeStyle = '#000000';
+    ctx.strokeRect(dotX - 3, centerY - 3, 6, 6);
+
+    // 2. チャンネル番号（オンラインの場合のみ表示）
+    if (isOnline) {
+        ctx.font = '10px Arial';
+        ctx.fillStyle = '#7dd3fc'; // 綺麗な水色
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'middle';
+        const channelNum = friend.channel !== undefined ? friend.channel : 1;
+        ctx.fillText(`CH.${channelNum}`, x + 26, centerY);
+    }
+
+    // 3. レベル表記（存在する場合）
+    const playerLevel = friend.level !== undefined ? friend.level : (friend.lv !== undefined ? friend.lv : null);
+    if (playerLevel !== null && isOnline) {
+        ctx.font = '10px Arial';
+        ctx.fillStyle = '#fde047'; // 明るいゴールド/黄色
+        ctx.textAlign = 'left';
+        ctx.textBaseline = 'middle';
+        ctx.fillText(`Lv.${playerLevel}`, x + 68, centerY);
+    }
+
+    // 4. ユーザー名
+    ctx.font = isOnline ? 'bold 11px Arial' : '11px Arial';
+    ctx.fillStyle = isOnline ? '#ffffff' : '#8899aa';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'middle';
+    const nameX = (isOnline && playerLevel !== null) ? x + 105 : (isOnline ? x + 75 : x + 26);
+    ctx.fillText(friend.username, nameX, centerY);
+
+    // 5. 「詳細」ボタン（右側に配置）
+    const btnW = 46;
+    const btnH = 18;
+    const btnX = x + width - btnW - 6;
+    const btnY = centerY - (btnH / 2);
+
+    ctx.fillStyle = isOnline ? '#2b5078' : '#2d3748';
+    ctx.fillRect(btnX, btnY, btnW, btnH);
+    
+    ctx.strokeStyle = isOnline ? '#4a7bb0' : '#4a5568';
+    ctx.beginPath();
+    ctx.moveTo(btnX, btnY + btnH); ctx.lineTo(btnX, btnY); ctx.lineTo(btnX + btnW, btnY);
+    ctx.stroke();
+    ctx.strokeStyle = isOnline ? '#15283c' : '#1a202c';
+    ctx.beginPath();
+    ctx.moveTo(btnX + btnW, btnY); ctx.lineTo(btnX + btnW, btnY + btnH); ctx.lineTo(btnX, btnY + btnH);
+    ctx.stroke();
+
+    ctx.fillStyle = '#ffffff';
+    ctx.font = '10px sans-serif';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillText('詳細', btnX + 11, btnY + 13);
+
+    return y + rowHeight;
+}
+
+// 📌 申請行（受信・送信）を描画するヘルパー関数
+function drawRequestRow(request, x, y, width) {
+    const rowHeight = 34;
+
+    // 背景
+    ctx.fillStyle = '#1e1b18';
+    ctx.fillRect(x, y, width, rowHeight - 3);
+    ctx.strokeStyle = '#3a322b';
+    ctx.strokeRect(x, y, width, rowHeight - 3);
+
+    const centerY = y + (rowHeight - 3) / 2;
+    const isSent = (request.type === 'sent');
+
+    if (isSent) {
+        // --- 📤 「自分が送った申請（申請中）」の場合 ---
+        ctx.fillStyle = '#4a5568';
+        ctx.fillRect(x + 8, centerY - 8, 48, 16);
+        ctx.strokeStyle = '#2d3748';
+        ctx.strokeRect(x + 8, centerY - 8, 48, 16);
+
+        ctx.font = 'bold 9px sans-serif';
+        ctx.fillStyle = '#ffffff';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('申請中', x + 32, centerY + 1);
+
+        ctx.font = '11px Arial';
+        ctx.fillStyle = '#cbd5e0';
+        ctx.textAlign = 'left';
+        ctx.fillText(request.username + " へ申請中...", x + 62, centerY + 1);
+
+        // 「取消」ボタン
+        const btnW = 52;
+        const btnH = 18;
+        const cancelBtnX = x + width - btnW - 6;
+        const cancelBtnY = centerY - (btnH / 2);
+
+        ctx.fillStyle = '#4a5568';
+        ctx.fillRect(cancelBtnX, cancelBtnY, btnW, btnH);
+        ctx.strokeStyle = '#718096';
+        ctx.strokeRect(cancelBtnX, cancelBtnY, btnW, btnH);
+
+        ctx.fillStyle = '#ffffff';
+        ctx.font = '10px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('取消', cancelBtnX + (btnW / 2), centerY + 1);
+
+        // 🌟 【ここを追加】「取消」ボタンの位置を箱に記録する
+        requestButtonHitboxes.push({
+            x: cancelBtnX,
+            y: cancelBtnY,
+            w: btnW,
+            h: btnH,
+            action: 'cancel',
+            receiverId: request.receiverId
+        });
+
+    } else {
+        // --- 📥 「相手から届いた申請（申請受信）」の場合 ---
+        ctx.fillStyle = '#d69e2e';
+        ctx.fillRect(x + 8, centerY - 8, 48, 16);
+        ctx.strokeStyle = '#b7791f';
+        ctx.strokeRect(x + 8, centerY - 8, 48, 16);
+
+        ctx.font = 'bold 9px sans-serif';
+        ctx.fillStyle = '#ffffff';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('申請受信', x + 32, centerY + 1);
+
+        ctx.font = 'bold 11px Arial';
+        ctx.fillStyle = '#fbd38d';
+        ctx.textAlign = 'left';
+        ctx.fillText(request.username, x + 62, centerY + 1);
+
+        const btnW = 38;
+        const btnH = 18;
+        
+        // 拒否ボタン
+        const rejectBtnX = x + width - btnW - 6;
+        const rejectBtnY = centerY - (btnH / 2);
+        ctx.fillStyle = '#742a2a';
+        ctx.fillRect(rejectBtnX, rejectBtnY, btnW, btnH);
+        ctx.strokeStyle = '#9b2c2c';
+        ctx.strokeRect(rejectBtnX, rejectBtnY, btnW, btnH);
+
+        ctx.fillStyle = '#ffffff';
+        ctx.font = '10px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('拒否', rejectBtnX + (btnW / 2), centerY + 1);
+
+        // 承認ボタン
+        const acceptBtnX = rejectBtnX - btnW - 4;
+        const acceptBtnY = centerY - (btnH / 2);
+        ctx.fillStyle = '#276749';
+        ctx.fillRect(acceptBtnX, acceptBtnY, btnW, btnH);
+        ctx.strokeStyle = '#2f855a';
+        ctx.strokeRect(acceptBtnX, acceptBtnY, btnW, btnH);
+
+        ctx.fillStyle = '#ffffff';
+        ctx.font = '10px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.fillText('承認', acceptBtnX + (btnW / 2), centerY + 1);
+
+        // 🌟 【ここを追加】「承認」ボタンの位置を箱に記録する
+        requestButtonHitboxes.push({
+            x: acceptBtnX,
+            y: acceptBtnY,
+            w: btnW,
+            h: btnH,
+            action: 'accept',
+            senderId: request.senderId
+        });
+
+        // 🌟 【ここを追加】「拒否」ボタンの位置を箱に記録する
+        requestButtonHitboxes.push({
+            x: rejectBtnX,
+            y: rejectBtnY,
+            w: btnW,
+            h: btnH,
+            action: 'reject',
+            senderId: request.senderId
+        });
+    }
+
+    return y + rowHeight;
+}
+
+// 📌 フレンドがいない場合のプレースホルダー行
+function drawEmptyRow(text, x, y, width) {
+    const rowHeight = 26;
+    ctx.fillStyle = '#161b22';
+    ctx.fillRect(x, y, width, rowHeight - 2);
+
+    ctx.fillStyle = '#667788';
+    ctx.font = '11px sans-serif';
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillText(text, x + 12, y + 17);
+
+    return y + rowHeight;
+}
+
+// 🌟 画面（キャンバス）がクリックされたときの処理
+canvas.addEventListener('click', (event) => {
+    // フレンドウィンドウが開いていないなら何もしない
+    if (!gameWindows.friend || !gameWindows.friend.isOpen) return;
+
+    // クリックされた位置（キャンバス上の座標）を計算
+    const rect = canvas.getBoundingClientRect();
+    const mouseX = event.clientX - rect.left;
+    const mouseY = event.clientY - rect.top;
+
+    // 覚えているすべてのボタンの位置をチェックする
+    for (const box of requestButtonHitboxes) {
+        // もしクリックされた位置がボタンの範囲内だったら
+        if (mouseX >= box.x && mouseX <= box.x + box.w &&
+            mouseY >= box.y && mouseY <= box.y + box.h) {
+            
+            // アクションに応じてサーバーへ信号を送る
+            if (box.action === 'accept') {
+                console.log(`📤 承認ボタンクリック: senderId = ${box.senderId}`);
+                socket.emit('accept_friend_request', { senderId: box.senderId });
+            } 
+            else if (box.action === 'reject') {
+                console.log(`📤 拒否ボタンクリック: senderId = ${box.senderId}`);
+                socket.emit('reject_friend_request', { senderId: box.senderId });
+            } 
+            else if (box.action === 'cancel') {
+                console.log(`📤 取消ボタンクリック: receiverId = ${box.receiverId}`);
+                socket.emit('cancel_friend_request', { receiverId: box.receiverId });
+            }
+            
+            break; // 1つ見つかったらループを抜ける
+        }
+    }
+});
 
 function drawPartyWindow() {
     const win = gameWindows.party;
@@ -14669,36 +15415,6 @@ function drawEventWindow() {
     // 共通のボタン描画関数を使用
     drawStyledButton(btnX, btnY, btnW, btnH, '📅 開催中のイベント');
 }
-
-// ============================================================
-// :::KEY_CONFIG_DATA::: ⌨️ キーコンフィグのデータと初期キーマップの定義
-// ============================================================
-let currentKeyConfig = {
-    // 💡 初期配置するアクション（キー名は常に大文字で統一すると安全です）
-    pickup:    { label: '拾う',       key: 'pickup',    keyName: 'Z' },
-    attack:    { label: '攻撃',       key: 'attack',    keyName: 'X' },
-    jump:      { label: 'ジャンプ',   key: 'jump',      keyName: 'C' },
-    
-    status:        { label: 'ステータス',     key: 's', keyName: 'S' },
-    equipment:     { label: '装備',           key: 'e', keyName: 'E' },
-    inventory:     { label: 'インベントリ',     key: 'i', keyName: 'I' },
-    skill:         { label: 'スキル',         key: 'k', keyName: 'K' },
-    avatar:        { label: 'アバター',       key: 'a', keyName: 'A' },
-    upgrade:       { label: 'アップグレード', key: 'u', keyName: 'U' },
-    quest:         { label: 'クエスト',       key: 'q', keyName: 'Q' },
-    worldmap:      { label: 'ワールドマップ', key: 'w', keyName: 'W' },
-    minimap:       { label: 'ミニマップ',     key: 'm', keyName: 'M' },
-    journal:       { label: '日記',           key: 'j', keyName: 'J' },
-    book:          { label: 'ブック',         key: 'b', keyName: 'B' },
-    guild:         { label: 'ギルド',         key: 'g', keyName: 'G' },
-    friend:        { label: 'フレンドリスト', key: 'f', keyName: 'F' },
-    party:         { label: 'パーティ',       key: 'p', keyName: 'P' },
-    trade:         { label: 'トレード',       key: 't', keyName: 'T' },
-    log:           { label: 'ログ',           key: 'l', keyName: 'L' },
-    event:         { label: 'イベント',       key: 'n', keyName: null }, // 最初からプール
-    options:       { label: 'オプション',     key: 'o', keyName: 'O' },
-    help:          { label: 'ヘルプ',         key: 'h', keyName: 'H' }
-};
 
 // ============================================================
 // 🔄 キーコンフィグをデフォルト初期状態にリセットする関数

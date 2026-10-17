@@ -178,7 +178,7 @@
 </div>
 
 <!-- インベントリウィンドウ全体的外枠 -->
-<div id="inventory-window" class="game-window" style="display: none;">
+<div id="inventory-window" class="game-window" style="display: none; height:auto;">
     
     <!-- インベントリウィンドウのタイトルバー内などに配置 -->
 <div class="window-header">
@@ -424,7 +424,7 @@
   </div>
 </div>
 
-<!-- 🛒 露店管理ウィンドウ (ゴージャスリッチ仕様) -->
+<!-- 🛒 露店管理ウィンドウ (ゴージャスリッチ仕様 + 店番選択対応) -->
 <div id="vending-window" class="maple-window" style="display: none; width: 380px; background: #f8fafc; border-radius: 8px; box-shadow: 0 16px 40px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.15) inset; overflow: hidden; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; position: fixed; z-index: 10000;">
     
     <!-- 👑 ヘッダー：重厚感のあるグラデーション -->
@@ -450,9 +450,24 @@
             <label class="vending-label" style="font-size: 10px; font-weight: bold; color: #475569; letter-spacing: 0.5px;">露店の名前</label>
             <input type="text" id="vending-title-input" class="vending-input" placeholder="いらっしゃいませ！" style="background: #ffffff; border: 1px solid #cbd5e1; padding: 6px 10px; border-radius: 6px; font-size: 12px; color: #0f172a; outline: none; box-shadow: inset 0 1px 2px rgba(0,0,0,0.03); transition: all 0.2s;">
         </div>
+
+        <!-- 🌟 出店スタイル（店番）の選択エリア -->
+        <div style="display: flex; flex-direction: column; gap: 4px;">
+            <label class="vending-label" style="font-size: 10px; font-weight: bold; color: #475569; letter-spacing: 0.5px;">店番のタイプ</label>
+            <div style="display: flex; gap: 8px; background: #f1f5f9; padding: 4px; border-radius: 6px; border: 1px solid #e2e8f0;">
+                <label style="flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px; background: #ffffff; border: 1px solid #cbd5e1; padding: 6px; border-radius: 4px; cursor: pointer; font-size: 11px; font-weight: bold; color: #334155;">
+                    <input type="radio" name="vending-mode" value="monster" checked style="accent-color: #f59e0b; cursor: pointer;">
+                    <span>👾 無人 (モンスター)</span>
+                </label>
+                <label style="flex: 1; display: flex; align-items: center; justify-content: center; gap: 6px; background: #ffffff; border: 1px solid #cbd5e1; padding: 6px; border-radius: 4px; cursor: pointer; font-size: 11px; font-weight: bold; color: #334155;">
+                    <input type="radio" name="vending-mode" value="player" style="accent-color: #f59e0b; cursor: pointer;">
+                    <span>👤 有人 (自分)</span>
+                </label>
+            </div>
+        </div>
     
         <!-- アイテムリスト表示エリア -->
-        <div id="vending-item-list" style="max-height: 150px; overflow-y: auto; background: #ffffff; border: 1px solid #cbd5e1; border-radius: 6px; padding: 6px; box-shadow: inset 0 1px 3px rgba(0,0,0,0.02);"></div>
+        <div id="vending-item-list" style="max-height: 130px; overflow-y: auto; background: #ffffff; border: 1px solid #cbd5e1; border-radius: 6px; padding: 6px; box-shadow: inset 0 1px 3px rgba(0,0,0,0.02);"></div>
 
         <!-- 価格設定エリア -->
         <div id="vending-price-area" style="display:none; flex-direction: column; gap: 4px;">
@@ -463,13 +478,13 @@
             </div>
         </div>
 
-        <!-- 決定ボタン（リッチなオレンジ系グラデーション） -->
+        <!-- 決定ボタン -->
         <button id="vending-confirm-btn" class="maple-btn-orange" onclick="startVending()" style="width: 100%; padding: 8px; font-size: 13px; font-weight: bold; cursor: pointer; background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); color: white; border: 1px solid #b45309; border-radius: 6px; box-shadow: 0 2px 4px rgba(217,119,6,0.3); text-shadow: 0 1px 1px rgba(0,0,0,0.2); transition: all 0.15s;">
             ✨ この内容で露店を開く
         </button>
     </div>
 
-    <!-- フッター（注意書き） -->
+    <!-- フッター -->
     <div class="vending-footer" style="background: #f1f5f9; border-top: 1px solid #e2e8f0; padding: 6px 16px; text-align: center;">
         <span style="font-size: 10px; color: #64748b; font-weight: 500;">※ アイテムをクリックするとリストから除外されます</span>
     </div>
@@ -515,6 +530,40 @@
             <span id="user-money-display" style="font-weight: 800; font-family: 'Segoe UI', Tahoma, sans-serif; font-size: 13px; color: #d97706;">-</span>
             <span style="font-size: 10px; color: #64748b; font-weight: bold;">メル</span>
         </div>
+    </div>
+</div>
+
+<div id="vending-notice-modal" style="display:none; position:fixed; top:30%; left:50%; transform:translateX(-50%); background:rgba(0,0,0,0.85); color:#fff; border:1px solid #ffcc00; padding:20px; z-index:210000; min-width:250px; text-align:center; border-radius:10px; box-shadow: 0 5px 15px rgba(0,0,0,0.5);">
+    <p id="vending-notice-text" style="margin-bottom:15px; font-weight:bold;"></p>
+    <button id="vending-notice-close-btn" style="padding:5px 20px; cursor:pointer; background:#444; color:#fff; border:1px solid #777; border-radius:4px;">閉じる</button>
+</div>
+
+<div id="vending-quantity-modal" style="display:none; position:fixed; top:50%; left:50%; transform:translate(-50%, -50%); background:rgba(0,0,0,0.9); color:#fff; border:2px solid #888; padding:20px; z-index:210000; min-width:280px; border-radius:8px; box-shadow: 0 0 15px rgba(0,0,0,0.5); font-family: sans-serif;">
+    <h3 id="modal-item-name" style="margin-top:0; color:#ffcc00; font-size:18px; border-bottom:1px solid #444; padding-bottom:10px;">アイテム名</h3>
+    
+    <div style="margin: 15px 0;">
+        <label style="display:block; margin-bottom:5px;">出品する数 (所持: <span id="modal-max-quantity">0</span>)</label>
+        <input type="number" id="modal-quantity-input" min="1" style="width:100%; padding:8px; box-sizing:border-box; background:#222; color:#fff; border:1px solid #555;">
+    </div>
+
+    <div style="margin: 15px 0;">
+        <label style="display:block; margin-bottom:5px;">1個あたりの販売価格 (G)</label>
+        <input type="number" id="modal-price-input" min="0" value="1000" style="width:100%; padding:8px; box-sizing:border-box; background:#222; color:#fff; border:1px solid #555;">
+    </div>
+
+    <div style="display:flex; justify-content: space-between; margin-top:20px;">
+        <button id="modal-confirm-btn" style="flex:1; margin-right:5px; padding:10px; cursor:pointer; background:#2ecc71; color:white; border:none; font-weight:bold; border-radius:4px;">出品確定</button>
+        <button id="modal-cancel-btn" style="flex:1; margin-left:5px; padding:10px; cursor:pointer; background:#e74c3c; color:white; border:none; font-weight:bold; border-radius:4px;">キャンセル</button>
+    </div>
+</div>
+
+<div id="vending-buy-confirm-modal" style="display:none; position:fixed; top:50%; left:50%; transform:translate(-50%, -50%); background:rgba(0,0,0,0.95); color:#fff; border:2px solid #ffcc00; padding:20px; z-index:220000; min-width:280px; border-radius:8px; box-shadow: 0 0 15px rgba(0,0,0,0.8); font-family: sans-serif; text-align: center;">
+    <h3 style="margin-top:0; color:#ffcc00; font-size:18px; border-bottom:1px solid #444; padding-bottom:10px;">購入の確認</h3>
+    <p id="buy-confirm-text" style="margin: 20px 0; line-height: 1.5; font-size: 15px;">このアイテムを購入しますか？</p>
+    
+    <div style="display:flex; justify-content: space-between; margin-top:20px;">
+        <button id="buy-confirm-btn" style="flex:1; margin-right:5px; padding:10px; cursor:pointer; background:#2ecc71; color:white; border:none; font-weight:bold; border-radius:4px;">購入する</button>
+        <button id="buy-cancel-btn" style="flex:1; margin-left:5px; padding:10px; cursor:pointer; background:#e74c3c; color:white; border:none; font-weight:bold; border-radius:4px;">キャンセル</button>
     </div>
 </div>
 
@@ -674,40 +723,6 @@
             </div>
         </div>
 
-    </div>
-</div>
-
-<div id="vending-notice-modal" style="display:none; position:fixed; top:30%; left:50%; transform:translateX(-50%); background:rgba(0,0,0,0.85); color:#fff; border:1px solid #ffcc00; padding:20px; z-index:210000; min-width:250px; text-align:center; border-radius:10px; box-shadow: 0 5px 15px rgba(0,0,0,0.5);">
-    <p id="vending-notice-text" style="margin-bottom:15px; font-weight:bold;"></p>
-    <button id="vending-notice-close-btn" style="padding:5px 20px; cursor:pointer; background:#444; color:#fff; border:1px solid #777; border-radius:4px;">閉じる</button>
-</div>
-
-<div id="vending-quantity-modal" style="display:none; position:fixed; top:50%; left:50%; transform:translate(-50%, -50%); background:rgba(0,0,0,0.9); color:#fff; border:2px solid #888; padding:20px; z-index:210000; min-width:280px; border-radius:8px; box-shadow: 0 0 15px rgba(0,0,0,0.5); font-family: sans-serif;">
-    <h3 id="modal-item-name" style="margin-top:0; color:#ffcc00; font-size:18px; border-bottom:1px solid #444; padding-bottom:10px;">アイテム名</h3>
-    
-    <div style="margin: 15px 0;">
-        <label style="display:block; margin-bottom:5px;">出品する数 (所持: <span id="modal-max-quantity">0</span>)</label>
-        <input type="number" id="modal-quantity-input" min="1" style="width:100%; padding:8px; box-sizing:border-box; background:#222; color:#fff; border:1px solid #555;">
-    </div>
-
-    <div style="margin: 15px 0;">
-        <label style="display:block; margin-bottom:5px;">1個あたりの販売価格 (G)</label>
-        <input type="number" id="modal-price-input" min="0" value="1000" style="width:100%; padding:8px; box-sizing:border-box; background:#222; color:#fff; border:1px solid #555;">
-    </div>
-
-    <div style="display:flex; justify-content: space-between; margin-top:20px;">
-        <button id="modal-confirm-btn" style="flex:1; margin-right:5px; padding:10px; cursor:pointer; background:#2ecc71; color:white; border:none; font-weight:bold; border-radius:4px;">出品確定</button>
-        <button id="modal-cancel-btn" style="flex:1; margin-left:5px; padding:10px; cursor:pointer; background:#e74c3c; color:white; border:none; font-weight:bold; border-radius:4px;">キャンセル</button>
-    </div>
-</div>
-
-<div id="vending-buy-confirm-modal" style="display:none; position:fixed; top:50%; left:50%; transform:translate(-50%, -50%); background:rgba(0,0,0,0.95); color:#fff; border:2px solid #ffcc00; padding:20px; z-index:220000; min-width:280px; border-radius:8px; box-shadow: 0 0 15px rgba(0,0,0,0.8); font-family: sans-serif; text-align: center;">
-    <h3 style="margin-top:0; color:#ffcc00; font-size:18px; border-bottom:1px solid #444; padding-bottom:10px;">購入の確認</h3>
-    <p id="buy-confirm-text" style="margin: 20px 0; line-height: 1.5; font-size: 15px;">このアイテムを購入しますか？</p>
-    
-    <div style="display:flex; justify-content: space-between; margin-top:20px;">
-        <button id="buy-confirm-btn" style="flex:1; margin-right:5px; padding:10px; cursor:pointer; background:#2ecc71; color:white; border:none; font-weight:bold; border-radius:4px;">購入する</button>
-        <button id="buy-cancel-btn" style="flex:1; margin-left:5px; padding:10px; cursor:pointer; background:#e74c3c; color:white; border:none; font-weight:bold; border-radius:4px;">キャンセル</button>
     </div>
 </div>
 

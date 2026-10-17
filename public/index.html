@@ -234,7 +234,7 @@
         </div>
       </div>
 
-      <!-- 🌟 【新規追加】交換申し込み通知ポップアップ（青いメイプル風ダイアログ） -->
+      <!-- 🌟 交換申し込み通知ポップアップ（青いメイプル風ダイアログ） -->
       <div id="trade-invite-popup" style="
         display: none; 
         position: absolute; 
@@ -269,6 +269,41 @@
         </div>
       </div>
 
+      <!-- 🌟 フレンド申請通知ポップアップ（水色・青のメイプル風ダイアログに統一） -->
+      <div id="friend-invite-popup" style="
+        display: none; 
+        position: absolute; 
+        bottom: 50px; 
+        right: 0; 
+        background: linear-gradient(135deg, #1d4ed8 0%, #1e3a8a 100%); 
+        border: 2px solid #93c5fd; 
+        border-radius: 8px; 
+        padding: 6px 10px; 
+        box-shadow: 0 4px 12px rgba(0,0,0,0.6); 
+        color: #ffffff; 
+        font-size: 11px; 
+        font-family: sans-serif;
+        z-index: 1010;
+        white-space: nowrap;
+      ">
+        <div style="display: flex; align-items: center; gap: 8px;">
+          <span style="font-size: 13px;">🤝</span>
+          <span id="friend-invite-text" style="text-shadow: 1px 1px 2px rgba(0,0,0,0.8); line-height: 1.3;">'誰か'様からフレンド申請です</span>
+          <!-- 受諾ボタン [⭕] -->
+          <button type="button" onclick="acceptFriendRequestUI()" style="
+            background: #22c55e; border: 1px solid #14532d; color: #ffffff; font-weight: bold; font-size: 10px;
+            width: 18px; height: 18px; display: flex; align-items: center; justify-content: center;
+            border-radius: 3px; cursor: pointer; padding: 0; margin-left: 4px;
+          " title="受諾">⭕</button>
+          <!-- 拒否ボタン [❌] -->
+          <button type="button" onclick="rejectFriendRequestUI()" style="
+            background: #ef4444; border: 1px solid #7f1d1d; color: #ffffff; font-weight: bold; font-size: 10px;
+            width: 18px; height: 18px; display: flex; align-items: center; justify-content: center;
+            border-radius: 3px; cursor: pointer; padding: 0;
+          " title="拒否">❌</button>
+        </div>
+      </div>
+
       <!-- 赤い丸アイコンの枠ボックス（43pxに高さ合わせ） -->
       <div id="maple-notice-dot-box" style="position: relative; display: flex; align-items: center; justify-content: center; width: 36px; height: 43px; box-sizing: border-box; background: rgba(30, 41, 59, 0.85); border: 1px solid rgba(100, 116, 139, 0.6); border-radius: 4px; box-shadow: inset 0 1px 2px rgba(0,0,0,0.5);">
         <div id="maple-notice-dot" style="width: 9px; height: 9px; background-color: #ef4444; border: 1.5px solid #ffffff; border-radius: 50%; box-shadow: 0 0 5px #ef4444;"></div>
@@ -293,8 +328,10 @@
     <div id="msg-box" style="flex: 1; margin-top: 0; min-height: 80px;"></div>
     <div style="display: flex; flex-direction: column; gap: 6px; width: auto; justify-content: flex-end;">
       <div style="display: flex; gap: 6px;">
-        <button id="pointShopBtn" onclick="openPointShop()" style="height: 32px; font-size: 11px; padding: 0 10px;">ポイントショップ</button>
+        <button id="pointShopBtn" onclick="openPointShop()" style="height: 32px; padding: 0 10px;">ポイントショップ</button>
         <button id="collectionBookBtn" onclick="toggleBookWindow()" style="height: 32px; font-size: 11px; padding: 0 10px;">📖 図鑑</button>
+        <!-- 🌟 スタイルを統一した「露店を開く」ボタン -->
+        <button id="vendingOpenBtn" onclick="openVendingMenu()" style="height: 32px; padding: 0 10px;">⛺ 露店を開く</button>
         <button id="logoutBtn" onclick="logout()" style="height: 32px; font-size: 11px; padding: 0 10px;">ログアウト</button>
       </div>
     </div>
