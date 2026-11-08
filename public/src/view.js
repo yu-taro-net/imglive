@@ -1916,11 +1916,130 @@ function openDropForm(slotIndex, item) {
 }
 
 // ============================================================
-// :::MOUSE_CLICK_CONTROLLER::: 🖱️ Canvas上のクリック操作一括制御（10スロット＆バッグ両対応版）
+// 🌟 共通：露店出品モーダルを開いて設定するヘルパー関数
+// ============================================================
+function openVendingQuantityModal(item, totalOwned, clickedIndex) {
+    const modal = document.getElementById('vending-quantity-modal');
+    const qInput = document.getElementById('modal-quantity-input');
+    const pInput = document.getElementById('modal-price-input');
+    const confirmBtn = document.getElementById('modal-confirm-btn');
+    const cancelBtn = document.getElementById('modal-cancel-btn');
+
+    if (!modal) return;
+
+    let baseName = item.name || item.item_name || "アイテム";
+    if (typeof ITEM_CONFIG !== 'undefined' && ITEM_CONFIG[item.type]) {
+        baseName = ITEM_CONFIG[item.type].display_name || ITEM_CONFIG[item.type].name;
+    }
+
+    const checkStr = `${item.category || ''} ${item.item_type || ''} ${item.type}`.toLowerCase();
+    const isEquip = checkStr.includes('shield') || checkStr.includes('sword');
+    
+    let rankName = "";
+    if (isEquip) {
+        const bonus = (item.totalALLStats || 0) - (item.totalFirstStats || 0);
+        if (bonus >= 30)      { rankName = "(神級)"; }
+        else if (bonus >= 25) { rankName = "(超伝説)"; }
+        else if (bonus >= 20) { rankName = "(極上)"; }
+        else if (bonus >= 15) { rankName = "(伝説)"; }
+        else if (bonus >= 10) { rankName = "(希少)"; }
+        else if (bonus >= 5)  { rankName = "(良品)"; }
+        else if (bonus >= 0)  { rankName = "(標準)"; }
+        else                  { rankName = "(粗悪)"; }
+    }
+
+    const displayPromptName = `${baseName}${rankName}`;
+
+    document.getElementById('modal-item-name').innerText = displayPromptName;
+    document.getElementById('modal-max-quantity').innerText = totalOwned;
+    
+    qInput.value = isEquip ? 1 : totalOwned;
+    qInput.disabled = isEquip;
+    pInput.value = 1000;
+
+    modal.style.display = 'block';
+
+    confirmBtn.onclick = null;
+    cancelBtn.onclick = null;
+
+    cancelBtn.onclick = () => {
+        modal.style.display = 'none';
+    };
+
+    confirmBtn.onclick = () => {
+        const sellCount = parseInt(qInput.value);
+        const price = parseInt(pInput.value);
+
+        if (isNaN(sellCount) || sellCount <= 0 || sellCount > totalOwned) {
+            alert("有効な数量を入力してください。");
+            return;
+        }
+        if (isNaN(price) || price < 0) {
+            alert("有効な価格を入力してください。");
+            return;
+        }
+
+        const iconPath = item.imageName ? `${IMAGE_DOMAIN}item_assets/${item.imageName}.png` : `${IMAGE_DOMAIN}item_assets/${item.type}.png`;
+        
+        const itemToSend = { 
+            ...item, 
+            name: displayPromptName, 
+            displayName: displayPromptName,
+            iconUrl: iconPath,
+            price: price,
+            count: sellCount,
+            originalIndex: clickedIndex 
+        };
+
+        console.log(`[Vending] 出品確定: ${displayPromptName} x${sellCount} @${price}G`);
+
+        if (typeof addItemToVendingList === 'function') {
+            addItemToVendingList(itemToSend);
+            if (typeof playMouseClickSound === 'function') playMouseClickSound();
+        }
+		
+        // 🌟 【追加】アイテムが追加された直後に、ボタンの状態を自動で再判定して正しく直す！
+        if (typeof updateVendingMainButtonState === 'function') {
+            updateVendingMainButtonState();
+        }
+		
+        modal.style.display = 'none';
+    };
+}
+
+// ============================================================
+// 🌟 露店の開店状態に応じて、メインボタンの見た目と挙動を正しく切り替える関数
+// ============================================================
+function updateVendingMainButtonState() {
+    const btn = document.getElementById('vending-confirm-btn');
+    if (!btn) return;
+
+    // 主人公がすでに露店を開いている（営業中）かどうかを判定
+    const isShopActive = (typeof hero !== 'undefined' && hero && hero.is_vending);
+
+    btn.disabled = false;
+    btn.style.cursor = "pointer";
+
+    if (isShopActive) {
+        // すでに店を開いている状態（更新）＝ 綺麗な青グラデーション！
+        btn.innerText = "🔄 露店情報を更新する";
+        btn.setAttribute("onclick", "startVending()");
+        btn.style.setProperty('background', 'linear-gradient(135deg, #0284c7 0%, #0369a1 100%)', 'important');
+        btn.style.setProperty('border-color', '#0284c7', 'important');
+    } else {
+        // まだ店を開いていない（準備中）の状態 ＝ スタイルをクリアしてデフォルトに！
+        btn.innerText = "✨ この内容で露店を開く";
+        btn.setAttribute("onclick", "startVending()");
+        btn.style.removeProperty('background');
+        btn.style.removeProperty('border-color');
+    }
+}
+
+// ============================================================
+// :::MOUSE_CLICK_CONTROLLER::: 🖱️ Canvas上のクリック操作一括制御
 // ============================================================
 canvas.addEventListener('mousedown', (event) => {
 
-    // 🌟 接続が切れていたら、クリック操作を一切受け付けない
     if (window.isDisconnected) {
         return; 
     }
@@ -1929,7 +2048,6 @@ canvas.addEventListener('mousedown', (event) => {
     const clickX = event.clientX - rect.left;
     const clickY = event.clientY - rect.top;
 
-    // 🚩 DEBUG: クリックの起点ログ
     console.log(`[ClickEvent] Canvas(${Math.round(clickX)}, ${Math.round(clickY)})`);
 
     // 1. 🌟 重なりを考慮して、どのウィンドウがクリックされたか判定
@@ -1950,7 +2068,6 @@ canvas.addEventListener('mousedown', (event) => {
 
     // 2. 🌟 ウィンドウを触った場合の共通処理
     if (priorityWindow !== "none") {
-        console.log(`[ClickDebug] ウィンドウ「${priorityWindow}」を優先検知. 背後の判定は無視されます.`);
         const win = gameWindows[priorityWindow];
 
         windowStack = windowStack.filter(item => item !== priorityWindow);
@@ -1962,24 +2079,20 @@ canvas.addEventListener('mousedown', (event) => {
             return;
         }
 
-        // 🌟 ステータスウィンドウ内のクリック判定（新規APボタン対応版）
+        // ステータスウィンドウ
         if (priorityWindow === "status") {
             const startY = win.y + 55;
             const gap = 20;
             const halfWidth = (win.w - 28) / 2;
             const leftX = win.x + 14;
-
             const col1Labels = ["名前", "職業", "レベル", "ギルド", "HP", "MP", "経験値", "人気度", "STR", "DEX", "INT", "LUK"];
             
             for (let i = 0; i < col1Labels.length; i++) {
                 const label = col1Labels[i];
                 const currentY = startY + (gap * i);
-                const isTargetStat = (label === "STR" || label === "DEX" || label === "INT" || label === "LUK");
-
-                if (isTargetStat) {
+                if (label === "STR" || label === "DEX" || label === "INT" || label === "LUK") {
                     const statKey = label.toLowerCase();
-                    const btnW = 38;
-                    const btnH = 16;
+                    const btnW = 38, btnH = 16;
                     const btnX = leftX + halfWidth - 46;
                     const btnY = currentY - 12;
 
@@ -1996,32 +2109,20 @@ canvas.addEventListener('mousedown', (event) => {
             }
         }
 
-        // 🌟 インベントリ（バッグ）ウィンドウが開いている場合の内部クリック判定
+        // 🌟 インベントリ（バッグ）ウィンドウ
         if (priorityWindow === "inventory" && win.isOpen) {
-            let bagX = win.x;
-            let bagY = win.y;
-            let cols = 5;
-            let slotSize = 40;
-            let spacing = 5;
-            let startX = bagX + 20;
-            let startY = bagY + 70;
+            let bagX = win.x, bagY = win.y, cols = 5, slotSize = 40, spacing = 5;
+            let startX = bagX + 20, startY = bagY + 70;
             let scrollRow = win.scrollY || 0;
-            let maxVisibleRows = 6;
-            let maxTotalSlots = 50;
+            let maxVisibleRows = 6, maxTotalSlots = 50;
 
             let clickedSlotIndex = -1;
             let drawnIndex = 0;
             let startIndex = scrollRow * cols;
             let endIndex = startIndex + (cols * maxVisibleRows);
 
-            let alreadyCheckedETC = new Set();
-
             for (let i = 0; i < maxTotalSlots; i++) {
-                let item = (hero && hero.inventory) ? hero.inventory[i] : null;
-
-                if (i < startIndex || i >= endIndex) {
-                    continue;
-                }
+                if (i < startIndex || i >= endIndex) continue;
 
                 let col = drawnIndex % cols;
                 let row = Math.floor(drawnIndex / cols);
@@ -2029,110 +2130,20 @@ canvas.addEventListener('mousedown', (event) => {
                 let y = startY + row * (slotSize + spacing);
 
                 if (clickX >= x && clickX <= x + slotSize && clickY >= y && clickY <= y + slotSize) {
-                    if (item && item.type) {
-                        let category = (typeof itemCategories !== 'undefined') ? itemCategories[item.type] : null;
-                        if (category === 'ETC') {
-                            if (alreadyCheckedETC.has(item.type)) {
-                                // 重複スキップ
-                            } else {
-                                alreadyCheckedETC.add(item.type);
-                            }
-                        }
-                    }
                     clickedSlotIndex = i;
                     break;
                 }
                 drawnIndex++;
             }
 
-            // バッグ内の有効なスロットがクリックされた場合
             if (clickedSlotIndex !== -1) {
-                console.log(`[ClickDebug] バッグスロットIndex: ${clickedSlotIndex} をクリック.`);
-                
                 const item = hero && hero.inventory && hero.inventory[clickedSlotIndex];
                 const vendingWin = document.getElementById('vending-window');
                 const isVendingOpen = vendingWin && vendingWin.style.display === 'block';
 
-                // 🌟 露店出品モード (独自UI連携)
+                // 🌟 露店出品モード（共通関数を呼び出し）
                 if (item && isVendingOpen) {
-                    let baseName = item.name || item.item_name || "アイテム";
-                    if (typeof ITEM_CONFIG !== 'undefined' && ITEM_CONFIG[item.type]) {
-                        baseName = ITEM_CONFIG[item.type].display_name || ITEM_CONFIG[item.type].name;
-                    }
-
-                    const checkStr = `${item.category || ''} ${item.item_type || ''} ${item.type}`.toLowerCase();
-                    const isEquip = checkStr.includes('shield') || checkStr.includes('sword');
-                    
-                    let rankName = "";
-                    if (isEquip) {
-                        const bonus = (item.totalALLStats || 0) - (item.totalFirstStats || 0);
-                        if (bonus >= 30)      { rankName = "(神級)"; }
-                        else if (bonus >= 25) { rankName = "(超伝説)"; }
-                        else if (bonus >= 20) { rankName = "(極上)"; }
-                        else if (bonus >= 15) { rankName = "(伝説)"; }
-                        else if (bonus >= 10) { rankName = "(希少)"; }
-                        else if (bonus >= 5)  { rankName = "(良品)"; }
-                        else if (bonus >= 0)  { rankName = "(標準)"; }
-                        else                  { rankName = "(粗悪)"; }
-                    }
-
-                    const displayPromptName = `${baseName}${rankName}`;
-                    const totalOwned = item.count || 1;
-
-                    const modal = document.getElementById('vending-quantity-modal');
-                    const qInput = document.getElementById('modal-quantity-input');
-                    const pInput = document.getElementById('modal-price-input');
-                    const confirmBtn = document.getElementById('modal-confirm-btn');
-                    const cancelBtn = document.getElementById('modal-cancel-btn');
-
-                    document.getElementById('modal-item-name').innerText = displayPromptName;
-                    document.getElementById('modal-max-quantity').innerText = totalOwned;
-                    
-                    qInput.value = isEquip ? 1 : totalOwned;
-                    qInput.disabled = isEquip;
-                    pInput.value = 1000;
-
-                    modal.style.display = 'block';
-
-                    confirmBtn.onclick = null;
-                    cancelBtn.onclick = null;
-
-                    cancelBtn.onclick = () => {
-                        modal.style.display = 'none';
-                    };
-
-                    confirmBtn.onclick = () => {
-                        const sellCount = parseInt(qInput.value);
-                        const price = parseInt(pInput.value);
-
-                        if (isNaN(sellCount) || sellCount <= 0 || sellCount > totalOwned) {
-                            alert("有効な数量を入力してください。");
-                            return;
-                        }
-                        if (isNaN(price) || price < 0) {
-                            alert("有効な価格を入力してください。");
-                            return;
-                        }
-
-                        const iconPath = item.imageName ? `${IMAGE_DOMAIN}item_assets/${item.imageName}.png` : `${IMAGE_DOMAIN}item_assets/${item.type}.png`;
-                        
-                        const itemToSend = { 
-                            ...item, 
-                            name: displayPromptName, 
-                            displayName: displayPromptName,
-                            iconUrl: iconPath,
-                            price: price,
-                            count: sellCount,
-                            originalIndex: clickedSlotIndex 
-                        };
-
-                        if (typeof addItemToVendingList === 'function') {
-                            addItemToVendingList(itemToSend);
-                            if (typeof playMouseClickSound === 'function') playMouseClickSound();
-                        }
-                        modal.style.display = 'none';
-                    };
-
+                    openVendingQuantityModal(item, item.count || 1, clickedSlotIndex);
                     return;
                 }
 
@@ -2174,99 +2185,17 @@ canvas.addEventListener('mousedown', (event) => {
         return; 
     }
 
-    // 3. 🎒 どの窓も触っていない場合の操作（10スロットインベントリ判定 ＆ ウィンドウ外ドロップ判定）
+    // 3. 🎒 10スロットインベントリ判定
     if (clickY >= 130 && clickY <= 170) {
-        console.log(`[ClickDebug] 10スロットインベントリ行(y:130-170)を検知.`);
         const index = Math.floor((clickX - 20) / 48);
         if (index >= 0 && index < 10) {
-            console.log(`[ClickDebug] 10スロットインデックス: ${index} をクリック.`);
-            
             const item = inventoryVisualBuffer && inventoryVisualBuffer[index];
             const vendingWin = document.getElementById('vending-window');
             const isVendingOpen = vendingWin && vendingWin.style.display === 'block';
 
-            // 🌟 露店出品モード (独自UI連携)
+            // 🌟 露店出品モード（共通関数を呼び出し）
             if (item && isVendingOpen) {
-                let baseName = item.name || item.item_name || "アイテム";
-                if (typeof ITEM_CONFIG !== 'undefined' && ITEM_CONFIG[item.type]) {
-                    baseName = ITEM_CONFIG[item.type].display_name || ITEM_CONFIG[item.type].name;
-                }
-
-                const checkStr = `${item.category} ${item.item_type} ${item.type}`.toLowerCase();
-                const isEquip = checkStr.includes('shield') || checkStr.includes('sword');
-                
-                let rankName = "";
-                if (isEquip) {
-                    const bonus = (item.totalALLStats || 0) - (item.totalFirstStats || 0);
-                    if (bonus >= 30)      { rankName = "(神級)"; }
-                    else if (bonus >= 25) { rankName = "(超伝説)"; }
-                    else if (bonus >= 20) { rankName = "(極上)"; }
-                    else if (bonus >= 15) { rankName = "(伝説)"; }
-                    else if (bonus >= 10) { rankName = "(希少)"; }
-                    else if (bonus >= 5)  { rankName = "(良品)"; }
-                    else if (bonus >= 0)  { rankName = "(標準)"; }
-                    else                  { rankName = "(粗悪)"; }
-                }
-
-                const displayPromptName = `${baseName}${rankName}`;
-                const totalOwned = item.count || 1;
-
-                const modal = document.getElementById('vending-quantity-modal');
-                const qInput = document.getElementById('modal-quantity-input');
-                const pInput = document.getElementById('modal-price-input');
-                const confirmBtn = document.getElementById('modal-confirm-btn');
-                const cancelBtn = document.getElementById('modal-cancel-btn');
-
-                document.getElementById('modal-item-name').innerText = displayPromptName;
-                document.getElementById('modal-max-quantity').innerText = totalOwned;
-                
-                qInput.value = isEquip ? 1 : totalOwned;
-                qInput.disabled = isEquip;
-                pInput.value = 1000;
-
-                modal.style.display = 'block';
-
-                confirmBtn.onclick = null;
-                cancelBtn.onclick = null;
-
-                cancelBtn.onclick = () => {
-                    modal.style.display = 'none';
-                };
-
-                confirmBtn.onclick = () => {
-                    const sellCount = parseInt(qInput.value);
-                    const price = parseInt(pInput.value);
-
-                    if (isNaN(sellCount) || sellCount <= 0 || sellCount > totalOwned) {
-                        alert("有効な数量を入力してください。");
-                        return;
-                    }
-                    if (isNaN(price) || price < 0) {
-                        alert("有効な価格を入力してください。");
-                        return;
-                    }
-
-                    const iconPath = item.imageName ? `${IMAGE_DOMAIN}item_assets/${item.imageName}.png` : `${IMAGE_DOMAIN}item_assets/${item.type}.png`;
-                    
-                    const itemToSend = { 
-                        ...item, 
-                        name: displayPromptName, 
-                        displayName: displayPromptName,
-                        iconUrl: iconPath,
-                        price: price,
-                        count: sellCount,
-                        originalIndex: index 
-                    };
-
-                    console.log(`[Vending] 出品確定: ${displayPromptName} x${sellCount} @${price}G`);
-
-                    if (typeof addItemToVendingList === 'function') {
-                        addItemToVendingList(itemToSend);
-                        if (typeof playMouseClickSound === 'function') playMouseClickSound();
-                    }
-                    modal.style.display = 'none';
-                };
-
+                openVendingQuantityModal(item, item.count || 1, index);
                 return;
             }
 
@@ -2289,7 +2218,6 @@ canvas.addEventListener('mousedown', (event) => {
         }
     } else {
         if (typeof selectedSlotIndex !== 'undefined' && selectedSlotIndex !== -1) {
-            console.log(`[ClickDebug] インベントリ外をクリック. アイテムを捨てる判定へ.`);
             const item = inventoryVisualBuffer && inventoryVisualBuffer[selectedSlotIndex];
             if (item && typeof openDropForm === 'function') {
                 openDropForm(selectedSlotIndex, item);
@@ -2300,64 +2228,204 @@ canvas.addEventListener('mousedown', (event) => {
         }
     }
 
-    // 4. 🏪 露店看板クリック判定（有人 ＆ 無人オフライン両対応版）
-    
-    // A. まずは無人（オフライン）の露店看板がクリックされたかチェック
-    if (typeof activeOfflineShops !== 'undefined' && activeOfflineShops.length > 0) {
-        for (let shop of activeOfflineShops) {
-            // 描画時と同じ看板のサイズ・位置計算
-            const boxWidth = 140;  // 横幅を屋根の端までしっかりカバー
-const boxHeight = 110; // 高さを屋根の上から地面・土台までしっかり伸ばす
-const boxX = (shop.x || 0) - (boxWidth / 2);
-const boxY = (shop.y || 0) - 85;  // 判定の上端を屋根のてっぺん付近まで持ち上げる
+    // ============================================================
+// 4. 🏪 露店看板クリック判定（カスタムアラート通知・入室ブロック版）
+// ============================================================
+if (typeof activeOfflineShops !== 'undefined' && activeOfflineShops.length > 0) {
+    // 🌟 今自分がいるチャンネルを正確に取得する
+    const myCurrentChannel = (typeof hero !== 'undefined' && hero.channel !== undefined) ? Number(hero.channel) : 1;
 
-            if (clickX >= boxX && clickX <= boxX + boxWidth &&
-                clickY >= boxY && clickY <= boxY + boxHeight) {
+    for (let shop of activeOfflineShops) {
+        
+        // 🌟 1. ショップのターゲットチャンネルを取得
+        const shopTargetChannel = Number(shop.channel ?? shop.channelId ?? shop.ch ?? 1);
+
+        // 🌟 2. 【チャンネルガード】自分と違うチャンネルのショップなら、この判定を完全にスキップ！
+        if (myCurrentChannel !== shopTargetChannel) {
+            continue; // 🛑 別のチャンネルなのでクリック判定を行わない
+        }
+
+        const boxWidth = 140, boxHeight = 110;
+        const boxX = (shop.x || 0) - (boxWidth / 2);
+        const boxY = (shop.y || 0) - 85;
+
+        if (clickX >= boxX && clickX <= boxX + boxWidth &&
+            clickY >= boxY && clickY <= boxY + boxHeight) {
+            
+            // 🛑 【超重要ガード】今まさに「赤丸禁止マーク」の状態（他人が編集中、または自分がすでに編集中）かどうかを判定
+            const isMyStore = (typeof hero !== 'undefined' && (shop.owner_id === hero.dbId || shop.dbId === hero.dbId));
+            const isShopBeingEdited = shop.isEditing || (isMyStore && window.isVendingWindowOpen === true);
+
+            if (isShopBeingEdited) {
+                console.log("🚫 [VENDING] この店舗は現在編集中（赤丸禁止マーク）のため、入室できません。");
                 
-                console.log(`✅ [HIT] 無人露店の看板へのクリックを検知しました！ (OwnerId: ${shop.owner_id})`);
-                if (typeof playMouseClickSound === 'function') playMouseClickSound();
+                // 🌟 【ここを追加】入室できない旨をカスタムアラートで表示する
+                if (typeof showCustomAlert === 'function') {
+                    showCustomAlert("この店舗は現在設定・編集中（赤丸状態）のため入室できません。");
+                }
 
-                // openOtherPlayerVending に渡すための簡易オブジェクトを構築
-                const shopDataForWindow = {
-                    id: shop.owner_id,
-                    vending_title: shop.title
-                };
+                return; // 👈 ここで処理を完全にストップし、入室やウィンドウ展開を阻止！
+            }
 
-                if (typeof openOtherPlayerVending === 'function') {
-                    openOtherPlayerVending(shopDataForWindow);
+            if (typeof playMouseClickSound === 'function') playMouseClickSound();
+
+            const shopOwnerId = shop.owner_id ?? shop.dbId ?? shop.id;
+            const hasHero = !!hero;
+            const isMyShop = hasHero && (hero.dbId != null) && (Number(shopOwnerId) === Number(hero.dbId));
+
+            if (isMyShop) {
+                // 🌟 ここで「自分の露店ウィンドウが開いた」というグローバルフラグを立てる！
+                window.isVendingWindowOpen = true;
+                
+                setupMyShopManagementUI(shop);
+                if (typeof openVendingMenu === 'function') {
+                    openVendingMenu();
                 } else {
-                    console.warn("⚠️ [Error] 関数 openOtherPlayerVending が未定義です。");
+                    const myWin = document.getElementById('vending-window');
+                    if (myWin) myWin.style.display = 'block';
+                }
+
+                if (typeof socket !== 'undefined' && socket && socket.connected) {
+                    // 🌟 【ここを追加】サーバーへ「この店を編集中にしたよ」と送信する
+                    const currentShopId = shop.id || shop.owner_id || shop.dbId;
+                    socket.emit('vending_editing_status_change', { 
+                        shopId: currentShopId, 
+                        isEditing: true 
+                    });
+
+                    socket.emit('request_latest_shop_data', { shopId: shop.id, ownerId: shopOwnerId });
                 }
                 return;
+            } else {
+                const fallbackItems = shop.items || [];
+                if (typeof socket !== 'undefined' && socket && socket.connected) {
+                    socket.emit('request_latest_shop_data', { shopId: shop.id || shop.owner_id, ownerId: shopOwnerId });
+                    const latestDataHandler = (data) => {
+                        if (data && data.items && String(data.ownerId || data.shopId) === String(shop.owner_id)) {
+                            shop.items = data.items; 
+                            const shopDataForWindow = {
+                                id: shop.owner_id,
+                                vending_title: shop.title,
+                                items: data.items
+                            };
+                            if (typeof openOtherPlayerVending === 'function') {
+                                openOtherPlayerVending(shopDataForWindow);
+                            }
+                            socket.off('vending_latest_data_res', latestDataHandler);
+                        }
+                    };
+                    socket.off('vending_latest_data_res');
+                    socket.on('vending_latest_data_res', latestDataHandler);
+                } else {
+                    const shopDataForWindow = {
+                        id: shop.owner_id,
+                        vending_title: shop.title,
+                        items: fallbackItems
+                    };
+                    if (typeof openOtherPlayerVending === 'function') {
+                        openOtherPlayerVending(shopDataForWindow);
+                    }
+                }
             }
+            return;
         }
     }
+}
 
-    // B. 既存の有人露店看板のクリック判定
+    // B. 有人露店看板のクリック判定
     const targetPlayers = (typeof others !== 'undefined') ? others : (typeof players !== 'undefined') ? players : {};
-    
     for (let id in targetPlayers) {
         const p = targetPlayers[id];
-
         if (p.is_vending && p.id !== hero.id) {
             if (p.vending_rect) {
                 const r = p.vending_rect;
-                const isInsideX = clickX >= r.x && clickX <= r.x + r.w;
-                const isInsideY = clickY >= r.y && clickY <= r.y + r.h;
-
-                if (isInsideX && isInsideY) {
-                    console.log(`✅ [HIT] 有人露店看板へのクリックを検知しました！`);
+                if (clickX >= r.x && clickX <= r.x + r.w && clickY >= r.y && clickY <= r.y + r.h) {
                     if (typeof playMouseClickSound === 'function') playMouseClickSound();
-
                     if (typeof openOtherPlayerVending === 'function') {
                         openOtherPlayerVending(p); 
-                    } else {
-                        console.warn("⚠️ [Error] 関数 openOtherPlayerVending が未定義です。");
                     }
                     return; 
                 }
             }
         }
+    }
+});
+
+// サーバーから最新のショップデータを受け取ったイベント
+socket.on('latest_shop_data_response', (latestShopData) => {
+    if (latestShopData) {
+        console.log("📥 データベース（vending_shops）から最新の店舗データを適用しました:", latestShopData);
+        // 現在露店管理ウィンドウが開いている、または自分の店であればUIを更新
+        setupMyShopManagementUI(latestShopData);
+    }
+});
+
+// ============================================================
+// :::MOUSE_MOVE_CURSOR_CONTROLLER::: 🖱️ チャンネル厳格ガード版
+// ============================================================
+canvas.addEventListener('mousemove', (event) => {
+    if (window.isDisconnected) return;
+
+    const rect = canvas.getBoundingClientRect();
+    const mouseX = event.clientX - rect.left;
+    const mouseY = event.clientY - rect.top;
+
+    // 🌟 今自分がいるチャンネルを正確に取得する
+    const myCurrentChannel = (typeof hero !== 'undefined' && hero.channel !== undefined) ? Number(hero.channel) : 1;
+
+    let isOverPointer = false;
+
+    // 1. 無人露店の判定（チャンネルガード追加）
+    if (typeof activeOfflineShops !== 'undefined' && activeOfflineShops.length > 0) {
+        for (let shop of activeOfflineShops) {
+            // ショップのターゲットチャンネルを取得
+            const shopTargetChannel = Number(shop.channel ?? shop.channelId ?? shop.ch ?? 1);
+
+            // 🌟 違うチャンネルならホバー判定をスキップ！
+            if (myCurrentChannel !== shopTargetChannel) {
+                continue;
+            }
+
+            const boxWidth = 140;  
+            const boxHeight = 110; 
+            const boxX = (shop.x || 0) - (boxWidth / 2);
+            const boxY = (shop.y || 0) - 85;  
+
+            if (mouseX >= boxX && mouseX <= boxX + boxWidth &&
+                mouseY >= boxY && mouseY <= boxY + boxHeight) {
+                isOverPointer = true;
+                break;
+            }
+        }
+    }
+
+    // 2. 有人露店の判定（チャンネルガード追加）
+    if (!isOverPointer) {
+        const targetPlayers = (typeof others !== 'undefined') ? others : (typeof players !== 'undefined') ? players : {};
+        for (let id in targetPlayers) {
+            const p = targetPlayers[id];
+            
+            // 🌟 プレイヤーのチャンネルを取得（未定義の場合は 1 とする）
+            const playerChannel = (p.channel !== undefined) ? Number(p.channel) : 1;
+
+            // 🌟 違うチャンネルならホバー判定をスキップ！
+            if (myCurrentChannel !== playerChannel) {
+                continue;
+            }
+
+            if (p.is_vending && p.id !== hero.id && p.vending_rect) {
+                const r = p.vending_rect;
+                if (mouseX >= r.x && mouseX <= r.x + r.w && mouseY >= r.y && mouseY <= r.y + r.h) {
+                    isOverPointer = true;
+                    break;
+                }
+            }
+        }
+    }
+
+    // 3. 🌟 ドラッグ中でなければ、クラスの有無を切り替えるだけ
+    if (canvas.style.cursor !== "grabbing" && canvas.style.cursor !== "grab") {
+        canvas.classList.toggle('is-pointer', isOverPointer);
     }
 });
 
@@ -2819,10 +2887,50 @@ let currentOnlinePlayers = [];
  * 役割：
  * - サーバー側で管理されている現在のオンラインプレイヤー一覧を受信
  * - クライアント側のデータ保持変数(currentOnlinePlayers)を最新の情報へ書き換える
- * - プレイヤーの入退室情報を常に最新に保ち、UI等の表示整合性を守る
+ * - 💡 【修正】既存の露店データ（modeやmonsterTypeなど）が消えてしまわないよう確実にマージする！
  */
 socket.on('updatePlayerList', (playerList) => {
-    currentOnlinePlayers = playerList;
+    if (!Array.isArray(playerList)) return;
+
+    // 既存のプレイヤーデータをマップ化して保持しておく（IDをキーにする）
+    const existingMap = new Map();
+    if (Array.isArray(currentOnlinePlayers)) {
+        currentOnlinePlayers.forEach(p => {
+            const pid = p.dbId || p.id || p.socketId;
+            if (pid) existingMap.set(pid, p);
+        });
+    }
+
+    // 新しいリストをベースにしつつ、既存の露店プロパティが undefined なら絶対に保護する
+    currentOnlinePlayers = playerList.map(newP => {
+        const pid = newP.dbId || newP.id || newP.socketId;
+        const oldP = pid ? existingMap.get(pid) : null;
+
+        if (oldP) {
+            // 🛡️ 既存データに露店関連のプロパティがあれば、新しいリスト側を引き継ぎ・または保護する
+            return {
+                ...oldP,    // 古いデータの状態（露店情報など）を一旦ベースにする
+                ...newP,   // 新しい位置やステータスで上書き
+                
+                // 🌟 ただし、もし新しい方に無くて古い方にある重要データは絶対に消さない！
+                mode: newP.mode || oldP.mode || oldP.vending_mode || 'monster',
+                vending_mode: newP.vending_mode || oldP.vending_mode || newP.mode || 'monster',
+                monsterType: newP.monsterType || oldP.monsterType || oldP.monster_type || 'Monster5',
+                monster_type: newP.monster_type || oldP.monster_type || newP.monsterType || 'Monster5',
+                is_vending: newP.is_vending !== undefined ? newP.is_vending : (oldP.is_vending || false)
+            };
+        }
+
+        // 全く新しいプレイヤーの場合は、最低限のフォールバックをかけて返す
+        return {
+            ...newP,
+            mode: newP.mode || newP.vending_mode || 'monster',
+            vending_mode: newP.vending_mode || newP.mode || 'monster',
+            monsterType: newP.monsterType || newP.monster_type || 'Monster5',
+            monster_type: newP.monster_type || newP.monsterType || 'Monster5',
+            is_vending: newP.is_vending || false
+        };
+    });
 });
 
 // ==========================================
@@ -3444,20 +3552,39 @@ function updateProfileEquipment(p) {
         const slotEl = document.createElement("div");
         slotEl.className = "profile-slot-item";
 
-        // プレイヤーのインベントリから装備中アイテムを探す
+        // ============================================================
+        // 🌟 【修正】フレンドの equipment と自分の inventory の両方から装備品を探す！
+        // ============================================================
         let equippedItem = null;
-        if (p && p.inventory && Array.isArray(p.inventory)) {
-            equippedItem = p.inventory.find(inv => {
-                if (!inv || !inv.isEquipped) return false;
-                const invType = String(inv.type || inv.name || "").toLowerCase();
+        
+        // 優先してフレンド側の配列（p.equipment）を見て、なければ自分の inventory を見る
+        const targetList = p.equipment || p.inventory;
+
+        if (targetList && Array.isArray(targetList)) {
+            equippedItem = targetList.find(inv => {
+                if (!inv) return false;
+
+                // 自分用（isEquipped）とフレンド用（is_equipped === 1）の両方の判定に対応
+                const isEq = inv.isEquipped || inv.is_equipped === 1 || inv.is_equipped === true;
+                
+                // フレンドデータ（p.equipment）経由の場合は、すでにサーバー側で
+                // `is_equipped = 1` のものだけを絞り込んでいるためそのまま通す
+                const isValidEquipped = p.equipment ? true : isEq;
+                if (!isValidEquipped) return false;
+
+                // データベースのカラム名（item_type）やプロパティ名（type, name）のいずれにも対応
+                const invType = String(inv.item_type || inv.type || inv.name || "").toLowerCase();
+                
                 return slot.types.some(t => invType.includes(t));
             });
         }
+        // ============================================================
 
         // ボーナス別のグローカラーを判定（アイテム画像の縁取り用）
         let glowCssColor = null;
-        if (equippedItem && equippedItem.type && equippedItem.count > 0) {
-            if ((equippedItem.type === 'sword' || equippedItem.type === 'shield' || slot.types.includes('sword') || slot.types.includes('shield')) && 
+        if (equippedItem && (equippedItem.type || equippedItem.item_type) && equippedItem.count > 0) {
+            const itemTypeVal = equippedItem.type || equippedItem.item_type;
+            if ((itemTypeVal === 'sword' || itemTypeVal === 'shield' || slot.types.includes('sword') || slot.types.includes('shield')) && 
                 equippedItem.totalALLStats !== undefined && 
                 equippedItem.totalFirstStats !== undefined) {
                 
@@ -3498,7 +3625,8 @@ function updateProfileEquipment(p) {
             span.textContent = slot.label;
             slotEl.appendChild(span);
         } else {
-            const imageKey = equippedItem.image || equippedItem.type || equippedItem.name;
+            // 🌟 imageKey も item_id (例: "102") や item_type に対応させる
+            const imageKey = equippedItem.image || equippedItem.type || equippedItem.item_type || equippedItem.name || equippedItem.item_id;
             let imgObj = (typeof itemImages !== 'undefined') ? itemImages[imageKey] : null;
 
             if (imgObj && imgObj.complete && imgObj.naturalWidth > 0) {
@@ -4423,66 +4551,107 @@ canvas.addEventListener('click', (e) => {
     }
 
 	if (window._isOnlineListOpen && typeof window._hoveredOnlineRow !== 'undefined' && window._hoveredOnlineRow >= 0) {
-        const targetPlayer = currentOnlinePlayers[window._hoveredOnlineRow];
-        const actionType = window._hoveredOnlineBtn;
+    const targetPlayer = currentOnlinePlayers[window._hoveredOnlineRow];
+    const actionType = window._hoveredOnlineBtn;
 
-        if (targetPlayer && actionType >= 0) {
-            if (actionType === 0) {
-                window._selectedProfilePlayer = targetPlayer;
-                window._isProfileWindowOpen = true;
-                
-                // 🌟 currentProfileUserId に代入する
-                currentProfileUserId = targetPlayer.id;
-                
-                // 🌟 handleProfileClick() を使うための合わせ技
-                window.selectedPlayer = targetPlayer; 
-                handleProfileClick(); 
-                
-                // ============================================================
-                // 🕵️‍♂️ ガチガチのデバッグ行（人気度0崩壊トルネードデバッグ）
-                // ============================================================
-                const popularitySpan = document.getElementById('profile-popularity');
+    if (targetPlayer && actionType >= 0) {
+        if (actionType === 0) {
+            // 🌟 共通関数を呼ぶだけ！
+            openPlayerProfile(targetPlayer);
 
-                console.group("⭐ [DEBUG] 人気度反映・ガチガチデバッグ開始");
-                console.log("1. クリックされた targetPlayer のオブジェクト:", targetPlayer);
-                console.log("2. targetPlayer.id / dbId:", targetPlayer ? targetPlayer.id : "不明", targetPlayer ? targetPlayer.dbId : "不明");
-                console.log("3. targetPlayer.popularity の値:", targetPlayer ? targetPlayer.popularity : "対象なし");
-                console.log("4. targetPlayer.fame の値:", targetPlayer ? targetPlayer.fame : "対象なし");
-                console.log("5. 検出された #profile-popularity 要素:", popularitySpan);
-
-                if (popularitySpan) {
-                    let finalPop = 0;
-                    if (targetPlayer) {
-                        if (targetPlayer.popularity !== undefined && targetPlayer.popularity !== null) {
-                            finalPop = targetPlayer.popularity;
-                            console.log("👉 判定: targetPlayer.popularity を採用:", finalPop);
-                        } else if (targetPlayer.fame !== undefined && targetPlayer.fame !== null) {
-                            finalPop = targetPlayer.fame;
-                            console.log("👉 判定: targetPlayer.fame を採用:", finalPop);
-                        } else {
-                            console.warn("⚠️ 警告: targetPlayer に popularity も fame も存在しません！オブジェクトの全キー一覧:", Object.keys(targetPlayer));
-                        }
-                    } else {
-                        console.error("❌ エラー: targetPlayer が null または undefined です！");
-                    }
-
-                    popularitySpan.innerText = finalPop;
-                    console.log(`✅ 最終的に画面（#profile-popularity）に書き込んだ値: ${finalPop}`);
-                } else {
-                    console.error("❌ エラー: DOM上に #profile-popularity 要素が見つかりません！HTMLのIDを確認してください。");
-                }
-                console.groupEnd();
-                // ============================================================
-
-                console.log(`${targetPlayer.name} のプロフィールウィンドウを開きます`);
-            } else if (actionType === 1) {
-                console.log(`${targetPlayer.name} の成果を開く`);
-            } else if (actionType === 2) {
-                console.log(`${targetPlayer.name} のギャラリーを開く`);
-            }
+        } else if (actionType === 1) {
+            console.log(`${targetPlayer.name} の成果を開く`);
+        } else if (actionType === 2) {
+            console.log(`${targetPlayer.name} のギャラリーを開く`);
         }
     }
+}
 });
+
+// ============================================================
+// 🌟 プレイヤーのプロフィールを開く共通関数（オンライン・フレンド共用）
+// ============================================================
+function openPlayerProfile(targetPlayer) {
+    if (!targetPlayer) return;
+
+    // 🌟 フレンド等の装備データ（DB由来）を、クライアント側が扱いやすい形に一括正規化する
+    if (targetPlayer.equipment && Array.isArray(targetPlayer.equipment)) {
+        targetPlayer.equipment = targetPlayer.equipment.map(item => ({
+            ...item,
+            // データベースのカラム名や別名を、ゲーム内の標準プロパティに統一
+            image: item.image || item.image_name || item.display_name || item.name,
+            type: item.type || item.item_type,
+            count: item.count !== undefined ? item.count : 1,
+            isEquipped: item.isEquipped !== undefined ? item.isEquipped : (item.is_equipped === 1 || item.is_equipped === true)
+        }));
+    }
+
+    window._selectedProfilePlayer = targetPlayer;
+    window._isProfileWindowOpen = true;
+    
+    // currentProfileUserId に代入する
+    currentProfileUserId = targetPlayer.id || targetPlayer.dbId;
+    
+    // handleProfileClick() を使うための合わせ技
+    window.selectedPlayer = targetPlayer; 
+    handleProfileClick(); 
+    
+    // ============================================================
+    // 🕵️‍♂️ ガチガチのデバッグ行（人気度0崩壊トルネードデバッグ）
+    // ============================================================
+    const popularitySpan = document.getElementById('profile-popularity');
+
+    console.group("⭐ [DEBUG] 人気度反映・ガチガチデバッグ開始");
+    console.log("1. クリックされた targetPlayer のオブジェクト:", targetPlayer);
+    console.log("2. targetPlayer.id / dbId:", targetPlayer ? targetPlayer.id : "不明", targetPlayer ? targetPlayer.dbId : "不明");
+    console.log("3. targetPlayer.popularity の値:", targetPlayer ? targetPlayer.popularity : "対象なし");
+    console.log("4. targetPlayer.fame の値:", targetPlayer ? targetPlayer.fame : "対象なし");
+    console.log("5. 検出された #profile-popularity 要素:", popularitySpan);
+
+    if (popularitySpan) {
+        let finalPop = 0;
+        if (targetPlayer) {
+            if (targetPlayer.popularity !== undefined && targetPlayer.popularity !== null) {
+                finalPop = targetPlayer.popularity;
+                console.log("👉 判定: targetPlayer.popularity を採用:", finalPop);
+            } else if (targetPlayer.fame !== undefined && targetPlayer.fame !== null) {
+                finalPop = targetPlayer.fame;
+                console.log("👉 判定: targetPlayer.fame を採用:", finalPop);
+            } else {
+                console.warn("⚠️ 警告: targetPlayer に popularity も fame も存在しません！オブジェクトの全キー一覧:", Object.keys(targetPlayer));
+            }
+        } else {
+            console.error("❌ エラー: targetPlayer が null または undefined です！");
+        }
+
+        popularitySpan.innerText = finalPop;
+        console.log(`✅ 最終的に画面（#profile-popularity）に書き込んだ値: ${finalPop}`);
+    } else {
+        console.error("❌ エラー: DOM上に #profile-popularity 要素が見つかりません！HTMLのIDを確認してください。");
+    }
+    console.groupEnd();
+    // ============================================================
+    
+    // ============================================================
+    // 🌟 プロフィール画面を開いた瞬間に装備スロットを綺麗に描画する
+    // ============================================================
+    if (typeof updateProfileEquipment === 'function') {
+        updateProfileEquipment(targetPlayer);
+        console.log("🛡️ [Profile] プレイヤーの装備スロットを描画しました:", targetPlayer.equipment);
+    }
+    // ============================================================
+
+    // ============================================================
+    // 🌟 【ここを追加！】プロフィール画面を開いた瞬間にカードコレクションも描画する
+    // ============================================================
+    if (typeof updateProfileCardCollection === 'function') {
+        updateProfileCardCollection(targetPlayer);
+        console.log("🃏 [Profile] プレイヤーのカードコレクションを描画しました:", targetPlayer.playerCardCollection || targetPlayer.cardCollection);
+    }
+    // ============================================================
+
+    console.log(`${targetPlayer.name || targetPlayer.username} のプロフィールウィンドウを開きます`);
+}
 
 // プロフィールウィンドウのドラッグ用状態変数
 let profileWindowX = null; 
@@ -4726,7 +4895,7 @@ function drawProfileEquipment(colX, topY, colWidth, p) {
     ctx.fillStyle = "#f8fafc";
     ctx.textAlign = "left";
     ctx.textBaseline = "top";
-    ctx.fillText("装備アイテム", colX + 10, topY + 8);
+    ctx.fillText("装備アイテム2", colX + 10, topY + 8);
 
     const equipSlots = [
         { label: "剣", types: ["sword", "weapon"] },
@@ -4833,7 +5002,7 @@ function drawProfileMedals(colX, topY, colWidth, p) {
     ctx.fillStyle = "#f8fafc";
     ctx.textAlign = "left";
     ctx.textBaseline = "top";
-    ctx.fillText("所持メダル", colX + 10, topY + 8);
+    ctx.fillText("所持メダル2", colX + 10, topY + 8);
 
     const medals = [
         { key: "goldMedal", label: "金メダル", color: "#fde047" },
@@ -5065,7 +5234,19 @@ function drawProfileTooltips(tCtx, hoveredEquippedItem, hoveredSlotInfo) {
     if (typeof mouseX === 'undefined' || typeof mouseY === 'undefined') return;
 
     if (hoveredEquippedItem && typeof drawItemTooltip === 'function') {
-        drawItemTooltip(tCtx, hoveredEquippedItem, mouseX + 12, mouseY + 12);
+        // 🌟 補正：フレンドのDBデータ形式（equipment_instances）を
+        //    drawItemTooltip が期待する形式に安全に変換（マッピング）する
+        const normalizedItem = {
+            ...hoveredEquippedItem,
+            // image がなければ image_name や display_name から補完
+            image: hoveredEquippedItem.image || hoveredEquippedItem.image_name || hoveredEquippedItem.display_name || hoveredEquippedItem.name,
+            // type がなければ item_type から補完
+            type: hoveredEquippedItem.type || hoveredEquippedItem.item_type,
+            // count がなければ 1 をデフォルトにする
+            count: hoveredEquippedItem.count !== undefined ? hoveredEquippedItem.count : 1
+        };
+
+        drawItemTooltip(tCtx, normalizedItem, mouseX + 12, mouseY + 12);
     } else if (hoveredSlotInfo) {
         ctx.save();
         ctx.font = "11px 'Segoe UI', sans-serif";
@@ -5661,13 +5842,13 @@ socket.on('account_info_response', (data) => {
 
 // --- 1. 画像素材の準備 ---
 const portalImg = new Image();
-portalImg.src = 'portal_assets/Flare_Open_BOX_Blue.png';
+portalImg.src = '//imglive.net/portal_assets/Flare_Open_BOX_Blue.png';
 
 const starSheetImg = new Image();
-starSheetImg.src = 'portal_assets/Star_Sheet_Blue.png'; // 2x2スプライトシート[cite: 1]
+starSheetImg.src = '//imglive.net/portal_assets/Star_Sheet_Blue.png'; // 2x2スプライトシート[cite: 1]
 
 const sparkImg = new Image();
-sparkImg.src = 'portal_assets/Spark_Blue.png'; // 丸い光の粒
+sparkImg.src = '//imglive.net/portal_assets/Spark_Blue.png'; // 丸い光の粒
 
 let portalAnimationTime = 0;
 let portalParticles = []; // パーティクルを管理する配列
@@ -5716,10 +5897,13 @@ function createPortalParticle(x, y, portalWidth, portalHeight) {
 }
 
 /**
- * ポータル本体と、星＆Sparkのパーティクルをまとめて更新・描画する統合関数
+ * ポータル本体と、星＆Sparkのパーティクルをまとめて更新・描画する統合関数（安全ガード強化版）
  */
 function updateAndDrawPortalVFX(ctx, x, y) {
-    if (!portalImg.complete) return;
+    // 🛡️【安全ガード】portalImg が未ロード、または読み込み失敗（broken）状態なら描画をスキップ
+    if (!portalImg || !portalImg.complete || portalImg.naturalWidth === 0) {
+        return;
+    }
 
     portalAnimationTime += 0.04;
 
@@ -5766,7 +5950,11 @@ function updateAndDrawPortalVFX(ctx, x, y) {
     ctx.restore(); // ポータルの座標復元
 
     // --- ✨ 2. 星 ＆ Spark のパーティクルシステム ---
-    if (!starSheetImg.complete || !sparkImg.complete) return;
+    // パーティクル用画像が正常な場合のみパーティクル処理を実行
+    const isStarSheetValid = starSheetImg && starSheetImg.complete && starSheetImg.naturalWidth > 0;
+    const isSparkValid = sparkImg && sparkImg.complete && sparkImg.naturalWidth > 0;
+
+    if (!isStarSheetValid || !isSparkValid) return;
 
     // 生成頻度（40%の確率で生成）
     if (Math.random() < 0.40) {
@@ -5804,7 +5992,7 @@ function updateAndDrawPortalVFX(ctx, x, y) {
 
         // 🌟 種類（星か丸い粒か）によって描画方法を切り替え
         if (p.type === 'star') {
-            // 星の描画（スプライトシートから切り出し）[cite: 1]
+            // 星の描画（スプライトシートから切り出し）
             ctx.drawImage(
                 starSheetImg,
                 p.frameX * spriteW, p.frameY * spriteH,
@@ -5859,6 +6047,11 @@ function drawGame(hero, others, enemies, items, platforms, ladders, damageTexts,
     // 🌟 【ここに配置！】ポータル ＆ 星のシュワシュワエフェクト
     // ==========================================
     updateAndDrawPortalVFX(ctx, 680, 531);
+	
+	// 🌟 【追加】ここで無人露店の看板を描画する！
+    if (typeof renderOfflineVendingSigns === 'function' && typeof ctx !== 'undefined') {
+        renderOfflineVendingSigns(ctx, frame);
+    }
 
     // 4. 動体（エンティティ）の描画
     drawEntities(hero, others, enemies, items, frame);
@@ -5896,6 +6089,10 @@ function drawGame(hero, others, enemies, items, platforms, ladders, damageTexts,
     // 🌟 ここに追加！一番手前に通知を出す
     if (typeof drawNotificationArea === 'function') {
         drawNotificationArea(ctx, VIEW_CONFIG.SCREEN_WIDTH, VIEW_CONFIG.SCREEN_HEIGHT);
+    }
+	
+	if (typeof drawNotifications === 'function' && typeof ctx !== 'undefined') {
+        drawNotifications(ctx);
     }
     
     // ==========================================
@@ -6009,6 +6206,28 @@ if (activeHoverEquipment && typeof drawItemTooltip === 'function') {
     // 引数: (描画するキャンバスのctx, アイテムデータ, マウスX座標, マウスY座標, 自分のヒーロー情報)
     drawItemTooltip(tCtx, activeHoverEquipment, mouseX, mouseY, window.hero);
 }
+
+// 🌟 【ツールチップ描画】バッグと装備の両方に対応
+    if (typeof tCtx !== 'undefined') {
+        // バッグ用(hoveringSlot) または 装備用(hoveredEquipItem) のどちらかを取得
+        const activeItem = (typeof hoveringSlot !== 'undefined' && hoveringSlot) || 
+                           (typeof hoveredEquipItem !== 'undefined' && hoveredEquipItem);
+		
+		// 🌟 デバッグ用：何が判定されているかコンソールに出してみる
+        if (typeof hoveredEquipItem !== 'undefined') {
+			// 停止 2026-9-5
+            //console.log("hoveredEquipItem:", hoveredEquipItem);
+        }
+
+        if (activeItem && typeof drawItemTooltip === 'function') {
+            // 🌟 window.mouseX を優先して取得するように変更
+            const mX = (window.mouseX !== undefined) ? window.mouseX : mouseX;
+            const mY = (window.mouseY !== undefined) ? window.mouseY : mouseY;
+            
+            drawItemTooltip(tCtx, activeItem, mX, mY, hero);
+        }
+    }
+    // --- [描画処理：ここまで] ---
 }
 
 // ============================================================
@@ -6322,7 +6541,7 @@ function drawDebugLayer(hero, enemies, items, platforms) {
 }
 
 // ============================================================
-// :::DRAW_ENTITIES::: 🏃 動体（エンティティ）の一括レンダリング
+// :::DRAW_ENTITIES::: 🏃 動体（エンティティ）の一括レンダリング（鉄壁モード・欠損ガード版）
 // ============================================================
 function drawEntities(hero, others, enemies, items, frame) {
 
@@ -6345,6 +6564,15 @@ function drawEntities(hero, others, enemies, items, frame) {
         const p = others[id];
         
         if (p && id !== socket.id && p.channel === hero.channel) {
+            
+            // 🛡️ 【超重要防衛ガード】描画・看板評価の直前で mode や monsterType の欠損を強制死守！
+            if (p.is_vending) {
+                if (!p.mode) p.mode = p.vending_mode || 'monster';
+                if (!p.vending_mode) p.vending_mode = p.mode || 'monster';
+                if (!p.monsterType) p.monsterType = p.monster_type || 'Monster5';
+                if (!p.monster_type) p.monster_type = p.monsterType || 'Monster5';
+            }
+
             drawPlayerObj(p, false, id);
 
             // 🏪 他人の露店看板を表示（開店中の場合のみ）
@@ -6360,6 +6588,13 @@ function drawEntities(hero, others, enemies, items, frame) {
     // -------------------------------------------------------
     // 3. 自分自身を描画
     // -------------------------------------------------------
+    if (hero && hero.is_vending) {
+        if (!hero.mode) hero.mode = hero.vending_mode || 'monster';
+        if (!hero.vending_mode) hero.vending_mode = hero.mode || 'monster';
+        if (!hero.monsterType) hero.monsterType = hero.monster_type || 'Monster5';
+        if (!hero.monster_type) hero.monster_type = hero.monsterType || 'Monster5';
+    }
+
     drawPlayerObj(hero, true);
 
     // 🏪 自分の露店看板を表示（自分が開店中の場合）
@@ -6957,10 +7192,62 @@ function getEllipsisText(ctx, text, maxWidth) {
 function drawVendingSign(p) {
     // 🌟 露店フラグを絶対条件にします
     if (!p || !p.is_vending) return;
-	
-	// 🌟 追記: 無人モード（monster）の場合は、この有人用看板を表示しない！
-    const mode = p.mode || p.vending_mode || 'player';
-    if (mode === 'monster') return;
+    
+    // ==========================================
+    // 🔍 【ガチガチ・デバッグ監視ブロック】
+    // ==========================================
+    console.group(`🚨 [VENDING DEBUG] 看板評価チェッカー: キャラ名 [${p.name || '不明'}] (ID: ${p.id})`);
+    console.log("・raw p object:", {
+        is_vending: p.is_vending,
+        mode: p.mode,
+        vending_mode: p.vending_mode,
+        monsterType: p.monsterType,
+        merchantType: p.merchantType,
+        monster_type: p.monster_type,
+        vending_type: p.vending_type,
+        is_offline: p.is_offline,
+        channel: p.channel,
+        currentHeroChannel: (typeof hero !== 'undefined' ? hero.channel : 'hero不明'),
+        title: p.vending_title,
+        itemsCount: Array.isArray(p.vending_items) ? p.vending_items.length : 'not array'
+    });
+
+    const ch_check = (p.channel !== undefined && p.channel !== null && Number(p.channel) !== Number(typeof hero !== 'undefined' ? hero.channel : 1));
+    const mode_check = String(p.mode || p.vending_mode || '').toLowerCase();
+    const merchant_check = p.monsterType || p.merchantType || p.monster_type || p.vending_type || '';
+    const offline_check = (p.is_offline === true || p.is_offline === 1 || p.is_offline === "1");
+
+    console.log("👉 評価結果:", {
+        "【破綻要因1】チャンネル違いか？": ch_check,
+        "【破綻要因2】無人モード判定(monster等)か？": ['monster', 'offline', 'npc', 'kiosk'].includes(mode_check),
+        "【破綻要因3】マーチャント/モンスタータイプがあるか？": merchant_check !== '',
+        "【破綻要因4】オフラインフラグがあるか？": offline_check
+    });
+    console.groupEnd();
+    // ==========================================
+
+    // 🌟 【超重要チャンネルガード】もしキャラクターのチャンネル情報が存在し、かつ今の自分のチャンネルと違う場合は絶対に描画しない！
+    const currentHeroChannel = (typeof hero !== 'undefined' && hero.channel !== undefined) ? Number(hero.channel) : 1;
+    if (p.channel !== undefined && p.channel !== null && Number(p.channel) !== currentHeroChannel) {
+        return; // 別のチャンネルにいるプレイヤーの露店看板は描画スキップ！
+    }
+
+    // 🌟 【完全ガード】中身（タイトルや商品データ）が空っぽの「幽霊データ」の場合は描画しない（移動できるバグを防止）
+    const hasValidTitle = (p.vending_title && String(p.vending_title).trim() !== "");
+    const hasValidItems = (Array.isArray(p.vending_items) && p.vending_items.length > 0);
+    if (!hasValidTitle && !hasValidItems && p.id !== (typeof hero !== 'undefined' ? hero.id : null)) {
+        return; // 有効な情報がないのに `is_vending` だけが立っているゴースト表示を弾く
+    }
+
+    // 🌟 【強化】無人モード、またはモンスター名・雇用商人のタイプを持っている場合は有人用看板を描画しない
+    const mode = String(p.mode || p.vending_mode || '').toLowerCase();
+    const merchantType = p.monsterType || p.merchantType || p.monster_type || p.vending_type || '';
+    const isOfflineShop = (p.is_offline === true || p.is_offline === 1 || p.is_offline === "1");
+    
+    // 無人露店（monster等）や、明確に有人店舗ではないフラグがある場合は即リターン
+    if (mode === 'monster' || mode === 'offline' || mode === 'npc' || mode === 'kiosk' || merchantType !== '' || isOfflineShop) {
+        return;
+    }
 
     // 同期処理で守られた p.vending_title を参照
     const title = p.vending_title || ""; 
@@ -7112,6 +7399,229 @@ function drawVendingSign(p) {
     };
     
     ctx.restore();
+}
+
+function updateVendingModeUI(radio) {
+    const monsterLabel = document.getElementById('vending-mode-monster-label');
+    const playerLabel = document.getElementById('vending-mode-player-label');
+    if (!monsterLabel || !playerLabel) return;
+
+    if (radio.value === 'monster') {
+        // 無人選択時（手前）
+        monsterLabel.style.background = '#ffffff';
+        monsterLabel.style.color = '#1e293b';
+        monsterLabel.style.borderColor = '#94a3b8';
+        monsterLabel.style.borderBottom = '2px solid #ffffff';
+        monsterLabel.style.zIndex = '3';
+        monsterLabel.style.marginTop = '0px';
+        monsterLabel.style.padding = '4px 12px';
+        monsterLabel.style.boxShadow = '0 -2px 4px rgba(0,0,0,0.05)';
+
+        // 有人非選択時（奥）
+        playerLabel.style.background = '#cbd5e1';
+        playerLabel.style.color = '#64748b';
+        playerLabel.style.borderColor = '#94a3b8';
+        playerLabel.style.borderBottom = '1px solid #94a3b8';
+        playerLabel.style.zIndex = '1';
+        playerLabel.style.marginTop = '3px';
+        playerLabel.style.padding = '3px 12px';
+        playerLabel.style.boxShadow = 'none';
+    } else {
+        // 有人選択時（手前）
+        playerLabel.style.background = '#ffffff';
+        playerLabel.style.color = '#1e293b';
+        playerLabel.style.borderColor = '#94a3b8';
+        playerLabel.style.borderBottom = '2px solid #ffffff';
+        playerLabel.style.zIndex = '3';
+        playerLabel.style.marginTop = '0px';
+        playerLabel.style.padding = '4px 12px';
+        playerLabel.style.boxShadow = '0 -2px 4px rgba(0,0,0,0.05)';
+
+        // 無人非選択時（奥）
+        monsterLabel.style.background = '#cbd5e1';
+        monsterLabel.style.color = '#64748b';
+        monsterLabel.style.borderColor = '#94a3b8';
+        monsterLabel.style.borderBottom = '1px solid #94a3b8';
+        monsterLabel.style.zIndex = '1';
+        monsterLabel.style.marginTop = '3px';
+        monsterLabel.style.padding = '3px 12px';
+        monsterLabel.style.boxShadow = 'none';
+    }
+}
+
+function switchVendingTab(mode) {
+    const monsterLabel = document.getElementById('vending-mode-monster-label');
+    const playerLabel = document.getElementById('vending-mode-player-label');
+    if (!monsterLabel || !playerLabel) return;
+
+    const monsterRadio = monsterLabel.querySelector('input[type="radio"]');
+    const playerRadio = playerLabel.querySelector('input[type="radio"]');
+
+    if (mode === 'monster') {
+        if (monsterRadio) monsterRadio.checked = true;
+    } else {
+        if (playerRadio) playerRadio.checked = true;
+    }
+
+    // 共通のUI更新関数を呼ぶことで、どこから切り替えても同じ見た目に同期させる
+    if (typeof updateVendingModeUI === 'function') {
+        updateVendingModeUI(mode === 'monster' ? monsterRadio : playerRadio);
+    }
+}
+
+// 🏪 指定したキャンバスにモンスターのプレビューを綺麗に描画する共通関数（Monster1〜102対応）
+function renderVendingMerchantPreview(monsterType = "Monster1", targetCanvasId = "vending-merchant-preview-canvas") {
+    const canvas = document.getElementById(targetCanvasId);
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    
+    // 枠のクリア
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    // 🌟 IDの正規化（数値や "1"〜"102" が渡されても "MonsterN" に自動変換）
+    let strType = String(monsterType).trim();
+    if (/^\d+$/.test(strType)) {
+        strType = "Monster" + strType;
+    }
+    const resolvedType = strType;
+
+    // モンスター設定の取得
+    const monsterConf = (typeof MONSTER_CONFIGS !== 'undefined') 
+        ? MONSTER_CONFIGS.find(conf => String(conf.id) === resolvedType || String(conf.id) === String(monsterType) || conf.name === resolvedType || conf.name === String(monsterType)) 
+        : null;
+
+    const dummyEnemy = {
+        id: resolvedType,
+        type: resolvedType,
+        name: resolvedType,
+        scale: monsterConf ? (monsterConf.scale || 1.0) : 1.0,
+        x: 0,
+        y: 0,
+        w: monsterConf ? (monsterConf.w || 50) : 50,
+        h: monsterConf ? (monsterConf.h || 50) : 50,
+        kbV: 0,
+        isFading: false,
+        waitTimer: 999
+    };
+
+    const checkKey = resolvedType + "Idle";
+    if (typeof sprites !== 'undefined' && (!sprites[checkKey] || sprites[checkKey].length === 0)) {
+        if (typeof ensureEnemySpritesLoaded === 'function') {
+            ensureEnemySpritesLoaded(resolvedType, resolvedType);
+        }
+    }
+
+    const currentFrame = (typeof window !== 'undefined' && window.gameFrame) ? window.gameFrame : 0;
+    
+    if (typeof getEnemyVisualData === 'function' && typeof sprites !== 'undefined') {
+        let { img } = getEnemyVisualData(dummyEnemy, sprites, currentFrame, null);
+
+        if (img && img.complete && img.naturalWidth !== 0) {
+            const natW = img.naturalWidth;
+            const natH = img.naturalHeight;
+
+            // 1. 仮想キャンバスに原寸描画して余白を自動カット
+            const offCanvas = document.createElement('canvas');
+            offCanvas.width = natW;
+            offCanvas.height = natH;
+            const offCtx = offCanvas.getContext('2d');
+            offCtx.imageSmoothingEnabled = false;
+            offCtx.drawImage(img, 0, 0, natW, natH);
+
+            let minX = natW, minY = natH, maxX = 0, maxY = 0;
+            try {
+                const imgData = offCtx.getImageData(0, 0, natW, natH);
+                const data = imgData.data;
+                let hasPixels = false;
+
+                for (let y = 0; y < natH; y++) {
+                    for (let x = 0; x < natW; x++) {
+                        const alpha = data[(y * natW + x) * 4 + 3];
+                        if (alpha > 10) {
+                            if (x < minX) minX = x;
+                            if (x > maxX) maxX = x;
+                            if (y < minY) minY = y;
+                            if (y > maxY) maxY = y;
+                            hasPixels = true;
+                        }
+                    }
+                }
+                if (!hasPixels) { minX = 0; minY = 0; maxX = natW; maxY = natH; }
+            } catch (e) {
+                minX = 0; minY = 0; maxX = natW; maxY = natH;
+            }
+
+            const cropW = maxX - minX + 1;
+            const cropH = maxY - minY + 1;
+
+            ctx.save();
+            
+            // 🌟 枠サイズに対してぴったり収まる倍率を計算
+            const maxBoxSize = 64; 
+            const scale = Math.min(maxBoxSize / cropW, maxBoxSize / cropH);
+            
+            if (scale >= 1) {
+                ctx.imageSmoothingEnabled = false;
+            } else {
+                ctx.imageSmoothingEnabled = true;
+                ctx.imageSmoothingQuality = 'high';
+            }
+
+            const scaledW = Math.round(cropW * scale);
+            const scaledH = Math.round(cropH * scale);
+
+            // キャンバスの中央に正確に配置
+            const destX = Math.round((canvas.width - scaledW) / 2);
+            const destY = Math.round((canvas.height - scaledH) / 2);
+
+            ctx.drawImage(offCanvas, minX, minY, cropW, cropH, destX, destY, scaledW, scaledH);
+            ctx.restore();
+            return;
+        }
+    }
+
+    // ロード中のフォールバック
+    ctx.fillStyle = "#64748b";
+    ctx.font = "bold 16px sans-serif";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText("👾", canvas.width / 2, canvas.height / 2);
+}
+
+// 🌟 露店ウィンドウが開いている間、プレビューを毎フレーム更新する関数（修正版）
+function updateVendingUIFrame() {
+    // ==========================================
+    // 📝 【モンスターの番号宣言・設定エリア】
+    // ==========================================
+    const DEFAULT_MY_MONSTER = "Monster5";       // 自分の露店のデフォルト番号
+    const DEFAULT_OTHER_MONSTER = "Monster5";    // 他プレイヤーのデフォルト番号
+
+    // 1. 自分の露店管理ウィンドウのプレビュー更新
+    const vendingWindow = document.getElementById('vending-window');
+    if (vendingWindow && vendingWindow.style.display !== 'none') {
+        if (typeof renderVendingMerchantPreview === 'function') {
+            // 🌟 優先順位: 選択中変数 ＞ グローバルID ＞ デフォルト値
+            const myMonsterId = (typeof selectedVendingMonsterType !== 'undefined' && selectedVendingMonsterType)
+                ? selectedVendingMonsterType
+                : ((typeof currentVendingMonsterId !== 'undefined' && currentVendingMonsterId)
+                    ? currentVendingMonsterId
+                    : DEFAULT_MY_MONSTER);
+                
+            renderVendingMerchantPreview(myMonsterId, "vending-merchant-preview-canvas"); 
+        }
+    }
+
+    // 2. 他プレイヤーの露店閲覧ウィンドウが開いている場合のプレビュー更新
+    const otherVendingWindow = document.getElementById('other-vending-window');
+    if (otherVendingWindow && otherVendingWindow.style.display !== 'none') {
+        if (typeof renderVendingMerchantPreview === 'function') {
+            const targetMonsterType = (typeof otherPlayerMonsterType !== 'undefined' && otherPlayerMonsterType) 
+                ? otherPlayerMonsterType 
+                : DEFAULT_OTHER_MONSTER;
+                
+            renderVendingMerchantPreview(targetMonsterType, "other-vending-merchant-preview-canvas");
+        }
+    }
 }
 
 // ============================================================
@@ -12370,87 +12880,9 @@ if (inventoryCanvas) {
                 }
             }
 
-            // 🌟 露店出品モードの処理
+            // 🌟 露店出品モード（共通関数を呼び出し！）
             if (item && isVendingOpen) {
-                let baseName = item.name || item.item_name || "アイテム";
-                if (typeof ITEM_CONFIG !== 'undefined' && ITEM_CONFIG[item.type]) {
-                    baseName = ITEM_CONFIG[item.type].display_name || ITEM_CONFIG[item.type].name;
-                }
-
-                const checkStr = `${item.category || ''} ${item.item_type || ''} ${item.type}`.toLowerCase();
-                const isEquip = checkStr.includes('shield') || checkStr.includes('sword');
-                
-                let rankName = "";
-                if (isEquip) {
-                    const bonus = (item.totalALLStats || 0) - (item.totalFirstStats || 0);
-                    if (bonus >= 30)      { rankName = "(神級)"; }
-                    else if (bonus >= 25) { rankName = "(超伝説)"; }
-                    else if (bonus >= 20) { rankName = "(極上)"; }
-                    else if (bonus >= 15) { rankName = "(伝説)"; }
-                    else if (bonus >= 10) { rankName = "(希少)"; }
-                    else if (bonus >= 5)  { rankName = "(良品)"; }
-                    else if (bonus >= 0)  { rankName = "(標準)"; }
-                    else                  { rankName = "(粗悪)"; }
-                }
-
-                const displayPromptName = `${baseName}${rankName}`;
-                const totalOwned = item.count || 1;
-
-                const modal = document.getElementById('vending-quantity-modal');
-                const qInput = document.getElementById('modal-quantity-input');
-                const pInput = document.getElementById('modal-price-input');
-                const confirmBtn = document.getElementById('modal-confirm-btn');
-                const cancelBtn = document.getElementById('modal-cancel-btn');
-
-                if (modal) {
-                    document.getElementById('modal-item-name').innerText = displayPromptName;
-                    document.getElementById('modal-max-quantity').innerText = totalOwned;
-                    
-                    qInput.value = isEquip ? 1 : totalOwned;
-                    qInput.disabled = isEquip;
-                    pInput.value = 1000;
-
-                    modal.style.display = 'block';
-
-                    confirmBtn.onclick = null;
-                    cancelBtn.onclick = null;
-
-                    cancelBtn.onclick = () => {
-                        modal.style.display = 'none';
-                    };
-
-                    confirmBtn.onclick = () => {
-                        const sellCount = parseInt(qInput.value);
-                        const price = parseInt(pInput.value);
-
-                        if (isNaN(sellCount) || sellCount <= 0 || sellCount > totalOwned) {
-                            alert("有効な数量を入力してください。");
-                            return;
-                        }
-                        if (isNaN(price) || price < 0) {
-                            alert("有効な価格を入力してください。");
-                            return;
-                        }
-
-                        const iconPath = item.imageName ? `${IMAGE_DOMAIN}item_assets/${item.imageName}.png` : `${IMAGE_DOMAIN}item_assets/${item.type}.png`;
-                        
-                        const itemToSend = { 
-                            ...item, 
-                            name: displayPromptName, 
-                            displayName: displayPromptName,
-                            iconUrl: iconPath,
-                            price: price,
-                            count: sellCount,
-                            originalIndex: clickedSlotIndex 
-                        };
-
-                        if (typeof addItemToVendingList === 'function') {
-                            addItemToVendingList(itemToSend);
-                            if (typeof playMouseClickSound === 'function') playMouseClickSound();
-                        }
-                        modal.style.display = 'none';
-                    };
-                }
+                openVendingQuantityModal(item, item.count || 1, clickedSlotIndex);
                 return;
             }
 
@@ -12654,10 +13086,8 @@ if (inventoryCanvas) {
             // インベントリの枠外をクリックした場合
             lastBagClickIndex = -1;
 
-            // 🌟 【修正】「バッグウィンドウの全体範囲内（隙間や背景）」をクリックしていたかどうかを判定
             let isInsideBagWindow = false;
             if (win && win.isOpen) {
-                // お使いのバッグウィンドウ全体の幅・高さに合わせて調整してください（例: 幅260, 高さ360など）
                 let totalBagWidth = 260; 
                 let totalBagHeight = 400; 
 
@@ -12666,7 +13096,6 @@ if (inventoryCanvas) {
                 }
             }
 
-            // バッグウィンドウの「完全な外側」をクリックしたときだけ捨てる処理を走らせる
             if (!isInsideBagWindow && typeof selectedSlotIndex !== 'undefined' && selectedSlotIndex !== -1) {
                 const item = hero && hero.inventory && hero.inventory[selectedSlotIndex];
                 if (item && typeof openDropForm === 'function') {
@@ -12675,9 +13104,6 @@ if (inventoryCanvas) {
                     inventoryCanvas.style.cursor = "grab";
                     return;
                 }
-            } else {
-                // ウィンドウ内の隙間をクリックした場合は、掴んでいたアイテムを離すだけで捨てない（あるいはそのままにする）場合の処理
-                // 必要であれば selectedSlotIndex = -1; などをここに置きます
             }
         }
     });
@@ -14923,11 +15349,14 @@ socket.on('refresh_friend_list', () => {
     console.log("🔄 フレンドのステータス変更を検知したため、リストを自動更新します。");
 });
 
+// ============================================================
+// 📌 フレンドウィンドウの描画処理
+// ============================================================
 function drawFriendWindow() {
     const win = gameWindows.friend;
     if (!win.isOpen) return;
-	
-	// 🌟 【ここを追加！】ウィンドウを描き始める前に、古いボタンの位置情報を一度リセットする
+    
+    // 🌟 ウィンドウを描き始める前に、古いボタンの位置情報を一度リセットする
     requestButtonHitboxes = [];
 
     // 🌟 画面外へのはみ出し防止クランプ
@@ -15008,7 +15437,62 @@ function drawFriendWindow() {
             ctx.fillText("フレンドが登録されていません。", contentStartX + 10, currentY + 20);
         }
     }
+	
+	// 🔍 カーソル形状の制御（ボタンの上にマウスがあれば指マークにする）
+    if (typeof canvas !== 'undefined' && canvas && typeof mouseX !== 'undefined' && typeof mouseY !== 'undefined') {
+        let isHoveringFriendButton = false;
+
+        if (typeof requestButtonHitboxes !== 'undefined' && Array.isArray(requestButtonHitboxes)) {
+            isHoveringFriendButton = requestButtonHitboxes.some(box => 
+                mouseX >= box.x && mouseX <= box.x + box.w &&
+                mouseY >= box.y && mouseY <= box.y + box.h
+            );
+        }
+
+        // フレンドウィンドウの範囲内かつボタン上にある場合のみポインターにする
+        const win = gameWindows.friend;
+        const isMouseInWindow = (mouseX >= win.x && mouseX <= win.x + win.w && mouseY >= win.y && mouseY <= win.y + win.h);
+
+        if (isHoveringFriendButton) {
+            canvas.style.cursor = 'pointer';
+        } else if (isMouseInWindow) {
+            canvas.style.cursor = 'default';
+        }
+    }
+	
+	console.log("🛠️ 現在登録されているヒットボックスの数:", typeof requestButtonHitboxes !== 'undefined' ? requestButtonHitboxes.length : "未定義");
 }
+
+// ============================================================
+// 👥 フレンドウィンドウ専用のクリックリスナー（独立）
+// ============================================================
+canvas.addEventListener('click', (event) => {
+    const win = gameWindows.friend;
+    if (!win || !win.isOpen) return; // ウィンドウが閉じていれば何もしない
+
+    const rect = canvas.getBoundingClientRect();
+    
+    // 🌟 スケールを掛けず、CSS表示サイズ上のそのままの座標（ボタンの描画位置と合わせる）
+    const clickX = event.clientX - rect.left;
+    const clickY = event.clientY - rect.top;
+    
+    console.log("🖱️ クリック座標(CSS基準):", clickX, clickY);
+    console.log("📦 現在のヒットボックス一覧:", requestButtonHitboxes);
+    
+    // ヒットテストと実行
+    if (typeof requestButtonHitboxes !== 'undefined' && Array.isArray(requestButtonHitboxes)) {
+        const clickedBox = requestButtonHitboxes.find(box => {
+            const isHit = (clickX >= box.x && clickX <= box.x + box.w && clickY >= box.y && clickY <= box.y + box.h);
+            console.log(`🔍 判定中: ボタン(x:${Math.round(box.x)}, y:${Math.round(box.y)}, w:${box.w}, h:${box.h}) → ヒット:${isHit}`);
+            return isHit;
+        });
+
+        if (clickedBox) {
+            console.log("🎯 【ヒット成功】詳細ボタンが押されました！");
+            clickedBox.onClick(); // プロフィールを開く処理を実行！
+        }
+    }
+});
 
 // 📌 セクションヘッダー（見出し）を描画するヘルパー関数
 function drawSectionHeader(title, count, x, y, width, bgColor, textColor) {
@@ -15027,7 +15511,9 @@ function drawSectionHeader(title, count, x, y, width, bgColor, textColor) {
     return y + 26; // 次のY座標を返す
 }
 
-// 📌 1人分のフレンド行を描画するヘルパー関数（チャンネル・レベル対応版）
+// ============================================================
+// 📌 1人分のフレンド行を描画するヘルパー関数（修正完了版）
+// ============================================================
 function drawFriendRow(friend, x, y, width, isOnline) {
     const rowHeight = 34;
 
@@ -15050,7 +15536,7 @@ function drawFriendRow(friend, x, y, width, isOnline) {
     // 2. チャンネル番号（オンラインの場合のみ表示）
     if (isOnline) {
         ctx.font = '10px Arial';
-        ctx.fillStyle = '#7dd3fc'; // 綺麗な水色
+        ctx.fillStyle = '#7dd3fc';
         ctx.textAlign = 'left';
         ctx.textBaseline = 'middle';
         const channelNum = friend.channel !== undefined ? friend.channel : 1;
@@ -15061,7 +15547,7 @@ function drawFriendRow(friend, x, y, width, isOnline) {
     const playerLevel = friend.level !== undefined ? friend.level : (friend.lv !== undefined ? friend.lv : null);
     if (playerLevel !== null && isOnline) {
         ctx.font = '10px Arial';
-        ctx.fillStyle = '#fde047'; // 明るいゴールド/黄色
+        ctx.fillStyle = '#fde047';
         ctx.textAlign = 'left';
         ctx.textBaseline = 'middle';
         ctx.fillText(`Lv.${playerLevel}`, x + 68, centerY);
@@ -15098,6 +15584,39 @@ function drawFriendRow(friend, x, y, width, isOnline) {
     ctx.textAlign = 'left';
     ctx.textBaseline = 'alphabetic';
     ctx.fillText('詳細', btnX + 11, btnY + 13);
+
+    // 🌟 【最重要】ここでヒットボックスを登録する！
+    if (typeof requestButtonHitboxes !== 'undefined') {
+        requestButtonHitboxes.push({
+            x: btnX,
+            y: btnY,
+            w: btnW,
+            h: btnH,
+            onClick: () => {
+                console.log(`🎯 ${friend.username} の詳細ボタンがクリックされました！`);
+
+                // ============================================================
+                // 🕵️‍♂️ フレンドデータ・ガチガチデバッグ行
+                // ============================================================
+                console.group("🐾 [DEBUG] フレンド詳細クリック・データ構造チェック");
+                console.log("1.渡された friend オブジェクト全体:", friend);
+                console.log("2.ID系チェック (id / dbId / userId):", friend.id, friend.dbId, friend.userId);
+                console.log("3.名前系チェック (username / name):", friend.username, friend.name);
+                console.log("4.アニマル・ペット関連:", friend.animal, friend.pet, friend.animal_id);
+                console.log("5.装備・アバター関連:", friend.equipment, friend.avatar, friend.model_id);
+                console.log("6.保持している全キー一覧:", Object.keys(friend));
+                console.groupEnd();
+                // ============================================================
+
+                // 作成した共通関数を呼び出す
+                if (typeof openPlayerProfile === 'function') {
+                    openPlayerProfile(friend);
+                } else {
+                    console.error("❌ エラー: openPlayerProfile 関数が見つかりません！");
+                }
+            }
+        });
+    }
 
     return y + rowHeight;
 }

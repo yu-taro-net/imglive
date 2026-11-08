@@ -1878,3 +1878,15 @@ body {
     transform: translateY(0);
     box-shadow: none;
 }
+
+/* 露店ホバー時に強制的に pointer にするクラス */
+canvas.is-pointer {
+    cursor: pointer !important;
+}
+
+.vending-item-slot.sold-out {
+    opacity: 0.4;
+    filter: grayscale(80%);
+    background-color: rgba(0, 0, 0, 0.1);
+    cursor: not-allowed;
+}

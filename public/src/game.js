@@ -33,6 +33,9 @@ const GLOBAL_SETTINGS = {
     }
 };
 
+// 🌟 露店データの復元中かどうかを表すフラグを定義する
+window.isRestoringVending = false;
+
 // 今開いているドメインが 'localhost' かどうかを判定
 const isLocal = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
 
@@ -1155,6 +1158,8 @@ class Player {
     this.exp = 0;
     this.channel = channel; // 🌟 追加：自分が今どのチャンネルにいるかを記憶
 
+	this.dbId = null;
+	
     // 状態管理
     this.name = name;
     this.chat = null;
@@ -2813,6 +2818,37 @@ function renderTooltip() {
 renderTooltip();
 
 // ============================================================
+// ファイルの最上部、あるいは関数定義の外側のスペース
+// ============================================================
+
+// 🌐 【グローバル設定】HTML上のUI要素上でもマウス座標を完全に追尾させる
+if (!window._globalTooltipMouseListenerInitialized) {
+    window._globalTooltipMouseListenerInitialized = true;
+    document.addEventListener('mousemove', (e) => {
+        if (window.hoveringSlot) {
+            const gameCanvas = document.getElementById('game-canvas') || document.querySelector('canvas');
+            let currentX, currentY;
+            
+            if (gameCanvas) {
+                const rect = gameCanvas.getBoundingClientRect();
+                currentX = e.clientX - rect.left;
+                currentY = e.clientY - rect.top;
+            } else {
+                currentX = e.clientX;
+                currentY = e.clientY;
+            }
+
+            window.mouseX = currentX;
+            window.mouseY = currentY;
+            if (typeof mouseX !== 'undefined') mouseX = currentX;
+            if (typeof mouseY !== 'undefined') mouseY = currentY;
+        }
+    });
+}
+
+// ... 以降に各種関数 (openOtherPlayerVending や gameLoop など) が続く形 ...
+
+// ============================================================
 // :::AUTO_LOGIN_INIT::: 🔄 トークンによる自動ログイン試行
 // ============================================================
 /**
@@ -3341,6 +3377,7 @@ socket.on('player_moved_channel', (data) => {
 /**
  * 役割：
  * - 既に現在のチャンネルと同じ場合は処理を中断（ガード節）
+ * - 移動先のチャンネルに切り替える前に、古い露店リストをクリアする
  * - サーバーへ移動リクエストを送信
  * - チャンネルボタンのUIを即座に更新
  * - heroのチャンネル情報を最新化
@@ -3354,8 +3391,14 @@ function changeChannel(number) {
 
     console.log(`チャンネル ${number} へ移動中...`);
 	
-	if (typeof playChannelSound === 'function') {
+    if (typeof playChannelSound === 'function') {
         playChannelSound();
+    }
+
+    // 🌟 1.5. 【超重要】チャンネルを切り替える前に、画面上の露店リスト（activeOfflineShops）を一度完全クリアする！
+    if (typeof activeOfflineShops !== 'undefined') {
+        activeOfflineShops.length = 0; // 配列を空にして前チャンネルの露店残骸を一掃
+        console.log("🧹 チャンネル移動のため、画面上の露店リスト（activeOfflineShops）をクリアしました。");
     }
 
     // 🌟 2. サーバーに移動リクエストを送る
@@ -4999,6 +5042,71 @@ if (typeof socket !== 'undefined') {
     });
 }
 
+// 🌟 露店購入時の専用アラート（所持金不足など）を受け取るリスナー
+socket.on('vending_alert', (data) => {
+    if (data.type === 'NOT_ENOUGH_GOLD') {
+        showGameAlert("💰 所持金不足", data.text);
+    } else {
+        showGameAlert("⚠️ お知らせ", data.text);
+    }
+});
+
+// 🌟 メイプル風カスタムアラートを表示するヘルパー関数
+function showGameAlert(title, message) {
+    // 既存のアラートがあれば削除
+    const existingAlert = document.getElementById('game-custom-alert');
+    if (existingAlert) existingAlert.remove();
+
+    const alertBox = document.createElement('div');
+    alertBox.id = 'game-custom-alert';
+    alertBox.style.cssText = `
+        position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+        width: 280px; background: #eceff1; border: 2px solid #334155; border-radius: 6px;
+        box-shadow: 0 20px 40px rgba(0,0,0,0.6); z-index: 20000;
+        font-family: 'Segoe UI', Tahoma, sans-serif; overflow: hidden;
+    `;
+
+    alertBox.innerHTML = `
+        <div style="background: linear-gradient(180deg, #384e77 0%, #1a2942 100%); padding: 6px 12px; color: #ffffff; font-weight: bold; font-size: 11px; display: flex; justify-content: space-between; align-items: center;">
+            <span>${title}</span>
+            <button onclick="document.getElementById('game-custom-alert').remove()" style="background: #dc2626; color: white; border: none; width: 16px; height: 16px; border-radius: 3px; cursor: pointer; font-size: 10px; font-weight: bold; display: flex; align-items: center; justify-content: center;">✕</button>
+        </div>
+        <div style="padding: 16px; background: #f8fafc; text-align: center; font-size: 12px; color: #1e293b; font-weight: 600;">
+            ${message}
+        </div>
+        <div style="padding: 8px; background: #dfe4ea; text-align: center; border-top: 1px solid #94a3b8;">
+            <button onclick="document.getElementById('game-custom-alert').remove()" style="background: linear-gradient(180deg, #fbbf24 0%, #d97706 100%); color: white; border: 1px solid #b45309; padding: 4px 16px; border-radius: 4px; font-size: 11px; font-weight: bold; cursor: pointer; box-shadow: 0 2px 4px rgba(0,0,0,0.2);">OK</button>
+        </div>
+    `;
+
+    document.body.appendChild(alertBox);
+}
+
+// ============================================================
+// :::VENDING_REVENUE_LISTENER::: 💰 露店売上金のリアルタイム受取通知リスナー
+// ============================================================
+if (typeof socket !== 'undefined' && socket) {
+    if (!window._vendingRevenueSocketInitialized) {
+        window._vendingRevenueSocketInitialized = true;
+
+        socket.on('vending_revenue_updated', (data) => {
+            console.log("💰 [Vending] 売上金が更新されました:", data);
+
+            const goldSpan = document.getElementById('vending-unclaimed-gold');
+            if (goldSpan) {
+                // サーバーから送られてきた最新の未受取売上金をそのまま反映する
+                const unclaimed = Number(data.unclaimedGold || 0);
+                goldSpan.innerText = unclaimed.toLocaleString();
+            }
+
+            // オプション：商品が売れたことをシステムメッセージ等で軽く知らせる場合
+            if (typeof showFloatingText === 'function' && data.earnedGold) {
+                // 必要に応じて画面上に「売上 +〇〇メル！」などの演出を入れることもできます
+            }
+        });
+    }
+}
+
 // ============================================================
 // 🎨 [SECTION 7: INITIALIZER] 起動・エントリーポイント
 // 役割: ゲーム開始ボタンの処理、初期化、メインループの開始
@@ -5065,6 +5173,12 @@ function update() {
 
     // 3. 物理移動と接地判定
     let isTouchingAnything = hero.applyPhysics(platforms);
+	
+	// 6. エラー防止用の最終接地保証
+    if (typeof isTouchingAnything !== 'undefined' && isTouchingAnything) {
+        hero.jumping = false;
+        hero.dy = 0;
+    }
 
     // 🌟 【修正】立ち止まっているときのHP自動回復（サーバーへ回復リクエストを送る方式）
     if (isTouchingAnything && hero.hp < hero.maxHp && !hero.isStunned) {
@@ -5126,41 +5240,13 @@ function update() {
     if (typeof drawGame === 'function') {
         drawGame(hero, others, enemies, items, platforms, ladders, damageTexts, frame);
     }
-
-    if (typeof drawNotifications === 'function' && typeof ctx !== 'undefined') {
-        drawNotifications(ctx);
-    }
 	
-	// 🌟 【追加】ここで無人露店の看板を描画する！
-    if (typeof renderOfflineVendingSigns === 'function' && typeof ctx !== 'undefined') {
-        renderOfflineVendingSigns(ctx, frame);
-    }
-
-    // 🌟 【ツールチップ描画】バッグと装備の両方に対応
-    if (typeof tCtx !== 'undefined') {
-        // バッグ用(hoveringSlot) または 装備用(hoveredEquipItem) のどちらかを取得
-        const activeItem = (typeof hoveringSlot !== 'undefined' && hoveringSlot) || 
-                           (typeof hoveredEquipItem !== 'undefined' && hoveredEquipItem);
-		
-		// 🌟 デバッグ用：何が判定されているかコンソールに出してみる
-        if (typeof hoveredEquipItem !== 'undefined') {
-			// 停止 2026-9-5
-            //console.log("hoveredEquipItem:", hoveredEquipItem);
-        }
-
-        if (activeItem && typeof drawItemTooltip === 'function') {
-            const mX = (typeof mouseX !== 'undefined') ? mouseX : window.mouseX;
-            const mY = (typeof mouseY !== 'undefined') ? mouseY : window.mouseY;
-            
-            drawItemTooltip(tCtx, activeItem, mX, mY, hero);
-        }
-    }
-    // --- [描画処理：ここまで] ---
-
-    // 6. エラー防止用の最終接地保証
-    if (typeof isTouchingAnything !== 'undefined' && isTouchingAnything) {
-        hero.jumping = false;
-        hero.dy = 0;
+	// 🌟 ここに露店管理ウィンドウのプレビュー更新処理を追加！
+    updateVendingUIFrame();
+	
+	// 🪙 【追加】ショップ閲覧ウィンドウが開いている間、所持金表示を常に最新に同期・更新する
+    if (typeof updateUserMoneyDisplay === 'function') {
+        updateUserMoneyDisplay();
     }
 
     requestAnimationFrame(update); // 次のフレームへ
@@ -5204,33 +5290,70 @@ if (typeof socket !== 'undefined') {
 }
 */
 
+// 🌟 現在選択中の店番モンスター（初期値はデフォルトのモンスター）
+let selectedVendingMonsterType = "Monster1";
+
 // ============================================================
-// :::RENDER_OFFLINE_VENDING_SIGNS::: ⛺ 無人露店の小屋（名前位置微調整・文字色白版）
+// :::RENDER_OFFLINE_VENDING_SIGNS::: ⛺ 無人露店の小屋（ウィンドウ連動切替版）
 // ============================================================
 function renderOfflineVendingSigns(ctx, frame) {
     if (!activeOfflineShops || activeOfflineShops.length === 0) return;
 
+    const DEFAULT_VENDING_MONSTER = "Monster5"; 
+    const VENDING_PADDING_W = 65; 
+
+    if (typeof window._vendingSizeCache === 'undefined') {
+        window._vendingSizeCache = {};
+    }
+
+    // コイン画像用キャッシュの初期化
+    if (typeof window._moneyIconImg === 'undefined') {
+        window._moneyIconImg = new Image();
+        window._moneyIconImg.src = "/item_assets/money-1.png";
+    }
+
+    const myCurrentChannel = (typeof hero !== 'undefined' && hero.channel !== undefined) ? Number(hero.channel) : 1;
+
     activeOfflineShops.forEach(shop => {
-	
-        // 🌟 【最重要ガード】有人露店（player）のデータが混ざってきたら絶対にここで処理を中断する
-        const mode = shop.mode || shop.vending_mode || "";
-        if (mode === 'player') {
+        let shopTargetChannel = Number(shop.channel ?? shop.channelId ?? shop.ch ?? 1);
+
+        // 🌟 チャンネルガード
+        if (myCurrentChannel !== shopTargetChannel) {
+            shop.rect = null; 
+            shop.vending_rect = null;
             return; 
         }
 
-        if (typeof hero !== 'undefined' && shop.ownerId === hero.id && hero.vending_mode === 'player') {
-            return;
-        }
+        const isMyStore = (typeof hero !== 'undefined' && (shop.owner_id === hero.dbId || shop.dbId === hero.dbId));
 
-        const VENDING_MONSTER_TYPE = shop.monsterType || "Monster8"; 
+        // 🌟 【自動判定】自分がこの店舗のオーナーであり、かつ現在vending-windowを開いているかどうか
+        // ※ゲーム内のウィンドウ管理変数やDOMの存在に合わせて柔軟に判定できるようにしています
+        // 🌟 確実に「明示的にtrueに設定されている時」だけ開いている判定にする
+		const isOpenWindowFlag = (window.isVendingWindowOpen === true);
+        const isEditingMyStore = isMyStore && isOpenWindowFlag;
+
+        // オーダー中（ウィンドウが開いている時）は「真実として赤丸をメイン」にする
+        // 🌟 修正後：他人の店であってもサーバーから isEditing が来ていれば赤丸にする！
+		const isShopBeingEdited = shop.isEditing || (isMyStore && window.isVendingWindowOpen === true);
+		const SHOW_RED_MARK = isShopBeingEdited;
+
+        let rawMonsterType = shop.monsterType || DEFAULT_VENDING_MONSTER;
+        let strType = String(rawMonsterType).trim();
+        if (/^\d+$/.test(strType)) {
+            strType = "Monster" + strType;
+        }
+        const VENDING_MONSTER_TYPE = strType; 
 
         const shopX = Math.round(shop.x || 0);
         const shopY = Math.round(shop.y || 0);
 
         ctx.save();
 
-        const monsterConf = (typeof MONSTER_CONFIGS !== 'undefined') 
-            ? MONSTER_CONFIGS.find(conf => String(conf.id) === String(VENDING_MONSTER_TYPE) || conf.name === VENDING_MONSTER_TYPE) 
+        const monsterConf = (typeof MONSTER_CONFIGS !== 'undefined' && Array.isArray(MONSTER_CONFIGS)) 
+            ? MONSTER_CONFIGS.find(conf => 
+                String(conf.id) === VENDING_MONSTER_TYPE || 
+                String(conf.id) === String(rawMonsterType)
+              ) 
             : null;
 
         const vendorEnemy = {
@@ -5238,22 +5361,32 @@ function renderOfflineVendingSigns(ctx, frame) {
             type: VENDING_MONSTER_TYPE,
             name: VENDING_MONSTER_TYPE,
             scale: monsterConf ? (monsterConf.scale || 1.0) : 1.0,
-            x: shopX - 25,
+            x: shopX,
             y: shopY,
-            w: monsterConf ? (monsterConf.w || 50) : 183,
-            h: monsterConf ? (monsterConf.h || 50) : 133,
+            w: monsterConf ? (monsterConf.w || 50) : 50,
+            h: monsterConf ? (monsterConf.h || 50) : 50,
             kbV: 0,
             isFading: false,
             waitTimer: 999
         };
 
         const checkKey = VENDING_MONSTER_TYPE + "Idle";
-        if (!sprites[checkKey] || sprites[checkKey].length === 0) {
-            ensureEnemySpritesLoaded(VENDING_MONSTER_TYPE, VENDING_MONSTER_TYPE);
+        if (typeof sprites !== 'undefined' && (!sprites[checkKey] || sprites[checkKey].length === 0)) {
+            if (typeof ensureEnemySpritesLoaded === 'function') {
+                ensureEnemySpritesLoaded(VENDING_MONSTER_TYPE, VENDING_MONSTER_TYPE);
+            }
         }
 
         const currentFrame = (typeof frame !== 'undefined') ? frame : (window.gameFrame || 0);
         let { img, drawW, drawH, footY } = getEnemyVisualData(vendorEnemy, sprites, currentFrame, null);
+
+        const isImageReady = (img && img.complete && img.naturalWidth !== 0);
+        if (!isImageReady) {
+            shop.rect = null;
+            shop.vending_rect = null;
+            ctx.restore();
+            return; 
+        }
 
         let baseY;
         if (shopY > VIEW_CONFIG.groundThreshold) {
@@ -5271,148 +5404,661 @@ function renderOfflineVendingSigns(ctx, frame) {
             baseY = targetPlatformY;
         }
 
-        const boxWidth = 145;   
-        const boxHeight = 28;  
+        let cacheKeyName = VENDING_MONSTER_TYPE;
+        if (!window._vendingSizeCache[cacheKeyName]) {
+            let effectiveWidth = (drawW > 0) ? drawW : (monsterConf ? monsterConf.w : 40);
+            let effectiveHeight = (img && footY) ? footY : (monsterConf ? monsterConf.h : 50);
+
+            try {
+                const natW = img.naturalWidth;
+                const natH = img.naturalHeight;
+                const offCanvas = document.createElement('canvas');
+                offCanvas.width = natW;
+                offCanvas.height = natH;
+                const offCtx = offCanvas.getContext('2d');
+                offCtx.imageSmoothingEnabled = false;
+                offCtx.drawImage(img, 0, 0, natW, natH);
+
+                const imgData = offCtx.getImageData(0, 0, natW, natH);
+                const data = imgData.data;
+                let minX = natW, maxX = 0;
+                let minY = natH, maxY = 0;
+                let hasPixels = false;
+
+                for (let y = 0; y < natH; y++) {
+                    for (let x = 0; x < natW; x++) {
+                        const alpha = data[(y * natW + x) * 4 + 3];
+                        if (alpha > 15) {
+                            if (x < minX) minX = x;
+                            if (x > maxX) maxX = x;
+                            if (y < minY) minY = y;
+                            if (y > maxY) maxY = y;
+                            hasPixels = true;
+                        }
+                    }
+                }
+                if (hasPixels) {
+                    const cropW = maxX - minX + 1;
+                    const cropH = maxY - minY + 1;
+                    effectiveWidth = Math.round(cropW * (drawW / natW));
+                    effectiveHeight = Math.round(cropH * (drawH / natH));
+                }
+            } catch (e) {}
+
+            if (drawW > 0) {
+                window._vendingSizeCache[cacheKeyName] = { w: effectiveWidth, h: effectiveHeight };
+            }
+        }
+
+        const cachedSize = window._vendingSizeCache[cacheKeyName] || { 
+            w: (drawW > 0 ? drawW : 40), 
+            h: (monsterConf ? monsterConf.h : 50) 
+        };
+
+        const effectiveWidth = cachedSize.w;
+        const effectiveHeight = cachedSize.h;
+
+        const kioskWidth = Math.min(245, Math.max(175, Math.round(effectiveWidth + VENDING_PADDING_W))); 
+        const halfKiosk = Math.round(kioskWidth / 2);
         
-        const monsterRealHeight = (img && footY) ? footY : 60;
+        const boardWidth = kioskWidth + 12; 
+        const boardHeight = 50; 
+        const barHeight = 30;   
         
-        const kioskInsideHeight = monsterRealHeight + boxHeight + 8;
-        const kioskWidth = Math.max(145, drawW + 24);   
-        const roofHeight = 32;     
+        const kioskInsideHeight = effectiveHeight + boardHeight + barHeight + 12;
+        const roofHeight = 34;   
         
-        const leftX = shopX - kioskWidth / 2;
-        const rightX = shopX + kioskWidth / 2;
+        const leftX = shopX - halfKiosk;
+        const rightX = shopX + halfKiosk;
         const bottomY = baseY;
         
         const roofBaseY = bottomY - kioskInsideHeight; 
         const roofApexY = roofBaseY - roofHeight;      
 
-        const boxX = shopX - (boxWidth / 2);
-        const boxY = roofBaseY + 4; 
+        const boardX = shopX - Math.round(boardWidth / 2);
+        const boardY = roofBaseY + 6; 
+        const barY = boardY + boardHeight;
 
-        // 1️⃣ 足元の敷物
-        ctx.fillStyle = "#653a1f";
-        ctx.strokeStyle = "#381d0c";
-        ctx.lineWidth = 2;
-        ctx.fillRect(leftX - 8, bottomY - 5, kioskWidth + 16, 6);
-        ctx.strokeRect(leftX - 8, bottomY - 5, kioskWidth + 16, 6);
+        // ==========================================
+        // 1️⃣ 足元のウッドステージ（横ストライプ仕様）
+        // ==========================================
+        const stageInset = 12; 
+        const stageLeftX = leftX + stageInset;
+        const stageRightX = rightX - stageInset;
 
-        ctx.strokeStyle = "#4a2810";
-        ctx.lineWidth = 1;
+        ctx.fillStyle = "rgba(0, 0, 0, 0.4)";
         ctx.beginPath();
-        ctx.moveTo(leftX, bottomY - 2); ctx.lineTo(rightX, bottomY - 2);
-        ctx.stroke();
-
-        ctx.fillStyle = "rgba(0, 0, 0, 0.35)";
-        ctx.beginPath();
-        ctx.ellipse(shopX, bottomY - 1, Math.max(24, drawW / 2.3), 5, 0, 0, Math.PI * 2);
+        ctx.ellipse(shopX, bottomY - 1, Math.max(22, (effectiveWidth / 2) - 2), 5, 0, 0, Math.PI * 2);
         ctx.fill();
 
-        // 2️⃣ 支柱
-        const drawPillar = (px, py, pw, ph) => {
-            ctx.fillStyle = "#78451b";
+        const stageTopY = bottomY - 10;
+        const stageH = 10;
+        const stageW = (stageRightX + 6) - (stageLeftX - 6);
+
+        ctx.save();
+        ctx.beginPath();
+        ctx.moveTo(stageLeftX - 6, bottomY);
+        ctx.lineTo(stageRightX + 6, bottomY);
+        ctx.lineTo(stageRightX + 3, stageTopY);
+        ctx.lineTo(stageLeftX - 3, stageTopY);
+        ctx.closePath();
+        ctx.clip();
+
+        const stageGrad = ctx.createLinearGradient(stageLeftX - 6, stageTopY, stageLeftX - 6, bottomY);
+        stageGrad.addColorStop(0, "#7ab2d6");
+        stageGrad.addColorStop(0.5, "#5087b0");
+        stageGrad.addColorStop(1, "#284660");
+        ctx.fillStyle = stageGrad;
+        ctx.fillRect(stageLeftX - 10, stageTopY - 2, stageW + 20, stageH + 4);
+
+        ctx.fillStyle = "rgba(255, 255, 255, 0.18)";
+        for (let sy = stageTopY + 3; sy < bottomY; sy += 3) {
+            ctx.fillRect(stageLeftX - 10, sy, stageW + 20, 1);
+        }
+        ctx.fillStyle = "rgba(0, 0, 0, 0.15)";
+        for (let sy = stageTopY + 4; sy < bottomY; sy += 3) {
+            ctx.fillRect(stageLeftX - 10, sy, stageW + 20, 1);
+        }
+        ctx.restore();
+
+        ctx.strokeStyle = "#1b3142";
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(stageLeftX - 6, bottomY);
+        ctx.lineTo(stageRightX + 6, bottomY);
+        ctx.lineTo(stageRightX + 3, stageTopY);
+        ctx.lineTo(stageLeftX - 3, stageTopY);
+        ctx.closePath();
+        ctx.stroke();
+
+        // ==========================================
+        // 2️⃣ 木目ヘルパー関数
+        // ==========================================
+        const drawTexturedWood = (x, y, w, h, baseColor1, baseColor2) => {
+            const grad = ctx.createLinearGradient(x, y, x + w, y);
+            grad.addColorStop(0, baseColor1);
+            grad.addColorStop(0.5, baseColor2);
+            grad.addColorStop(1, baseColor1);
+            ctx.fillStyle = grad;
+            ctx.fillRect(x, y, w, h);
+
+            ctx.fillStyle = "rgba(255, 255, 255, 0.18)";
+            for (let px = x + 3; px < x + w; px += 5) {
+                ctx.fillRect(px, y, 1, h);
+            }
+            ctx.fillStyle = "rgba(0, 0, 0, 0.15)";
+            for (let px = x + 5; px < x + w; px += 5) {
+                ctx.fillRect(px, y, 1, h);
+            }
+        };
+
+        // ==========================================
+        // 3️⃣ 左右の柱（縦ストライプ仕様）
+        // ==========================================
+        const pillarWidth = 10;
+        const pillarHeight = kioskInsideHeight - 10;
+        const pillarInnerOffset = 18; 
+        
+        const leftPillarX = leftX + pillarInnerOffset;
+        const rightPillarX = rightX - pillarWidth - pillarInnerOffset;
+
+        const drawPillarWithVerticalStripes = (px, py, pw, ph) => {
+            ctx.save();
+            ctx.beginPath();
+            ctx.rect(px, py, pw, ph);
+            ctx.clip();
+
+            const pGrad = ctx.createLinearGradient(px, py, px + pw, py);
+            pGrad.addColorStop(0, "#365c7d");
+            pGrad.addColorStop(0.5, "#72a2c9");
+            pGrad.addColorStop(1, "#365c7d");
+            ctx.fillStyle = pGrad;
             ctx.fillRect(px, py, pw, ph);
-            ctx.fillStyle = "#381d0c";
-            ctx.fillRect(px, py, 2, ph);
-            ctx.fillStyle = "#a26738";
-            ctx.fillRect(px + pw - 2, py, 2, ph);
-            ctx.strokeStyle = "#271206";
+
+            ctx.fillStyle = "rgba(255, 255, 255, 0.18)";
+            for (let x = px + 3; x < px + pw; x += 4) {
+                ctx.fillRect(x, py, 1, ph);
+            }
+            ctx.fillStyle = "rgba(0, 0, 0, 0.15)";
+            for (let x = px + 5; x < px + pw; x += 4) {
+                ctx.fillRect(x, py, 1, ph);
+            }
+            ctx.restore();
+
+            ctx.strokeStyle = "#152433";
             ctx.lineWidth = 1.5;
             ctx.strokeRect(px, py, pw, ph);
         };
 
-        drawPillar(leftX + 2, roofBaseY, 10, kioskInsideHeight - 5);
-        drawPillar(rightX - 12, roofBaseY, 10, kioskInsideHeight - 5);
+        drawPillarWithVerticalStripes(leftPillarX, roofBaseY, pillarWidth, pillarHeight);
+        drawPillarWithVerticalStripes(rightPillarX, roofBaseY, pillarWidth, pillarHeight);
 
-        // 3️⃣ 店番モンスター
-        if (img && img.complete && img.naturalWidth !== 0) {
-            ctx.save();
-            ctx.translate(shopX, baseY);
-            ctx.drawImage(img, -drawW / 2, -footY, drawW, drawH);
-            ctx.restore();
+        // ==========================================
+        // 4️⃣ 屋根下・看板上の余白壁（斜めストライプ）
+        // ==========================================
+        const wallX = leftX + 4;
+        const wallY = roofBaseY;
+        const wallW = kioskWidth - 8;
+        const wallH = boardY - roofBaseY;
+
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(wallX, wallY, wallW, wallH);
+        ctx.clip();
+
+        const wallGrad = ctx.createLinearGradient(wallX, wallY, wallX + wallW, wallY);
+        wallGrad.addColorStop(0, "#365c7d");
+        wallGrad.addColorStop(0.5, "#72a2c9");
+        wallGrad.addColorStop(1, "#365c7d");
+        ctx.fillStyle = wallGrad;
+        ctx.fillRect(wallX, wallY, wallW, wallH);
+
+        ctx.lineWidth = 1.5;
+        for (let offset = -wallH; offset < wallW + wallH; offset += 6) {
+            ctx.strokeStyle = "rgba(255, 255, 255, 0.2)";
+            ctx.beginPath();
+            ctx.moveTo(wallX + offset, wallY);
+            ctx.lineTo(wallX + offset - wallH, wallY + wallH);
+            ctx.stroke();
+
+            ctx.strokeStyle = "rgba(0, 0, 0, 0.18)";
+            ctx.beginPath();
+            ctx.moveTo(wallX + offset + 2, wallY);
+            ctx.lineTo(wallX + offset + 2 - wallH, wallY + wallH);
+            ctx.stroke();
+        }
+        ctx.restore();
+
+        ctx.strokeStyle = "#152433";
+        ctx.lineWidth = 1.5;
+        ctx.strokeRect(wallX, wallY, wallW, wallH);
+
+        // ==========================================
+        // 5️⃣ 店番キャラクター / モンスター
+        // ==========================================
+        ctx.save();
+        ctx.translate(shopX, baseY);
+
+        const shopUniqueId = Number(shop.id || shop.owner_id || 0);
+        const switchInterval = 300; 
+        const timeSeed = Math.floor((currentFrame + shopUniqueId * 73) / switchInterval);
+        const isFacingLeft = (timeSeed % 2 === 0);
+
+        if (isFacingLeft) {
+            ctx.scale(-1, 1);
         }
 
-        // 4️⃣ 屋根
-        const roofGrad = ctx.createLinearGradient(0, roofApexY, 0, roofBaseY);
-        roofGrad.addColorStop(0, "#d97706");
-        roofGrad.addColorStop(0.5, "#b45309");
-        roofGrad.addColorStop(1, "#78350f");
+        ctx.drawImage(img, Math.round(-drawW / 2), Math.round(-footY), drawW, drawH);
+        ctx.restore();
 
-        ctx.fillStyle = roofGrad;
-        ctx.strokeStyle = "#381d0c";
-        ctx.lineWidth = 3;
-        ctx.lineJoin = "round";
+        // ==========================================
+        // 6️⃣ 屋根（への字・斜めストライプ）＆隙間埋めガセット壁
+        // ==========================================
+        const rLeft = leftX - 18;
+        const rRight = rightX + 18;
+        const rThick = 12; 
 
+        ctx.save();
         ctx.beginPath();
-        ctx.moveTo(shopX, roofApexY - 6);
-        ctx.lineTo(rightX + 12, roofBaseY + 4);
-        ctx.lineTo(leftX - 12, roofBaseY + 4);
+        ctx.moveTo(shopX, roofApexY + rThick);
+        ctx.lineTo(rRight, roofBaseY);
+        ctx.lineTo(rLeft, roofBaseY);
         ctx.closePath();
-        ctx.fill();
+        ctx.clip();
+
+        const infillGrad = ctx.createLinearGradient(leftX, roofBaseY - roofHeight, leftX, roofBaseY);
+        infillGrad.addColorStop(0, "#72a2c9");
+        infillGrad.addColorStop(1, "#365c7d");
+        ctx.fillStyle = infillGrad;
+        ctx.fillRect(leftX - 20, roofBaseY - roofHeight, kioskWidth + 40, roofHeight + 5);
+
+        ctx.lineWidth = 1.5;
+        for (let offset = -roofHeight; offset < kioskWidth + roofHeight; offset += 6) {
+            ctx.strokeStyle = "rgba(255, 255, 255, 0.2)";
+            ctx.beginPath();
+            ctx.moveTo(leftX + offset, roofBaseY - roofHeight);
+            ctx.lineTo(leftX + offset - roofHeight, roofBaseY);
+            ctx.stroke();
+
+            ctx.strokeStyle = "rgba(0, 0, 0, 0.18)";
+            ctx.beginPath();
+            ctx.moveTo(leftX + offset + 2, roofBaseY - roofHeight);
+            ctx.lineTo(leftX + offset + 2 - roofHeight, roofBaseY);
+            ctx.stroke();
+        }
+        ctx.restore();
+
+        ctx.save();
+        ctx.beginPath();
+        ctx.moveTo(shopX, roofApexY);
+        ctx.lineTo(rRight, roofBaseY);
+        ctx.lineTo(rRight - 2, roofBaseY + rThick);
+        ctx.lineTo(shopX, roofApexY + rThick);
+        ctx.lineTo(rLeft + 2, roofBaseY + rThick);
+        ctx.lineTo(rLeft, roofBaseY);
+        ctx.closePath();
+        ctx.clip();
+
+        const roofGrad = ctx.createLinearGradient(0, roofApexY, 0, roofBaseY + rThick);
+        roofGrad.addColorStop(0, "#bde0fe");
+        roofGrad.addColorStop(0.5, "#7ab2d6");
+        roofGrad.addColorStop(1, "#32536e");
+        ctx.fillStyle = roofGrad;
+        ctx.fillRect(rLeft - 10, roofApexY - 5, (rRight - rLeft) + 20, roofHeight + rThick + 10);
+
+        ctx.lineWidth = 1.5;
+        for (let offset = -50; offset < (rRight - rLeft) + 100; offset += 6) {
+            ctx.strokeStyle = "rgba(255, 255, 255, 0.22)";
+            ctx.beginPath();
+            ctx.moveTo(rLeft + offset, roofApexY - 10);
+            ctx.lineTo(rLeft + offset - 40, roofBaseY + roofHeight + 10);
+            ctx.stroke();
+
+            ctx.strokeStyle = "rgba(0, 0, 0, 0.18)";
+            ctx.beginPath();
+            ctx.moveTo(rLeft + offset + 2, roofApexY - 10);
+            ctx.lineTo(rLeft + offset + 2 - 40, roofBaseY + roofHeight + 10);
+            ctx.stroke();
+        }
+        ctx.restore();
+
+        ctx.strokeStyle = "#152433";
+        ctx.lineWidth = 2;
+        ctx.lineJoin = "round";
+        ctx.beginPath();
+        ctx.moveTo(shopX, roofApexY);
+        ctx.lineTo(rRight, roofBaseY);
+        ctx.lineTo(rRight - 2, roofBaseY + rThick);
+        ctx.lineTo(shopX, roofApexY + rThick);
+        ctx.lineTo(rLeft + 2, roofBaseY + rThick);
+        ctx.lineTo(rLeft, roofBaseY);
+        ctx.closePath();
         ctx.stroke();
 
-        ctx.strokeStyle = "#d97706";
+        // ==========================================
+        // 7️⃣ 看板エリア（窪み・溝表現 ＆ 微調整された上下左右均等配置）
+        // ==========================================
+        ctx.fillStyle = "rgba(0, 0, 0, 0.3)";
+        ctx.fillRect(boardX + 1, boardY + 2, boardWidth, boardHeight);
+
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(boardX, boardY, boardWidth, boardHeight);
+        ctx.clip();
+        const bFrameGrad = ctx.createLinearGradient(boardX, boardY, boardX + boardWidth, boardY);
+        bFrameGrad.addColorStop(0, "#365c7d");
+        bFrameGrad.addColorStop(0.5, "#72a2c9");
+        bFrameGrad.addColorStop(1, "#365c7d");
+        ctx.fillStyle = bFrameGrad;
+        ctx.fillRect(boardX, boardY, boardWidth, boardHeight);
+        ctx.lineWidth = 1.5;
+        for (let offset = -boardHeight; offset < boardWidth + boardHeight; offset += 6) {
+            ctx.strokeStyle = "rgba(255, 255, 255, 0.2)";
+            ctx.beginPath();
+            ctx.moveTo(boardX + offset, boardY);
+            ctx.lineTo(boardX + offset - boardHeight, boardY + boardHeight);
+            ctx.stroke();
+            ctx.strokeStyle = "rgba(0, 0, 0, 0.18)";
+            ctx.beginPath();
+            ctx.moveTo(boardX + offset + 2, boardY);
+            ctx.lineTo(boardX + offset + 2 - boardHeight, boardY + boardHeight);
+            ctx.stroke();
+        }
+        ctx.restore();
+
+        ctx.strokeStyle = "#152433";
+        ctx.lineWidth = 2;
+        ctx.strokeRect(boardX, boardY, boardWidth, boardHeight);
+
+        const innerBoardX = boardX + 6; 
+        const innerBoardY = boardY + 4;
+        const innerBoardW = boardWidth - 12;
+        const innerBoardH = boardHeight - 8;
+
+        // 看板の凹み（溝）
+        ctx.fillStyle = "#0f172a";
+        ctx.fillRect(innerBoardX - 2, innerBoardY - 2, innerBoardW + 4, innerBoardH + 4);
+
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(innerBoardX - 1, innerBoardY - 1, innerBoardW + 2, innerBoardH + 2);
+        ctx.clip();
+
+        const boardBgGrad = ctx.createLinearGradient(innerBoardX, innerBoardY, innerBoardX + innerBoardW, innerBoardY);
+        boardBgGrad.addColorStop(0, "#cbd5e1");
+        boardBgGrad.addColorStop(0.5, "#f1f5f9");
+        boardBgGrad.addColorStop(1, "#cbd5e1");
+        ctx.fillStyle = boardBgGrad;
+        ctx.fillRect(innerBoardX - 1, innerBoardY - 1, innerBoardW + 2, innerBoardH + 2);
+
+        ctx.lineWidth = 1;
+        for (let offset = -innerBoardH; offset < innerBoardW + innerBoardH; offset += 6) {
+            ctx.strokeStyle = "rgba(148, 163, 184, 0.35)";
+            ctx.beginPath();
+            ctx.moveTo(innerBoardX - 1 + offset, innerBoardY - 1);
+            ctx.lineTo(innerBoardX - 1 + offset - innerBoardH, innerBoardY - 1 + innerBoardH + 2);
+            ctx.stroke();
+        }
+        ctx.restore();
+
+        ctx.strokeStyle = "rgba(15, 23, 42, 0.4)";
         ctx.lineWidth = 1.5;
         ctx.beginPath();
-        ctx.moveTo(shopX, roofApexY - 2);
-        ctx.lineTo(rightX + 8, roofBaseY + 1);
-        ctx.moveTo(shopX, roofApexY - 2);
-        ctx.lineTo(leftX - 8, roofBaseY + 1);
+        ctx.moveTo(innerBoardX, innerBoardY + innerBoardH);
+        ctx.lineTo(innerBoardX, innerBoardY);
+        ctx.lineTo(innerBoardX + innerBoardW, innerBoardY);
         ctx.stroke();
 
-        // 5️⃣ 看板
-        const signBgGrad = ctx.createLinearGradient(0, boxY, 0, boxY + boxHeight);
-        signBgGrad.addColorStop(0, "#fef3c7");
-        signBgGrad.addColorStop(1, "#e7bc91");
+        ctx.strokeStyle = "rgba(255, 255, 255, 0.8)";
+        ctx.beginPath();
+        ctx.moveTo(innerBoardX, innerBoardY + innerBoardH);
+        ctx.lineTo(innerBoardX + innerBoardW, innerBoardY + innerBoardH);
+        ctx.lineTo(innerBoardX + innerBoardW, innerBoardY);
+        ctx.stroke();
 
-        ctx.fillStyle = signBgGrad;
-        ctx.strokeStyle = "#522e13";
-        ctx.lineWidth = 2.5;
-        
-        if (ctx.roundRect) {
-            ctx.beginPath();
-            ctx.roundRect(boxX, boxY, boxWidth, boxHeight, 4);
-            ctx.fill();
-            ctx.stroke();
+        // --- 看板のテキスト描画 ---
+        ctx.textAlign = "left";
+        ctx.textBaseline = "alphabetic";
+        ctx.font = "bold 12px 'Segoe UI', Tahoma, sans-serif";
+
+        let rawTitle = shop.title || "書など";
+        let lines = [];
+        if (rawTitle.includes('\n')) {
+            lines = rawTitle.split('\n').slice(0, 2);
         } else {
-            ctx.fillRect(boxX, boxY, boxWidth, boxHeight);
-            ctx.strokeRect(boxX, boxY, boxWidth, boxHeight);
+            let maxLen = 13;
+            if (rawTitle.length > maxLen) {
+                lines.push(rawTitle.substring(0, maxLen));
+                lines.push(rawTitle.substring(maxLen, maxLen * 2));
+            } else {
+                lines.push(rawTitle);
+            }
         }
 
-        ctx.strokeStyle = "#c29b6f";
+        let textLeftMargin = innerBoardX + 10; 
+        let y1 = innerBoardY + 18;             
+        let y2 = innerBoardY + 33;             
+
+        // 1行目
+        ctx.fillStyle = "rgba(255, 255, 255, 0.7)";
+        ctx.fillText(lines[0], textLeftMargin, y1 + 1);
+        ctx.fillStyle = "#0f172a";
+        ctx.fillText(lines[0], textLeftMargin, y1);
+
+        // 2行目がある場合
+        if (lines.length > 1) {
+            ctx.fillStyle = "rgba(255, 255, 255, 0.7)";
+            ctx.fillText(lines[1], textLeftMargin, y2 + 1);
+            ctx.fillStyle = "#0f172a";
+            ctx.fillText(lines[1], textLeftMargin, y2);
+        }
+
+        ctx.fillStyle = "#2563eb";
+        ctx.beginPath();
+        ctx.moveTo(innerBoardX + innerBoardW - 8, innerBoardY + innerBoardH - 2);
+        ctx.lineTo(innerBoardX + innerBoardW - 2, innerBoardY + innerBoardH - 2);
+        ctx.lineTo(innerBoardX + innerBoardW - 2, innerBoardY + innerBoardH - 8);
+        ctx.closePath();
+        ctx.fill();
+
+        // ==========================================
+        // 8️⃣ 下部バー
+        // ==========================================
+        ctx.save();
+        ctx.beginPath();
+        ctx.rect(boardX, barY, boardWidth, barHeight);
+        ctx.clip();
+
+        const barBgGrad = ctx.createLinearGradient(boardX, barY, boardX + boardWidth, barY);
+        barBgGrad.addColorStop(0, "#365c7d");
+        barBgGrad.addColorStop(0.5, "#72a2c9");
+        barBgGrad.addColorStop(1, "#365c7d");
+        ctx.fillStyle = barBgGrad;
+        ctx.fillRect(boardX, barY, boardWidth, barHeight);
+
+        ctx.lineWidth = 1.5;
+        for (let offset = -barHeight; offset < boardWidth + barHeight; offset += 6) {
+            ctx.strokeStyle = "rgba(255, 255, 255, 0.2)";
+            ctx.beginPath();
+            ctx.moveTo(boardX + offset, barY);
+            ctx.lineTo(boardX + offset - barHeight, barY + barHeight);
+            ctx.stroke();
+
+            ctx.strokeStyle = "rgba(0, 0, 0, 0.18)";
+            ctx.beginPath();
+            ctx.moveTo(boardX + offset + 2, barY);
+            ctx.lineTo(boardX + offset + 2 - barHeight, barY + barHeight);
+            ctx.stroke();
+        }
+        ctx.restore();
+
+        ctx.strokeStyle = "#456f94";
+        ctx.lineWidth = 2;
+        ctx.strokeRect(boardX, barY, boardWidth, barHeight);
+
+        const drawFixPlate = (fx, fy) => {
+            ctx.fillStyle = "#284660";
+            ctx.strokeStyle = "#152433";
+            ctx.lineWidth = 1;
+            ctx.fillRect(fx - 4, fy, 8, barHeight);
+            ctx.strokeRect(fx - 4, fy, 8, barHeight);
+            
+            ctx.fillStyle = "#0f172a";
+            ctx.beginPath();
+            ctx.arc(fx, fy + 8, 1.5, 0, Math.PI * 2);
+            ctx.arc(fx, fy + barHeight - 8, 1.5, 0, Math.PI * 2);
+            ctx.fill();
+        };
+        drawFixPlate(boardX + 4, barY);
+        drawFixPlate(boardX + boardWidth - 4, barY);
+
+        // --- 🌟 コインアイコン（money-1.png ＋ グローホワイト発光エフェクト） ---
+        const coinX = boardX + 32;
+        const iconCenterY = barY + (barHeight / 2); 
+        const iconSize = 16; 
+
+        ctx.save();
+        ctx.shadowColor = "#ffffff";
+        ctx.shadowBlur = 8;
+        ctx.shadowOffsetX = 0;
+        ctx.shadowOffsetY = 0;
+
+        if (window._moneyIconImg && window._moneyIconImg.complete && window._moneyIconImg.naturalWidth !== 0) {
+            ctx.drawImage(
+                window._moneyIconImg, 
+                Math.round(coinX - iconSize / 2), 
+                Math.round(iconCenterY - iconSize / 2), 
+                iconSize, 
+                iconSize
+            );
+        } else {
+            ctx.beginPath();
+            ctx.arc(coinX, iconCenterY, 7, 0, Math.PI * 2);
+            ctx.fillStyle = "#facc15";
+            ctx.fill();
+            ctx.strokeStyle = "#854d0e";
+            ctx.lineWidth = 1.2;
+            ctx.stroke();
+        }
+        ctx.restore();
+
+        // --- 🌟 鍵アイコン（フックを含めた全体の重心が中央に合うよう下に微調整） ---
+        const lockX = boardX + 64; 
+        const lockW = 12;
+        const lockH = 10;
+        const lockBodyTop = Math.round(iconCenterY - (lockH / 2) + 2); 
+
+        ctx.fillStyle = "rgba(0, 0, 0, 0.2)";
+        ctx.fillRect(lockX - (lockW / 2), lockBodyTop + 2, lockW, lockH);
+
+        const lockBodyGrad = ctx.createLinearGradient(lockX - (lockW / 2), lockBodyTop, lockX + (lockW / 2), lockBodyTop + lockH);
+        lockBodyGrad.addColorStop(0, "#ffffff");
+        lockBodyGrad.addColorStop(0.5, "#f1f5f9");
+        lockBodyGrad.addColorStop(1, "#cbd5e1");
+        ctx.fillStyle = lockBodyGrad;
+        ctx.strokeStyle = "#64748b";
+        ctx.lineWidth = 1.2;
+        ctx.fillRect(lockX - (lockW / 2), lockBodyTop, lockW, lockH);
+        ctx.strokeRect(lockX - (lockW / 2), lockBodyTop, lockW, lockH);
+
+        ctx.fillStyle = "#94a3b8";
+        ctx.beginPath();
+        ctx.arc(lockX, lockBodyTop + 4.5, 1.5, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillRect(lockX - 0.75, lockBodyTop + 4.5, 1.5, 3);
+
+        ctx.strokeStyle = "#cbd5e1";
+        ctx.lineWidth = 2.2;
+        ctx.beginPath();
+        ctx.arc(lockX, lockBodyTop, 4, Math.PI, Math.PI * 2);
+        ctx.stroke();
+        ctx.strokeStyle = "#94a3b8";
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.arc(lockX, lockBodyTop, 4, Math.PI * 1.2, Math.PI * 1.8);
+        ctx.stroke();
+
+        // ==========================================
+        // 🌟 右側の操作パネル（ウィンドウ連動型：青丸 ⇔ 赤禁止マーク）
+        // ==========================================
+        const panelW = 60;
+        const panelH = barHeight - 8;
+        const panelX = boardX + boardWidth - panelW - 12;
+        const panelY = barY + 4;
+
+        ctx.fillStyle = "#ffffff";
+        ctx.strokeStyle = "#cbd5e1";
         ctx.lineWidth = 1;
         if (ctx.roundRect) {
             ctx.beginPath();
-            ctx.roundRect(boxX + 3, boxY + 3, boxWidth - 6, boxHeight - 6, 2);
+            ctx.roundRect(panelX, panelY, panelW, panelH, 3);
+            ctx.fill();
             ctx.stroke();
+        } else {
+            ctx.fillRect(panelX, panelY, panelW, panelH);
+            ctx.strokeRect(panelX, panelY, panelW, panelH);
         }
 
-        ctx.fillStyle = "#381d0c";
-        ctx.fillRect(boxX + 5, boxY + 5, 2, 2);
-        ctx.fillRect(boxX + boxWidth - 7, boxY + 5, 2, 2);
-        ctx.fillRect(boxX + 5, boxY + boxHeight - 7, 2, 2);
-        ctx.fillRect(boxX + boxWidth - 7, boxY + boxHeight - 7, 2, 2);
+        const leftCircleX = panelX + 18;
+        const rightCircleX = panelX + 42;
+        const circleCenterY = panelY + (panelH / 2); 
 
-        ctx.textAlign = "center";
-        ctx.textBaseline = "middle";
-        ctx.font = "bold 11px 'Segoe UI', sans-serif";
+        if (SHOW_RED_MARK) {
+            // --- 🔴 ウィンドウが開いている時（赤丸がメイン・赤禁止マーク） ---
+            ctx.save();
+            ctx.globalAlpha = 0.2; // 左の青丸はうっすら待機
+            ctx.beginPath();
+            ctx.arc(leftCircleX, circleCenterY, 5, 0, Math.PI * 2);
+            ctx.strokeStyle = "#0284c7"; 
+            ctx.lineWidth = 1.5;
+            ctx.stroke();
+            ctx.restore();
 
-        let displayName = shop.title || "いらっしゃいませ！";
-        if (displayName.length > 13) {
-            displayName = displayName.substring(0, 12) + "…";
+            // 右の赤丸をくっきり表示し、斜線を引いて「禁止マーク」にする
+            ctx.beginPath();
+            ctx.arc(rightCircleX, circleCenterY, 5, 0, Math.PI * 2);
+            ctx.strokeStyle = "#dc2626"; 
+            ctx.lineWidth = 1.8;
+            ctx.stroke();
+
+            ctx.beginPath();
+            ctx.moveTo(rightCircleX - 3.5, circleCenterY - 3.5);
+            ctx.lineTo(rightCircleX + 3.5, circleCenterY + 3.5);
+            ctx.strokeStyle = "#dc2626";
+            ctx.lineWidth = 1.5;
+            ctx.stroke();
+
+        } else {
+            // --- 🔵 ウィンドウが閉じている時（通常営業：青丸がメイン） ---
+            // 左の青丸をくっきり表示
+            ctx.beginPath();
+            ctx.arc(leftCircleX, circleCenterY, 5, 0, Math.PI * 2);
+            ctx.strokeStyle = "#0284c7"; 
+            ctx.lineWidth = 1.8;
+            ctx.stroke();
+
+            ctx.save();
+            ctx.globalAlpha = 0.2; // 右の赤丸はうっすら待機
+            ctx.beginPath();
+            ctx.arc(rightCircleX, circleCenterY, 5, 0, Math.PI * 2);
+            ctx.strokeStyle = "#dc2626"; 
+            ctx.lineWidth = 1.5;
+            ctx.stroke();
+
+            ctx.beginPath();
+            ctx.moveTo(rightCircleX - 3.5, circleCenterY - 3.5);
+            ctx.lineTo(rightCircleX + 3.5, circleCenterY + 3.5);
+            ctx.strokeStyle = "#dc2626";
+            ctx.lineWidth = 1.2;
+            ctx.stroke();
+            ctx.restore();
         }
 
-        ctx.fillStyle = "rgba(255, 255, 255, 0.8)";
-        ctx.fillText(displayName, shopX + 1, boxY + (boxHeight / 2) + 2);
-
-        ctx.fillStyle = "#271206";
-        ctx.fillText(displayName, shopX, boxY + (boxHeight / 2) + 1);
-
-        // ------------------------------------------------------------
-        // 6️⃣ 露店小屋の足元ネームプレート（位置をほんの少し下げ、文字色を白に）
-        // ------------------------------------------------------------
+        // ==========================================
+        // 9️⃣ ネームプレート
+        // ==========================================
         const ownerName = shop.name || shop.owner_name || shop.username || shop.ownerName || "プレイヤー";
-        const merchantText = `${ownerName}の雇用商人`;
+        const merchantText = isMyStore ? `🏠 ${ownerName}の雇用商人` : `${ownerName}の雇用商人`;
         
         const fontSize = (typeof VIEW_CONFIG !== 'undefined' && VIEW_CONFIG.playerName) ? VIEW_CONFIG.playerName.fontSize : "12px";
         ctx.font = `bold ${fontSize} Arial`;
@@ -5422,113 +6068,523 @@ function renderOfflineVendingSigns(ctx, frame) {
         const totalW = textWidth + paddingW;
         
         const bgW = totalW;
-        const bgH = 22; 
-        const bgX = shopX - (bgW / 2);
-        const bgY = bottomY + 5; // 👈 元の +3 から +5 に少し下げました
+        const bgH = 20; 
+        const bgX = shopX - Math.round(bgW / 2);
+        const bgY = bottomY + 3; 
         const radius = 4; 
 
-        ctx.fillStyle = "rgba(0, 0, 0, 0.5)";
+        ctx.fillStyle = "rgba(0, 0, 0, 0.6)";
         ctx.beginPath();
-        ctx.moveTo(bgX + radius, bgY);
-        ctx.lineTo(bgX + bgW - radius, bgY);
-        ctx.quadraticCurveTo(bgX + bgW, bgY, bgX + bgW, bgY + radius);
-        ctx.lineTo(bgX + bgW, bgY + bgH - radius);
-        ctx.quadraticCurveTo(bgX + bgW, bgY + bgH, bgX + bgW - radius, bgY + bgH);
-        ctx.lineTo(bgX + radius, bgY + bgH);
-        ctx.quadraticCurveTo(bgX, bgY + bgH, bgX, bgY + bgH - radius);
-        ctx.lineTo(bgX, bgY + radius);
-        ctx.quadraticCurveTo(bgX, bgY, bgX + radius, bgY);
-        ctx.closePath();
+        ctx.roundRect(bgX, bgY, bgW, bgH, radius);
         ctx.fill();
         
         ctx.textBaseline = "middle";
         const centerY = bgY + (bgH / 2);
 
-        ctx.fillStyle = "#ffffff"; // 👈 文字色を真っ白に変更
+        ctx.fillStyle = "#ffffff"; 
         ctx.textAlign = "center";
         ctx.fillText(merchantText, shopX, centerY - 1);
         
         ctx.textBaseline = "alphabetic";
+
+        // ==========================================
+        // 🌟 クリック・ホバー判定用矩形の登録
+        // ==========================================
+        shop.rect = {
+            x: leftX - 18,
+            y: roofApexY - 10,
+            w: kioskWidth + 36,
+            h: bottomY - (roofApexY - 10)
+        };
+        shop.vending_rect = shop.rect;
 
         ctx.restore();
     });
 }
 
 // ============================================================
-// 🛒 不在時売上の確認ダイアログ表示処理（クライアント側）
+// :::OPEN_MONSTER_SELECTOR_FOR_VENDING::: 👾 雇用商人変更用のモンスター選択画面（即時反映・修正版）
+// ============================================================
+function openMonsterSelectorForVending() {
+    // 既存の選択モーダルがあれば二重生成しないように削除
+    const existingModal = document.getElementById('vending-monster-select-modal');
+    if (existingModal) existingModal.remove();
+
+    // モーダル要素の作成
+    const modal = document.createElement('div');
+    modal.id = 'vending-monster-select-modal';
+    modal.style.cssText = `
+        position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+        width: 340px; max-height: 420px; background: #eceff1; border: 2px solid #334155;
+        border-radius: 6px; box-shadow: 0 10px 25px rgba(0,0,0,0.5); z-index: 10001;
+        display: flex; flex-direction: column; overflow: hidden; font-family: 'Segoe UI', sans-serif;
+    `;
+
+    // ヘッダー
+    const header = document.createElement('div');
+    header.style.cssText = `
+        background: linear-gradient(180deg, #384e77 0%, #1a2942 100%);
+        padding: 6px 10px; display: flex; justify-content: space-between; align-items: center; color: white; font-weight: bold; font-size: 11px;
+    `;
+    header.innerHTML = `<span>👾 店番モンスターを選択</span><button onclick="document.getElementById('vending-monster-select-modal').remove()" style="background: #dc2626; color: white; border: none; width: 16px; height: 16px; border-radius: 3px; cursor: pointer; font-size: 9px;">✕</button>`;
+    modal.appendChild(header);
+
+    // モンスター一覧のリストコンテナ
+    const listContainer = document.createElement('div');
+    listContainer.style.cssText = `
+        padding: 8px; overflow-y: auto; max-height: 360px; display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; background: #dfe4ea;
+    `;
+
+    // 現在選択されているモンスターIDを特定（変数がない場合は hero からフォールバック取得）
+    const activeMonsterId = (typeof currentVendingMonsterId !== 'undefined' ? currentVendingMonsterId : 
+                            (typeof selectedVendingMonsterType !== 'undefined' ? selectedVendingMonsterType : 
+                            (typeof hero !== 'undefined' ? hero.monsterType : null)));
+
+    // MONSTER_CONFIGS から選択肢を動的生成
+    if (typeof MONSTER_CONFIGS !== 'undefined' && Array.isArray(MONSTER_CONFIGS)) {
+        MONSTER_CONFIGS.forEach(conf => {
+            const itemBox = document.createElement('div');
+            
+            // 🌟 選択中かどうかの判定
+            const isSelected = (String(conf.id) === String(activeMonsterId));
+
+            itemBox.style.cssText = `
+                background: ${isSelected ? '#fde68a' : '#ffffff'}; 
+                border: ${isSelected ? '2px solid #d97706' : '1px solid #94a3b8'}; 
+                border-radius: 4px; padding: 6px;
+                display: flex; flex-direction: column; align-items: center; cursor: pointer; gap: 4px; transition: background 0.1s;
+            `;
+
+            // ホバー時の挙動（選択中なら黄色味をキープ、未選択なら薄い黄色に）
+            itemBox.onmouseover = () => itemBox.style.background = isSelected ? '#fcd34d' : '#fef3c7';
+            itemBox.onmouseout = () => itemBox.style.background = isSelected ? '#fde68a' : '#ffffff';
+
+            // ポップアップのリスト項目をクリックしたときの処理
+            itemBox.onclick = () => {
+                console.group("🕵️‍♂️ [DEBUG: モンスター選択クリック解析]");
+                console.log("1. 選択されたモンスターID (conf.id):", conf.id);
+                console.log("2. hero の状態:", typeof hero !== 'undefined' ? hero : "未定義");
+                console.log("3. hero.is_vending:", typeof hero !== 'undefined' ? hero.is_vending : "N/A");
+                console.log("4. active_venders の状態:", typeof active_venders !== 'undefined' ? active_venders : "未定義");
+                console.log("5. activeOfflineShops の状態:", typeof activeOfflineShops !== 'undefined' ? activeOfflineShops : "未定義");
+
+                // 1. 変数に保存
+                selectedVendingMonsterType = conf.id;
+                currentVendingMonsterId = conf.id; 
+                
+                // 🌟 2. 【即時反映】主人公のデータも一緒に更新
+                if (typeof hero !== 'undefined') {
+                    hero.monsterType = conf.id;
+                    console.log("✅ hero.monsterType を更新しました:", hero.monsterType);
+                } else {
+                    console.warn("⚠️ hero が未定義のため更新スキップ");
+                }
+
+                // 🌟 3. 【即時反映】もし active_venders があれば内部データも更新
+                if (typeof active_venders !== 'undefined') {
+                    let updatedCount = 0;
+                    for (const key in active_venders) {
+                        const v = active_venders[key];
+                        if (typeof hero !== 'undefined' && (String(v.dbId) === String(hero.dbId) || key === socket.id)) {
+                            v.monsterType = conf.id;
+                            updatedCount++;
+                            console.log(`✨ active_venders[${key}] の monsterType を直接書き換えました:`, v.monsterType);
+                        }
+                    }
+                    console.log(`🔍 active_venders で更新された店舗数: ${updatedCount}件`);
+                }
+
+                // 🌟 3.5. 【追加の安全網】activeOfflineShops 側のデータもここで同期更新
+                if (typeof activeOfflineShops !== 'undefined' && Array.isArray(activeOfflineShops) && typeof hero !== 'undefined') {
+                    activeOfflineShops.forEach((shop, index) => {
+                        const isMine = (
+                            String(shop.owner_id) === String(hero.dbId) || 
+                            String(shop.id) === String(hero.dbId) || 
+                            String(shop.socket_id) === (typeof socket !== 'undefined' ? socket.id : null) ||
+                            shop.name === hero.name
+                        );
+                        if (isMine) {
+                            shop.monsterType = conf.id;
+                            console.log(`✨ activeOfflineShops[${index}] の monsterType も同期更新しました:`, shop.monsterType);
+                        }
+                    });
+                }
+
+                // 🌟 4. 【サーバー通知】露店を開いている状態であれば、必ずサーバーへ変更を通知する！
+                const resolvedDbId = (typeof hero !== 'undefined' && hero.dbId) || 
+                                     (typeof p !== 'undefined' && p.dbId) || 
+                                     (window.myDbId);
+
+                if (typeof socket !== 'undefined' && resolvedDbId) {
+                    console.log("📡 サーバーへ 'update_vending_monster' を送信します:", { monsterType: conf.id, dbId: resolvedDbId });
+                    socket.emit('update_vending_monster', { 
+                        monsterType: conf.id,
+                        dbId: resolvedDbId 
+                    });
+                } else {
+                    console.warn("⚠️ [VENDING] データベースID(dbId)が見つからないため、サーバーへの更新通知ができませんでした！ hero:", typeof hero !== 'undefined' ? hero : "未定義");
+                }
+
+                // 5. モーダル内のメインプレビューを即座にそのモンスターの姿に切り替える
+                if (typeof renderVendingMerchantPreview === 'function') {
+                    renderVendingMerchantPreview(conf.id, "vending-merchant-preview-canvas");
+                    console.log("🎨 プレビューを再描画しました");
+                }
+                
+                console.groupEnd();
+
+                // 6. 選択画面のポップアップを閉じる
+                modal.remove();
+            };
+
+            // モンスター名表示
+            const nameLabel = document.createElement('span');
+            nameLabel.style.cssText = `font-size: 9px; font-weight: ${isSelected ? 'bold' : 'normal'}; color: ${isSelected ? '#92400e' : '#334155'}; text-align: center; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; width: 100%; pointer-events: none;`;
+            nameLabel.textContent = conf.id;
+
+            itemBox.appendChild(nameLabel);
+            listContainer.appendChild(itemBox);
+        });
+    }
+
+    modal.appendChild(listContainer);
+    document.body.appendChild(modal);
+}
+
+// 🌟 プレビュー画面を新しいモンスターで描き直す関数
+function updateVendingPreview(monsterType) {
+    selectedVendingMonsterType = monsterType;
+    
+    const previewCanvas = document.getElementById('vending-merchant-preview-canvas');
+    if (!previewCanvas) return;
+    const pCtx = previewCanvas.getContext('2d');
+    
+    // キャンバスをクリア
+    pCtx.clearRect(0, 0, previewCanvas.width, previewCanvas.height);
+
+    // 選択されたモンスターの設定を検索
+    const conf = MONSTER_CONFIGS.find(c => String(c.id) === String(monsterType));
+    if (!conf) return;
+
+    // ダミーの敵オブジェクトを作って、既存の描画システムを流用する
+    const previewEnemy = {
+        id: monsterType,
+        type: monsterType,
+        name: monsterType,
+        scale: conf.scale || 1.0,
+        w: conf.w || 50,
+        h: conf.h || 50
+    };
+
+    // プレビュー用にスプライトを取得して中央に描画
+    const currentFrame = window.gameFrame || 0;
+    const { img, drawW, drawH, footY } = getEnemyVisualData(previewEnemy, sprites, currentFrame, null);
+
+    if (img && img.complete && img.naturalWidth !== 0) {
+        pCtx.save();
+        // 40x40 のプレビューの中心に合わせる
+        pCtx.translate(20, 30); 
+        pCtx.drawImage(img, Math.round(-drawW / 2), Math.round(-footY), drawW, drawH);
+        pCtx.restore();
+    }
+}
+
+// ============================================================
+// 🛒 不在時売上の確認ダイアログ表示処理（売却時刻表示対応版）
 // ============================================================
 socket.on('show_offline_sales_dialog', (data) => {
     // 既にあれば重複して作らないようにする
     if (document.getElementById('offlineSalesModal')) return;
 
-    // モーダルの背景（半透明の黒幕）
     const modalBg = document.createElement('div');
     modalBg.id = 'offlineSalesModal';
     modalBg.style.cssText = `
         position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-        background: rgba(0, 0, 0, 0.6); display: flex; justify-content: center;
-        align-items: center; z-index: 99999; font-family: sans-serif;
+        pointer-events: none; z-index: 99999; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
     `;
 
-    // モーダル本体（ウィンドウ）
     const modalBox = document.createElement('div');
     modalBox.style.cssText = `
-        background: #2c3e50; color: #ecf0f1; padding: 25px; border-radius: 10px;
-        width: 400px; max-width: 90%; box-shadow: 0 4px 15px rgba(0,0,0,0.5);
-        text-align: center; border: 2px solid #f1c40f;
+        position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%);
+        background: #eceff1; color: #1e293b; border: 2px solid #334155; border-radius: 6px;
+        width: 440px; max-width: 90%; box-shadow: 0 20px 50px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.6);
+        overflow: hidden; z-index: 100000; pointer-events: auto;
     `;
 
-    // タイトル
-    const title = document.createElement('h3');
-    title.innerText = "🛒 お帰りなさい！";
-    title.style.cssText = "margin-top: 0; color: #f1c40f; font-size: 22px;";
-    modalBox.appendChild(title);
+    // 👑 ヘッダー
+    const header = document.createElement('div');
+    header.style.cssText = `
+        display: flex; justify-content: space-between; align-items: center;
+        background: linear-gradient(180deg, #384e77 0%, #1a2942 100%);
+        padding: 6px 12px; cursor: move; border-bottom: 1px solid #111827;
+        box-shadow: inset 0 1px 0 rgba(255,255,255,0.2); color: #ffffff;
+    `;
+    header.innerHTML = `
+        <div style="display: flex; align-items: center; gap: 6px;">
+            <span style="font-size: 13px;">🛒</span>
+            <span style="font-weight: 700; text-shadow: 1px 1px 2px rgba(0,0,0,0.8); font-size: 12px; letter-spacing: 0.3px;">お帰りなさい！</span>
+        </div>
+    `;
+    modalBox.appendChild(header);
+
+    // 🌟 メインコンテンツ部分
+    const content = document.createElement('div');
+    content.style.cssText = "padding: 12px; background: #dfe4ea; display: flex; flex-direction: column; gap: 10px;";
 
     const subtitle = document.createElement('p');
     subtitle.innerText = "不在の間に、以下の商品が売れました：";
-    subtitle.style.cssText = "font-size: 14px; color: #bdc3c7; margin-bottom: 15px;";
-    modalBox.appendChild(subtitle);
+    subtitle.style.cssText = "font-size: 11px; color: #475569; font-weight: bold; margin: 0;";
+    content.appendChild(subtitle);
 
-    // 売上リストを表示するエリア
     const listContainer = document.createElement('div');
     listContainer.style.cssText = `
-        background: #34495e; padding: 10px; border-radius: 6px; max-height: 150px;
-        overflow-y: auto; text-align: left; font-size: 13px; margin-bottom: 15px;
+        background: #ffffff; padding: 6px; border: 1px solid #94a3b8; border-radius: 4px;
+        max-height: 180px; overflow-y: auto; text-align: left; font-size: 11px; color: #1e293b;
+        box-shadow: inset 0 2px 4px rgba(0,0,0,0.05); display: flex; flex-direction: column; gap: 6px;
     `;
 
     data.sales.forEach(s => {
         const itemRow = document.createElement('div');
-        itemRow.style.cssText = "margin-bottom: 8px; border-bottom: 1px solid #4e6d8c; padding-bottom: 5px;";
-        itemRow.innerHTML = `👤 <b>${s.buyerName}</b> が <br>📦 <b>${s.itemName} x${s.quantity}</b> を <💰 <b>${s.totalPrice.toLocaleString()}メル</b> で購入`;
+        itemRow.style.cssText = `
+            display: flex; align-items: center; gap: 8px;
+            border-bottom: 1px solid #e2e8f0; padding-bottom: 5px; cursor: default;
+        `;
+
+        // 🖼️ アイテムのアイコン（サムネイル）コンテナ
+        const iconWrapper = document.createElement('div');
+        iconWrapper.style.cssText = `
+            width: 32px; height: 32px; background: #2d3748; border: 1px solid #718096;
+            border-radius: 4px; display: flex; align-items: center; justify-content: center;
+            flex-shrink: 0; position: relative; overflow: hidden;
+        `;
+
+        const possibleKeys = [
+            s.image_name,
+            s.image,
+            s.display_name,
+            s.itemName,
+            s.item_type,
+            s.item_id
+        ];
+
+        let imgObj = null;
+        let resolvedKey = null;
+
+        if (typeof itemImages !== 'undefined') {
+            for (const key of possibleKeys) {
+                if (!key) continue;
+                const found = itemImages[key];
+                if (found) {
+                    imgObj = found;
+                    resolvedKey = key;
+                    break;
+                }
+            }
+        }
+
+        if (imgObj && imgObj.complete && imgObj.naturalWidth > 0) {
+            const img = document.createElement("img");
+            img.src = imgObj.src;
+            img.style.cssText = `
+                width: 28px; height: 28px; object-fit: contain;
+                image-rendering: -webkit-optimize-contrast;
+                image-rendering: crisp-edges;
+                image-rendering: pixelated;
+            `;
+            iconWrapper.appendChild(img);
+        } else {
+            const span = document.createElement("span");
+            span.style.cssText = "font-size: 9px; color: #cbd5e1;";
+            span.textContent = "📦";
+            iconWrapper.appendChild(span);
+        }
+
+        itemRow.appendChild(iconWrapper);
+
+        // 📝 テキスト情報（🕒 売却時刻のフォーマット処理を追加）
+        let formattedTime = "";
+        if (s.created_at) {
+            try {
+                const dateObj = new Date(s.created_at);
+                if (!isNaN(dateObj.getTime())) {
+                    const month = String(dateObj.getMonth() + 1).padStart(2, '0');
+                    const day = String(dateObj.getDate()).padStart(2, '0');
+                    const hours = String(dateObj.getHours()).padStart(2, '0');
+                    const minutes = String(dateObj.getMinutes()).padStart(2, '0');
+                    formattedTime = `<span style="color: #64748b; font-size: 10px; float: right;">🕒 ${month}/${day} ${hours}:${minutes}</span>`;
+                }
+            } catch (e) {
+                // 日付パース失敗時はそのままフォールバック
+            }
+        }
+
+        const textInfo = document.createElement('div');
+        textInfo.style.cssText = "flex-grow: 1; line-height: 1.3;";
+        textInfo.innerHTML = `
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <span>👤 <b>${s.buyerName}</b></span>
+                ${formattedTime}
+            </div>
+            📦 <b>${s.itemName} x${s.quantity}</b> を <span style="color: #b45309; font-weight: bold;">${s.totalPrice.toLocaleString()}メル</span> で購入
+        `;
+        itemRow.appendChild(textInfo);
+
+        // 🖱️ ホバー時にツールチップ（詳細ポップアップ）を表示する処理
+        itemRow.onmouseenter = (e) => {
+            if (typeof activeHoverEquipment !== 'undefined') {
+                activeHoverEquipment = {
+                    ...s,
+                    image: resolvedKey || s.itemName,
+                    name: s.itemName,
+                    count: s.quantity || 1
+                };
+            }
+        };
+
+        itemRow.onmouseleave = () => {
+            if (typeof activeHoverEquipment !== 'undefined') {
+                activeHoverEquipment = null;
+            }
+        };
+
         listContainer.appendChild(itemRow);
     });
-    modalBox.appendChild(listContainer);
 
-    // 合計金額の表示
+    content.appendChild(listContainer);
+
     const totalDiv = document.createElement('div');
-    totalDiv.style.cssText = "font-size: 15px; font-weight: bold; margin-bottom: 20px; color: #2ecc71;";
-    totalDiv.innerText = `総売上: +${data.totalEarnings.toLocaleString()} メル`;
-    modalBox.appendChild(totalDiv);
+    totalDiv.style.cssText = "font-size: 12px; font-weight: bold; color: #047857; background: #f0fdf4; border: 1px solid #bbf7d0; padding: 6px; border-radius: 4px; text-align: center;";
+    totalDiv.innerText = `💰 総売上: +${data.totalEarnings.toLocaleString()} メル`;
+    content.appendChild(totalDiv);
 
-    // 確認ボタン（これを押すまで閉じない）
     const okBtn = document.createElement('button');
     okBtn.innerText = "確認する";
     okBtn.style.cssText = `
-        background: #f1c40f; color: #2c3e50; border: none; padding: 10px 25px;
-        font-size: 16px; font-weight: bold; border-radius: 5px; cursor: pointer;
-        transition: background 0.2s;
+        width: 100%; padding: 7px; font-size: 12px; font-weight: bold; cursor: pointer;
+        background: linear-gradient(180deg, #fbbf24 0%, #f59e0b 50%, #d97706 100%);
+        color: #ffffff; border: 1px solid #b45309; border-radius: 4px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.2), inset 0 1px 0 rgba(255,255,255,0.4);
+        text-shadow: 0 1px 1px rgba(0,0,0,0.3); transition: all 0.15s;
     `;
-    okBtn.onmouseover = () => okBtn.style.background = '#f39c12';
-    okBtn.onmouseout = () => okBtn.style.background = '#f1c40f';
     
-    // ボタンをクリックしたらモーダルを消去
     okBtn.onclick = () => {
+        if (typeof activeHoverEquipment !== 'undefined') {
+            activeHoverEquipment = null;
+        }
         modalBg.remove();
     };
-    modalBox.appendChild(okBtn);
+    content.appendChild(okBtn);
 
+    modalBox.appendChild(content);
     modalBg.appendChild(modalBox);
     document.body.appendChild(modalBg);
+
+    // 🖱️ ドラッグ移動ロジック
+    let isDragging = false;
+    let startX, startY;
+
+    header.onmousedown = (e) => {
+        isDragging = true;
+        const rect = modalBox.getBoundingClientRect();
+        modalBox.style.transform = 'none';
+        modalBox.style.left = `${rect.left}px`;
+        modalBox.style.top = `${rect.top}px`;
+
+        startX = e.clientX - rect.left;
+        startY = e.clientY - rect.top;
+        e.preventDefault();
+    };
+
+    document.onmousemove = (e) => {
+        if (!isDragging) return;
+        modalBox.style.left = `${e.clientX - startX}px`;
+        modalBox.style.top = `${e.clientY - startY}px`;
+    };
+
+    document.onmouseup = () => {
+        isDragging = false;
+    };
+});
+
+// ============================================================
+// :::UPDATE_USER_MONEY_DISPLAY::: 🪙 ショップ閲覧画面の所持金を最新に更新する
+// ============================================================
+function updateUserMoneyDisplay() {
+    const userMoneyDisplay = document.getElementById('user-money-display');
+    if (!userMoneyDisplay) return;
+
+    let myMoney = 0;
+    if (typeof hero !== 'undefined' && hero) {
+        myMoney = hero.gold 
+               ?? (hero.player_stats && hero.player_stats.gold) 
+               ?? (hero.stats && hero.stats.gold) 
+               ?? 0;
+    }
+    userMoneyDisplay.innerText = Number(myMoney).toLocaleString();
+}
+
+// ============================================================
+// 🌟 売上金が0メルのときにボタンを無効化する制御用スクリプト
+// ============================================================
+
+// 売上金を受け取ろうとしたときのラッパー関数
+function tryClaimVendingGold() {
+    const goldElem = document.getElementById('vending-unclaimed-gold');
+    if (!goldElem) return;
+    
+    // カンマなどを除外して数値化
+    const currentGold = parseInt(goldElem.textContent.replace(/,/g, ''), 10) || 0;
+    
+    // 0メル以下の場合は何もしない（ガード）
+    if (currentGold <= 0) {
+        return; 
+    }
+    
+    // 既存の受け取り関数を呼び出す
+    if (typeof claimVendingGold === 'function') {
+        claimVendingGold();
+    }
+}
+
+// 未受取金額の変更やウィンドウを開いたときにボタンの状態を更新する関数
+function updateClaimButtonState() {
+    const goldElem = document.getElementById('vending-unclaimed-gold');
+    const btnElem = document.getElementById('vending-claim-gold-btn');
+    if (!goldElem || !btnElem) return;
+
+    const currentGold = parseInt(goldElem.textContent.replace(/,/g, ''), 10) || 0;
+
+    if (currentGold <= 0) {
+        // 0メルのとき：無効状態（グレーアウト・半透明・カーソル変更）
+        btnElem.style.background = "linear-gradient(180deg, #cbd5e1 0%, #94a3b8 100%)";
+        btnElem.style.borderColor = "#64748b";
+        btnElem.style.color = "#475569";
+        btnElem.style.cursor = "default";
+        btnElem.style.opacity = "0.6";
+        btnElem.title = "受け取れる売上金がありません";
+    } else {
+        // 1メル以上のとき：有効状態（通常のグリーン）
+        btnElem.style.background = "linear-gradient(180deg, #34d399 0%, #059669 100%)";
+        btnElem.style.borderColor = "#047857";
+        btnElem.style.color = "#ffffff";
+        btnElem.style.cursor = "pointer";
+        btnElem.style.opacity = "1.0";
+        btnElem.title = "";
+    }
+}
+
+// 定期監視または画面更新時にステータスを反映するためのMutationObserver
+const unclaimedGoldSpan = document.getElementById('vending-unclaimed-gold');
+if (unclaimedGoldSpan) {
+    const observer = new MutationObserver(() => {
+        updateClaimButtonState();
+    });
+    observer.observe(unclaimedGoldSpan, { childList: true, characterData: true, subtree: true });
+}
+
+// 初回ロード時にも反映
+window.addEventListener('DOMContentLoaded', () => {
+    updateClaimButtonState();
 });
 
 // 20秒（20,000ミリ秒）ごとにアカウント情報を要求するタイマー
@@ -5781,14 +6837,12 @@ if (typeof hero !== 'undefined') {
 let activeOfflineShops = [];
 
 // ============================================================
-// :::ON_VENDING_OPENED::: 🏪 位置完全固定・店主名保持・同期処理
+// :::ON_VENDING_OPENED::: 🏪 位置完全固定・店主名保持・同期処理（isEditingデータベース完全連動版）
 // ============================================================
 socket.on('vending_opened', (data) => {
 
-    // 🌟 【クライアント側デバッグ】
     console.log(`📥 [CLIENT DEBUG] vending_opened を受信しました！`);
-    console.log(`   受信した raw data:`, data);
-    console.log(`   data.name: "${data ? data.name : 'undefined'}" | data.owner_name: "${data ? data.owner_name : 'undefined'}"`);
+    console.log(`    受信した raw data:`, data);
     
     console.group("🔍 [DEBUG VENDING OPENED] 受信データ解析");
     console.log("1. サーバーから送られてきた raw data:", data);
@@ -5797,33 +6851,74 @@ socket.on('vending_opened', (data) => {
     const shopTitle = data.vending_title || data.title || "いらっしゃいませ！";
     const shopId = data.id;
     const persistentId = data.dbId || data.owner_id || shopId; 
+    
+    // 🌟 【超重要】mode と vending_mode を確実に死守する
     const shopMode = data.mode || data.vending_mode || 'monster';
     
-    // 🌟 サーバーから送られてきた店主名を確実に取得（フォールバック付き）
     const shopOwnerName = data.name || data.owner_name || "プレイヤー";
 
-    console.log("解析されたID・モード・名前:", { shopId, persistentId, shopMode, shopOwnerName, receivedX: data.x, receivedY: data.y });
+    // 👾 店番モンスターIDを安全に取得（monster_type も網羅）
+    const shopMonsterType = data.monsterType || data.monster_type || "Monster5";
 
-    // 🌟 【超重要】もし「自分自身の無人店舗」の場合、ブラウザの localStorage から過去の固定座標を復元する
-    let finalX = data.x;
-    let finalY = data.y;
-    const storageKey = `monster_shop_pos_${persistentId}`;
+    // 🌟 【チャンネル情報】サーバーから送られてきたチャンネルを取得
+    let shopChannel = Number(data.channel ?? data.channelId ?? (typeof hero !== 'undefined' ? hero.channel : 1));
 
-    if (shopId === socket.id && shopMode === 'monster') {
-        const savedPos = localStorage.getItem(storageKey);
-        if (savedPos) {
-            const parsed = JSON.parse(savedPos);
-            finalX = parsed.x; 
-            finalY = parsed.y;
-            console.log("🌟 LocalStorage から無人店舗の初期固定座標を復元しました:", finalX, finalY);
-        } else {
-            // 初めて置いた瞬間なら、現在の座標を localStorage に保存する
-            localStorage.setItem(storageKey, JSON.stringify({ x: data.x, y: data.y }));
-            console.log("🌟 無人店舗の初期固定座標を新たに保存しました:", data.x, data.y);
+    // 🌟 【超重要チャンネルガード】自分のチャンネルを取得
+    const currentHeroChannel = (typeof hero !== 'undefined' && hero.channel !== undefined) ? Number(hero.channel) : 1;
+
+    // 🛑 もし受信した店舗のチャンネルが、現在の自分のチャンネルと異なる場合
+    if (shopChannel !== currentHeroChannel) {
+        console.log(`🚫 [CHANNEL FILTER] 受信した店ch(${shopChannel}) と 自ch(${currentHeroChannel}) が異なるため、この画面の同期処理をスキップします。`);
+        
+        let oldIndex = activeOfflineShops.findIndex(shop => 
+            shop.owner_id === persistentId || shop.id === persistentId || shop.owner_id === shopId || shop.id === shopId
+        );
+        if (oldIndex !== -1) {
+            activeOfflineShops.splice(oldIndex, 1);
         }
+        console.groupEnd();
+        return; 
     }
 
-    // 既存の店を検索
+    // 🌟 【超安全対策】受信した items が文字列（または二重文字列）になっていても確実に安全な配列にパースする！
+    let shopItems = data.items || [];
+    if (typeof shopItems === 'string') {
+        try {
+            shopItems = JSON.parse(shopItems);
+            if (typeof shopItems === 'string') {
+                shopItems = JSON.parse(shopItems); 
+            }
+        } catch (e) {
+            console.error("❌ [CLIENT] shopItems のパースに失敗しました:", e);
+            shopItems = [];
+        }
+    }
+    if (!Array.isArray(shopItems)) {
+        shopItems = [];
+    }
+
+    // 🌟 【データベース完全連動】サーバーから送られてきた isEditing を確実に真偽値に変換！
+    const shopIsEditing = data.isEditing === true || data.isEditing === 1 || data.isEditing === 'true';
+
+    console.log("解析されたID・モード・名前・チャンネル・編集状態:", { shopId, persistentId, shopMode, shopOwnerName, shopMonsterType, shopChannel, itemCount: shopItems.length, shopIsEditing });
+
+    const isMySelfPre = (shopId === socket.id) || (typeof hero !== 'undefined' && (shopOwnerName === hero.name || Number(persistentId) === Number(hero.dbId)));
+
+    let finalX = data.x;
+    let finalY = data.y;
+
+    if ((finalX === undefined || finalX === null) && isMySelfPre && typeof hero !== 'undefined') {
+        const heroWidth = hero.w || (typeof VIEW_CONFIG !== 'undefined' && VIEW_CONFIG.playerWidth) || 40;
+        finalX = Math.round(hero.x + (heroWidth / 2));
+    }
+
+    const storageKey = `monster_shop_pos_${persistentId}`;
+
+    if (isMySelfPre && shopMode === 'monster' && finalX !== undefined && finalY !== undefined) {
+        localStorage.setItem(storageKey, JSON.stringify({ x: finalX, y: finalY }));
+        console.log("🌟 無人店舗の位置を出店位置で固定保存しました:", finalX, finalY);
+    }
+
     let existingIndex = activeOfflineShops.findIndex(shop => 
         shop.owner_id === persistentId || 
         shop.id === persistentId || 
@@ -5840,33 +6935,42 @@ socket.on('vending_opened', (data) => {
         }
     } else {
         if (existingIndex !== -1) {
-            // 🛑 【重要チェック】既存店舗の場合、x と y は上書きしないルール
-            console.log("既存の無人店舗を発見！既存の保持座標(変更せず維持):", {
-                storedX: activeOfflineShops[existingIndex].x,
-                storedY: activeOfflineShops[existingIndex].y,
-                ignoredNewX: finalX,
-                ignoredNewY: finalY
-            });
+            console.log("既存の無人店舗を発見！商品情報・店情報を更新します");
 
             activeOfflineShops[existingIndex].title = shopTitle;
+            // 🌟 ここで必ず確実に値をセット
             activeOfflineShops[existingIndex].mode = shopMode;
             activeOfflineShops[existingIndex].vending_mode = shopMode;
             activeOfflineShops[existingIndex].socket_id = shopId;
-            activeOfflineShops[existingIndex].name = shopOwnerName;       // 👈 確実に名前を更新！
-            activeOfflineShops[existingIndex].owner_name = shopOwnerName; // 👈 確実に名前を更新！
+            activeOfflineShops[existingIndex].name = shopOwnerName;      
+            activeOfflineShops[existingIndex].owner_name = shopOwnerName;  
+            activeOfflineShops[existingIndex].items = shopItems; 
+            activeOfflineShops[existingIndex].monsterType = shopMonsterType; 
+            activeOfflineShops[existingIndex].monster_type = shopMonsterType; 
+            activeOfflineShops[existingIndex].channel = shopChannel; 
+            activeOfflineShops[existingIndex].isEditing = shopIsEditing; // 👈 【追加】データベースの編集状態を反映！
+
+            if (data.x !== undefined && data.x !== null) activeOfflineShops[existingIndex].x = data.x; 
+            if (data.y !== undefined && data.y !== null) activeOfflineShops[existingIndex].y = data.y;
         } else {
-            console.log("既存店舗が見つからないため、【新規作成】として登録します（座標: X=", finalX, "Y=", finalY, ")");
+            console.log("既存店舗が見つからないため、【新規作成】として登録します（チャンネル:", shopChannel, "座標: X=", finalX, "Y=", finalY, ")");
             activeOfflineShops.push({
                 id: persistentId,
                 owner_id: persistentId,
                 socket_id: shopId,
                 title: shopTitle,
+                // 🌟 新規作成時も絶対に欠損させない
                 mode: shopMode,
                 vending_mode: shopMode,
-                name: shopOwnerName,       // 👈 確実に名前を登録！
-                owner_name: shopOwnerName, // 👈 確実に名前を登録！
-                x: finalX, 
-                y: finalY  
+                name: shopOwnerName,      
+                owner_name: shopOwnerName, 
+                items: shopItems, 
+                monsterType: shopMonsterType, 
+                monster_type: shopMonsterType,
+                x: finalX,                
+                y: finalY,
+                channel: shopChannel,
+                isEditing: shopIsEditing // 👈 【追加】新規作成時も編集状態を反映！
             });
         }
     }
@@ -5875,26 +6979,65 @@ socket.on('vending_opened', (data) => {
     console.groupEnd();
 
     // --- キャラクターステータスへの反映 ---
-    if (shopId === socket.id) {
+    const isMySelf = (shopId === socket.id) || (typeof hero !== 'undefined' && (shopOwnerName === hero.name || Number(persistentId) === Number(hero.dbId)));
+
+    if (isMySelf) {
         if (typeof hero !== 'undefined') {
-            hero.is_vending = true;
-            hero.vending_mode = shopMode;
-            hero.mode = shopMode;
+            if (shopMode === 'monster') {
+                console.log(`🛡️ [GUARD] 自分自身のデータですが、無人露店（monster）のため hero への有人フラグ付与をスキップします。`);
+                hero.is_vending = false;
+                hero.vending_mode = shopMode;
+                hero.mode = shopMode;
+            } else {
+                hero.is_vending = true;
+                hero.vending_mode = shopMode;
+                hero.mode = shopMode;
+            }
+
             hero.vending_title = shopTitle;
-            hero.vending_items = data.items || [];
-            hero.name = shopOwnerName; // 👈 ヒーロー側にも名前を同期
+            hero.vending_items = shopItems;
+            hero.name = shopOwnerName; 
+            hero.dbId = persistentId;   
+            hero.monsterType = shopMonsterType; 
+            hero.monster_type = shopMonsterType;
+            hero.channel = shopChannel;
+            hero.isEditing = shopIsEditing; // 👈 【追加】自身の編集状態も同期
+            
+            if (typeof selectedVendingMonsterType !== 'undefined') {
+                selectedVendingMonsterType = shopMonsterType;
+            }
+            if (typeof currentVendingMonsterId !== 'undefined') {
+                currentVendingMonsterId = shopMonsterType;
+            }
+            console.log("🎯 [SUCCESS] 自分の店番モンスター変数をデータベースの値に同期しました:", shopMonsterType);
         }
     } else {
         const targetList = (typeof otherPlayers !== 'undefined') ? otherPlayers : (typeof others !== 'undefined' ? others : {});
         const targetPlayer = targetList[shopId];
         
         if (targetPlayer) {
+            if (shopMode === 'monster') {
+                console.log(`🛡️ [GUARD] キャラ [${targetPlayer.name}] は無人露店（monster）のため、プレイヤーオブジェクト側への有人フラグ付与をスキップします。`);
+                targetPlayer.is_vending = false;
+                // 🌟 無人露店であっても、modeやmonsterTypeをここに保持させておき、undefinedになるのを防ぐ！
+                targetPlayer.mode = shopMode;
+                targetPlayer.vending_mode = shopMode;
+                targetPlayer.monsterType = shopMonsterType;
+                targetPlayer.monster_type = shopMonsterType;
+                targetPlayer.isEditing = shopIsEditing; // 👈 【追加】
+                return; 
+            }
+
             targetPlayer.is_vending = true;
             targetPlayer.vending_mode = shopMode;
             targetPlayer.mode = shopMode;
             targetPlayer.vending_title = shopTitle;
-            targetPlayer.vending_items = data.items || [];
-            targetPlayer.name = shopOwnerName; // 👈 他プレイヤー側にも名前を同期
+            targetPlayer.vending_items = shopItems;
+            targetPlayer.name = shopOwnerName; 
+            targetPlayer.monsterType = shopMonsterType; 
+            targetPlayer.monster_type = shopMonsterType;
+            targetPlayer.channel = shopChannel;
+            targetPlayer.isEditing = shopIsEditing; // 👈 【追加】
             
             if (shopMode === 'player') {
                 if (data.x !== undefined) targetPlayer.x = data.x;
@@ -5998,6 +7141,37 @@ socket.on('vending_closed', (data) => {
     console.log("露店が閉店したため、看板を削除しました。残りの店舗数:", activeOfflineShops.length);
 });
 
+// 🛒 サーバーから出店拒否（エラー）を受け取ったときの処理
+socket.on('vending_error', (data) => {
+    // 1. アラートを表示
+    if (typeof showCustomAlert === 'function') {
+        showCustomAlert(data.message || "ここには出店できません。");
+    } else {
+        alert(data.message || "ここには出店できません。");
+    }
+
+    // 2. 出店ボタンやラジオボタンのロックを解除（元に戻す）
+    const modeInputs = document.querySelectorAll('input[name="vending-mode"]');
+    modeInputs.forEach(input => {
+        input.disabled = false;
+    });
+
+    const btn = document.getElementById('vending-confirm-btn');
+    if (btn) {
+        btn.innerText = "✨ この内容で露店を開く";
+        btn.disabled = false;
+        btn.setAttribute("onclick", "startVending()");
+        btn.style.setProperty('background', 'linear-gradient(135deg, #f59e0b 0%, #d97706 100%)', 'important');
+        btn.style.setProperty('border-color', '#b45309', 'important');
+        btn.style.cursor = "pointer";
+    }
+
+    // 必要に応じて、ローカルの hero のフラグも戻す
+    if (typeof hero !== 'undefined') {
+        hero.is_vending = false;
+    }
+});
+
 // ============================================================
 // :::ON_REQUEST_OPEN_VENDING_UI::: 🏪 露店管理UIの起動処理
 // ============================================================
@@ -6025,20 +7199,179 @@ socket.on('request_open_vending_ui', () => {
 });
 
 // ============================================================
-// :::OPEN_VENDING_MENU::: 🏪 露店管理メニューの表示
+// :::VENDING_OWNER_CHAT::: 🛒 露店管理（店主側）ウィンドウ用チャット処理
 // ============================================================
-/**
- * 役割：
- * - 露店管理ウィンドウ（vending-window）を可視化
- * - インベントリから陳列可能なアイテムリストへの同期処理を統合
- * - 開店のためのUI準備を統括
- */
+
+// メッセージ送信を実行する関数（店主用）
+function sendVendingOwnerChat() {
+    const inputEl = document.getElementById('vending-owner-chat-input');
+    if (!inputEl) return;
+    
+    const message = inputEl.value.trim();
+    if (!message) return;
+
+    // 店主自身のIDを取得（自分のショップID）
+    const myOwnerId = (typeof hero !== 'undefined' && hero) ? (hero.dbId || hero.id) : null;
+
+    // 1. サーバーへメッセージを送信する
+    if (typeof socket !== 'undefined' && socket) {
+        socket.emit('vendingChatMessage', {
+            text: message,
+            ownerId: myOwnerId
+        });
+    }
+
+    // 2. 自分の管理画面チャット欄に即時表示（[店主] または自分のキャラ名）
+    const myName = (typeof hero !== 'undefined' && hero.name) ? hero.name : "店主";
+    appendVendingOwnerChatMessage(myName, message, "#2563eb"); // 自分（青色）
+
+    // 入力欄をクリア
+    inputEl.value = "";
+}
+
+// チャットログにメッセージを追加する関数（店主用）
+function appendVendingOwnerChatMessage(senderName, message, textColor = "#334155") {
+    const chatLog = document.getElementById('vending-owner-chat-log');
+    if (!chatLog) return;
+
+    // 初回発言時にプレースホルダーテキストを消去
+    if (chatLog.dataset.hasMessage !== "true") {
+        chatLog.innerHTML = "";
+        chatLog.dataset.hasMessage = "true";
+    }
+
+    const msgDiv = document.createElement('div');
+    msgDiv.style.marginBottom = "3px";
+    msgDiv.style.wordBreak = "break-all";
+    
+    // HTMLエスケープ処理（セキュリティ対策）
+    const safeMessage = message.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    
+    msgDiv.innerHTML = `<span style="font-weight: bold; color: ${textColor};">[${senderName}]:</span> ${safeMessage}`;
+    
+    chatLog.appendChild(msgDiv);
+    
+    // 最下部へ自動スクロール
+    chatLog.scrollTop = chatLog.scrollHeight;
+}
+
+// 📥 サーバーからの露店チャットを受信する処理（共通受信）
+if (typeof socket !== 'undefined' && socket) {
+    if (!window._vendingOwnerChatSocketInitialized) {
+        window._vendingOwnerChatSocketInitialized = true;
+        
+        socket.on('syncVendingChatMessage', (data) => {
+            // お客さん（または他者）からの発言を店主側のログにも表示する（赤っぽい色）
+            appendVendingOwnerChatMessage(data.senderName, data.text, "#dc2626");
+        });
+    }
+}
+
+// イベントリスナーの初期化（管理ウィンドウを開くタイミングで呼び出し）
+function initVendingOwnerChatEvents() {
+    const inputEl = document.getElementById('vending-owner-chat-input');
+    const sendBtn = document.getElementById('vending-owner-chat-send');
+
+    if (inputEl && !inputEl.dataset.initialized) {
+        inputEl.dataset.initialized = "true";
+        inputEl.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                sendVendingOwnerChat();
+            }
+        });
+    }
+
+    if (sendBtn && !sendBtn.dataset.initialized) {
+        sendBtn.dataset.initialized = "true";
+        sendBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            sendVendingOwnerChat();
+        });
+    }
+}
+
+// ============================================================
+// :::OPEN_VENDING_MENU::: 🏪 未出店対応・チャンネル厳格ガード版
+// ============================================================
 function openVendingMenu() {
+    console.group("🕵️‍♂️ [CLIENT DEBUG] openVendingMenu 呼び出し");
+    const myChannel = (typeof hero !== 'undefined' && hero.channel !== undefined) ? Number(hero.channel) : 1;
+    console.log("- 現在のプレイヤーのチャンネル (hero.channel):", myChannel);
+    console.groupEnd();
+
     const win = document.getElementById('vending-window');
-    if (win) {
-        win.style.display = 'block';
-        // インベントリからアイテムリストを同期させる処理をここに入れると便利です
-        console.log("露店メニューを表示しました");
+    if (!win) return;
+
+    // まずウィンドウは隠した状態でサーバーへ確認
+    win.style.display = 'none';
+
+    if (typeof socket !== 'undefined' && socket) {
+        socket.emit('request_my_vending_info', (response) => {
+            console.group("🕵️‍♂️ [CLIENT DEBUG] request_my_vending_info の返却値");
+            console.log("受信した response 全体:", response);
+            console.groupEnd();
+
+            // 🌟 【パターンA】すでに露店（無人露店など）を出品中の場合
+            if (response && response.success && response.shopData) {
+                const shopChannel = Number(response.shopData.channel || 1);
+                
+                // 現在地のチャンネルと、露店の出店チャンネルが違う場合のみブロック
+                if (myChannel !== shopChannel) {
+                    console.warn(`⚠️ [VENDING_GUARD] チャンネル不一致のためオープンを拒否！ (現在CH: ${myChannel} !== 出店CH: ${shopChannel})`);
+                    
+                    if (typeof showCustomAlert === 'function') {
+                        showCustomAlert(`出店しているチャンネル(${shopChannel}ch)と同じ場所にいないと、露店管理メニューを開くことはできません。`);
+                    } else {
+                        alert(`出店しているチャンネル(${shopChannel}ch)と同じ場所にいないと、露店管理メニューを開くことはできません。`);
+                    }
+                    
+                    win.style.display = 'none';
+                    return; // 🛑 別チャンネルなのでストップ
+                }
+
+                // チャンネルが一致している場合：管理メニューとして開く
+                win.style.display = 'block';
+                console.log("🖥️ [DEBUG] チャンネル一致。管理メニューを表示します。");
+
+                const goldSpan = document.getElementById('vending-unclaimed-gold');
+                const unclaimed = Number(response.shopData.unclaimed_gold || 0);
+                if (goldSpan) {
+                    goldSpan.innerText = unclaimed.toLocaleString();
+                }
+                setupMyShopManagementUI(response.shopData);
+
+            } else {
+                // 🌟 【パターンB】まだ露店を出品していない場合（新規オープン）
+                console.log("🖥️ [DEBUG] 出店データなし。新規の露店設定画面として開きます。");
+                win.style.display = 'block';
+
+                // 必要に応じて新規用のUI初期化やリセット処理があればここに記述
+                if (typeof initVendingOwnerChatEvents === 'function') {
+                    initVendingOwnerChatEvents();
+                }
+            }
+        });
+    } else {
+        console.error("❌ socket が定義されていません");
+    }
+}
+
+// 🛡️ 万が一ソケット通信が使えない場合のローカルフォールバック関数
+function fallbackToLocalShopData(goldSpan) {
+    if (typeof activeOfflineShops !== 'undefined' && Array.isArray(activeOfflineShops) && typeof hero !== 'undefined' && hero) {
+        const heroId = hero.dbId ?? hero.id ?? hero.userId;
+        const myShop = activeOfflineShops.find(shop => {
+            const shopOwnerId = shop.owner_id ?? shop.dbId ?? shop.id;
+            return heroId != null && shopOwnerId != null && Number(shopOwnerId) === Number(heroId);
+        });
+
+        if (myShop) {
+            setupMyShopManagementUI(myShop);
+            if (myShop.unclaimed_gold !== undefined && goldSpan) {
+                goldSpan.innerText = Number(myShop.unclaimed_gold).toLocaleString();
+            }
+        }
     }
 }
 
@@ -6056,7 +7389,83 @@ function getVendingItemsData() {
 }
 
 // ============================================================
-// :::START_VENDING::: 🚀 露店販売開始処理・経済活動の起動（ウィンドウ維持 ＆ タイプロック版）
+// 🌟 自分の無人露店データをUIやボタンに適用・セットする共通関数（未受取金反映対応版）
+// ============================================================
+function setupMyShopManagementUI(shop) {
+    if (!shop) return;
+
+    // 1. 復元中フラグをON
+    window.isRestoringVending = true;
+
+    // 2. 出品バッファを、サーバー（またはマップデータ）の最新 shop.items で完全に上書きリセットする
+    vendingItemsBuffer = shop.items ? JSON.parse(JSON.stringify(shop.items)) : [];
+
+    // 3. 画面UIにアイテムを復元
+    if (typeof restoreVendingItemsToUI === 'function') {
+        restoreVendingItemsToUI(vendingItemsBuffer);
+    }
+
+    // 4. 復元フラグをOFF
+    window.isRestoringVending = false;
+
+    // 💰 【追加】データベースから取得した「未受取の売上金」を画面の表示に反映する！
+    const goldSpan = document.getElementById('vending-unclaimed-gold');
+    if (goldSpan) {
+        const unclaimed = Number(shop.unclaimed_gold || 0);
+        goldSpan.innerText = unclaimed.toLocaleString();
+    }
+
+    // 🌟 5. 現在、露店にアイテムが1つ以上出品されているかどうかを判定
+    const hasItems = vendingItemsBuffer.length > 0;
+
+    const confirmBtn = document.getElementById('vending-confirm-btn');
+    if (confirmBtn) {
+        if (hasItems) {
+            // すでにアイテムが並んでいる（＝営業中・更新状態）
+            confirmBtn.innerText = "🛑 露店を完全に閉じる";
+            confirmBtn.setAttribute("onclick", "forceCloseVending()");
+            confirmBtn.style.setProperty('background', 'linear-gradient(135deg, #ef4444 0%, #dc2626 100%)', 'important');
+            confirmBtn.style.setProperty('border-color', '#b91c1c', 'important');
+        } else {
+            // アイテムがまだ何も出品されていない（＝これから露店を開く状態）
+            confirmBtn.innerText = "⛺ この内容で露店を開く";
+            confirmBtn.setAttribute("onclick", "startVending()");
+            confirmBtn.style.setProperty('background', 'linear-gradient(135deg, #2ecc71 0%, #27ae60 100%)', 'important');
+            confirmBtn.style.setProperty('border-color', '#27ae60', 'important');
+        }
+    }
+
+    // 6. タイトル入力欄を、データベースにある「正式なタイトル」で強制上書き（変更途中の文字を破棄）
+    const titleInput = document.getElementById('vending-title-input');
+    if (titleInput) {
+        titleInput.value = shop.title || shop.vending_title || "";
+        titleInput.disabled = false;
+
+        // タイトルが変更された瞬間にだけ、ボタンを更新用に変化させる（すでにアイテムがある場合など）
+        titleInput.oninput = () => {
+            const btn = document.getElementById('vending-confirm-btn');
+            if (btn && vendingItemsBuffer.length > 0) {
+                btn.innerText = "🔄 露店情報を更新する";
+                btn.setAttribute("onclick", "startVending()");
+                btn.style.setProperty('background', 'linear-gradient(135deg, #0284c7 0%, #0369a1 100%)', 'important');
+                btn.style.setProperty('border-color', '#0284c7', 'important');
+            }
+        };
+    }
+
+    // 7. モード選択ラジオボタンの設定
+    const modeInputs = document.querySelectorAll('input[name="vending-mode"]');
+    modeInputs.forEach(input => {
+        input.disabled = false; // 必要に応じて調整してください
+        const currentMode = shop.mode || shop.vending_mode;
+        if (currentMode && input.value === currentMode) {
+            input.checked = true;
+        }
+    });
+}
+
+// ============================================================
+// :::START_VENDING::: 🚀 露店販売開始処理・経済活動の起動（ガチガチデバッグ版）
 // ============================================================
 function startVending() {
     const listContainer = document.getElementById('vending-item-list');
@@ -6092,13 +7501,54 @@ function startVending() {
 
     const vendingItems = typeof getVendingItemsData === 'function' ? getVendingItemsData() : []; 
 
+    // 🌟 【追加】選択されている（または現在設定中の）モンスターIDを確実に取得
+    const chosenMonsterType = (typeof currentVendingMonsterId !== 'undefined' && currentVendingMonsterId) 
+        ? currentVendingMonsterId 
+        : ((typeof selectedVendingMonsterType !== 'undefined' && selectedVendingMonsterType) 
+            ? selectedVendingMonsterType 
+            : "Monster5");
+
     // 📡 サーバーへ送信
     if (typeof socket !== 'undefined' && typeof hero !== 'undefined') {
+        
+        // ==========================================
+        // 🔍 【ガチガチ・デバッグブロック】
+        // ==========================================
+        console.group("🕵️‍♂️ [VENDING DEBUG] キャラクター幅の徹底解析");
+        console.log("1. hero オブジェクト本体:", hero);
+        console.log("2. hero.w の型と値:", typeof hero.w, hero.w);
+        console.log("3. hero.width の型と値:", typeof hero.width, hero.width);
+        console.log("4. VIEW_CONFIG.playerWidth:", typeof VIEW_CONFIG !== 'undefined' ? VIEW_CONFIG.playerWidth : "VIEW_CONFIG未定義");
+        console.log("5. HERO_CONFIG.width:", typeof HERO_CONFIG !== 'undefined' ? HERO_CONFIG.width : "HERO_CONFIG未定義");
+        console.log("6. hero.img の状態:", hero.img ? { naturalWidth: hero.img.naturalWidth, width: hero.img.width } : "画像なし");
+        console.groupEnd();
+        // ==========================================
+
+        // 🌟 マジックナンバーもフォールバックの数字も一切使わず、VIEW_CONFIGの定義から完全に導出する
+        const heroWidth = Number(
+            hero.w ?? 
+            hero.width ?? 
+            (typeof VIEW_CONFIG !== 'undefined' && VIEW_CONFIG.player ? VIEW_CONFIG.player.hitboxW : 0)
+        );
+        
+        const centerX = Math.round(hero.x + (heroWidth / 2));
+        
+        console.log("🚀 [開店の瞬間データ送信 - 解析結果]", {
+            "hero.x (左端)": hero.x,
+            "導出された heroWidth (幅)": heroWidth,
+            "計算された centerX (中心)": centerX,
+            "選択された店番モンスター": chosenMonsterType
+        });
+
         socket.emit('open_vending', {
             title: inputTitle,
             items: vendingItems,
             mode: vendingMode,        
-            vending_mode: vendingMode
+            vending_mode: vendingMode,
+            monsterType: chosenMonsterType, // 👾 選択したモンスターのIDをここでサーバーへ送信！
+            x: centerX, // 👈 中央の座標を送信
+            y: hero.y,
+			channel: (typeof hero !== 'undefined' && hero.channel !== undefined) ? hero.channel : 1
         });
 
         socket.emit('move', {
@@ -6108,7 +7558,8 @@ function startVending() {
             is_vending: true,
             vending_title: inputTitle,
             mode: vendingMode,        
-            vending_mode: vendingMode
+            vending_mode: vendingMode,
+            monsterType: chosenMonsterType // 👾 移動データ側にも持たせて同期を確実に
         });
     }
 
@@ -6127,8 +7578,6 @@ function startVending() {
         btn.style.cursor = "pointer";
     }
 
-    // 💡 管理ウィンドウは閉じずに維持する
-
     console.log(`[UI] ${vendingMode === 'monster' ? '無人露店（モンスター）' : '有人露店'}を開きました（ウィンドウ維持・タイプロック適用）！`);
 }
 
@@ -6142,6 +7591,18 @@ function closeVendingMenu() {
     if (win) {
         win.style.display = 'none';
         
+        // 管理ウィンドウを閉じたので、フラグをfalseにして看板を青丸に戻す！
+        window.isVendingWindowOpen = false;
+        
+        // 🌟 【ここに追加】サーバーへ「編集が終わったよ」と送信する
+        const currentShopId = (typeof hero !== 'undefined' && hero) ? hero.dbId : null;
+        if (typeof socket !== 'undefined' && socket && socket.connected && currentShopId) {
+            socket.emit('vending_editing_status_change', { 
+                shopId: currentShopId, 
+                isEditing: false 
+            });
+        }
+
         const currentMode = (typeof hero !== 'undefined') ? (hero.vending_mode || hero.mode) : 'player';
 
         // 💡 【分岐】有人（player）の場合のみ、ウィンドウを×ボタンで閉じたら完全閉店する
@@ -6215,48 +7676,414 @@ function forceCloseVending() {
 }
 
 // ============================================================
-// :::OPEN_OTHER_PLAYER_VENDING::: 🏪 他者の露店閲覧・データ要求
+// :::OPEN_OTHER_PLAYER_VENDING::: 🏪 他者の露店閲覧・ゴージャスリッチ描画（共通関数活用版）
 // ============================================================
-/**
- * 役割：
- * - サーバーへ特定のプレイヤーの露店商品リストを要求（socket.emit）
- * - 閲覧ウィンドウの表示と店名の反映
- * - 商品読み込み中（Loading）のUI表示によるUX改善
- * - 開店SEの再生
- */
 function openOtherPlayerVending(p) {
-    console.log(`[Vending] ${p.vending_title} (Owner: ${p.id}) のデータを読み込みます...`);
 
-    // 1. サーバーへ最新の商品リストを要求する
-    if (socket) {
-        socket.emit('request_vending_data', { ownerId: p.id });
+    // ==========================================
+    // 🔍 【ガチガチ・デバッグ診断】露店データの全プロパティ徹底検査
+    // ==========================================
+    console.group("🕵️‍♂️ [VENDING DEBUG] 受信データの詳細検査");
+    console.log("1. 受信オブジェクト (p):", p);
+    console.log("2. 判定用プロパティの候補:", {
+        "p.name": p?.name,
+        "p.owner_name": p?.owner_name,
+        "p.username": p?.username,
+        "p.ownerName": p?.ownerName,
+        "p.characterName": p?.characterName,
+        "p.owner": p?.owner,
+        "p.id": p?.id,
+        "p.owner_id": p?.owner_id,
+        "p.title": p?.title,
+        "p.vending_title": p?.vending_title
+    });
+    
+    // activeOfflineShops との照合テスト
+    let matchedShop = null;
+    if (typeof activeOfflineShops !== 'undefined' && Array.isArray(activeOfflineShops)) {
+        const targetId = p?.id || p?.owner_id;
+        console.log(`3. activeOfflineShops (登録数: ${activeOfflineShops.length}) から ID: ${targetId} を検索中...`);
+        matchedShop = activeOfflineShops.find(s => String(s.id || s.owner_id) === String(targetId));
+        console.log("4. 照合結果:", matchedShop ? matchedShop : "❌ 一致するショップが見つかりませんでした");
+    } else {
+        console.log("3. activeOfflineShops が定義されていないか配列ではありません。");
+    }
+    console.groupEnd();
+    // ==========================================
+
+	console.log("🏪 受信した露店データ全体 (p):", p);
+	
+    console.log(`[Vending] ${p.vending_title || p.title} (Owner: ${p.id || p.owner_id}) のデータを表示します...`, p.items);
+
+    // 🌟 outline を使ってレイアウトサイズを変えずに枠を制御する専用CSS
+    if (!document.getElementById('vending-dynamic-style')) {
+        const styleEl = document.createElement('style');
+        styleEl.id = 'vending-dynamic-style';
+        styleEl.innerHTML = `
+            .shop-item-row-div {
+                border-bottom: 1px solid #f1f5f9 !important;
+                box-sizing: border-box !important;
+                outline: 2px solid transparent !important;
+                outline-offset: -2px !important;
+            }
+            .shop-item-row-div.is-selected {
+                outline: 2px solid #2563eb !important;
+                outline-offset: -2px !important;
+            }
+        `;
+        document.head.appendChild(styleEl);
     }
 
-    // 2. UIの枠組みを表示
     const otherVendingWin = document.getElementById('other-vending-window');
-    const itemsContainer = document.getElementById('other-vending-items'); // 商品リストを表示する場所
+    const itemsContainer = document.getElementById('other-vending-items');
+
+    let currentScrollTop = 0;
 
     if (otherVendingWin) {
         otherVendingWin.style.display = 'block';
         
-        // 店名などをUIにセット
-        const titleEl = otherVendingWin.querySelector('.vending-title-display');
-        if (titleEl) titleEl.innerText = p.vending_title || "無名の露店";
+        // 💬 露店チャット用のターゲットオーナーIDを設定 ＆ イベントとログの初期化
+        window._currentVendingOwnerId = p.id || p.owner_id;
+        if (typeof initVendingChatEvents === 'function') {
+            initVendingChatEvents();
+        }
+        const vendingChatLog = document.getElementById('vending-chat-log');
+        if (vendingChatLog) {
+            vendingChatLog.innerHTML = '<span style="color: #94a3b8;">[ショップ内チャット] ようこそ！</span>';
+            vendingChatLog.dataset.hasMessage = "false";
+        }
 
-        // 🌟 データが届くまでの間、リストを「読み込み中...」にする
+        // 🌟 player_stats の gold を確実に取得して反映する
+        const userMoneyDisplay = document.getElementById('user-money-display');
+        if (userMoneyDisplay) {
+            let myMoney = 0;
+            if (typeof hero !== 'undefined' && hero) {
+                myMoney = hero.gold 
+                       ?? (hero.player_stats && hero.player_stats.gold) 
+                       ?? (hero.stats && hero.stats.gold) 
+                       ?? 0;
+            }
+            userMoneyDisplay.innerText = Number(myMoney).toLocaleString();
+        }
+
+        // 🌟 店主名をフィールド上のネームプレートと完全一致させる
+        const ownerNameEl = document.getElementById('other-vending-owner-name');
+        if (ownerNameEl) {
+            let shopOwnerName = "";
+            if (p) {
+                shopOwnerName = p.name || p.owner_name || p.username || p.ownerName || p.characterName || (p.owner && (p.owner.name || p.owner.username));
+            }
+            if (!shopOwnerName && matchedShop) {
+                shopOwnerName = matchedShop.name || matchedShop.owner_name || matchedShop.username || matchedShop.ownerName || matchedShop.owner;
+            }
+            if (!shopOwnerName) {
+                shopOwnerName = "プレイヤー";
+            }
+            ownerNameEl.innerText = `${shopOwnerName}の雇用商人`;
+        }
+
+        // 🌟 出店看板の見出し（タイトル）をウィンドウに反映する！
+        const shopTitleEl = document.getElementById('other-vending-shop-title');
+        if (shopTitleEl) {
+            const fallbackTitle = matchedShop ? (matchedShop.title || matchedShop.vending_title) : "いらっしゃいませ";
+            shopTitleEl.innerText = p.vending_title || p.title || fallbackTitle || "いらっしゃいませ";
+        }
+
+        // 👤 1枠目に自分の名前とアバターを描画
+        const visitorName1 = document.getElementById('visitor-name-1');
+        if (visitorName1) {
+            const myName = (typeof hero !== 'undefined' && hero.name) ? hero.name : "あなた";
+            visitorName1.innerText = myName;
+        }
+        if (typeof drawOtherVendingMyAvatar === 'function') {
+            drawOtherVendingMyAvatar();
+        }
+        
+        // 👑 他プレイヤーの雇用商人モンスターのタイプを取得してプレビューを描画！
+        const monsterType = p.monsterType || p.merchantType || p.monster_type || (matchedShop ? matchedShop.monsterType : null) || "Monster8";
+        window.otherPlayerMonsterType = monsterType; 
+        
+        if (typeof renderVendingMerchantPreview === 'function') {
+            renderVendingMerchantPreview(monsterType, "other-vending-merchant-preview-canvas");
+        }
+
         if (itemsContainer) {
-            itemsContainer.innerHTML = '<p style="text-align: center; padding: 20px; color: #ccc; font-size: 12px;">商品を読み込み中...</p>';
+            currentScrollTop = itemsContainer.scrollTop || 0;
+            itemsContainer.innerHTML = ""; 
+
+            const shopItems = p.items || [];
+            if (shopItems.length === 0) {
+                itemsContainer.innerHTML = '<p style="text-align: center; padding: 20px; color: #94a3b8; font-size: 11px; margin: 0;">商品がありません。</p>';
+            } else {
+                shopItems.forEach((item, index) => {
+                    const itemQty = Number(item.count ?? item.quantity ?? 1);
+                    const isSoldOut = Boolean(item.isSoldOut || itemQty <= 0);
+
+                    const ownerId = p.id || p.owner_id;
+                    
+                    const itemEl = document.createElement('div');
+                    itemEl.className = 'shop-item-row-div';
+                    itemEl.title = isSoldOut ? "売り切れました" : "ダブルクリックで購入";
+                    itemEl.style.cssText = `
+                        display: flex; justify-content: space-between; align-items: center; 
+                        padding: 6px 8px; background: ${isSoldOut ? '#f8fafc' : '#ffffff'}; 
+                        margin-bottom: 2px; cursor: pointer; opacity: ${isSoldOut ? '0.4' : '1'}; 
+                        position: relative; border-width: 1px; border-style: solid; 
+                        border-color: transparent transparent rgb(241, 245, 249); 
+                        outline: medium; box-sizing: border-box; 
+                        transition: background 0.15s, border-color 0.15s, opacity 0.15s;
+                    `;
+
+                    // 🌟 共通関数からHTMLを生成してセット
+                    itemEl.innerHTML = createVendingItemHTML(item);
+
+                    // クリック時選択
+                    itemEl.onclick = (e) => {
+                        e.stopPropagation();
+                        const allRows = itemsContainer.querySelectorAll('.shop-item-row-div');
+                        allRows.forEach(row => row.classList.remove('is-selected'));
+                        itemEl.classList.add('is-selected');
+                    };
+
+                    // マウスホバー・ツールチップ
+                    itemEl.onmouseenter = (e) => {
+                        e.stopPropagation();
+                        if (!isSoldOut) { itemEl.style.setProperty('background-color', '#e2e8f0', 'important'); }
+                        if (typeof window !== 'undefined') {
+                            window.hoveringSlot = item;
+                            const gameCanvas = document.getElementById('game-canvas') || document.querySelector('canvas');
+                            if (gameCanvas) {
+                                const rect = gameCanvas.getBoundingClientRect();
+                                window.mouseX = e.clientX - rect.left;
+                                window.mouseY = e.clientY - rect.top;
+                            } else {
+                                window.mouseX = e.clientX;
+                                window.mouseY = e.clientY;
+                            }
+                        }
+                    };
+
+                    itemEl.onmousemove = (e) => {
+                        e.stopPropagation();
+                        if (!isSoldOut) { itemEl.style.setProperty('background-color', '#e2e8f0', 'important'); }
+                        if (typeof window !== 'undefined' && window.hoveringSlot === item) {
+                            const gameCanvas = document.getElementById('game-canvas') || document.querySelector('canvas');
+                            if (gameCanvas) {
+                                const rect = gameCanvas.getBoundingClientRect();
+                                window.mouseX = e.clientX - rect.left;
+                                window.mouseY = e.clientY - rect.top;
+                            } else {
+                                window.mouseX = e.clientX;
+                                window.mouseY = e.clientY;
+                            }
+                        }
+                    };
+
+                    itemEl.onmouseleave = (e) => {
+                        e.stopPropagation();
+                        if (!isSoldOut && !itemEl.classList.contains('is-selected')) { 
+                            itemEl.style.setProperty('background-color', '#ffffff', 'important'); 
+                        }
+                        if (typeof window !== 'undefined' && window.hoveringSlot === item) {
+                            window.hoveringSlot = null;
+                        }
+                    };
+
+                    // ダブルクリック購入
+                    if (!isSoldOut) {
+                        itemEl.ondblclick = (e) => {
+                            e.stopPropagation();
+                            itemEl.style.setProperty('background-color', '#e2e8f0', 'important');
+                            openVendingBuyDialog(item, ownerId);
+                        };
+                    }
+
+                    itemsContainer.appendChild(itemEl);
+                });
+            }
+
+            itemsContainer.scrollTop = currentScrollTop;
         }
     }
 
-    // 3. SEの再生
     if (typeof playMenuUpSound === 'function') {
         playMenuUpSound();
+    }
+    
+    requestAnimationFrame(() => {
+        if (itemsContainer) {
+            itemsContainer.scrollTop = currentScrollTop;
+            setTimeout(() => {
+                itemsContainer.scrollTop = currentScrollTop;
+            }, 10);
+        }
+    });
+}
+
+function closeOtherVendingWindow() {
+    const win = document.getElementById('other-vending-window');
+    if (win) {
+        win.style.display = 'none';
+    }
+
+    // 🌟 閉じた瞬間にサーバーへ最新データを要求して同期する
+    // （現在開いていたショップのIDやオーナーIDを保持している変数・またはウィンドウに持たせたデータを利用）
+    if (typeof currentOpenShopId !== 'undefined' && currentOpenShopId) {
+        if (typeof socket !== 'undefined' && socket && socket.connected) {
+            console.log("🚪 [Vending] 露店ウィンドウを閉じました。サーバーへ最新データを要求します。");
+            socket.emit('request_latest_shop_data', { 
+                shopId: currentOpenShopId, 
+                ownerId: currentOpenShopId 
+            });
+        }
     }
 }
 
 // ============================================================
-// :::SOCKET_ON_VENDING_DATA_RES::: 📡 露店商品データの受信とUI描画 (修正版)
+// :::RESTORE_VENDING_ITEMS_TO_UI::: 🏪 露店アイテムのUI復元（ゴージャスリッチ仕様連動版）
+// ============================================================
+function restoreVendingItemsToUI(itemsArray) {
+    // 1. 出品用バッファを一度リセット
+    vendingItemsBuffer = [];
+
+    // 2. リスト表示コンテナを取得
+    const listContainer = document.getElementById('vending-item-list');
+    if (!listContainer) return;
+
+    listContainer.innerHTML = "";
+
+    // 3. 復元するアイテムがない場合
+    if (!itemsArray || itemsArray.length === 0) {
+        listContainer.innerHTML = '<div style="padding: 10px; text-align: center; color: #64748b; font-size: 11px;">アイテムがありません</div>';
+        return;
+    }
+
+    // 4. 各アイテムをお持ちのゴージャスリッチな addItemToVendingList に通して美しく描画！
+    itemsArray.forEach(item => {
+        addItemToVendingList(item);
+    });
+	
+	// 🌟 5. 【ここがポイント！】露店データを一括で読み込んで復元したときは、スクロールを一番上に強制リセットする！
+    listContainer.scrollTop = 0;
+
+    console.log("✨ [Vending] 露店管理ウィンドウの陳列商品を完全に復元しました:", vendingItemsBuffer);
+}
+
+// ============================================================
+// 📦 共通：露店アイテムのHTML文字列を生成する関数（デザイン・レイアウトの統一用）
+// ============================================================
+function createVendingItemHTML(item) {
+    const itemQty = Number(item.count ?? item.quantity ?? 1);
+    const isSoldOut = Boolean(item.isSoldOut || itemQty <= 0);
+
+    const idCheck = {
+        item_id: item.item_id,
+        data_item_id: item.data?.item_id,
+        itemData_id: item.itemData?.item_id,
+        raw_id: item.id
+    };
+    const targetItemId = Number(idCheck.item_id || idCheck.data_item_id || idCheck.itemData_id || idCheck.raw_id || 0);
+
+    const dbDisplayName = (item.data && item.data.display_name) || item.display_name;
+    const dbImageName = (item.data && item.data.image_name) || item.image_name;
+
+    let finalIconPath = "";
+    if (item?.iconUrl && item.iconUrl !== "") {
+        finalIconPath = item.iconUrl;
+    } else if (dbImageName) {
+        const hasExt = String(dbImageName).includes('.');
+        finalIconPath = `${IMAGE_DOMAIN}item_assets/${dbImageName}${hasExt ? '' : '.png'}`;
+    } else if (targetItemId === 201) {
+        finalIconPath = `${IMAGE_DOMAIN}item_assets/sweets.png`;
+    } else {
+        const fallbackType = item.type || (item.data && item.data.type) || 'default';
+        finalIconPath = `${IMAGE_DOMAIN}item_assets/${fallbackType}${String(fallbackType).includes('.') ? '' : '.png'}`;
+    }
+
+    let displayName = dbDisplayName || item.displayName || item.name || (item.data && item.data.name) || "不明なアイテム";
+    if (targetItemId === 201) {
+        displayName = dbDisplayName || "おいしいケーキ";
+    }
+
+    let iconGlowStyle = ""; 
+    const isEquipment = (
+        item.type === 'sword' || item.type === 'shield' || ['sword', 'shield'].includes(item.item_type)
+    );
+
+    const currentAllStats = item.totalALLStats ?? (item.data && item.data.totalALLStats);
+    const currentFirstStats = item.totalFirstStats ?? (item.data && item.data.totalFirstStats);
+
+    if (isEquipment && currentAllStats !== undefined && currentFirstStats !== undefined) {
+        const bonus = currentAllStats - currentFirstStats;
+        let rankGlowColor = "";
+        let rankName = "";
+        if (bonus >= 30)      { rankGlowColor = "#ef4444"; rankName = "(神級)"; }
+        else if (bonus >= 25) { rankGlowColor = "#22c55e"; rankName = "(超伝説)"; }
+        else if (bonus >= 20) { rankGlowColor = "#eab308"; rankName = "(極上)"; }
+        else if (bonus >= 15) { rankGlowColor = "#a855f7"; rankName = "(伝説)"; }
+        else if (bonus >= 10) { rankGlowColor = "#06b6d4"; rankName = "(希少)"; }
+        else if (bonus >= 5)  { rankGlowColor = "#f97316"; rankName = "(良品)"; }
+        else if (bonus >= 0)  { rankGlowColor = "";        rankName = "(標準)"; }
+        else                  { rankGlowColor = "";        rankName = "(粗悪)"; }
+
+        if (!displayName.includes("(")) displayName = `${displayName} <span style="font-size:10px; font-weight:bold; color:${rankGlowColor || '#64748b'};">${rankName}</span>`;
+        if (rankGlowColor) { iconGlowStyle = `filter: drop-shadow(0 0 4px ${rankGlowColor});`; }
+    } else {
+        displayName = displayName.replace(/\(標準\)$/, "");
+    }
+
+    const rawPrice = Number(item.price || 0);
+    let priceColor = "#2563eb"; 
+    if (rawPrice >= 1000000000) { priceColor = "#7c3aed"; }
+    else if (rawPrice >= 100000000) { priceColor = "#9333ea"; }
+    else if (rawPrice >= 10000000) { priceColor = "#dc2626"; }
+    else if (rawPrice >= 1000000) { priceColor = "#16a34a"; }
+    else if (rawPrice >= 10000) { priceColor = "#0891b2"; }
+
+    const displayPrice = item.price ? Number(item.price).toLocaleString() : "0";
+
+    return `
+        <div style="display: flex; align-items: center; gap: 10px; flex: 1; pointer-events: none;">
+            <div style="width: 36px; height: 36px; min-width: 36px; display: flex; align-items: center; justify-content: center; background: radial-gradient(circle, #f8fafc 0%, #e2e8f0 100%); border: 1px solid #cbd5e1; border-radius: 6px; position: relative; overflow: hidden; box-shadow: inset 0 1px 2px rgba(255,255,255,0.8);">
+                <img src="${finalIconPath}" 
+                     onerror="this.onerror=null; this.src='assets/items/default.png';" 
+                     style="max-width: 28px; max-height: 28px; object-fit: contain; image-rendering: pixelated; ${iconGlowStyle}">
+                ${(!isEquipment && itemQty > 1 && !isSoldOut) ? `
+                    <span style="position: absolute; bottom: 1px; right: 1px; font-size: 8px; background: rgba(15,23,42,0.85); color: white; padding: 0 3px; border-radius: 3px; font-family: 'Segoe UI', Tahoma, sans-serif; font-weight: bold; line-height: 1.4;">
+                        ${itemQty}
+                    </span>
+                ` : ''}
+            </div>
+            <div style="display: flex; flex-direction: column; font-family: 'Segoe UI', Tahoma, sans-serif; gap: 1px;">
+                <span style="color: #0f172a; font-weight: 700; font-size: 12px; letter-spacing: 0.2px;">
+                    ${displayName}
+                </span>
+                <!-- 🌟 「1個当り」のフォントサイズと色を価格（priceColor）に完全統一 -->
+                <div style="display: flex; align-items: baseline; gap: 3px;">
+                    <span style="display:none; color: ${priceColor}; font-size: 11px; font-weight: 700;">1個当り</span>
+                    <span style="color: ${priceColor}; font-weight: 800; font-size: 11px;">${displayPrice}</span>
+                    <span style="color: ${priceColor}; font-size: 11px; font-weight: 700;">メル</span>
+                </div>
+            </div>
+        </div>
+        <div></div>
+    `;
+}
+
+// 🌟 サーバーから「編集状態が変わった」という通知を受け取る
+if (typeof socket !== 'undefined' && socket) {
+    socket.on('vending_editing_status_update', (data) => {
+        if (typeof activeOfflineShops !== 'undefined' && Array.isArray(activeOfflineShops)) {
+            const shop = activeOfflineShops.find(s => String(s.id || s.owner_id) === String(data.shopId));
+            if (shop) {
+                shop.isEditing = data.isEditing; // 状態を更新
+            }
+        }
+    });
+}
+
+// ============================================================
+// :::SOCKET_ON_VENDING_DATA_RES::: 📡 露店商品データの受信とUI描画 (共通関数活用版)
 // ============================================================
 socket.on('vending_data_res', (data) => {
 
@@ -6265,6 +8092,9 @@ socket.on('vending_data_res', (data) => {
         console.error("❌ [ERROR] 'other-vending-items' が消失しています。");
         return;
     }
+
+    // 🌟 【超重要】データ受信・描画処理の開始時に現在のスクロール位置を保持する
+    const currentScrollTop = itemsContainer.scrollTop;
 
     const now = Date.now();
     const lastUpdate = parseInt(itemsContainer.dataset.lastTick || 0);
@@ -6288,22 +8118,18 @@ socket.on('vending_data_res', (data) => {
         }
     }
 
-    const bugItem = (data.items || []).find(i => {
-        if (!i) return false;
-        const hasName = i.display_name || i.name || (i.data && (i.data.display_name || i.data.name));
-        return !hasName; 
-    });
-    
     console.log("%c🏪 [VENDING_RECEIVE] データ受信", "background: #2ecc71; color: white; padding: 2px 5px;", data);
 
     window.currentVendingOwnerId = data.ownerId;
     const items = data.items || [];
 
+    // 🌟 ハッシュ値に isSoldOut の状態も含めることで、売り切れ変化時に確実に再描画させる
     const pureDataHash = items.map(i => {
         const id = i.item_id || i.id || (i.data && i.data.item_id);
         const price = i.price || 0;
         const count = i.count || i.quantity || 1;
-        return `${id}_${price}_${count}`;
+        const soldOut = i.isSoldOut ? 1 : 0;
+        return `${id}_${price}_${count}_${soldOut}`;
     }).join('|');
 
     if (itemsContainer.dataset.lastPureHash === pureDataHash) {
@@ -6329,144 +8155,65 @@ socket.on('vending_data_res', (data) => {
     const currentRows = itemsContainer.querySelectorAll('.shop-item-row-div');
 
     items.forEach((item, index) => {
-        const idCheck = {
-            item_id: item.item_id,
-            data_item_id: item.data?.item_id,
-            itemData_id: item.itemData?.item_id,
-            raw_id: item.id
-        };
-        const targetItemId = Number(idCheck.item_id || idCheck.data_item_id || idCheck.itemData_id || idCheck.raw_id || 0);
-
-        const dbDisplayName = (item.data && item.data.display_name) || item.display_name;
-        const dbImageName = (item.data && item.data.image_name) || item.image_name;
+        // 🌟 売り切れ判定（isSoldOut が true、または個数が 0 以下）
+        const isSoldOut = item.isSoldOut || Number(item.count || item.quantity || 0) <= 0;
 
         let itemRow = currentRows[index];
         if (!itemRow) {
             itemRow = document.createElement('div');
             itemRow.className = 'shop-item-row-div';
-            
-            // 🌟 修正：outline: none と box-sizing を加え、最初からボーダー幅を固定して黒枠（ガタつき）を防止
-            Object.assign(itemRow.style, {
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-                borderBottom: "1px solid #f1f5f9",
-                borderTop: "1px solid transparent",
-                borderLeft: "1px solid transparent",
-                borderRight: "1px solid transparent",
-                padding: "6px 8px",
-                cursor: "pointer",
-                background: "#ffffff",
-                outline: "none",
-                boxSizing: "border-box",
-                transition: "background 0.15s ease, border-color 0.15s ease"
-            });
-            itemRow.title = "ダブルクリックで購入";
             itemsContainer.appendChild(itemRow);
         }
 
-        let displayName = dbDisplayName || item.displayName || item.name || (item.data && item.data.name) || "不明なアイテム";
-        let forcedIconPath = null;
+        // 🌟 売り切れ状態に応じてスタイルを動的に切り替え
+        Object.assign(itemRow.style, {
+            display: "flex",
+            justifyContent: "space-between",
+            alignItems: "center",
+            borderBottom: "1px solid #f1f5f9",
+            borderTop: "1px solid transparent",
+            borderLeft: "1px solid transparent",
+            borderRight: "1px solid transparent",
+            padding: "6px 8px",
+            cursor: "pointer",
+            background: isSoldOut ? "#f8fafc" : "#ffffff",
+            opacity: isSoldOut ? "0.4" : "1",
+            outline: "none",
+            boxSizing: "border-box",
+            position: "relative",
+            transition: "background 0.15s ease, border-color 0.15s ease, opacity 0.15s ease"
+        });
+        itemRow.title = isSoldOut ? "売り切れました" : "ダブルクリックで購入";
 
-        if (targetItemId === 201) {
-            displayName = dbDisplayName || "おいしいケーキ";
-            forcedIconPath = `${IMAGE_DOMAIN}item_assets/${dbImageName || "sweets"}.png`;
-        }
-
-        const rawType = item.item_type || item.type || (item.data && item.data.type) || item.category || "item";
-        const finalType = String(rawType).toLowerCase();
-
-        let iconGlowStyle = ""; 
-        const isEquipment = (
-            item.type === 'sword' || item.type === 'shield' || ['sword', 'shield'].includes(item.item_type)
-        );
-
-        const currentAllStats = item.totalALLStats ?? (item.data && item.data.totalALLStats);
-        const currentFirstStats = item.totalFirstStats ?? (item.data && item.data.totalFirstStats);
-
-        if (isEquipment && currentAllStats !== undefined && currentFirstStats !== undefined) {
-            const bonus = currentAllStats - currentFirstStats;
-            let rankGlowColor = "";
-            let rankName = "";
-            if (bonus >= 30) { rankGlowColor = "#ef4444"; rankName = "(神級)"; }
-            else if (bonus >= 25) { rankGlowColor = "#22c55e"; rankName = "(超伝説)"; }
-            else if (bonus >= 20) { rankGlowColor = "#eab308"; rankName = "(極上)"; }
-            else if (bonus >= 15) { rankGlowColor = "#a855f7"; rankName = "(伝説)"; }
-            else if (bonus >= 10) { rankGlowColor = "#06b6d4"; rankName = "(希少)"; }
-            else if (bonus >= 5)  { rankGlowColor = "#f97316"; rankName = "(良品)"; }
-            else if (bonus >= 0)  { rankGlowColor = ""; rankName = "(標準)"; }
-            else { rankGlowColor = ""; rankName = "(粗悪)"; }
-
-            if (!displayName.includes("(")) displayName = `${displayName} <span style="font-size:10px; font-weight:bold; color:${rankGlowColor || '#64748b'};">${rankName}</span>`;
-            if (rankGlowColor) { iconGlowStyle = `filter: drop-shadow(0 0 4px ${rankGlowColor});`; }
-        }
-
-        const rawPrice = Number(item.price || 0);
-        let priceColor = "#2563eb"; 
-
-        if (rawPrice >= 1000000000) {
-            priceColor = "#7c3aed"; 
-        } else if (rawPrice >= 100000000) {
-            priceColor = "#9333ea"; 
-        } else if (rawPrice >= 10000000) {
-            priceColor = "#dc2626"; 
-        } else if (rawPrice >= 1000000) {
-            priceColor = "#16a34a"; 
-        } else if (rawPrice >= 10000) {
-            priceColor = "#0891b2"; 
-        }
-
-        const price = item.price ? item.price.toLocaleString() : "0";
-        const count = item.count || item.quantity || 1;
-        
-        let iconPath = forcedIconPath || item.iconUrl;
-        if (!iconPath) {
-            const finalImgName = dbImageName || item.type || finalType;
-            iconPath = `${IMAGE_DOMAIN}item_assets/${finalImgName}${String(finalImgName).includes('.') ? '' : '.png'}`;
-        }
-
-        const newHTML = `
-            <div style="display: flex; align-items: center; gap: 10px; flex: 1; pointer-events: none;">
-                <div style="width: 36px; height: 36px; min-width: 36px; display: flex; align-items: center; justify-content: center; background: radial-gradient(circle, #f8fafc 0%, #e2e8f0 100%); border: 1px solid #cbd5e1; border-radius: 6px; position: relative; overflow: hidden; box-shadow: inset 0 1px 2px rgba(255,255,255,0.8);">
-                    <img src="${iconPath}" 
-                         onerror="this.onerror=null; this.src='assets/items/default.png';" 
-                         style="max-width: 28px; max-height: 28px; object-fit: contain; image-rendering: pixelated; ${iconGlowStyle}">
-                    ${(!isEquipment && count > 1) ? `
-                        <span style="position: absolute; bottom: 1px; right: 1px; font-size: 8px; background: rgba(15,23,42,0.85); color: white; padding: 0 3px; border-radius: 3px; font-family: 'Segoe UI', Tahoma, sans-serif; font-weight: bold; line-height: 1.4;">
-                            ${count}
-                        </span>
-                    ` : ''}
-                </div>
-                <div style="display: flex; flex-direction: column; font-family: 'Segoe UI', Tahoma, sans-serif; gap: 1px;">
-                    <span style="color: #0f172a; font-weight: 700; font-size: 12px; letter-spacing: 0.2px;">
-                        ${displayName}
-                    </span>
-                    <div style="display: flex; align-items: center; gap: 3px;">
-                        <span style="color: ${priceColor}; font-weight: 800; font-size: 11px;">${price}</span>
-                        <span style="color: #64748b; font-size: 9px; font-weight: 600;">メル</span>
-                    </div>
-                </div>
-            </div>
-            <div style="color: #94a3b8; font-size: 9px; font-weight: 600; font-family: 'Segoe UI', Tahoma, sans-serif; pointer-events: none; background: #f1f5f9; padding: 2px 5px; border-radius: 3px;">2Click</div>
-        `;
+        // 🌟 共通関数からHTMLを生成してセット
+        const newHTML = createVendingItemHTML(item);
 
         if (itemRow.innerHTML.trim() !== newHTML.trim()) {
             itemRow.innerHTML = newHTML;
         }
         
-        itemRow.ondblclick = () => {
-            if (typeof buyFromVending === 'function') {
-                buyFromVending(data.ownerId, item.db_id || item.id);
-            }
-        };
-        
+        // 🌟 ダブルクリック（購入）の制御
+        if (!isSoldOut) {
+            itemRow.ondblclick = () => {
+                console.log("🎯 [DEBUG_DBLCLICK] アイテムがダブルクリックされました！対象:", item);
+                if (typeof openVendingBuyDialog === 'function') {
+                    openVendingBuyDialog(item, data.ownerId);
+                } else {
+                    console.error("❌ [ERROR] openVendingBuyDialog 関数が存在しません！");
+                }
+            };
+        } else {
+            itemRow.ondblclick = null; // 売り切れ時は購入不可
+        }
+
+        // 🔍 マウスエンター（ホバー開始）
         itemRow.onmouseenter = (e) => { 
-            itemRow.style.background = "#f8fafc";
-            itemRow.style.borderColor = "#cbd5e1"; // ホバー時に上下左右の透明ボーダーを綺麗に色づかせる
+            console.log("📥 [DEBUG_HOVER] onmouseenter 発火！ 対象アイテム:", item.name);
+            itemRow.style.backgroundColor = isSoldOut ? "#e2e8f0" : "#ffedd5"; 
+            itemRow.style.borderColor = isSoldOut ? "#cbd5e1" : "#f97316";
             
             if (typeof window !== 'undefined') {
-                window.hoveringSlot = item;
-                
+                window.hoveringSlot = item; 
                 const gameCanvas = document.getElementById('game-canvas') || document.querySelector('canvas');
                 if (gameCanvas) {
                     const rect = gameCanvas.getBoundingClientRect();
@@ -6479,6 +8226,7 @@ socket.on('vending_data_res', (data) => {
             }
         };
 
+        // 🔍 マウスムーブ
         itemRow.onmousemove = (e) => {
             if (typeof window !== 'undefined') {
                 const gameCanvas = document.getElementById('game-canvas') || document.querySelector('canvas');
@@ -6493,10 +8241,12 @@ socket.on('vending_data_res', (data) => {
             }
         };
         
+        // 🔍 マウスリーブ（ホバー終了）
         itemRow.onmouseleave = () => { 
-            itemRow.style.background = "#ffffff"; 
+            console.log("📤 [DEBUG_HOVER] onmouseleave 発火！ 対象アイテム:", item.name);
+            itemRow.style.backgroundColor = isSoldOut ? "#f8fafc" : "#ffffff"; 
             itemRow.style.borderColor = "transparent";
-            itemRow.style.borderBottomColor = "#f1f5f9"; // 下線だけ元の区切り線に戻す
+            itemRow.style.borderBottomColor = "#f1f5f9";
             
             if (typeof window !== 'undefined' && window.hoveringSlot === item) {
                 window.hoveringSlot = null;
@@ -6509,73 +8259,16 @@ socket.on('vending_data_res', (data) => {
             currentRows[i].remove();
         }
     }
+
+    // 🌟 【超高精度化】ブラウザのレイアウト計算（リフロー）が完了した直後にスクロール位置を完全にロックする
+    requestAnimationFrame(() => {
+        itemsContainer.scrollTop = currentScrollTop;
+        
+        setTimeout(() => {
+            itemsContainer.scrollTop = currentScrollTop;
+        }, 10);
+    });
 });
-
-// ============================================================
-// :::BUY_FROM_VENDING::: 🛒 露店購入プロセスの実行と決済確認
-// ============================================================
-/**
- * 役割：
- * - 取引開始のデバッグログ出力（OwnerID/dbIdの追跡）
- * - 自店舗購入（セルフ購入）の不正防止・安全装置
- * - 購入確認モーダルの表示と、ユーザーの意思確認（承認/キャンセル）の制御
- * - サーバーへの購入リクエスト（vending_buy_req）の発行
- * - UIが存在しない場合の標準ダイアログへのフォールバック
- */
-function buyFromVending(ownerId, dbId) {
-    // 1. 関数が呼ばれた瞬間に青いログを出す
-    console.log("%c🚀 [VENDING_DEBUG] buyFromVendingが呼び出されました", "background: blue; color: white; padding: 2px 5px;");
-    console.log("├─ 受信OwnerID:", ownerId);
-    console.log("├─ 受信dbId:", dbId);
-    console.log("└─ 現在のsocket.id:", socket ? socket.id : "socket未定義");
-
-    // 自分の店なら中断
-    if (ownerId === socket.id) {
-        console.warn("⚠️ [VENDING_DEBUG] 自店舗購入のため中断しました。");
-        alert("自分の店でアイテムを買うことはできません。");
-        return;
-    }
-
-    // 🌟 オリジナルUIモーダルの制御
-    const modal = document.getElementById('vending-buy-confirm-modal');
-    const confirmBtn = document.getElementById('buy-confirm-btn');
-    const cancelBtn = document.getElementById('buy-cancel-btn');
-
-    if (modal) {
-        // モーダルを表示
-        modal.style.display = 'block';
-        console.log("├─ 購入確認モーダルを表示しました。");
-
-        // ✅ 「購入する」ボタンが押された時
-        confirmBtn.onclick = () => {
-            console.log("├─ 購入確認ダイアログの結果: 承認 (OK)");
-            
-            // 3. サーバー送信直前のデータをログ
-            console.log("%c✉️ [VENDING_DEBUG] サーバーへ 'vending_buy_req' を送信します...", "color: cyan; font-weight: bold;");
-            
-            socket.emit('vending_buy_req', {
-                ownerId: ownerId,
-                dbId: dbId
-            });
-
-            modal.style.display = 'none'; // モーダルを閉じる
-        };
-
-        // ❌ 「キャンセル」ボタンが押された時
-        cancelBtn.onclick = () => {
-            console.log("├─ 購入確認ダイアログの結果: キャンセル");
-            console.log("└─ 購入がキャンセルされました。");
-            
-            modal.style.display = 'none'; // モーダルを閉じる
-        };
-    } else {
-        // 万が一HTML要素が見つからない場合のフォールバック（従来のconfirm）
-        console.error("⚠️ [VENDING_DEBUG] 確認モーダルが見つかりません。標準ダイアログを使用します。");
-        if (confirm("このアイテムを購入しますか？")) {
-            socket.emit('vending_buy_req', { ownerId, dbId });
-        }
-    }
-}
 
 // サーバーから「モデルIDの保存成功」通知を受け取る
 socket.on('update_model_success', (data) => {
@@ -6677,13 +8370,130 @@ socket.on('login_error', (data) => {
     showErrorMessage(data.message);
 });
 
+// ============================================================
+// 📜 【修正版】売上履歴ウィンドウを開く関数（画面中央配置 ＆ 近くへの配置対応）
+// ============================================================
+function openVendingSalesLog() {
+    const logWin = document.getElementById('vending-sales-log-window');
+    if (logWin) {
+        logWin.style.display = 'block';
+        
+        // 🌟 まずは画面の中央に配置するスタイルを適用
+        logWin.style.left = '50%';
+        logWin.style.top = '50%';
+        logWin.style.transform = 'translate(-50%, -50%)';
+
+        // 💡 もし露店ウィンドウ（vending-window）が開いていれば、その隣に並べて表示したい場合の微調整（お好みで活用できます）
+        const vendingWin = document.getElementById('vending-window');
+        if (vendingWin && vendingWin.style.display !== 'none' && vendingWin.style.left) {
+            // 露店ウィンドウの座標が取得できる場合は、その右側にピタッと並べることも可能です
+            // 今回は確実に中央に表示させるため、上記 transform による中央配置を優先しています。
+        }
+    }
+
+    // サーバーへ売上ログの取得を要求
+    if (typeof socket !== 'undefined') {
+        socket.emit('get_vending_sales_log');
+    }
+}
+
+// 📡 サーバーから売上ログデータを受信して画面に描画する
+socket.on('vending_sales_log_res', (data) => {
+    const listContainer = document.getElementById('vending-sales-log-list');
+    if (!listContainer) return;
+
+    const logs = data.logs || [];
+    if (logs.length === 0) {
+        listContainer.innerHTML = '<p style="text-align: center; color: #64748b; font-size: 11px; margin: 10px 0;">売上履歴はありません。</p>';
+        return;
+    }
+
+    listContainer.innerHTML = '';
+    logs.forEach(log => {
+        const dateStr = new Date(log.created_at).toLocaleString();
+        const row = document.createElement('div');
+        row.style.cssText = "display: flex; flex-direction: column; background: #f8fafc; border: 1px solid #e2e8f0; padding: 6px 8px; border-radius: 4px; font-size: 11px; gap: 2px;";
+        
+        row.innerHTML = `
+            <div style="display: flex; justify-content: space-between; font-weight: bold; color: #0f172a;">
+                <span>🛒 ${log.item_name} x${log.quantity}</span>
+                <span style="color: #16a34a;">+${Number(log.total_price).toLocaleString()} メル</span>
+            </div>
+            <div style="display: flex; justify-content: space-between; color: #64748b; font-size: 9px;">
+                <span>購入者: ${log.buyer_name}</span>
+                <span>${dateStr}</span>
+            </div>
+        `;
+        listContainer.appendChild(row);
+    });
+});
+
+// 🔔 リアルタイムで商品が売れたときのシステム通知
+socket.on('vending_item_sold_notification', (data) => {
+    if (typeof showSystemMessage === 'function') {
+        showSystemMessage(`【露店売上】${data.buyerName} が ${data.itemName} x${data.quantity} を ${data.totalPrice.toLocaleString()}メル で購入しました！`);
+    }
+});
+
+// ============================================================
+// 💰 【クライアント側】未受取の売上金を回収する関数
+// ============================================================
+function claimVendingGold() {
+    // サーバーへ「売上金を回収したい」というリクエストを送る
+    if (typeof socket !== 'undefined' && socket) {
+        socket.emit('claim_vending_gold');
+        console.log("💰 [Client] 売上金回収リクエストを送信しました。");
+    }
+}
+
+// ============================================================
+// 💰 サーバーから「売上金の回収成功」を受け取ったときの処理
+// ============================================================
+if (typeof socket !== 'undefined' && socket) {
+    socket.on('vending_gold_claimed', (data) => {
+        console.log("💰 [Client] 売上金回収成功データを受信:", data);
+
+        // 1. 未受取金の表示を「0」にリセットする
+        const goldSpan = document.getElementById('vending-unclaimed-gold');
+        if (goldSpan) {
+            goldSpan.innerText = "0";
+        }
+
+        // 2. ダイアログ（通知）を表示する
+        const claimedAmount = data.claimed || 0;
+        if (typeof showNotification === 'function') {
+            showNotification(`💰 ${claimedAmount.toLocaleString()} メルを受け取りました！(売り切れ品を片付けました)`, "#2ecc71");
+        } else {
+            alert(`${claimedAmount.toLocaleString()} メルを受け取りました！`);
+        }
+
+        // 3. 手元の hero オブジェクトなどの未受取金を 0 に更新
+        if (typeof hero !== 'undefined' && hero) {
+            hero.unclaimed_gold = 0;
+        }
+
+        // 4. 🌟 【完璧な解決】サーバーから送られてきた売り切れ除外済みの items を一括復元関数に渡して即時再描画！
+        if (data.items) {
+            // もし自分の露店データ（myShopなど）を保持しているならここで更新
+            if (typeof myShop !== 'undefined' && myShop) {
+                myShop.items = data.items;
+            }
+
+            // 見つかった一括復元関数を実行！
+            if (typeof restoreVendingItemsToUI === 'function') {
+                restoreVendingItemsToUI(data.items);
+            }
+        }
+    });
+}
+
 // ==========================================
 // 📦 露店データ管理用バッファ
 // ==========================================
 let vendingItemsBuffer = []; // サーバー送信用のデータを保持する箱
 
 // ============================================================
-// :::REMOVE_ITEM_FROM_VENDING::: 🗑️ 露店リストからのアイテム削除と同期
+// :::REMOVE_ITEM_FROM_VENDING::: 🗑️ 露店リストからのアイテム削除と同期・DB更新
 // ============================================================
 /**
  * 役割：
@@ -6691,6 +8501,7 @@ let vendingItemsBuffer = []; // サーバー送信用のデータを保持する
  * - 対応するHTML要素（DOM）を画面から削除
  * - ツールチップ（currentHoverSlot）のクリアによるゴミデータの防止
  * - リストが空になった際の初期メッセージの復帰
+ * - 🌟 出店中の場合はボタンを「🔄 露店情報を更新する」へ切り替え、サーバーへ最新バッファを送信してDBを即時更新
  */
 function removeItemFromVending(itemId) {
     // 1. 配列から削除
@@ -6703,13 +8514,40 @@ function removeItemFromVending(itemId) {
     // 3. ホバー中のツールチップをクリア
     window.currentHoverSlot = null;
 
-    // リストが空になったらメッセージを戻す（任意）
+    // リストが空になったらメッセージを戻す
     const listContainer = document.getElementById('vending-item-list');
     if (listContainer && vendingItemsBuffer.length === 0) {
-        listContainer.innerHTML = '<p style="color: #999; text-align: center; padding: 10px;">アイテムがありません</p>';
+        listContainer.innerHTML = '<p style="color: #64748b; text-align: center; padding: 10px; font-size: 11px;">アイテムがありません</p>';
     }
     
     console.log(`[Vending] ID:${itemId} をリストから削除しました。残りの数: ${vendingItemsBuffer.length}`);
+
+    // 🌟 判定を強化： hero.is_vending または 管理ウィンドウが表示中なら処理を実行！
+    const vendingWin = document.getElementById('vending-window');
+    const isWindowOpen = vendingWin && vendingWin.style.display !== 'none';
+    const isCurrentlyVending = (typeof hero !== 'undefined' && hero.is_vending) || isWindowOpen;
+
+    if (isCurrentlyVending) {
+        // ボタンの見た目と動作を「露店情報を更新する」に変更
+        const confirmBtn = document.getElementById('vending-confirm-btn');
+        if (confirmBtn) {
+            confirmBtn.innerText = "🔄 露店情報を更新する";
+            confirmBtn.setAttribute("onclick", "startVending()");
+            confirmBtn.style.setProperty('background', 'linear-gradient(135deg, #0284c7 0%, #0369a1 100%)', 'important');
+            confirmBtn.style.setProperty('border-color', '#0284c7', 'important');
+        }
+
+        // サーバーへ最新のバッファを送信してDBを更新
+        if (typeof socket !== 'undefined') {
+            console.log("🚀 [Vending] サーバーへ update_vending_items を送信します:", vendingItemsBuffer);
+            //socket.emit('update_vending_items', {
+            //    items: vendingItemsBuffer
+            //});
+            console.log("💾 [Vending] アイテム削除後の最新リストをサーバーへ送信し、データベースを更新します。");
+        }
+    } else {
+        console.warn("⚠️ 出店中フラグが false のため、サーバー送信をスキップしました。");
+    }
 }
 
 // ============================================================
@@ -6746,70 +8584,48 @@ function markItemAsSold(itemId) {
 }
 
 // ============================================================
-// :::ADD_ITEM_TO_VENDING_LIST::: 🏪 露店への商品陳列・データ供給 (ゴージャスリッチ版)
+// :::ADD_ITEM_TO_VENDING_LIST::: 🏪 露店への商品陳列・データ供給 (デザイン統一・ベースライン揃え版)
 // ============================================================
-/**
- * 役割：
- * - アイテムデータの検証と、販売バッファ（vendingItemsBuffer）への安全な登録
- * - 画像アセットのパス解決と、読み込みエラー時のフォールバック処理
- * - 装備品ランクに応じたグローエフェクト（神級〜粗悪）の適用
- * - メイプルストーリー伝統の価格帯別カラーリング（10k〜1000m以上）
- * - 陳列棚（UI）へのDOM生成とイベント登録（ホバー・削除）
- */
 function addItemToVendingList(item) {
     const listContainer = document.getElementById('vending-item-list');
     
+    // IMAGE_DOMAIN が未定義の場合の安全なフォールバック対策
+    const imageBase = (typeof IMAGE_DOMAIN !== 'undefined') ? IMAGE_DOMAIN : 'assets/';
+
     // ==========================================
-    // 🔍 完璧デバッグセクション (そのまま維持 + 追跡強化)
+    // 🔍 完璧デバッグセクション
     // ==========================================
     console.group(`🏪 露店追加デバッグ: ${item?.name || '不明なアイテム'}`);
     console.log("1. 受信データ:", item);
 
-    // 画像パス解決のロジック
     let finalIconPath = "";
-    let solveMethod = "";
+    const dbImageName = (item.data && item.data.image_name) || item.image_name || item.iconName;
+    const targetItemId = Number(item.item_id || (item.data && item.data.item_id) || item.id || 0);
 
     if (item?.iconUrl && item.iconUrl !== "") {
         finalIconPath = item.iconUrl;
-        solveMethod = "iconUrlから取得";
-    } else if (item?.image_name) {
-        finalIconPath = `${IMAGE_DOMAIN}item_assets/${item.image_name}`;
-        solveMethod = "image_nameから生成";
-    } else if (item?.type) {
-        finalIconPath = `${IMAGE_DOMAIN}item_assets/${item.type}.png`;
-        solveMethod = `⚠️ image_name不在のため type('${item.type}') から生成`;
+    } else if (dbImageName) {
+        const hasExt = String(dbImageName).includes('.');
+        finalIconPath = `${imageBase}item_assets/${dbImageName}${hasExt ? '' : '.png'}`;
+    } else if (targetItemId === 201) {
+        finalIconPath = `${imageBase}item_assets/sweets.png`;
+    } else {
+        const fallbackType = item.type || (item.data && item.data.type) || 'default';
+        finalIconPath = `${imageBase}item_assets/${fallbackType}${String(fallbackType).includes('.') ? '' : '.png'}`;
     }
 
-    console.log(`2. パス解決トレース: ${solveMethod}`);
-    console.log(`3. 最終解決URL: "${finalIconPath}"`);
-    
-    if (finalIconPath) {
-        const imgTest = new Image();
-        imgTest.onload = () => {
-            console.log("✅ 画像読み込み成功:", imgTest.src);
-            console.log(`   サイズ: ${imgTest.width}x${imgTest.height}px`);
-        };
-        imgTest.onerror = () => {
-            console.error("❌ 画像読み込み失敗！パスが間違っているかファイルが存在しません。");
-            console.error("   ブラウザが試行した絶対パス:", imgTest.src);
-        };
-        imgTest.src = finalIconPath;
-    } else {
-        console.warn("⚠️ 有効な画像パス（iconUrl, image_name, type）が特定できません。");
-    }
+    console.log(`2. 最終解決URL: "${finalIconPath}"`);
     console.groupEnd();
 
     if (!listContainer || !item) return;
 
-    // --- 【追加箇所】配列バッファへのデータ格納 ---
-    const itemId = item.db_id || item.id;
-    const isAlreadyIn = vendingItemsBuffer.some(i => (i.db_id || i.id) === itemId);
+    const itemId = item.db_id || item.id || item.dbId;
+    const isAlreadyIn = vendingItemsBuffer.some(i => (i.db_id || i.id || i.dbId) === itemId);
     if (isAlreadyIn) {
         console.warn("⚠️ このアイテムは既にリストに含まれています。");
         return;
     }
     vendingItemsBuffer.push(item); 
-    // ------------------------------------------
 
     if (listContainer.innerHTML.includes("アイテムがありません")) {
         listContainer.innerHTML = '';
@@ -6818,8 +8634,9 @@ function addItemToVendingList(item) {
     const existing = document.getElementById(`vending-item-${itemId}`);
     if (existing) return;
 
-    // 🏷️ アイテム名の判定とランク判定
-    let displayName = item.displayName || item.name || item.item_name || item.itemName || "名称不明アイテム";
+    const isSoldOut = item.isSoldOut || Number(item.count || item.quantity || 0) <= 0;
+
+    let displayName = item.displayName || item.name || item.item_name || item.itemName || (item.data && item.data.name) || "名称不明アイテム";
     let iconGlowStyle = ""; 
 
     const isEquipment = (
@@ -6828,8 +8645,11 @@ function addItemToVendingList(item) {
         ['sword', 'shield'].includes(item.item_type)
     );
 
-    if (isEquipment && item.totalALLStats !== undefined && item.totalFirstStats !== undefined) {
-        const bonus = item.totalALLStats - item.totalFirstStats;
+    const currentAllStats = item.totalALLStats ?? (item.data && item.data.totalALLStats);
+    const currentFirstStats = item.totalFirstStats ?? (item.data && item.data.totalFirstStats);
+
+    if (isEquipment && currentAllStats !== undefined && currentFirstStats !== undefined) {
+        const bonus = currentAllStats - currentFirstStats;
         let rankName = "";
         let rankGlowColor = "";
 
@@ -6850,65 +8670,88 @@ function addItemToVendingList(item) {
         displayName = displayName.replace(/\(標準\)$/, "");
     }
 
-    // --- 🌟 メイプルストーリー伝統：価格による色分けロジック ---
     const rawPrice = Number(item.price || 0);
-    let priceColor = "#2563eb"; // デフォルト：10k未満は青 (Blue)
+    let priceColor = "#2563eb";
 
-    if (rawPrice >= 1000000000) {
-        priceColor = "#7c3aed"; // 1000m以上：濃い紫色 (Deep Purple)
-    } else if (rawPrice >= 100000000) {
-        priceColor = "#9333ea"; // 100m以上：紫色 (Purple)
-    } else if (rawPrice >= 10000000) {
-        priceColor = "#dc2626"; // 10m以上：赤色 (Red)
-    } else if (rawPrice >= 1000000) {
-        priceColor = "#16a34a"; // 1m以上：黄緑色 (LimeGreen)
-    } else if (rawPrice >= 10000) {
-        priceColor = "#0891b2"; // 10k以上：水色 (Cyan)
-    }
+    if (rawPrice >= 1000000000) { priceColor = "#7c3aed"; }
+    else if (rawPrice >= 100000000) { priceColor = "#9333ea"; }
+    else if (rawPrice >= 10000000) { priceColor = "#dc2626"; }
+    else if (rawPrice >= 1000000) { priceColor = "#16a34a"; }
+    else if (rawPrice >= 10000) { priceColor = "#0891b2"; }
 
-    const displayPrice = item.price ? item.price.toLocaleString() : "0";
+    const displayPrice = item.price ? Number(item.price).toLocaleString() : "0";
+    const itemCount = item.count || item.quantity || 1;
 
-    // 🖼️ 要素の作成（プロ仕様のデザイン・アニメーション適用）
     const itemEl = document.createElement('div');
     itemEl.id = `vending-item-${itemId}`;
-    itemEl.style.cssText = "display: flex; justify-content: space-between; align-items: center; padding: 6px 8px; border-bottom: 1px solid #f1f5f9; background: #ffffff; margin-bottom: 2px; cursor: default; transition: all 0.15s ease;";
+    // 🌟 他人の露店側と同じボーダー・トランジション等のデザインに統一
+    itemEl.style.cssText = `
+        display: flex; justify-content: space-between; align-items: center; 
+        padding: 6px 8px; background: ${isSoldOut ? '#f8fafc' : '#ffffff'}; 
+        opacity: ${isSoldOut ? '0.5' : '1'}; margin-bottom: 2px; cursor: pointer; 
+        border-width: 1px; border-style: solid; border-color: transparent transparent rgb(241, 245, 249); 
+        box-sizing: border-box; transition: background 0.15s, border-color 0.15s, opacity 0.15s;
+    `;
     
-    itemEl.onmouseover = () => { itemEl.style.background = '#f8fafc'; };
-    itemEl.onmouseout = () => { itemEl.style.background = '#ffffff'; };
-
+    itemEl.onmouseover = () => { itemEl.style.background = '#f1f5f9'; };
+    itemEl.onmouseout = () => { itemEl.style.background = isSoldOut ? '#f8fafc' : '#ffffff'; };
     itemEl.onmouseenter = () => { window.currentHoverSlot = item; };
     itemEl.onmouseleave = () => { window.currentHoverSlot = null; };
 
-    // HTML構造 (ゴージャスリッチ仕様)
+    // 🌟 価格表示を縦並び ＆ align-items: baseline に統一したクリーンなHTML構造
     itemEl.innerHTML = `
-        <div style="display: flex; align-items: center; pointer-events: none; flex: 1; gap: 10px;">
-            <div style="width: 36px; height: 36px; min-width: 36px; background: radial-gradient(circle, #f8fafc 0%, #e2e8f0 100%); border: 1px solid #cbd5e1; display: flex; align-items: center; justify-content: center; border-radius: 6px; overflow: hidden; position: relative; box-shadow: inset 0 1px 2px rgba(255,255,255,0.8);">
+        <div style="display: flex; align-items: center; gap: 10px; flex: 1; pointer-events: none;">
+            <div style="width: 36px; height: 36px; min-width: 36px; display: flex; align-items: center; justify-content: center; background: radial-gradient(circle, #f8fafc 0%, #e2e8f0 100%); border: 1px solid #cbd5e1; border-radius: 6px; position: relative; overflow: hidden; box-shadow: inset 0 1px 2px rgba(255,255,255,0.8);">
                 ${finalIconPath ? `
                     <img src="${finalIconPath}" 
-                         onerror="this.src='assets/items/default.png'" 
+                         onerror="this.onerror=null; this.src='assets/items/default.png';" 
                          style="max-width: 28px; max-height: 28px; object-fit: contain; image-rendering: pixelated; ${iconGlowStyle}">
                 ` : `
                     <div style="width: 16px; height: 16px; background: #cbd5e1; border-radius: 2px;"></div>
                 `}
-                ${(!isEquipment && (item.count || item.quantity)) ? `
+                ${(!isEquipment && itemCount > 1 && !isSoldOut) ? `
                     <span style="position: absolute; bottom: 1px; right: 1px; font-size: 8px; background: rgba(15,23,42,0.85); color: white; padding: 0 3px; border-radius: 3px; font-family: 'Segoe UI', Tahoma, sans-serif; font-weight: bold; line-height: 1.4;">
-                        ${item.count || item.quantity}
+                        ${itemCount}
                     </span>
                 ` : ''}
             </div>
-            <div style="display: flex; flex-direction: column; font-family: 'Segoe UI', Tahoma, sans-serif;">
+            <div style="display: flex; flex-direction: column; font-family: 'Segoe UI', Tahoma, sans-serif; gap: 1px;">
                 <span style="color: #0f172a; font-weight: 700; font-size: 12px; letter-spacing: 0.2px;">${displayName}</span>
-                <span style="color: #64748b; font-size: 11px; margin-top: 1px;">価格: <span style="color: ${priceColor}; font-weight: 800;">${displayPrice}</span> <span style="font-size: 9px; color: #64748b;">メル</span></span>
+                <div style="display: flex; align-items: baseline; gap: 3px;">
+                    <span style="color: ${priceColor}; font-weight: 800; font-size: 11px;">${displayPrice}</span>
+                    <span style="color: #64748b; font-size: 9px; font-weight: 600;">メル</span>
+                </div>
             </div>
         </div>
-        <button onclick="removeItemFromVending('${itemId}')" 
-                style="background: #fee2e2; border: 1px solid #fca5a5; color: #dc2626; padding: 3px 8px; cursor: pointer; border-radius: 4px; font-size: 10px; font-weight: bold; transition: all 0.15s; box-shadow: 0 1px 2px rgba(0,0,0,0.02);"
-                onmouseover="this.style.background='#ef4444'; this.style.color='#ffffff';"
-                onmouseout="this.style.background='#fee2e2'; this.style.color='#dc2626';">[削除]</button>
+        ${isSoldOut ? `
+            <div></div>
+        ` : `
+            <button onclick="event.stopPropagation(); removeItemFromVending('${itemId}')" 
+                    style="background: #fee2e2; border: 1px solid #fca5a5; color: #dc2626; padding: 3px 8px; cursor: pointer; border-radius: 4px; font-size: 10px; font-weight: bold; transition: all 0.15s; box-shadow: 0 1px 2px rgba(0,0,0,0.02);"
+                    onmouseover="this.style.background='#ef4444'; this.style.color='#ffffff';"
+                    onmouseout="this.style.background='#fee2e2'; this.style.color='#dc2626';">[削除]</button>
+        `}
     `;
     
     listContainer.appendChild(itemEl);
-    console.log(`${displayName} を価格 ${displayPrice} メルで販売リストに追加しました。現在のバッファ:`, vendingItemsBuffer);
+    console.log(`${displayName} を価格 ${displayPrice} メルで販売リストに追加しました。`);
+
+    // 🌟 アイテムが追加された瞬間に、リストのスクロールを一番下へ移動する！
+    listContainer.scrollTop = listContainer.scrollHeight;
+    
+    const vendingWin = document.getElementById('vending-window');
+    const isWindowOpen = vendingWin && vendingWin.style.display !== 'none';
+    const isCurrentlyVending = (typeof hero !== 'undefined' && hero.is_vending) || isWindowOpen;
+
+    if (isCurrentlyVending && !isRestoringVending) {
+        const confirmBtn = document.getElementById('vending-confirm-btn');
+        if (confirmBtn) {
+            confirmBtn.innerText = "🔄 露店情報を更新する";
+            confirmBtn.setAttribute("onclick", "startVending()");
+            confirmBtn.style.setProperty('background', 'linear-gradient(135deg, #0284c7 0%, #0369a1 100%)', 'important');
+            confirmBtn.style.setProperty('border-color', '#0284c7', 'important');
+        }
+    }
 }
 
 // 🌟 相手がトレード受諾したことを受け取る（招待した側のブラウザ）
@@ -7152,6 +8995,98 @@ function drawMyTradeAvatar() {
     }
 }
 
+// ============================================================
+// 🏪 露店入店中エリアへの自キャラ描画関数
+// ============================================================
+function drawOtherVendingMyAvatar() {
+    const canvas = document.getElementById('other-vending-my-avatar-canvas');
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+
+    if (typeof hero === 'undefined' || !hero) return;
+
+    // モデルIDとバリエーションの決定
+    const g = typeof selectedGroup !== 'undefined' ? selectedGroup : (hero.model_id || hero.group || 0);
+    const v = typeof selectedCharVar !== 'undefined' ? selectedCharVar : (hero.charVar || 1);
+
+    // キャラクター画像を取得
+    const currentImg = getPlayerCurrentImg(hero, g, v, typeof frame !== 'undefined' ? frame : 0, sprites, playerSprites, true);
+
+    if (currentImg && currentImg.complete) {
+        const dpr = window.devicePixelRatio || 1;
+        const displayWidth = 64;
+        const displayHeight = 64;
+
+        if (canvas.width !== displayWidth * dpr || canvas.height !== displayHeight * dpr) {
+            canvas.width = displayWidth * dpr;
+            canvas.height = displayHeight * dpr;
+            canvas.style.width = '36px';
+            canvas.style.height = '36px';
+        }
+
+        ctx.save();
+        ctx.imageSmoothingEnabled = false;
+        ctx.scale(dpr, dpr);
+        ctx.clearRect(0, 0, displayWidth, displayHeight);
+
+        // 一時キャンバスで余白自動カット
+        const tempCanvas = document.createElement('canvas');
+        tempCanvas.width = currentImg.width;
+        tempCanvas.height = currentImg.height;
+        const tempCtx = tempCanvas.getContext('2d');
+        tempCtx.drawImage(currentImg, 0, 0);
+
+        const imgData = tempCtx.getImageData(0, 0, currentImg.width, currentImg.height);
+        const data = imgData.data;
+
+        let minX = currentImg.width, minY = currentImg.height, maxX = 0, maxY = 0;
+        let found = false;
+
+        for (let y = 0; y < currentImg.height; y++) {
+            for (let x = 0; x < currentImg.width; x++) {
+                const alpha = data[(y * currentImg.width + x) * 4 + 3];
+                if (alpha > 10) {
+                    if (x < minX) minX = x;
+                    if (x > maxX) maxX = x;
+                    if (y < minY) minY = y;
+                    if (y > maxY) maxY = y;
+                    found = true;
+                }
+            }
+        }
+
+        if (!found) {
+            minX = 0; minY = 0; maxX = currentImg.width; maxY = currentImg.height;
+        }
+
+        const sourceX = minX;
+        const sourceY = minY;
+        const sourceWidth = maxX - minX + 1;
+        const sourceHeight = maxY - minY + 1;
+
+        const targetHeight = 32; // スロット枠に収まるよう調整
+        const scale = targetHeight / sourceHeight;
+        
+        const dw = sourceWidth * scale;
+        const dh = sourceHeight * scale;
+        
+        const dx = (displayWidth - dw) / 2;
+        const dy = (displayHeight - dh) / 2;
+
+        // 左向き反転 ＆ 描画
+        ctx.translate(displayWidth, 0);
+        ctx.scale(-1, 1);
+
+        ctx.drawImage(
+            currentImg, 
+            sourceX, sourceY, sourceWidth, sourceHeight, 
+            dx, dy, dw, dh
+        );
+        
+        ctx.restore();
+    }
+}
+
 // 📥 相手が金額を更新したときに関数を受け取る
 socket.on('syncOpponentCurrency', (data) => {
     console.log("相手が金額を更新しました:", data.currency);
@@ -7162,6 +9097,105 @@ socket.on('syncOpponentCurrency', (data) => {
     // 画面の表示を更新
     updateTradeCurrencyDisplay();
 });
+
+// ============================================================
+// :::VENDING_CHAT::: 🛒 露店閲覧ウィンドウ用チャット処理
+// ============================================================
+
+// メッセージ送信を実行する関数
+function sendVendingChat() {
+    const inputEl = document.getElementById('vending-chat-input');
+    if (!inputEl) return;
+    
+    const message = inputEl.value.trim();
+    if (!message) return;
+
+    // 🌟 現在開いている露店のオーナーIDを取得（window._currentVendingOwnerId や 保持しているID変数に合わせてください）
+    const targetOwnerId = window._currentVendingOwnerId || window.currentVisitingOwnerId || null;
+
+    // 1. サーバーへ露店用チャットメッセージを送信する
+    if (typeof socket !== 'undefined' && socket) {
+        socket.emit('vendingChatMessage', {
+            text: message,
+            ownerId: targetOwnerId
+        });
+    }
+
+    // 2. 自分のチャット欄に即時表示（自分の名前は hero.name などを使用）
+    const myName = (typeof hero !== 'undefined' && hero.name) ? hero.name : "自分";
+    appendVendingChatMessage(myName, message, "#2563eb"); // 自分は青っぽい色
+
+    // 入力欄を空にする
+    inputEl.value = "";
+}
+
+// チャットログボックスにメッセージを追加する関数
+function appendVendingChatMessage(senderName, message, textColor = "#334155") {
+    const chatLog = document.getElementById('vending-chat-log');
+    if (!chatLog) return;
+
+    // 初期状態の「ようこそ！」等の案内文が残っていればクリアまたは維持する挙動
+    // 初回メッセージ追加時にプレースホルダー要素を消す処理
+    if (chatLog.dataset.hasMessage !== "true") {
+        chatLog.innerHTML = "";
+        chatLog.dataset.hasMessage = "true";
+    }
+
+    const msgDiv = document.createElement('div');
+    msgDiv.style.marginBottom = "3px";
+    msgDiv.style.wordBreak = "break-all";
+    
+    // HTMLエスケープ処理（セキュリティ対策）
+    const safeMessage = message.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    
+    msgDiv.innerHTML = `<span style="font-weight: bold; color: ${textColor};">[${senderName}]:</span> ${safeMessage}`;
+    
+    chatLog.appendChild(msgDiv);
+    
+    // 自動で一番下までスクロール
+    chatLog.scrollTop = chatLog.scrollHeight;
+}
+
+// 📥 サーバーからの露店チャットを受信する処理
+if (typeof socket !== 'undefined' && socket) {
+    // 既存のリスナー重複登録を防ぐための一時フラグ
+    if (!window._vendingChatSocketInitialized) {
+        window._vendingChatSocketInitialized = true;
+        
+        socket.on('syncVendingChatMessage', (data) => {
+            // 相手からのメッセージをチャット欄に追加（相手は赤っぽい色にする例）
+            appendVendingChatMessage(data.senderName, data.text, "#dc2626");
+        });
+    }
+}
+
+// イベントリスナーの設定（露店ウィンドウを開く関数の中で呼び出します）
+function initVendingChatEvents() {
+    const inputEl = document.getElementById('vending-chat-input');
+    const sendBtn = document.getElementById('vending-chat-send');
+
+    if (inputEl && !inputEl.dataset.initialized) {
+        inputEl.dataset.initialized = "true";
+        
+        // ENTERキーを押したときに送信
+        inputEl.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                sendVendingChat();
+            }
+        });
+    }
+
+    if (sendBtn && !sendBtn.dataset.initialized) {
+        sendBtn.dataset.initialized = "true";
+        
+        // 送信ボタンをクリックしたときに送信
+        sendBtn.addEventListener('click', (e) => {
+            e.preventDefault();
+            sendVendingChat();
+        });
+    }
+}
 
 // ============================================================
 // :::TRADE_CHAT::: トレード用チャット処理
@@ -7841,6 +9875,264 @@ window.addEventListener('load', () => {
     }
 });
 
+let currentTargetBuyItem = null;
+
+// ============================================================
+// 1. ダイアログを開く処理（アイテムデータと数量の初期スナップショット）
+// ============================================================
+function openVendingBuyDialog(item, ownerId) {
+    console.group("%c🔍 [DEBUG: openVendingBuyDialog]", "background: #7c3aed; color: white; padding: 2px 6px; font-weight: bold;");
+    console.log("├─ 受け取った item:", item);
+    console.log("└─ 受け取った ownerId:", ownerId);
+
+    const itemDbId = item.dbId || item.db_id || item.originalIndex || item.slot_index || item.id;
+    
+    // まず最初に currentTargetBuyItem を確実にセットする
+    currentTargetBuyItem = {
+        ownerId: ownerId,
+        dbId: itemDbId,
+        price: Number(item.price || 0),
+        itemData: item,
+        item: item // 互換性のため両方保持
+    };
+    
+    // あらゆるプロパティから最大個数を安全に抽出し、ログで光らせる
+    const maxQty = Number(
+        item.count ?? 
+        item.quantity ?? 
+        item.amount ?? 
+        (item.data && (item.data.count || item.data.quantity)) ?? 
+        1
+    );
+
+    console.log(`📌 [Parsed] DB_ID: ${itemDbId} | 単価: ${currentTargetBuyItem.price} | 抽出された最大所持数(maxQty): ${maxQty}`);
+    console.groupEnd();
+    
+    // 数量が1個以下の場合はダイアログを出さずにそのまま購入処理へ進む
+    if (maxQty <= 1) {
+        console.log("%cℹ️ [DEBUG] 数量が1個以下（maxQty <= 1）のため、ダイアログをスキップして buyFromVending を呼びます。", "color: #0284c7; font-weight: bold;");
+        if (typeof buyFromVending === 'function') {
+            buyFromVending(ownerId, itemDbId, 1);
+        } else {
+            console.error("⚠️ [Error] 関数 buyFromVending が定義されていません。");
+        }
+        return;
+    }
+
+    const dialog = document.getElementById('vending-buy-dialog');
+    const nameEl = document.getElementById('dialog-item-name');
+    const qtyInput = document.getElementById('vending-buy-quantity');
+    
+    if (dialog && nameEl && qtyInput) {
+        nameEl.innerText = item.name || item.displayName || "アイテム";
+        qtyInput.value = 1;
+        qtyInput.max = maxQty;
+        
+        console.log("✨ [DEBUG] 数量指定ダイアログを表示します (input.max =", maxQty, ")");
+        
+        // データがセットされた安全な状態で価格計算とダイアログ表示を行う
+        updateTotalPrice();
+        dialog.style.display = 'block';
+    } else {
+        console.error("❌ [DEBUG ERROR] ダイアログのHTML要素（vending-buy-dialog等）が見つかりません！");
+    }
+}
+
+// ============================================================
+// 2. 数量増減ボタン
+// ============================================================
+function adjustBuyCount(amount) {
+    const qtyInput = document.getElementById('vending-buy-quantity');
+    if (!qtyInput || !currentTargetBuyItem) return;
+    
+    const maxQty = Number(
+        currentTargetBuyItem.item.count ?? 
+        currentTargetBuyItem.item.quantity ?? 
+        currentTargetBuyItem.item.amount ?? 
+        1
+    );
+    let currentVal = parseInt(qtyInput.value) || 1;
+    
+    currentVal += amount;
+    if (currentVal < 1) currentVal = 1;
+    if (currentVal > maxQty) currentVal = maxQty;
+    
+    qtyInput.value = currentVal;
+    updateTotalPrice();
+}
+
+// ============================================================
+// 3. 合計金額のリアルタイム計算
+// ============================================================
+function updateTotalPrice() {
+    const qtyInput = document.getElementById('vending-buy-quantity');
+    const totalEl = document.getElementById('dialog-total-price');
+    if (!qtyInput || !totalEl || !currentTargetBuyItem) return;
+
+    const maxQty = Number(
+        currentTargetBuyItem.item.count ?? 
+        currentTargetBuyItem.item.quantity ?? 
+        1
+    );
+
+    let qty = parseInt(qtyInput.value) || 1;
+
+    // 🌟もし在庫の最大数を超えていたら、強制的に最大数に丸める
+    if (qty > maxQty) {
+        qty = maxQty;
+        qtyInput.value = maxQty;
+    }
+    // 1未満なら1に丸める
+    if (qty < 1) {
+        qty = 1;
+        qtyInput.value = 1;
+    }
+
+    const unitPrice = currentTargetBuyItem.price;
+    const total = qty * unitPrice;
+
+    totalEl.innerText = `${total.toLocaleString()} メル`;
+}
+
+// ============================================================
+// 4. ダイアログを閉じる
+// ============================================================
+function closeVendingBuyDialog() {
+    const dialog = document.getElementById('vending-buy-dialog');
+    if (dialog) dialog.style.display = 'none';
+    currentTargetBuyItem = null;
+    console.log("🔒 [DEBUG] 購入ダイアログを閉じました。currentTargetBuyItem をクリアしました。");
+}
+
+// ============================================================
+// 5. :::CONFIRM_VENDING_BUY::: 🛒 購入数量ダイアログの「購入する」ボタン押下時
+// ============================================================
+function confirmVendingBuy() {
+    console.group("%c🚀 [DEBUG: confirmVendingBuy (ダイアログからの確定)]", "background: #d97706; color: white; padding: 2px 6px; font-weight: bold;");
+    
+    if (!currentTargetBuyItem) {
+        console.error("❌ [DEBUG ERROR] confirmVendingBuy 時に currentTargetBuyItem が null です！");
+        console.groupEnd();
+        closeVendingBuyDialog();
+        return;
+    }
+
+    const qtyInput = document.getElementById('vending-buy-quantity');
+    const rawInputValue = qtyInput ? qtyInput.value : "inputなし";
+    const quantity = parseInt(rawInputValue) || 1;
+
+    console.log("├─ フォームの生の値 (raw input):", rawInputValue);
+    console.log("├─ パース後の購入個数 (quantity):", quantity);
+    console.log("├─ 保持していた currentTargetBuyItem:", currentTargetBuyItem);
+
+    const { ownerId, dbId, price, item } = currentTargetBuyItem;
+    const unitPrice = price;
+    const totalPrice = unitPrice * quantity;
+
+    console.log(`├─ 計算結果 -> 単価(${unitPrice}) × 個数(${quantity}) = 総額(${totalPrice})`);
+    console.groupEnd();
+
+    // 自分の店なら中断
+    if (typeof socket !== 'undefined' && ownerId === socket.id) {
+        console.warn("⚠️ [DEBUG] 自店舗購入のため中断しました。");
+        alert("自分の店でアイテムを買うことはできません。");
+        closeVendingBuyDialog();
+        return;
+    }
+
+    // 二重の確認モーダルを経由せず、直接サーバーへ 'vending_buy_req' を送信する
+    if (typeof socket !== 'undefined' && socket) {
+        const payload = {
+            ownerId: ownerId,
+            dbId: dbId,
+            quantity: quantity, // 👈 選択した個数を送信
+            price: totalPrice,   // 👈 総額を送信
+            item: item           // 👈 アイテムデータを添える
+        };
+
+        console.log("%c✉️ [DEBUG: サーバーへ送るペイロード]", "background: #059669; color: white; padding: 2px 6px; font-weight: bold;", payload);
+        socket.emit('vending_buy_req', payload);
+    } else {
+        console.error("⚠️ [Error] socket が定義されていないため購入リクエストを送信できません。");
+    }
+
+    // ダイアログを閉じる
+    closeVendingBuyDialog();
+}
+
+// ============================================================
+// 6. :::BUY_FROM_VENDING::: 🛒 露店購入プロセスの実行と決済確認（数量対応・完全版）
+// ============================================================
+function buyFromVending(ownerId, dbId, quantity = 1) {
+    console.group("%c🚀 [DEBUG: buyFromVending 直接実行 (1個またはフォールバック)]", "background: #dc2626; color: white; padding: 2px 6px; font-weight: bold;");
+    console.log("├─ 受信OwnerID:", ownerId);
+    console.log("├─ 受信dbId:", dbId);
+    console.log("├─ 受信quantity:", quantity);
+    console.log("└─ 現在のcurrentTargetBuyItem:", currentTargetBuyItem);
+    console.groupEnd();
+
+    // 自分の店なら中断
+    if (ownerId === socket.id) {
+        console.warn("⚠️ [VENDING_DEBUG] 自店舗購入のため中断しました。");
+        alert("自分の店でアイテムを買うことはできません。");
+        return;
+    }
+
+    // 新しく導入した currentTargetBuyItem から価格やデータを安全に取得
+    const targetItemData = currentTargetBuyItem ? currentTargetBuyItem.itemData : null;
+    const unitPrice = currentTargetBuyItem ? currentTargetBuyItem.price : 0;
+    const totalPrice = unitPrice * quantity;
+
+    // 数量選択ダイアログではなく、決済確認のオリジナルUIモーダルがある場合
+    const modal = document.getElementById('vending-buy-confirm-modal');
+    const confirmBtn = document.getElementById('buy-confirm-btn');
+    const cancelBtn = document.getElementById('buy-cancel-btn');
+
+    if (modal) {
+        // モーダルを表示
+        modal.style.display = 'block';
+        console.log("├─ 決済確認モーダルを表示しました。");
+
+        // ✅ 「購入する」ボタンが押された時
+        confirmBtn.onclick = () => {
+            console.log("├─ 決済確認モーダル結果: 承認 (OK)");
+            
+            const payload = {
+                ownerId: ownerId,
+                dbId: dbId,
+                quantity: quantity,
+                price: totalPrice,
+                item: targetItemData
+            };
+            
+            console.log("%c✉️ [DEBUG: モーダル経由でサーバーへ送るペイロード]", "background: #059669; color: white; padding: 2px 6px; font-weight: bold;", payload);
+            socket.emit('vending_buy_req', payload);
+
+            modal.style.display = 'none'; // モーダルを閉じる
+        };
+
+        // ❌ 「キャンセル」ボタンが押された時
+        cancelBtn.onclick = () => {
+            console.log("├─ 決済確認モーダル結果: キャンセル");
+            modal.style.display = 'none'; // モーダルを閉じる
+        };
+    } else {
+        // 万が一HTML要素が見つからない場合のフォールバック
+        console.warn("⚠️ [VENDING_DEBUG] 決済確認モーダルが見つかりません。標準ダイアログを使用します。");
+        if (confirm(`このアイテムを ${quantity}個 購入しますか？`)) {
+            const payload = { 
+                ownerId: ownerId, 
+                dbId: dbId, 
+                quantity: quantity,
+                price: totalPrice,
+                item: targetItemData
+            };
+            console.log("✉️ [DEBUG: 標準confirm経由でサーバーへ送るペイロード]", payload);
+            socket.emit('vending_buy_req', payload);
+        }
+    }
+}
+
 // ============================================================
 // :::SAVE_GAME_DATA::: 💾 プレイヤーデータのサーバー同期（セーブ）
 // ============================================================
@@ -7928,7 +10220,6 @@ window.addEventListener('load', () => {
         console.log("⏰ サーバー応答なし：タイムアウトしました");
         if (loadingCover) loadingCover.style.display = 'none';
         
-        // タイムアウト時は不透明度を戻して操作可能にする（ゲーム画面等は隠したまま）
         if (loginOverlay) {
             loginOverlay.style.opacity = '1';
             loginOverlay.style.pointerEvents = 'auto';
@@ -7936,37 +10227,43 @@ window.addEventListener('load', () => {
         }
     }, 5000); 
 
+    // 【重要】サーバーから返事が来たら（自動ログイン成功！）共通の処理を関数化
+    const handleLoginSuccess = (userData) => {
+        clearTimeout(timeoutTimer); // タイムアウトをキャンセル
+        console.log("✨ 自動ログイン成功！", userData);
+
+        if (loadingCover) loadingCover.style.display = 'none';
+        if (loginOverlay) {
+            loginOverlay.style.opacity = '0';
+            loginOverlay.style.pointerEvents = 'none';
+        }
+
+        // 🌟 ゲーム画面とUIエリアを出現させる！
+        if (mainContainer) mainContainer.style.display = 'flex';
+        if (uiContainer) uiContainer.style.display = 'flex';
+    };
+
+    // 予め 'login_data' のリスナーを登録しておく
+    socket.once('login_data', handleLoginSuccess);
+
     if (savedToken) {
-        console.log("⏳ サーバーとの接続を待って自動ログイン試行中...");
+        console.log("⏳ 自動ログイン試行中...");
 
-        // 🌟 【修正ポイント】ソケットの接続（connect）が完了してから自動ログインを送信する
-        socket.once('connect', () => {
-            console.log("📤 接続完了、自動ログイン送信！");
+        // 🌟 【修正】すでに接続済みなら即座に送信、未接続なら connect を待つ
+        if (socket.connected) {
+            console.log("📤 既に接続完了済み、即座に自動ログイン送信！");
             socket.emit('auto_login', { token: savedToken });
-        });
-
-        // 【重要】サーバーから返事が来たら（自動ログイン成功！）
-        socket.once('login_data', (userData) => {
-            clearTimeout(timeoutTimer); // タイムアウトをキャンセル
-            console.log("✨ 自動ログイン成功！", userData);
-
-            // ローディングカバーを消し、ログインオーバーレイも透明のまま非表示に
-            if (loadingCover) loadingCover.style.display = 'none';
-            if (loginOverlay) {
-                loginOverlay.style.opacity = '0';
-                loginOverlay.style.pointerEvents = 'none';
-            }
-
-            // 🌟 自動ログイン成功なので、ここで初めてゲーム画面とUIエリアを出現させる！
-            if (mainContainer) mainContainer.style.display = 'flex';
-            if (uiContainer) uiContainer.style.display = 'flex';
-        });
+        } else {
+            socket.once('connect', () => {
+                console.log("📤 後から接続完了、自動ログイン送信！");
+                socket.emit('auto_login', { token: savedToken });
+            });
+        }
     } else {
         clearTimeout(timeoutTimer); // トークン不要なので解除
         console.log("⚠️ トークンなし、ログイン画面を表示");
         if (loadingCover) loadingCover.style.display = 'none';
         
-        // トークンがないのでログイン画面を表示する（ゲーム画面等は隠したまま）
         if (loginOverlay) {
             loginOverlay.style.opacity = '1';
             loginOverlay.style.pointerEvents = 'auto';
