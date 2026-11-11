@@ -59,6 +59,17 @@ const app = express();
 // HTTPサーバーを立てる（Socket.ioを動かすために必要）
 const http = require('http').createServer(app);
 
+// 🗄️ 1. ロリポップ！専用の接続プールを新しく定義（変数名を分ける）
+const lolipopPool = mysql.createPool({
+    host: 'mysql145.phy.lolipop.lan',
+    user: 'LAA0388700',
+    password: '9999',
+    database: 'LAA0388700-column',
+    waitForConnections: true,
+    connectionLimit: 10,
+    queueLimit: 0
+});
+
 const playerStatusCache = {};
 
 // ============================================================
@@ -564,7 +575,6 @@ const tradeOffers = {};
 // :::SOCKET_CONNECTION::: 📞 サーバー正門・新規接続処理・初期データ配信
 // ============================================================
 io.on('connection', socket => {
-
 	// 🌟 これが全てのイベントの「検問所」になります
     socket.onAny((event, ...args) => {
 		// move イベントは無視（除外）する
@@ -697,6 +707,24 @@ socket.on('logout', async () => {
         } catch (err) {
             console.error("❌ ログアウト処理エラー:", err);
         }
+    }
+});
+
+// 📖 クライアントからのコラム要求を受けて、PHP経由でロリポップのDBから取得する
+socket.on('request_column_data', async () => {
+    console.log("📡 [DEBUG] クライアントからコラムデータの要求を受信しました");
+    try {
+        // ロリポップ上に置いたPHPのURLを指定
+        const response = await fetch('https://imgv.jp/get_columns.php');
+        const rows = await response.json();
+
+        console.log(`📡 [DEBUG] ロリポップから ${rows.length} 件のコラムデータを取得成功しました！`, rows);
+        
+        // 取得したデータをクライアントへ返す
+        socket.emit('receive_column_data', { columns: rows });
+    } catch (err) {
+        console.error("❌ ロリポップからのデータ取得エラー:", err);
+        socket.emit('receive_column_data', { columns: [] });
     }
 });
 
@@ -1184,6 +1212,11 @@ socket.on('save_player_data', async (data) => {
             console.error(`[DB ERROR] セーブ失敗 (DB_ID: ${dbUserId}): ${err.message}`);
         }
     }
+});
+
+socket.on('request_zukan_data', async () => {
+    const items = await getZukanData(pool, 'all');
+    socket.emit('open_zukan', { items: items });
 });
 
 // 🔄 交換申し込みをクライアントから受け取ったとき
@@ -3853,9 +3886,9 @@ socket.on('request_latest_shop_data', async (data) => {
 // 🚨 【ガチガチ・デバッグチェッカー】データの汚染・消滅を完全特定する
 // ============================================================
 function debugInspectVendingData(contextLabel, targetObj) {
-    console.log(`\n========================================`);
-    console.log(`🔍 [DEBUG TRACE] 評価ポイント: ${contextLabel}`);
-    console.log(`========================================`);
+    //console.log(`\n========================================`);
+    //console.log(`🔍 [DEBUG TRACE] 評価ポイント: ${contextLabel}`);
+    //console.log(`========================================`);
 
     if (!targetObj) {
         console.error(`❌ [ERROR] 対象オブジェクトが null または undefined です！`);
@@ -3863,8 +3896,8 @@ function debugInspectVendingData(contextLabel, targetObj) {
     }
 
     // オブジェクトが持つすべてのキーと値を詳細に出力
-    console.log(`🔑 保持しているキー一覧:`, Object.keys(targetObj));
-    console.log(`📦 生データ (JSON):`, JSON.stringify(targetObj, null, 2));
+    //console.log(`🔑 保持しているキー一覧:`, Object.keys(targetObj));
+    //console.log(`📦 生データ (JSON):`, JSON.stringify(targetObj, null, 2));
 
     // 個別の重要プロパティの生存確認と型の検査
     const checks = {
@@ -3880,17 +3913,17 @@ function debugInspectVendingData(contextLabel, targetObj) {
     for (const [key, val] of Object.entries(checks)) {
         const isUndef = (val === undefined);
         if (isUndef) hasUndefined = true;
-        console.log(`  - ${key}: ${val} (${isUndef ? '❌ UNDEFINED!' : typeof val})`);
+        //console.log(`  - ${key}: ${val} (${isUndef ? '❌ UNDEFINED!' : typeof val})`);
     }
 
     if (hasUndefined) {
-        console.warn(`⚠️ [WARNING] 上記の通り、${contextLabel} の時点で一部のプロパティが undefined になっています！`);
+        //console.warn(`⚠️ [WARNING] 上記の通り、${contextLabel} の時点で一部のプロパティが undefined になっています！`);
         // スタックトレースを出力して「どこから呼ばれたデータか」を強制的に特定する
-        console.trace(`📍 [STACK TRACE] このデータが作られた/渡された経路:`);
+        //console.trace(`📍 [STACK TRACE] このデータが作られた/渡された経路:`);
     } else {
-        console.log(`✅ [OK] ${contextLabel} のデータ構造は完全です。`);
+        //console.log(`✅ [OK] ${contextLabel} のデータ構造は完全です。`);
     }
-    console.log(`========================================\n`);
+    //console.log(`========================================\n`);
 }
 
 // 🛒 露店を閉じる（削除する）ときのサーバー側処理
@@ -6516,7 +6549,7 @@ const DROP_DATABASE = {
 };
 
 const DROP_CHANCE_TABLES = {
-  "Drop_Monster1": { "drop_rate": 100, "scroll30": 80, "normal_gold": 70, "avatar": 10, "pouch": 10 }, // 50%でドロップ、そのうち20%で金塊
+  "Drop_Monster1": { "drop_rate": 100, "scroll30": 80, "scroll60": 50, "normal_gold": 70, "avatar": 10, "pouch": 10 }, // 50%でドロップ、そのうち20%で金塊
   "Drop_Monster2": { "drop_rate": 100, "normal_gold": 70, "shield": 5,　"sword": 5 },
   "Drop_Monster3": { "drop_rate": 100, "normal_gold": 50 },
   "Drop_Monster4": { "drop_rate": 100, "normal_gold": 80, "treasure": 80, "sweets": 80, "shield": 20 },

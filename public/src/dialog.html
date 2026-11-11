@@ -14,6 +14,33 @@
     </div>
 </div>
 
+<!-- 📖 コラム機能全体のメインコンテナ（最初は非表示にしておき、ボタン等で表示を切り替えます） -->
+<div id="column-window" class="column-window-overlay" style="display: none;">
+    <div class="column-window-container">
+        
+        <!-- ヘッダー（タイトル ＆ 閉じるボタン） -->
+        <div class="column-window-header">
+            <h3>📖 コラム一覧</h3>
+            <button class="column-close-btn" onclick="toggleColumnWindow()">×</button>
+        </div>
+
+        <!-- メインコンテンツ領域（左右2カラム構成） -->
+        <div class="column-window-body">
+            
+            <!-- 左側：コラムのタイトル一覧リスト -->
+            <div id="column-list-content" class="column-list-pane">
+                <!-- ここに JavaScript で一覧が動的に差し込まれます -->
+            </div>
+
+            <!-- 右側：選択したコラムの詳細本文を表示するエリア -->
+            <div id="column-detail-view" class="column-detail-pane">
+                <div class="column-placeholder-text">コラムを選択してください</div>
+            </div>
+
+        </div>
+    </div>
+</div>
+
 <!-- キーコンフィグを表示するウィンドウの枠 -->
 <div id="keyconfig-modal" class="config-window" style="display: none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 20000; background: #181820; border: 1px solid #334155; border-radius: 8px; padding: 16px; width: 640px; box-shadow: 0 10px 25px rgba(0,0,0,0.5);">
     
@@ -594,18 +621,17 @@
             
             <!-- 👤 3つのユーザ入室アバター表示エリア -->
 <div style="display: flex; gap: 6px; background: #f8fafc; border: 1px solid #94a3b8; border-radius: 4px; padding: 6px; box-shadow: inset 0 1px 3px rgba(0,0,0,0.05);">
-    <!-- 🌟 1枠目：名前やステータスを残したままアバターを配置 -->
-    <div id="visitor-slot-1" style="flex: 1; height: 75px; background: #e2e8f0; border: 1px solid #cbd5e1; border-radius: 3px; display: flex; flex-direction: column; align-items: center; justify-content: space-between; font-size: 10px; color: #64748b; overflow: hidden; position: relative; padding: 4px; box-sizing: border-box;">
-        <div id="visitor-name-1" style="font-weight: bold; color: #1e293b; font-size: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%;">あなた</div>
-        <canvas id="other-vending-my-avatar-canvas" width="64" height="64" style="display: block; width: 36px; height: 36px; image-rendering: pixelated; image-rendering: crisp-edges;"></canvas>
-        <div style="font-size: 8px; color: #2563eb; background: #dbeafe; padding: 0 3px; border-radius: 2px; font-weight: bold; line-height: 1.2;">入店中</div>
+    <!-- 🌟 1枠目：高さを調整し、アバターと名前がぴったり収まるように最適化 -->
+    <div id="visitor-slot-1" style="flex: 1; height: 95px; background: #e2e8f0; border: 1px solid #cbd5e1; border-radius: 3px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; overflow: hidden; position: relative; padding: 3px 4px; box-sizing: border-box;">
+        <canvas id="other-vending-my-avatar-canvas" width="128" height="128" style="display: block; width: 64px; height: 64px; image-rendering: pixelated; image-rendering: crisp-edges;"></canvas>
+        <div id="visitor-name-1" style="font-weight: bold; color: #1e293b; font-size: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; line-height: 1.2;">あなた</div>
     </div>
     <!-- 2枠目 -->
-    <div style="flex: 1; height: 75px; background: #e2e8f0; border: 1px solid #cbd5e1; border-radius: 3px; display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: 10px; color: #64748b;">
+    <div style="flex: 1; height: 95px; background: #e2e8f0; border: 1px solid #cbd5e1; border-radius: 3px; display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: 10px; color: #64748b;">
         <span>👤 2枠目</span>
     </div>
     <!-- 3枠目 -->
-    <div style="flex: 1; height: 75px; background: #e2e8f0; border: 1px solid #cbd5e1; border-radius: 3px; display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: 10px; color: #64748b;">
+    <div style="flex: 1; height: 95px; background: #e2e8f0; border: 1px solid #cbd5e1; border-radius: 3px; display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: 10px; color: #64748b;">
         <span>👤 3枠目</span>
     </div>
 </div>
