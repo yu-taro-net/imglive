@@ -217,6 +217,93 @@ function showCustomAlert(message, isSuccess = true) {
     }, 2500);
 }
 
+// 📦 サーバーから受け取ったコラムデータを格納する変数
+let currentColumnItems = [];
+
+// 📥 サーバーからのコラムデータを受信
+if (typeof socket !== 'undefined' && socket) {
+    socket.on('receive_column_data', (data) => {
+        console.log("📥 コラムデータを受信しました:", data);
+        currentColumnItems = data.columns || [];
+        
+        // 受信したコラムを描画する関数を呼ぶ
+        renderColumnList();
+    });
+}
+
+// 🚀 コラムの一覧を左ペインに描画する関数
+function renderColumnList() {
+    const container = document.getElementById('column-list-content');
+    if (!container) return;
+
+    container.innerHTML = '';
+
+    if (currentColumnItems.length === 0) {
+        container.innerHTML = "<div style='color:#888; padding:10px;'>コラムデータがありません</div>";
+        return;
+    }
+
+    currentColumnItems.forEach((item, index) => {
+        const row = document.createElement('div');
+        row.className = "column-item-row";
+        row.style.cursor = "pointer";
+        row.style.padding = "10px 15px";
+        row.style.borderBottom = "1px solid #e0e0e0";
+        
+        row.innerHTML = `
+            <div style="font-size:11px; color:#888;">ID: ${item.column_id}</div>
+            <div style="font-weight:bold; font-size:14px; color:#333;">${item.column_name}</div>
+        `;
+
+        // 🖱️ リスト項目をクリックしたときの処理（右側に詳細を表示）
+        row.onclick = () => {
+            // 選択中の見た目を分かりやすくするため、他の行の背景色をリセットしてアクティブにする
+            document.querySelectorAll('.column-item-row').forEach(r => r.style.background = '');
+            row.style.background = '#e2e8f0';
+
+            // 右側のペインに詳細を描画
+            showColumnDetail(item);
+        };
+
+        container.appendChild(row);
+
+        // テスト用：最初のエントリを自動で選択状態にしておきたい場合はコメントアウトを解除
+        // if (index === 0) row.click();
+    });
+}
+
+// 📄 右側のエリアに選択したコラムの詳細内容を載せる関数
+function showColumnDetail(item) {
+    const detailPane = document.getElementById('column-detail-view');
+    if (!detailPane) return;
+
+    // データベースの各フィールドに合わせて詳細を構築
+    // (memo, note, summary など、入っているプロパティを柔軟に表示)
+    detailPane.innerHTML = `
+        <div style="font-size: 12px; color: #666; margin-bottom: 5px;">識別ID: ${item.column_id}</div>
+        <h2 style="margin-top: 0; font-size: 20px; color: #222; border-bottom: 2px solid #ddd; padding-bottom: 8px;">${item.column_name}</h2>
+        
+        <div style="margin-top: 15px; line-height: 1.6; color: #444;">
+            <p><strong>サマリー:</strong> ${item.mysql_column_summary || 'なし'}</p>
+            <p><strong>メモ / 本文:</strong></p>
+            <div style="background: #f9f9f9; padding: 12px; border: 1px solid #ddd; border-radius: 4px; min-height: 100px; white-space: pre-wrap;">${item.mysql_column_memo || item.mysql_column_note || '詳細な本文データがありません。'}</div>
+        </div>
+    `;
+}
+
+// 🚀 ページ読み込み時や接続時にテスト用データをサーバーに要求する関数
+function fetchColumnData() {
+    if (typeof socket !== 'undefined' && socket) {
+        console.log("🚀 サーバーへコラムデータを要求します...");
+        socket.emit('request_column_data');
+    }
+}
+
+// テスト用：画面（DOM）の読み込みが完了したら自動でサーバーへデータ取得をリクエスト
+window.addEventListener('DOMContentLoaded', () => {
+    fetchColumnData();
+});
+
 // ==========================================
 // 🌟 2. 相手からのグループ招待を受信する処理（ここに配置！）
 // ==========================================
@@ -4252,6 +4339,28 @@ socket.on('update_shop', (newData) => {
     }
 });
 
+// ============================================================
+// 📖 図鑑ボタンから呼び出される関数
+// ============================================================
+function toggleBookWindow() {
+    const overlay = document.getElementById('zukan-overlay');
+    if (!overlay) return;
+
+    // 開いていたら閉じる
+    if (overlay.style.display === 'flex') {
+        overlay.style.display = 'none';
+        return;
+    }
+
+    // 🚀 サーバーへ図鑑データを要求する（またはサーバー側で /zukan と同じ処理を行うイベントをemit）
+    if (typeof socket !== 'undefined' && socket) {
+        console.log("🚀 [Debug] サーバーへ図鑑データ取得を要求中...");
+        
+        // サーバー側でこのイベントを受け取って `socket.emit('open_zukan', { items })` を返すように実装します
+        socket.emit('request_zukan_data'); 
+    }
+}
+
 // 💡 図鑑データを保持するための変数
 let currentZukanItems = [];
 
@@ -5294,7 +5403,57 @@ if (typeof socket !== 'undefined') {
 let selectedVendingMonsterType = "Monster1";
 
 // ============================================================
-// :::RENDER_OFFLINE_VENDING_SIGNS::: ⛺ 無人露店の小屋（ウィンドウ連動切替版）
+// 🎨 露店のカラーテーマ設定（ファイルのトップレベル・関数の外）
+// ============================================================
+const VENDING_COLOR_THEMES = {
+    // 1️⃣ デフォルト（定番のブルー系）
+    default: {
+        stageTop: "#7ab2d6", stageMid: "#5087b0", stageBottom: "#284660", stageStroke: "#1b3142",
+        pillarTop: "#365c7d", pillarMid: "#72a2c9", pillarBottom: "#365c7d", pillarStroke: "#152433",
+        wallTop: "#365c7d", wallMid: "#72a2c9", wallBottom: "#365c7d", wallStroke: "#152433",
+        roofInfillTop: "#72a2c9", roofInfillBottom: "#365c7d",
+        roofTop: "#bde0fe", roofMid: "#7ab2d6", roofBottom: "#32536e", roofStroke: "#152433",
+        boardFrameTop: "#365c7d", boardFrameMid: "#72a2c9", boardFrameBottom: "#365c7d", boardFrameStroke: "#152433",
+        barTop: "#365c7d", barMid: "#72a2c9", barBottom: "#365c7d", barStroke: "#456f94",
+        fixPlateBg: "#284660", fixPlateStroke: "#152433"
+    },
+    // 2️⃣ ゴールド（高級店・レア店風）
+    gold: {
+        stageTop: "#facc15", stageMid: "#eab308", stageBottom: "#854d0e", stageStroke: "#422006",
+        pillarTop: "#ca8a04", pillarMid: "#fde047", pillarBottom: "#ca8a04", pillarStroke: "#422006",
+        wallTop: "#ca8a04", wallMid: "#fde047", wallBottom: "#ca8a04", wallStroke: "#422006",
+        roofInfillTop: "#fde047", roofInfillBottom: "#a16207",
+        roofTop: "#fef08a", roofMid: "#facc15", roofBottom: "#854d0e", roofStroke: "#422006",
+        boardFrameTop: "#ca8a04", boardFrameMid: "#fde047", boardFrameBottom: "#ca8a04", boardFrameStroke: "#422006",
+        barTop: "#ca8a04", barMid: "#fde047", barBottom: "#ca8a04", barStroke: "#a16207",
+        fixPlateBg: "#854d0e", fixPlateStroke: "#422006"
+    },
+    // 3️⃣ ルビー（特売・イベント店風）
+    ruby: {
+        stageTop: "#fb7185", stageMid: "#e11d48", stageBottom: "#881337", stageStroke: "#4c0519",
+        pillarTop: "#e11d48", pillarMid: "#fda4af", pillarBottom: "#e11d48", pillarStroke: "#4c0519",
+        wallTop: "#e11d48", wallMid: "#fda4af", wallBottom: "#e11d48", wallStroke: "#4c0519",
+        roofInfillTop: "#fda4af", roofInfillBottom: "#881337",
+        roofTop: "#fecdd3", roofMid: "#fb7185", roofBottom: "#881337", roofStroke: "#4c0519",
+        boardFrameTop: "#e11d48", boardFrameMid: "#fda4af", boardFrameBottom: "#e11d48", boardFrameStroke: "#4c0519",
+        barTop: "#e11d48", barMid: "#fda4af", barBottom: "#e11d48", barStroke: "#9f1239",
+        fixPlateBg: "#881337", fixPlateStroke: "#4c0519"
+    },
+    // 4️⃣ エメラルド（自然・素材屋風）
+    emerald: {
+        stageTop: "#34d399", stageMid: "#059669", stageBottom: "#064e3b", stageStroke: "#022c22",
+        pillarTop: "#059669", pillarMid: "#34d399", pillarBottom: "#059669", pillarStroke: "#022c22",
+        wallTop: "#059669", wallMid: "#34d399", wallBottom: "#059669", wallStroke: "#022c22",
+        roofInfillTop: "#34d399", roofInfillBottom: "#064e3b",
+        roofTop: "#a7f3d0", roofMid: "#34d399", roofBottom: "#065f46", roofStroke: "#022c22",
+        boardFrameTop: "#059669", boardFrameMid: "#34d399", boardFrameBottom: "#059669", boardFrameStroke: "#022c22",
+        barTop: "#059669", barMid: "#34d399", barBottom: "#059669", barStroke: "#047857",
+        fixPlateBg: "#064e3b", fixPlateStroke: "#022c22"
+    }
+};
+
+// ============================================================
+// :::RENDER_OFFLINE_VENDING_SIGNS::: ⛺ 無人露店の小屋（テーマ対応・完全踏襲版）
 // ============================================================
 function renderOfflineVendingSigns(ctx, frame) {
     if (!activeOfflineShops || activeOfflineShops.length === 0) return;
@@ -5324,18 +5483,19 @@ function renderOfflineVendingSigns(ctx, frame) {
             return; 
         }
 
+        // 🌟 店舗ごとのカラーテーマを取得（未指定なら default）
+        const themeKey = shop.colorTheme || shop.theme || 'default';
+        const theme = VENDING_COLOR_THEMES[themeKey] || VENDING_COLOR_THEMES.default;
+
         const isMyStore = (typeof hero !== 'undefined' && (shop.owner_id === hero.dbId || shop.dbId === hero.dbId));
 
         // 🌟 【自動判定】自分がこの店舗のオーナーであり、かつ現在vending-windowを開いているかどうか
-        // ※ゲーム内のウィンドウ管理変数やDOMの存在に合わせて柔軟に判定できるようにしています
-        // 🌟 確実に「明示的にtrueに設定されている時」だけ開いている判定にする
-		const isOpenWindowFlag = (window.isVendingWindowOpen === true);
+        const isOpenWindowFlag = (window.isVendingWindowOpen === true);
         const isEditingMyStore = isMyStore && isOpenWindowFlag;
 
         // オーダー中（ウィンドウが開いている時）は「真実として赤丸をメイン」にする
-        // 🌟 修正後：他人の店であってもサーバーから isEditing が来ていれば赤丸にする！
-		const isShopBeingEdited = shop.isEditing || (isMyStore && window.isVendingWindowOpen === true);
-		const SHOW_RED_MARK = isShopBeingEdited;
+        const isShopBeingEdited = shop.isEditing || (isMyStore && window.isVendingWindowOpen === true);
+        const SHOW_RED_MARK = isShopBeingEdited;
 
         let rawMonsterType = shop.monsterType || DEFAULT_VENDING_MONSTER;
         let strType = String(rawMonsterType).trim();
@@ -5480,7 +5640,7 @@ function renderOfflineVendingSigns(ctx, frame) {
         const barY = boardY + boardHeight;
 
         // ==========================================
-        // 1️⃣ 足元のウッドステージ（横ストライプ仕様）
+        // 1️⃣ 足元のウッドステージ（テーマカラー対応）
         // ==========================================
         const stageInset = 12; 
         const stageLeftX = leftX + stageInset;
@@ -5505,9 +5665,9 @@ function renderOfflineVendingSigns(ctx, frame) {
         ctx.clip();
 
         const stageGrad = ctx.createLinearGradient(stageLeftX - 6, stageTopY, stageLeftX - 6, bottomY);
-        stageGrad.addColorStop(0, "#7ab2d6");
-        stageGrad.addColorStop(0.5, "#5087b0");
-        stageGrad.addColorStop(1, "#284660");
+        stageGrad.addColorStop(0, theme.stageTop);
+        stageGrad.addColorStop(0.5, theme.stageMid);
+        stageGrad.addColorStop(1, theme.stageBottom);
         ctx.fillStyle = stageGrad;
         ctx.fillRect(stageLeftX - 10, stageTopY - 2, stageW + 20, stageH + 4);
 
@@ -5521,7 +5681,7 @@ function renderOfflineVendingSigns(ctx, frame) {
         }
         ctx.restore();
 
-        ctx.strokeStyle = "#1b3142";
+        ctx.strokeStyle = theme.stageStroke;
         ctx.lineWidth = 2;
         ctx.beginPath();
         ctx.moveTo(stageLeftX - 6, bottomY);
@@ -5553,7 +5713,7 @@ function renderOfflineVendingSigns(ctx, frame) {
         };
 
         // ==========================================
-        // 3️⃣ 左右の柱（縦ストライプ仕様）
+        // 3️⃣ 左右の柱（テーマカラー対応）
         // ==========================================
         const pillarWidth = 10;
         const pillarHeight = kioskInsideHeight - 10;
@@ -5569,9 +5729,9 @@ function renderOfflineVendingSigns(ctx, frame) {
             ctx.clip();
 
             const pGrad = ctx.createLinearGradient(px, py, px + pw, py);
-            pGrad.addColorStop(0, "#365c7d");
-            pGrad.addColorStop(0.5, "#72a2c9");
-            pGrad.addColorStop(1, "#365c7d");
+            pGrad.addColorStop(0, theme.pillarTop);
+            pGrad.addColorStop(0.5, theme.pillarMid);
+            pGrad.addColorStop(1, theme.pillarBottom);
             ctx.fillStyle = pGrad;
             ctx.fillRect(px, py, pw, ph);
 
@@ -5585,7 +5745,7 @@ function renderOfflineVendingSigns(ctx, frame) {
             }
             ctx.restore();
 
-            ctx.strokeStyle = "#152433";
+            ctx.strokeStyle = theme.pillarStroke;
             ctx.lineWidth = 1.5;
             ctx.strokeRect(px, py, pw, ph);
         };
@@ -5594,7 +5754,7 @@ function renderOfflineVendingSigns(ctx, frame) {
         drawPillarWithVerticalStripes(rightPillarX, roofBaseY, pillarWidth, pillarHeight);
 
         // ==========================================
-        // 4️⃣ 屋根下・看板上の余白壁（斜めストライプ）
+        // 4️⃣ 屋根下・看板上の余白壁（テーマカラー対応）
         // ==========================================
         const wallX = leftX + 4;
         const wallY = roofBaseY;
@@ -5607,9 +5767,9 @@ function renderOfflineVendingSigns(ctx, frame) {
         ctx.clip();
 
         const wallGrad = ctx.createLinearGradient(wallX, wallY, wallX + wallW, wallY);
-        wallGrad.addColorStop(0, "#365c7d");
-        wallGrad.addColorStop(0.5, "#72a2c9");
-        wallGrad.addColorStop(1, "#365c7d");
+        wallGrad.addColorStop(0, theme.wallTop);
+        wallGrad.addColorStop(0.5, theme.wallMid);
+        wallGrad.addColorStop(1, theme.wallBottom);
         ctx.fillStyle = wallGrad;
         ctx.fillRect(wallX, wallY, wallW, wallH);
 
@@ -5629,7 +5789,7 @@ function renderOfflineVendingSigns(ctx, frame) {
         }
         ctx.restore();
 
-        ctx.strokeStyle = "#152433";
+        ctx.strokeStyle = theme.wallStroke;
         ctx.lineWidth = 1.5;
         ctx.strokeRect(wallX, wallY, wallW, wallH);
 
@@ -5652,7 +5812,7 @@ function renderOfflineVendingSigns(ctx, frame) {
         ctx.restore();
 
         // ==========================================
-        // 6️⃣ 屋根（への字・斜めストライプ）＆隙間埋めガセット壁
+        // 6️⃣ 屋根（テーマカラー対応）＆隙間埋めガセット壁
         // ==========================================
         const rLeft = leftX - 18;
         const rRight = rightX + 18;
@@ -5667,8 +5827,8 @@ function renderOfflineVendingSigns(ctx, frame) {
         ctx.clip();
 
         const infillGrad = ctx.createLinearGradient(leftX, roofBaseY - roofHeight, leftX, roofBaseY);
-        infillGrad.addColorStop(0, "#72a2c9");
-        infillGrad.addColorStop(1, "#365c7d");
+        infillGrad.addColorStop(0, theme.roofInfillTop);
+        infillGrad.addColorStop(1, theme.roofInfillBottom);
         ctx.fillStyle = infillGrad;
         ctx.fillRect(leftX - 20, roofBaseY - roofHeight, kioskWidth + 40, roofHeight + 5);
 
@@ -5700,9 +5860,9 @@ function renderOfflineVendingSigns(ctx, frame) {
         ctx.clip();
 
         const roofGrad = ctx.createLinearGradient(0, roofApexY, 0, roofBaseY + rThick);
-        roofGrad.addColorStop(0, "#bde0fe");
-        roofGrad.addColorStop(0.5, "#7ab2d6");
-        roofGrad.addColorStop(1, "#32536e");
+        roofGrad.addColorStop(0, theme.roofTop);
+        roofGrad.addColorStop(0.5, theme.roofMid);
+        roofGrad.addColorStop(1, theme.roofBottom);
         ctx.fillStyle = roofGrad;
         ctx.fillRect(rLeft - 10, roofApexY - 5, (rRight - rLeft) + 20, roofHeight + rThick + 10);
 
@@ -5722,7 +5882,7 @@ function renderOfflineVendingSigns(ctx, frame) {
         }
         ctx.restore();
 
-        ctx.strokeStyle = "#152433";
+        ctx.strokeStyle = theme.roofStroke;
         ctx.lineWidth = 2;
         ctx.lineJoin = "round";
         ctx.beginPath();
@@ -5736,7 +5896,7 @@ function renderOfflineVendingSigns(ctx, frame) {
         ctx.stroke();
 
         // ==========================================
-        // 7️⃣ 看板エリア（窪み・溝表現 ＆ 微調整された上下左右均等配置）
+        // 7️⃣ 看板エリア（テーマカラー対応）
         // ==========================================
         ctx.fillStyle = "rgba(0, 0, 0, 0.3)";
         ctx.fillRect(boardX + 1, boardY + 2, boardWidth, boardHeight);
@@ -5746,9 +5906,9 @@ function renderOfflineVendingSigns(ctx, frame) {
         ctx.rect(boardX, boardY, boardWidth, boardHeight);
         ctx.clip();
         const bFrameGrad = ctx.createLinearGradient(boardX, boardY, boardX + boardWidth, boardY);
-        bFrameGrad.addColorStop(0, "#365c7d");
-        bFrameGrad.addColorStop(0.5, "#72a2c9");
-        bFrameGrad.addColorStop(1, "#365c7d");
+        bFrameGrad.addColorStop(0, theme.boardFrameTop);
+        bFrameGrad.addColorStop(0.5, theme.boardFrameMid);
+        bFrameGrad.addColorStop(1, theme.boardFrameBottom);
         ctx.fillStyle = bFrameGrad;
         ctx.fillRect(boardX, boardY, boardWidth, boardHeight);
         ctx.lineWidth = 1.5;
@@ -5766,7 +5926,7 @@ function renderOfflineVendingSigns(ctx, frame) {
         }
         ctx.restore();
 
-        ctx.strokeStyle = "#152433";
+        ctx.strokeStyle = theme.boardFrameStroke;
         ctx.lineWidth = 2;
         ctx.strokeRect(boardX, boardY, boardWidth, boardHeight);
 
@@ -5836,8 +5996,8 @@ function renderOfflineVendingSigns(ctx, frame) {
         }
 
         let textLeftMargin = innerBoardX + 10; 
-        let y1 = innerBoardY + 18;             
-        let y2 = innerBoardY + 33;             
+        let y1 = innerBoardY + 18;            
+        let y2 = innerBoardY + 33;            
 
         // 1行目
         ctx.fillStyle = "rgba(255, 255, 255, 0.7)";
@@ -5862,7 +6022,7 @@ function renderOfflineVendingSigns(ctx, frame) {
         ctx.fill();
 
         // ==========================================
-        // 8️⃣ 下部バー
+        // 8️⃣ 下部バー（テーマカラー対応）
         // ==========================================
         ctx.save();
         ctx.beginPath();
@@ -5870,9 +6030,9 @@ function renderOfflineVendingSigns(ctx, frame) {
         ctx.clip();
 
         const barBgGrad = ctx.createLinearGradient(boardX, barY, boardX + boardWidth, barY);
-        barBgGrad.addColorStop(0, "#365c7d");
-        barBgGrad.addColorStop(0.5, "#72a2c9");
-        barBgGrad.addColorStop(1, "#365c7d");
+        barBgGrad.addColorStop(0, theme.barTop);
+        barBgGrad.addColorStop(0.5, theme.barMid);
+        barBgGrad.addColorStop(1, theme.barBottom);
         ctx.fillStyle = barBgGrad;
         ctx.fillRect(boardX, barY, boardWidth, barHeight);
 
@@ -5892,13 +6052,13 @@ function renderOfflineVendingSigns(ctx, frame) {
         }
         ctx.restore();
 
-        ctx.strokeStyle = "#456f94";
+        ctx.strokeStyle = theme.barStroke;
         ctx.lineWidth = 2;
         ctx.strokeRect(boardX, barY, boardWidth, barHeight);
 
         const drawFixPlate = (fx, fy) => {
-            ctx.fillStyle = "#284660";
-            ctx.strokeStyle = "#152433";
+            ctx.fillStyle = theme.fixPlateBg;
+            ctx.strokeStyle = theme.fixPlateStroke;
             ctx.lineWidth = 1;
             ctx.fillRect(fx - 4, fy, 8, barHeight);
             ctx.strokeRect(fx - 4, fy, 8, barHeight);
@@ -5912,7 +6072,7 @@ function renderOfflineVendingSigns(ctx, frame) {
         drawFixPlate(boardX + 4, barY);
         drawFixPlate(boardX + boardWidth - 4, barY);
 
-        // --- 🌟 コインアイコン（money-1.png ＋ グローホワイト発光エフェクト） ---
+        // --- 🌟 コインアイコン ---
         const coinX = boardX + 32;
         const iconCenterY = barY + (barHeight / 2); 
         const iconSize = 16; 
@@ -5942,7 +6102,7 @@ function renderOfflineVendingSigns(ctx, frame) {
         }
         ctx.restore();
 
-        // --- 🌟 鍵アイコン（フックを含めた全体の重心が中央に合うよう下に微調整） ---
+        // --- 🌟 鍵アイコン ---
         const lockX = boardX + 64; 
         const lockW = 12;
         const lockH = 10;
@@ -5979,7 +6139,7 @@ function renderOfflineVendingSigns(ctx, frame) {
         ctx.stroke();
 
         // ==========================================
-        // 🌟 右側の操作パネル（ウィンドウ連動型：青丸 ⇔ 赤禁止マーク）
+        // 🌟 右側の操作パネル（ウィンドウ連動型）
         // ==========================================
         const panelW = 60;
         const panelH = barHeight - 8;
@@ -6004,9 +6164,8 @@ function renderOfflineVendingSigns(ctx, frame) {
         const circleCenterY = panelY + (panelH / 2); 
 
         if (SHOW_RED_MARK) {
-            // --- 🔴 ウィンドウが開いている時（赤丸がメイン・赤禁止マーク） ---
             ctx.save();
-            ctx.globalAlpha = 0.2; // 左の青丸はうっすら待機
+            ctx.globalAlpha = 0.2;
             ctx.beginPath();
             ctx.arc(leftCircleX, circleCenterY, 5, 0, Math.PI * 2);
             ctx.strokeStyle = "#0284c7"; 
@@ -6014,7 +6173,6 @@ function renderOfflineVendingSigns(ctx, frame) {
             ctx.stroke();
             ctx.restore();
 
-            // 右の赤丸をくっきり表示し、斜線を引いて「禁止マーク」にする
             ctx.beginPath();
             ctx.arc(rightCircleX, circleCenterY, 5, 0, Math.PI * 2);
             ctx.strokeStyle = "#dc2626"; 
@@ -6027,10 +6185,7 @@ function renderOfflineVendingSigns(ctx, frame) {
             ctx.strokeStyle = "#dc2626";
             ctx.lineWidth = 1.5;
             ctx.stroke();
-
         } else {
-            // --- 🔵 ウィンドウが閉じている時（通常営業：青丸がメイン） ---
-            // 左の青丸をくっきり表示
             ctx.beginPath();
             ctx.arc(leftCircleX, circleCenterY, 5, 0, Math.PI * 2);
             ctx.strokeStyle = "#0284c7"; 
@@ -6038,7 +6193,7 @@ function renderOfflineVendingSigns(ctx, frame) {
             ctx.stroke();
 
             ctx.save();
-            ctx.globalAlpha = 0.2; // 右の赤丸はうっすら待機
+            ctx.globalAlpha = 0.2;
             ctx.beginPath();
             ctx.arc(rightCircleX, circleCenterY, 5, 0, Math.PI * 2);
             ctx.strokeStyle = "#dc2626"; 
@@ -8897,193 +9052,426 @@ function initTradeSlots() {
     }
 }
 
-// キャラクター描画用（高解像度化・余白自動カット・左向き反転）
+// ============================================================
+// ⛺ トレード画面用の自キャラ描画関数（完全静止・重心固定版）
+// ============================================================
 function drawMyTradeAvatar() {
     const canvas = document.getElementById('trade-my-avatar-canvas');
     if (!canvas) return;
-    const ctx = canvas.getContext('2d');
 
     if (typeof hero === 'undefined' || !hero) return;
 
-    // model_id とバリエーションの決定
-    const g = typeof selectedGroup !== 'undefined' ? selectedGroup : (hero.model_id || hero.group || 0);
-    const v = typeof selectedCharVar !== 'undefined' ? selectedCharVar : (hero.charVar || 1);
+    const baseDomain = (typeof IMAGE_DOMAIN !== 'undefined') ? IMAGE_DOMAIN : '';
 
-    // キャラクター画像を取得
-    const currentImg = getPlayerCurrentImg(hero, g, v, typeof frame !== 'undefined' ? frame : 0, sprites, playerSprites, true);
+    // 初回のみ専用アニメーションループを起動
+    if (!canvas._isAnimLoopRunning) {
+        canvas._isAnimLoopRunning = true;
 
-    if (currentImg && currentImg.complete) {
-        // 🌟 1. 高解像度ディスプレイ（Retina等）に対応するための倍率設定
-        const dpr = window.devicePixelRatio || 1;
-        const displayWidth = 64;
-        const displayHeight = 64;
+        canvas._vendingAnimState = {
+            lastCharKey: '',
+            cache: [],
+            internalFrame: 0,
+            lastTime: performance.now(),
+            commonBox: null
+        };
 
-        // Canvas自体の内部解像度を物理ピクセルに合わせて倍増させる
-        if (canvas.width !== displayWidth * dpr || canvas.height !== displayHeight * dpr) {
-            canvas.width = displayWidth * dpr;
-            canvas.height = displayHeight * dpr;
-            canvas.style.width = displayWidth + 'px';
-            canvas.style.height = displayHeight + 'px';
-        }
+        const animState = canvas._vendingAnimState;
 
-        ctx.save();
-        
-        // 描画がボヤけないようにドット絵・高解像度向けの補正を設定
-        ctx.imageSmoothingEnabled = false; // ドット絵のシャープさを保つ場合（滑らかにしたい場合は true）
+        const renderLoop = () => {
+            // キャンバスが画面から消えていたらループを完全停止
+            if (!document.body.contains(canvas)) {
+                canvas._isAnimLoopRunning = false;
+                return;
+            }
 
-        // 座標系をDPR倍にスケーリング
-        ctx.scale(dpr, dpr);
+            if (typeof hero !== 'undefined' && hero) {
+                // モデルIDとスタイルID（charVar）の取得
+                const g = typeof selectedGroup !== 'undefined' ? selectedGroup : (hero.model_id !== undefined ? hero.model_id : 11);
+                const v = typeof selectedCharVar !== 'undefined' ? selectedCharVar : (hero.charVar !== undefined ? hero.charVar : (hero.style_id !== undefined ? hero.style_id : 1));
+                
+                const charKey = `${g}_${v}`;
 
-        ctx.clearRect(0, 0, displayWidth, displayHeight);
+                // キャラクターやスタイル変更時は Idle 画像キャッシュを再構築
+                if (animState.lastCharKey !== charKey || animState.cache.length === 0) {
+                    animState.lastCharKey = charKey;
+                    animState.cache = [];
+                    animState.internalFrame = 0;
+                    animState.commonBox = null;
 
-        // 🌟 2. 一時キャンバスで余白自動カット
-        const tempCanvas = document.createElement('canvas');
-        tempCanvas.width = currentImg.width;
-        tempCanvas.height = currentImg.height;
-        const tempCtx = tempCanvas.getContext('2d');
-        tempCtx.drawImage(currentImg, 0, 0);
+                    let charNum = String(g).replace(/[^0-9]/g, '');
+                    if (!charNum || charNum === "-1") charNum = "11";
+                    const paddedNum = String(parseInt(charNum, 10)).padStart(2, '0');
 
-        const imgData = tempCtx.getImageData(0, 0, currentImg.width, currentImg.height);
-        const data = imgData.data;
+                    let styleNum = String(v).replace(/[^0-9]/g, '');
+                    if (!styleNum) styleNum = "1";
+                    const paddedStyleNum = String(parseInt(styleNum, 10)).padStart(2, '0');
 
-        let minX = currentImg.width, minY = currentImg.height, maxX = 0, maxY = 0;
-        let found = false;
+                    const totalFrames = 20; // 20コマのIdleアニメーション
+                    let loadedCount = 0;
+                    const tempImages = [];
 
-        for (let y = 0; y < currentImg.height; y++) {
-            for (let x = 0; x < currentImg.width; x++) {
-                const alpha = data[(y * currentImg.width + x) * 4 + 3];
-                if (alpha > 10) {
+                    for (let i = 0; i < totalFrames; i++) {
+                        const frameNum = String(i).padStart(2, '0');
+                        const img = new Image();
+                        img.crossOrigin = "anonymous";
+                        
+                        img.src = `${baseDomain}/char_assets/${paddedNum}/${paddedStyleNum}/Idle/Characters-Character${paddedStyleNum}-Idle_${frameNum}.png`;
+                        
+                        img.onload = () => {
+                            loadedCount++;
+                            if (loadedCount === totalFrames) {
+                                // 全画像ロード完了後にブレ防止の共通領域を算出
+                                calculateTradeCommonBoundingBox(animState, tempImages);
+                            }
+                        };
+                        tempImages.push(img);
+                        animState.cache.push(img);
+                    }
+                }
+
+                // 一定時間ごとにアニメーションフレームを進める（約90msごと）
+                const now = performance.now();
+                if (now - animState.lastTime > 90) {
+                    if (animState.cache.length > 0 && animState.cache[0].complete && animState.cache[0].naturalWidth > 0) {
+                        animState.internalFrame = (animState.internalFrame + 1) % animState.cache.length;
+                    }
+                    animState.lastTime = now;
+                }
+
+                const ctx = canvas.getContext('2d');
+                if (ctx) {
+                    const currentImg = animState.cache[animState.internalFrame];
+
+                    if (currentImg && currentImg.complete && currentImg.naturalWidth !== 0) {
+                        const dpr = window.devicePixelRatio || 2;
+                        const displayWidth = 64;
+                        const displayHeight = 64;
+
+                        const targetCanvasWidth = displayWidth * dpr;
+                        const targetCanvasHeight = displayHeight * dpr;
+
+                        if (canvas.width !== targetCanvasWidth || canvas.height !== targetCanvasHeight) {
+                            canvas.width = targetCanvasWidth;
+                            canvas.height = targetCanvasHeight;
+                            canvas.style.width = '64px';
+                            canvas.style.height = '64px';
+                        }
+
+                        ctx.save();
+                        ctx.imageSmoothingEnabled = false;
+                        ctx.scale(dpr, dpr);
+                        ctx.clearRect(0, 0, displayWidth, displayHeight);
+
+                        // 計算済みの共通ボックスを使用（未完了時はフォールバック）
+                        const box = animState.commonBox || {
+                            x: 0, y: 0, w: currentImg.naturalWidth, h: currentImg.naturalHeight
+                        };
+
+                        const targetHeight = 60; 
+                        const scale = targetHeight / box.h;
+                        
+                        const dw = box.w * scale;
+                        const dh = box.h * scale;
+                        
+                        const dx = (displayWidth - dw) / 2;
+                        const dy = (displayHeight - dh) / 2 - 2; 
+
+                        ctx.save();
+                        // 🌟 トレード画面用の左向き反転を維持
+                        ctx.translate(displayWidth, 0);
+                        ctx.scale(-1, 1);
+
+                        // 🌟 輪郭の視認性を高めるソフトシャドウ
+                        ctx.shadowColor = "rgba(0, 0, 0, 0.4)"; 
+                        ctx.shadowBlur = 4;                      
+                        ctx.shadowOffsetX = 0;
+                        ctx.shadowOffsetY = 2;
+
+                        // 共通ボックス基準で全コマを統一描画し、ぶれを完全にシャットアウト
+                        ctx.drawImage(
+                            currentImg, 
+                            box.x, box.y, box.w, box.h, 
+                            dx, dy, dw, dh
+                        );
+                        
+                        ctx.restore();
+                        ctx.restore();
+                    }
+                }
+            }
+
+            requestAnimationFrame(renderLoop);
+        };
+
+        requestAnimationFrame(renderLoop);
+    }
+}
+
+// 🌟 トレード画面用：全20コマのブレを完全になくすための共通ボックス算出ヘルパー
+function calculateTradeCommonBoundingBox(animState, images) {
+    let minX = 9999, minY = 9999, maxX = 0, maxY = 0;
+    const imgW = images[0].naturalWidth;
+    const imgH = images[0].naturalHeight;
+
+    const tempCanvas = document.createElement('canvas');
+    tempCanvas.width = imgW;
+    tempCanvas.height = imgH;
+    const tempCtx = tempCanvas.getContext('2d');
+
+    images.forEach(img => {
+        tempCtx.clearRect(0, 0, imgW, imgH);
+        tempCtx.drawImage(img, 0, 0);
+        const data = tempCtx.getImageData(0, 0, imgW, imgH).data;
+
+        for (let y = 0; y < imgH; y++) {
+            for (let x = 0; x < imgW; x++) {
+                if (data[(y * imgW + x) * 4 + 3] > 5) {
                     if (x < minX) minX = x;
                     if (x > maxX) maxX = x;
                     if (y < minY) minY = y;
                     if (y > maxY) maxY = y;
-                    found = true;
                 }
             }
         }
+    });
 
-        if (!found) {
-            minX = 0; minY = 0; maxX = currentImg.width; maxY = currentImg.height;
-        }
-
-        const sourceX = minX;
-        const sourceY = minY;
-        const sourceWidth = maxX - minX + 1;
-        const sourceHeight = maxY - minY + 1;
-
-        // 🌟 3. サイズフィット計算
-        const targetHeight = 48; 
-        const scale = targetHeight / sourceHeight;
-        
-        const dw = sourceWidth * scale;
-        const dh = sourceHeight * scale;
-        
-        const dx = (displayWidth - dw) / 2;
-        const dy = (displayHeight - dh) / 2;
-
-        // 🌟 4. 左向き反転 ＆ 描画
-        ctx.translate(displayWidth, 0);
-        ctx.scale(-1, 1);
-
-        ctx.drawImage(
-            currentImg, 
-            sourceX, sourceY, sourceWidth, sourceHeight, 
-            dx, dy, dw, dh
-        );
-        
-        ctx.restore();
+    if (minX > maxX || minY > maxY) {
+        animState.commonBox = { x: 0, y: 0, w: imgW, h: imgH };
+    } else {
+        animState.commonBox = {
+            x: minX,
+            y: minY,
+            w: maxX - minX + 1,
+            h: maxY - minY + 1
+        };
     }
 }
 
 // ============================================================
-// 🏪 露店入店中エリアへの自キャラ描画関数
+// 🏪 露店入店中エリアへの自キャラ描画関数（完全静止・重心固定版・CORS対策済）
 // ============================================================
 function drawOtherVendingMyAvatar() {
     const canvas = document.getElementById('other-vending-my-avatar-canvas');
     if (!canvas) return;
-    const ctx = canvas.getContext('2d');
 
     if (typeof hero === 'undefined' || !hero) return;
 
-    // モデルIDとバリエーションの決定
-    const g = typeof selectedGroup !== 'undefined' ? selectedGroup : (hero.model_id || hero.group || 0);
-    const v = typeof selectedCharVar !== 'undefined' ? selectedCharVar : (hero.charVar || 1);
+    // アバター下の名前要素にプレイヤー名をセット
+    const nameEl = document.getElementById('visitor-name-1');
+    if (nameEl) {
+        nameEl.textContent = hero.name || hero.username || "あなた";
+    }
 
-    // キャラクター画像を取得
-    const currentImg = getPlayerCurrentImg(hero, g, v, typeof frame !== 'undefined' ? frame : 0, sprites, playerSprites, true);
+    const baseDomain = (typeof IMAGE_DOMAIN !== 'undefined') ? IMAGE_DOMAIN : '';
 
-    if (currentImg && currentImg.complete) {
-        const dpr = window.devicePixelRatio || 1;
-        const displayWidth = 64;
-        const displayHeight = 64;
+    // 初回のみ専用アニメーションループを起動
+    if (!canvas._isAnimLoopRunning) {
+        canvas._isAnimLoopRunning = true;
 
-        if (canvas.width !== displayWidth * dpr || canvas.height !== displayHeight * dpr) {
-            canvas.width = displayWidth * dpr;
-            canvas.height = displayHeight * dpr;
-            canvas.style.width = '36px';
-            canvas.style.height = '36px';
-        }
+        canvas._vendingAnimState = {
+            lastCharKey: '',
+            cache: [],
+            internalFrame: 0,
+            lastTime: performance.now(),
+            commonBox: null
+        };
 
-        ctx.save();
-        ctx.imageSmoothingEnabled = false;
-        ctx.scale(dpr, dpr);
-        ctx.clearRect(0, 0, displayWidth, displayHeight);
+        const animState = canvas._vendingAnimState;
 
-        // 一時キャンバスで余白自動カット
-        const tempCanvas = document.createElement('canvas');
-        tempCanvas.width = currentImg.width;
-        tempCanvas.height = currentImg.height;
-        const tempCtx = tempCanvas.getContext('2d');
-        tempCtx.drawImage(currentImg, 0, 0);
+        const renderLoop = () => {
+            if (!document.body.contains(canvas)) {
+                canvas._isAnimLoopRunning = false;
+                return;
+            }
 
-        const imgData = tempCtx.getImageData(0, 0, currentImg.width, currentImg.height);
-        const data = imgData.data;
+            if (typeof hero !== 'undefined' && hero) {
+                // モデルIDとスタイルID（charVar）の取得
+                const g = typeof selectedGroup !== 'undefined' ? selectedGroup : (hero.model_id !== undefined ? hero.model_id : 11);
+                const v = typeof selectedCharVar !== 'undefined' ? selectedCharVar : (hero.charVar !== undefined ? hero.charVar : (hero.style_id !== undefined ? hero.style_id : 1));
+                
+                const charKey = `${g}_${v}`;
 
-        let minX = currentImg.width, minY = currentImg.height, maxX = 0, maxY = 0;
-        let found = false;
+                // キャラクターやスタイル変更時は Idle 画像キャッシュを再構築
+                if (animState.lastCharKey !== charKey || animState.cache.length === 0) {
+                    animState.lastCharKey = charKey;
+                    animState.cache = [];
+                    animState.commonBox = null;
+                    animState.internalFrame = 0;
 
-        for (let y = 0; y < currentImg.height; y++) {
-            for (let x = 0; x < currentImg.width; x++) {
-                const alpha = data[(y * currentImg.width + x) * 4 + 3];
-                if (alpha > 10) {
-                    if (x < minX) minX = x;
-                    if (x > maxX) maxX = x;
-                    if (y < minY) minY = y;
-                    if (y > maxY) maxY = y;
-                    found = true;
+                    let charNum = String(g).replace(/[^0-9]/g, '');
+                    if (!charNum || charNum === "-1") charNum = "11";
+                    const paddedNum = String(parseInt(charNum, 10)).padStart(2, '0');
+
+                    let styleNum = String(v).replace(/[^0-9]/g, '');
+                    if (!styleNum) styleNum = "1";
+                    const paddedStyleNum = String(parseInt(styleNum, 10)).padStart(2, '0');
+
+                    const totalFrames = 20; // 20コマ
+                    
+                    let loadedCount = 0;
+                    const tempImages = [];
+
+                    for (let i = 0; i < totalFrames; i++) {
+                        const frameNum = String(i).padStart(2, '0');
+                        const img = new Image();
+                        
+                        // 🌟 CORS制限を回避するため anonymous を指定
+                        img.crossOrigin = "anonymous";
+                        
+                        // 💡 もしこれでも汚染される場合は、URL末尾にダミーのタイムスタンプ等を付与してキャッシュ起因のCORSバグを防ぐことも有効です
+                        img.src = `${baseDomain}/char_assets/${paddedNum}/${paddedStyleNum}/Idle/Characters-Character${paddedStyleNum}-Idle_${frameNum}.png`;
+                        
+                        img.onload = () => {
+                            loadedCount++;
+                            if (loadedCount === totalFrames) {
+                                // 全画像ロード完了後に、ご提示いただいた自動トリミング関数を安全に実行
+                                try {
+                                    calculateCommonBoundingBox(animState, tempImages);
+                                } catch (e) {
+                                    console.warn("⚠️ BoundingBoxの自動計算でエラーが発生したため、デフォルト全域を使用します:", e);
+                                    animState.commonBox = { x: 0, y: 0, w: tempImages[0].naturalWidth, h: tempImages[0].naturalHeight };
+                                }
+                            }
+                        };
+
+                        img.onerror = () => {
+                            loadedCount++;
+                            console.error("❌ アバター画像のロードに失敗しました:", img.src);
+                        };
+
+                        tempImages.push(img);
+                        animState.cache.push(img);
+                    }
+                }
+
+                // 一定時間ごとにアニメーションフレームを進める（約90msごと）
+                const now = performance.now();
+                if (now - animState.lastTime > 90) {
+                    if (animState.cache.length > 0 && animState.cache[0].complete && animState.cache[0].naturalWidth > 0) {
+                        animState.internalFrame = (animState.internalFrame + 1) % animState.cache.length;
+                    }
+                    animState.lastTime = now;
+                }
+
+                const ctx = canvas.getContext('2d');
+                if (ctx) {
+                    const currentImg = animState.cache[animState.internalFrame];
+
+                    if (currentImg && currentImg.complete && currentImg.naturalWidth !== 0) {
+                        const dpr = window.devicePixelRatio || 2;
+                        const displayWidth = 64;
+                        const displayHeight = 64;
+
+                        const targetCanvasWidth = displayWidth * dpr;
+                        const targetCanvasHeight = displayHeight * dpr;
+
+                        if (canvas.width !== targetCanvasWidth || canvas.height !== targetCanvasHeight) {
+                            canvas.width = targetCanvasWidth;
+                            canvas.height = targetCanvasHeight;
+                            canvas.style.width = '64px';
+                            canvas.style.height = '64px';
+                        }
+
+                        ctx.save();
+                        ctx.imageSmoothingEnabled = false;
+                        ctx.scale(dpr, dpr);
+                        ctx.clearRect(0, 0, displayWidth, displayHeight);
+
+                        // 共通の切り抜き領域がまだ計算されていなければ全体を使う
+                        const box = animState.commonBox || {
+                            x: 0, y: 0, w: currentImg.naturalWidth, h: currentImg.naturalHeight
+                        };
+
+                        const targetHeight = 60; 
+                        const scale = targetHeight / (box.h || 1);
+                        
+                        const dw = box.w * scale;
+                        const dh = box.h * scale;
+                        
+                        const dx = (displayWidth - dw) / 2;
+                        const dy = (displayHeight - dh) / 2 - 2; 
+
+                        ctx.save();
+                        ctx.translate(displayWidth, 0);
+                        ctx.scale(-1, 1);
+
+                        // 影の効果（輪郭の視認性向上）
+                        ctx.shadowColor = "rgba(0, 0, 0, 0.4)";
+                        ctx.shadowBlur = 4;
+                        ctx.shadowOffsetX = 0;
+                        ctx.shadowOffsetY = 2;
+
+                        try {
+                            ctx.drawImage(
+                                currentImg, 
+                                box.x, box.y, box.w, box.h, 
+                                dx, dy, dw, dh
+                            );
+                        } catch (drawErr) {
+                            // 万が一の描画時セキュリティエラー対策
+                            // console.error("DrawImage error:", drawErr);
+                        }
+                        
+                        ctx.restore();
+                        ctx.restore();
+                    }
                 }
             }
+
+            requestAnimationFrame(renderLoop);
+        };
+
+        requestAnimationFrame(renderLoop);
+    }
+}
+
+// ============================================================
+// 🌟 全20コマのブレを完全になくすための共通ボックス算出ヘルパー関数（そのまま踏襲）
+// ============================================================
+function calculateCommonBoundingBox(animState, images) {
+    let minX = 9999, minY = 9999, maxX = 0, maxY = 0;
+    const imgW = images[0].naturalWidth;
+    const imgH = images[0].naturalHeight;
+
+    const tempCanvas = document.createElement('canvas');
+    tempCanvas.width = imgW;
+    tempCanvas.height = imgH;
+    const tempCtx = tempCanvas.getContext('2d');
+
+    // 全コマを走査して「キャラクターが存在する最大の全域（共通枠）」を割り出す
+    images.forEach(img => {
+        tempCtx.clearRect(0, 0, imgW, imgH);
+        tempCtx.drawImage(img, 0, 0);
+        
+        // ※万が一CORSで弾かれた場合に備えてtry-catchで囲み、安全にフォールバックさせます
+        try {
+            const data = tempCtx.getImageData(0, 0, imgW, imgH).data;
+
+            for (let y = 0; y < imgH; y++) {
+                for (let x = 0; x < imgW; x++) {
+                    if (data[(y * imgW + x) * 4 + 3] > 5) {
+                        if (x < minX) minX = x;
+                        if (x > maxX) maxX = x;
+                        if (y < minY) minY = y;
+                        if (y > maxY) maxY = y;
+                    }
+                }
+            }
+        } catch (e) {
+            // 万が一汚染エラーが出た場合は強制的に全域サイズにする
+            minX = 0; minY = 0; maxX = imgW - 1; maxY = imgH - 1;
         }
+    });
 
-        if (!found) {
-            minX = 0; minY = 0; maxX = currentImg.width; maxY = currentImg.height;
-        }
-
-        const sourceX = minX;
-        const sourceY = minY;
-        const sourceWidth = maxX - minX + 1;
-        const sourceHeight = maxY - minY + 1;
-
-        const targetHeight = 32; // スロット枠に収まるよう調整
-        const scale = targetHeight / sourceHeight;
-        
-        const dw = sourceWidth * scale;
-        const dh = sourceHeight * scale;
-        
-        const dx = (displayWidth - dw) / 2;
-        const dy = (displayHeight - dh) / 2;
-
-        // 左向き反転 ＆ 描画
-        ctx.translate(displayWidth, 0);
-        ctx.scale(-1, 1);
-
-        ctx.drawImage(
-            currentImg, 
-            sourceX, sourceY, sourceWidth, sourceHeight, 
-            dx, dy, dw, dh
-        );
-        
-        ctx.restore();
+    if (minX > maxX || minY > maxY) {
+        animState.commonBox = { x: 0, y: 0, w: imgW, h: imgH };
+    } else {
+        animState.commonBox = {
+            x: minX,
+            y: minY,
+            w: maxX - minX + 1,
+            h: maxY - minY + 1
+        };
     }
 }
 

@@ -1263,15 +1263,25 @@ socket.on('request_photo_data', async () => {
     }
 });
 
-// 📖 クライアントからのユーザーデータ要求を受けて、PHP経由でロリポップのDBから取得する（全63テーブル完全統合版）
+// 📖 クライアントからのユーザーデータ要求を受けて、PHP経由でロリポップのDBから取得する（デバッグ強化版）
 socket.on('request_users_data', async () => {
     console.log("📡 [DEBUG] クライアントからユーザーデータの要求を受信しました");
     try {
-        const response = await fetch('https://imgv.jp/get_users.php'); // 実際のURL環境に合わせてください
+        console.log("🌐 [DEBUG] https://imgv.jp/get_users.php へフェッチ中...");
+        const response = await fetch('https://imgv.jp/get_users.php');
+        
+        if (!response.ok) {
+            console.error(`❌ [ERROR] HTTPエラーステータス: ${response.status}`);
+        }
+
         const data = await response.json();
+        console.log("📥 [DEBUG] PHPからJSONデータを受信完了。構造をチェックします...");
 
         if (data.status === 'success' && data.tables) {
+            console.log("✅ [DEBUG] status === 'success' 確認。テーブルデータの展開を開始します...");
+
             const userNameTable = data.tables['mysql_user_name'] || [];
+            console.log(`👤 [DEBUG] 対象ユーザー名テーブル件数: ${userNameTable.length}件`);
             
             // 既存テーブル群
             const ageTable = data.tables['mysql_user_age'] || [];
@@ -1319,7 +1329,7 @@ socket.on('request_users_data', async () => {
             const popularityTable = data.tables['mysql_user_popularity'] || [];
             const rankTable = data.tables['mysql_user_rank'] || [];
 
-            // 🌟 今回新規追加する14テーブル
+            // 新規追加14テーブル
             const registDateTable = data.tables['mysql_user_regist_date'] || [];
             const researchTable = data.tables['mysql_user_research'] || [];
             const respectedPageTable = data.tables['mysql_user_respected_page'] || [];
@@ -1334,6 +1344,8 @@ socket.on('request_users_data', async () => {
             const thumbnailTable = data.tables['mysql_user_thumbnail'] || [];
             const typeTable = data.tables['mysql_user_type'] || [];
             const zoneTable = data.tables['mysql_user_zone'] || [];
+
+            console.log("🗺️ [DEBUG] 各種引き当てマップの作成を開始します...");
 
             // 各種引き当てマップの作成
             const ageMap = {}; ageTable.forEach(row => { const k = row.user_id || row.id; if (k) ageMap[k] = { age: row.age !== undefined ? row.age : 0, status: row.status || 'public' }; });
@@ -1381,7 +1393,7 @@ socket.on('request_users_data', async () => {
             const popularityMap = {}; popularityTable.forEach(row => { const k = row.user_id || row.id; if (k) popularityMap[k] = row.user_popularity !== undefined ? row.user_popularity : 0; });
             const rankMap = {}; rankTable.forEach(row => { const k = row.user_id || row.id; if (k) rankMap[k] = row.user_rank || 'sky'; });
 
-            // 🌟 新規追加14テーブルのマップ作成
+            // 新規追加14テーブルマップ
             const registDateMap = {}; registDateTable.forEach(row => { const k = row.user_id || row.id; if (k) registDateMap[k] = row.regist_date || '未記録'; });
             const researchMap = {}; researchTable.forEach(row => { const k = row.user_id || row.id; if (k) researchMap[k] = row.research_id || '未設定'; });
             const respectedPageMap = {}; respectedPageTable.forEach(row => { const k = row.user_id || row.id; if (k) respectedPageMap[k] = row.respected_page_id || 'なし'; });
@@ -1399,6 +1411,8 @@ socket.on('request_users_data', async () => {
             });
             const typeMap = {}; typeTable.forEach(row => { const k = row.user_id || row.id; if (k) typeMap[k] = row.type || '不明'; });
             const zoneMap = {}; zoneTable.forEach(row => { const k = row.user_id || row.id; if (k) zoneMap[k] = row.now_zone || '未設定'; });
+
+            console.log("🔗 [DEBUG] マップ作成完了。ユーザーデータのマージ（統合）を開始します...");
 
             // 🌟 各ユーザーアイテムに情報を合体（マージ）させる
             const mergedUsers = userNameTable.map((item, index) => {
@@ -1463,7 +1477,6 @@ socket.on('request_users_data', async () => {
                     user_plan: planMap[uId] || 'regular',
                     user_popularity: popularityMap[uId] !== undefined ? popularityMap[uId] : 0,
                     user_rank: rankMap[uId] || 'sky',
-                    // 🌟 新規追加14テーブルデータ
                     regist_date: registDateMap[uId] || '未記録',
                     research_id: researchMap[uId] || '未設定',
                     respected_page_id: respectedPageMap[uId] || 'なし',
@@ -1483,13 +1496,14 @@ socket.on('request_users_data', async () => {
                 };
             });
 
-            console.log("📡 [DEBUG] ユーザーデータを " + mergedUsers.length + " 件構築しました！");
+            console.log("📡 [DEBUG] ユーザーデータの構築が正常に完了しました！件数: " + mergedUsers.length + "件。クライアントへ送信します。");
             socket.emit('receive_users_data', { status: 'success', users: mergedUsers, tables: data.tables });
         } else {
+            console.warn("⚠️ [WARNING] PHPのレスポンスが success ではないか、tables が存在しません。", data);
             socket.emit('receive_users_data', { status: 'error', users: [] });
         }
     } catch (err) {
-        console.error("❌ ユーザーデータ取得エラー:", err);
+        console.error("❌ [ERROR] ユーザーデータ取得・マージ処理中に例外エラーが発生しました:", err);
         socket.emit('receive_users_data', { status: 'error', users: [] });
     }
 });
