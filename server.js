@@ -1264,6 +1264,7 @@ socket.on('request_photo_data', async () => {
 });
 
 // 📖 クライアントからのユーザーデータ要求を受けて、PHP経由でロリポップのDBから取得する（デバッグ強化版）
+/*
 socket.on('request_users_data', async () => {
     console.log("📡 [DEBUG] クライアントからユーザーデータの要求を受信しました");
     try {
@@ -1504,6 +1505,38 @@ socket.on('request_users_data', async () => {
         }
     } catch (err) {
         console.error("❌ [ERROR] ユーザーデータ取得・マージ処理中に例外エラーが発生しました:", err);
+        socket.emit('receive_users_data', { status: 'error', users: [] });
+    }
+});
+*/
+
+// 📖 クライアントからのユーザーデータ要求に対して、強制的に「AAA」のテストデータを返す
+socket.on('request_users_data', async () => {
+    console.log("📡 [DEBUG] クライアントからユーザーデータの要求を受信しました（AAAテストモード）");
+    try {
+        // テスト用の固定ユーザーデータ（名前を「AAA」にする）
+        const dummyUsers = [
+            {
+                user_id: "test_user_1",
+                user_name: "AAA",
+                status: "public",
+                user_level: 99,
+                user_rank: "sky",
+                user_icon_src: "no_icon"
+            }
+        ];
+
+        console.log("📡 [DEBUG] テストデータ「AAA」をクライアントへ送信します。");
+        
+        // クライアント側へ強制送信
+        socket.emit('receive_users_data', { 
+            status: 'success', 
+            users: dummyUsers, 
+            tables: {} 
+        });
+
+    } catch (err) {
+        console.error("❌ [ERROR] テスト処理中にエラー:", err);
         socket.emit('receive_users_data', { status: 'error', users: [] });
     }
 });
