@@ -14,6 +14,34 @@
     </div>
 </div>
 
+<!-- 📖 ページ機能全体のメインコンテナ（最初は非表示にしておき、ボタン等で表示を切り替えます） -->
+<div id="page-window" class="page-window-overlay" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 9999; justify-content: center; align-items: center;">
+    <div class="page-window-container" style="width: 750px; height: 500px; background: #eceff1; border: 2px solid #334155; border-radius: 6px; box-shadow: 0 20px 50px rgba(0,0,0,0.6); display: flex; flex-direction: column; overflow: hidden; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;">
+        
+        <!-- ヘッダー（タイトル ＆ 閉じるボタン） -->
+        <div class="page-window-header" style="display: flex; justify-content: space-between; align-items: center; background: linear-gradient(180deg, #384e77 0%, #1a2942 100%); padding: 8px 12px; border-bottom: 1px solid #111827; color: white;">
+            <h3 style="margin: 0; font-size: 13px; font-weight: 700; display: flex; align-items: center; gap: 6px;">📄 ページ一覧</h3>
+            <button class="page-close-btn" onclick="togglePageWindow()" style="background: linear-gradient(180deg, #f87171 0%, #dc2626 100%); color: white; border: 1px solid #991b1b; width: 20px; height: 20px; border-radius: 3px; cursor: pointer; font-weight: bold; font-size: 11px; display: flex; align-items: center; justify-content: center;">×</button>
+        </div>
+
+        <!-- メインコンテンツ領域（左右2カラム構成） -->
+        <div class="page-window-body" style="display: flex; flex-grow: 1; height: calc(100% - 37px); background: #dfe4ea; box-sizing: border-box; gap: 1px;">
+            
+            <!-- 左側：ページのタイトル一覧リスト -->
+            <div id="page-list-content" class="page-list-pane" style="width: 280px; background: #ffffff; overflow-y: auto; border-right: 1px solid #cbd5e1; box-sizing: border-box;">
+                <!-- ここに JavaScript でページの一覧が動的に差し込まれます -->
+                <div style='color:#888; padding:15px; text-align:center; font-size: 11px;'>読み込み中...</div>
+            </div>
+
+            <!-- 右側：選択したページの詳細本文を表示するエリア -->
+            <div id="page-detail-view" class="page-detail-pane" style="flex-grow: 1; background: #f8fafc; padding: 15px; overflow-y: auto; box-sizing: border-box;">
+                <div class="page-placeholder-text" style="color: #64748b; font-size: 12px; text-align: center; margin-top: 150px;">左側のリストからページを選択してください</div>
+            </div>
+
+        </div>
+    </div>
+</div>
+
 <!-- 📖 コラム機能全体のメインコンテナ（最初は非表示にしておき、ボタン等で表示を切り替えます） -->
 <div id="column-window" class="column-window-overlay" style="display: none;">
     <div class="column-window-container">
@@ -35,6 +63,62 @@
             <!-- 右側：選択したコラムの詳細本文を表示するエリア -->
             <div id="column-detail-view" class="column-detail-pane">
                 <div class="column-placeholder-text">コラムを選択してください</div>
+            </div>
+
+        </div>
+    </div>
+</div>
+
+<!-- 📖 写真・ライブラリ機能全体のメインコンテナ（最初は非表示） -->
+<div id="photo-window" class="photo-window-overlay" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 9999; justify-content: center; align-items: center;">
+    <div class="photo-window-container" style="width: 750px; height: 500px; background: #eceff1; border: 2px solid #334155; border-radius: 6px; box-shadow: 0 20px 50px rgba(0,0,0,0.6); display: flex; flex-direction: column; overflow: hidden; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;">
+        
+        <!-- ヘッダー（タイトル ＆ 閉じるボタン） -->
+        <div class="photo-window-header" style="display: flex; justify-content: space-between; align-items: center; background: linear-gradient(180deg, #384e77 0%, #1a2942 100%); padding: 8px 12px; border-bottom: 1px solid #111827; color: white;">
+            <h3 style="margin: 0; font-size: 13px; font-weight: 700; display: flex; align-items: center; gap: 6px;">🖼️ 写真・ライブラリ一覧</h3>
+            <button class="photo-close-btn" onclick="togglePhotoWindow()" style="background: linear-gradient(180deg, #f87171 0%, #dc2626 100%); color: white; border: 1px solid #991b1b; width: 20px; height: 20px; border-radius: 3px; cursor: pointer; font-weight: bold; font-size: 11px; display: flex; align-items: center; justify-content: center;">×</button>
+        </div>
+
+        <!-- メインコンテンツ領域（左右2カラム構成） -->
+        <div class="photo-window-body" style="display: flex; flex-grow: 1; height: calc(100% - 37px); background: #dfe4ea; box-sizing: border-box; gap: 1px;">
+            
+            <!-- 左側：写真のタイトル一覧リスト -->
+            <div id="photo-list-content" class="photo-list-pane" style="width: 280px; background: #ffffff; overflow-y: auto; border-right: 1px solid #cbd5e1; box-sizing: border-box;">
+                <!-- ここに JavaScript で写真の一覧が動的に差し込まれます -->
+                <div style='color:#888; padding:15px; text-align:center; font-size: 11px;'>読み込み中...</div>
+            </div>
+
+            <!-- 右側：選択した写真の詳細本文を表示するエリア -->
+            <div id="photo-detail-view" class="photo-detail-pane" style="flex-grow: 1; background: #f8fafc; padding: 15px; overflow-y: auto; box-sizing: border-box;">
+                <div class="photo-placeholder-text" style="color: #64748b; font-size: 12px; text-align: center; margin-top: 150px;">左側のリストから項目を選択してください</div>
+            </div>
+
+        </div>
+    </div>
+</div>
+
+<!-- 📖 ユーザー機能全体のメインコンテナ（最初は非表示） -->
+<div id="user-window" class="user-window-overlay" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); z-index: 9999; justify-content: center; align-items: center;">
+    <div class="user-window-container" style="width: 750px; height: 500px; background: #eceff1; border: 2px solid #334155; border-radius: 6px; box-shadow: 0 20px 50px rgba(0,0,0,0.6); display: flex; flex-direction: column; overflow: hidden; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;">
+        
+        <!-- ヘッダー（タイトル ＆ 閉じるボタン） -->
+        <div class="user-window-header" style="display: flex; justify-content: space-between; align-items: center; background: linear-gradient(180deg, #384e77 0%, #1a2942 100%); padding: 8px 12px; border-bottom: 1px solid #111827; color: white;">
+            <h3 style="margin: 0; font-size: 13px; font-weight: 700; display: flex; align-items: center; gap: 6px;">👤 ユーザー一覧</h3>
+            <button class="user-close-btn" onclick="toggleUserWindow()" style="background: linear-gradient(180deg, #f87171 0%, #dc2626 100%); color: white; border: 1px solid #991b1b; width: 20px; height: 20px; border-radius: 3px; cursor: pointer; font-weight: bold; font-size: 11px; display: flex; align-items: center; justify-content: center;">×</button>
+        </div>
+
+        <!-- メインコンテンツ領域（左右2カラム構成） -->
+        <div class="user-window-body" style="display: flex; flex-grow: 1; height: calc(100% - 37px); background: #dfe4ea; box-sizing: border-box; gap: 1px;">
+            
+            <!-- 左側：ユーザー名の一覧リスト -->
+            <div id="user-list-content" class="user-list-pane" style="width: 280px; background: #ffffff; overflow-y: auto; border-right: 1px solid #cbd5e1; box-sizing: border-box;">
+                <!-- ここに JavaScript でユーザーの一覧が動的に差し込まれます -->
+                <div style='color:#888; padding:15px; text-align:center; font-size: 11px;'>読み込み中...</div>
+            </div>
+
+            <!-- 右側：選択したユーザーの詳細本文を表示するエリア -->
+            <div id="user-detail-view" class="user-detail-pane" style="flex-grow: 1; background: #f8fafc; padding: 15px; overflow-y: auto; box-sizing: border-box;">
+                <div class="user-placeholder-text" style="color: #64748b; font-size: 12px; text-align: center; margin-top: 150px;">左側のリストからユーザーを選択してください</div>
             </div>
 
         </div>
@@ -571,7 +655,7 @@
 </div>
 
 <!-- 🛒 他プレイヤーの露店表示ウィンドウ (管理ウィンドウ完全同期仕様) -->
-<div id="other-vending-window" class="maple-window" style="display: none; width: 580px; background: #eceff1; border: 2px solid #334155; border-radius: 6px; box-shadow: 0 20px 50px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.6); overflow: hidden; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; position: fixed; z-index: 10000;">
+<div id="other-vending-window" class="maple-window" style="display: none; width: 580px; background: #eceff1; border: 2px solid #334155; border-radius: 6px; box-shadow: 0 20px 50px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.6); overflow: hidden; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 10000;">
     
     <!-- 👑 ヘッダー（他プレイヤーの露店閲覧用） -->
     <div id="other-vending-header" class="maple-header" style="display: flex; justify-content: space-between; align-items: center; background: linear-gradient(180deg, #384e77 0%, #1a2942 100%); padding: 6px 12px; cursor: move; border-bottom: 1px solid #111827; box-shadow: inset 0 1px 0 rgba(255,255,255,0.2);">
@@ -620,21 +704,21 @@
         <div style="flex-grow: 1; display: flex; flex-direction: column; gap: 8px;">
             
             <!-- 👤 3つのユーザ入室アバター表示エリア -->
-<div style="display: flex; gap: 6px; background: #f8fafc; border: 1px solid #94a3b8; border-radius: 4px; padding: 6px; box-shadow: inset 0 1px 3px rgba(0,0,0,0.05);">
-    <!-- 🌟 1枠目：高さを調整し、アバターと名前がぴったり収まるように最適化 -->
-    <div id="visitor-slot-1" style="flex: 1; height: 95px; background: #e2e8f0; border: 1px solid #cbd5e1; border-radius: 3px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; overflow: hidden; position: relative; padding: 3px 4px; box-sizing: border-box;">
-        <canvas id="other-vending-my-avatar-canvas" width="128" height="128" style="display: block; width: 64px; height: 64px; image-rendering: pixelated; image-rendering: crisp-edges;"></canvas>
-        <div id="visitor-name-1" style="font-weight: bold; color: #1e293b; font-size: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; line-height: 1.2;">あなた</div>
-    </div>
-    <!-- 2枠目 -->
-    <div style="flex: 1; height: 95px; background: #e2e8f0; border: 1px solid #cbd5e1; border-radius: 3px; display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: 10px; color: #64748b;">
-        <span>👤 2枠目</span>
-    </div>
-    <!-- 3枠目 -->
-    <div style="flex: 1; height: 95px; background: #e2e8f0; border: 1px solid #cbd5e1; border-radius: 3px; display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: 10px; color: #64748b;">
-        <span>👤 3枠目</span>
-    </div>
-</div>
+            <div style="display: flex; gap: 6px; background: #f8fafc; border: 1px solid #94a3b8; border-radius: 4px; padding: 6px; box-shadow: inset 0 1px 3px rgba(0,0,0,0.05);">
+                <!-- 🌟 1枠目：高さを調整し、アバターと名前がぴったり収まるように最適化 -->
+                <div id="visitor-slot-1" style="flex: 1; height: 95px; background: #e2e8f0; border: 1px solid #cbd5e1; border-radius: 3px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; overflow: hidden; position: relative; padding: 3px 4px; box-sizing: border-box;">
+                    <canvas id="other-vending-my-avatar-canvas" width="128" height="128" style="display: block; width: 64px; height: 64px; image-rendering: pixelated; image-rendering: crisp-edges;"></canvas>
+                    <div id="visitor-name-1" style="font-weight: bold; color: #1e293b; font-size: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; line-height: 1.2;">あなた</div>
+                </div>
+                <!-- 2枠目 -->
+                <div style="flex: 1; height: 95px; background: #e2e8f0; border: 1px solid #cbd5e1; border-radius: 3px; display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: 10px; color: #64748b;">
+                    <span>👤 2枠目</span>
+                </div>
+                <!-- 3枠目 -->
+                <div style="flex: 1; height: 95px; background: #e2e8f0; border: 1px solid #cbd5e1; border-radius: 3px; display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: 10px; color: #64748b;">
+                    <span>👤 3枠目</span>
+                </div>
+            </div>
 
             <!-- 💬 チャットエリア -->
             <div style="background: #ffffff; border: 1px solid #94a3b8; border-radius: 4px; display: flex; flex-direction: column; overflow: hidden; flex-grow: 1; min-height: 95px;">

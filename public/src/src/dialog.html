@@ -1,0 +1,918 @@
+<div id="whisper-overlay">
+    <div class="whisper-window">
+        <h3>内緒話の相手</h3>
+        <p>相手の名前を入力してください</p>
+        
+        <input type="text" id="whisper-target-name" class="whisper-input" placeholder="名前を入力...">
+        
+        <div id="whisper-error" class="whisper-error"></div>
+
+        <div class="whisper-btn-group">
+            <button class="whisper-btn-confirm" onclick="submitWhisperName()">決定</button>
+            <button class="whisper-btn-cancel" onclick="closeWhisperWindow()">キャンセル</button>
+        </div>
+    </div>
+</div>
+
+<!-- キーコンフィグを表示するウィンドウの枠 -->
+<div id="keyconfig-modal" class="config-window" style="display: none; position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); z-index: 20000; background: #181820; border: 1px solid #334155; border-radius: 8px; padding: 16px; width: 640px; box-shadow: 0 10px 25px rgba(0,0,0,0.5);">
+    
+    <!-- 🌟 ドラッグで掴めるヘッダー部分 -->
+    <div id="keyconfig-header" style="cursor: move; display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; border-bottom: 1px solid #334155; padding-bottom: 8px;">
+        <h2 style="margin: 0; font-size: 14px; color: #fbbf24;">⌨️ キーボード設定</h2>
+        <!-- 閉じる用の×ボタン -->
+        <button id="keyconfig-close-btn" style="background: transparent; border: none; color: #94a3b8; font-size: 16px; cursor: pointer;">✕</button>
+    </div>
+
+    <!-- 🌟 説明文とデフォルトリセットボタンを横並びにするエリア -->
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+        <p style="font-size: 12px; color: #94a3b8; margin: 0;">キーをクリック、またはドラッグ＆ドロップで配置を変更できます。</p>
+        <button id="reset-key-config-btn" onclick="resetKeyConfigToDefault()" style="background: #334155; color: #f8fafc; border: none; border-radius: 4px; padding: 4px 8px; font-size: 11px; cursor: pointer;">デフォルトに戻す</button>
+    </div>
+    
+    <!-- 🌟 未割り当てや一時退避用の「予備ボックスエリア」 -->
+    <div style="margin-bottom: 14px;">
+        <div style="font-size: 11px; color: #94a3b8; margin-bottom: 4px;">待機中アクション / 予備ボックス</div>
+        <div id="keyboard-pool-container" style="display: flex; gap: 6px; flex-wrap: wrap; min-height: 52px; padding: 6px; background: #121217; border: 1px dashed #334155; border-radius: 6px;">
+            <!-- ここに予備のキーキャップがJavaScriptで動的に生成されます -->
+        </div>
+    </div>
+
+    <!-- ここにJavaScriptでキーボードの図が自動生成されます -->
+    <div id="keyboard-visual-container"></div>
+</div>
+
+<!-- プレイヤープロフィールウィンドウ -->
+<div id="profile-window" class="profile-window" style="display: none;">
+  
+  <!-- タイトルバー（ドラッグ可能領域） -->
+  <div class="profile-header">
+    <span class="profile-title">プレイヤープロフィール</span>
+    <button id="profile-close-btn" class="profile-close-btn">×</button>
+  </div>
+
+  <!-- メインコンテンツ（2カラムレイアウト） -->
+  <div class="profile-body">
+    
+    <!-- 1カラム目：基本情報 -->
+    <div class="profile-col-left">
+      <div class="profile-user-info-area">
+        <div class="profile-avatar-wrapper">
+          <img id="profile-user-icon" src="" alt="Avatar" />
+        </div>
+        <div class="profile-text-meta">
+          <div id="profile-name" class="profile-name">Player</div>
+          <div class="profile-sub-meta">
+            <span id="profile-level" class="profile-lv">Lv.1</span>
+            <span id="profile-channel" class="profile-ch">CH.1</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- 人気度＋1ボタン -->
+      <button id="profile-pop-btn" class="profile-pop-btn">👍 ＋1する</button>
+
+      <!-- ステータス一覧 -->
+      <ul class="profile-stats-list">
+        <li><span>🐾 アニマル:</span> <span id="profile-animal">なし</span></li>
+        <li><span>⭐ 人気度:</span> <span id="profile-popularity">0</span></li>
+        <li><span>🛡️ ギルド:</span> <span id="profile-guild">無所属</span></li>
+        <li><span>⏱️ プレイ時間:</span> <span id="profile-time">0分</span></li>
+        <li><span>🌐 コミュニティ:</span> <span id="profile-community">未加入</span></li>
+        <li><span>🏠 HP:</span> <span id="profile-homepage">未設定</span></li>
+        <li><span>📖 閲覧履歴:</span> <span id="profile-history">なし</span></li>
+        <li><span>✍️ 寄稿履歴:</span> <span id="profile-contribution">なし</span></li>
+        <li><span>💖 推しキャラ:</span> <span id="profile-oshi-chara">未設定</span></li>
+        <li><span>✨ 推しスポット:</span> <span id="profile-oshi-spot">未設定</span></li>
+        <!-- 🎁 推しスポットの下にステータス形式で追加 -->
+        <li><span>🎁 ほしいもの:</span> <span id="profile-wish">未設定</span></li>
+      </ul>
+    </div>
+
+    <!-- 2カラム目：装備・メダル・図鑑・討伐履歴 -->
+    <div class="profile-col-right">
+      
+      <!-- 装備アイテムパネル -->
+      <div class="profile-panel">
+        <div class="profile-panel-title">装備アイテム</div>
+        <div id="profile-equip-slots" class="profile-equip-grid">
+          <!-- JSで6つのスロット（剣・盾・マント・ペンダント・指輪・ベルト）を生成 -->
+        </div>
+      </div>
+
+      <!-- 所持メダルパネル -->
+      <div class="profile-panel">
+        <div class="profile-panel-title">所持メダル</div>
+        <div class="profile-medal-grid">
+          <div class="medal-box gold"><span>金メダル</span><span id="profile-medal-gold">0枚</span></div>
+          <div class="medal-box silver"><span>銀メダル</span><span id="profile-medal-silver">0枚</span></div>
+          <div class="medal-box bronze"><span>銅メダル</span><span id="profile-medal-bronze">0枚</span></div>
+        </div>
+      </div>
+
+      <!-- モンスターカード図鑑パネル -->
+      <div class="profile-panel">
+        <div id="profile-collection-title" class="profile-panel-title">モンスターカード図鑑 収集状況</div>
+        <div id="profile-card-ranks" class="profile-card-grid">
+          <!-- JSで銅・銀・金・Pt・Dia・虹の6ランクを生成 -->
+        </div>
+      </div>
+
+      <!-- 討伐履歴パネル -->
+      <div class="profile-panel">
+        <div class="profile-panel-title">討伐履歴（直近の戦果）</div>
+        <div class="profile-hunt-box">
+          <div id="profile-hunt-1" class="hunt-text">⚔️️ 最近の討伐記録はありません</div>
+          <div id="profile-hunt-2" class="hunt-text sub">📜 強敵に挑んで歴史に名を刻もう！</div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- 下部アクションボタンエリア -->
+  <div class="profile-footer">
+    <button id="profile-btn-friend" class="profile-action-btn pink">🤝 友達申請</button>
+    <button id="profile-btn-group" class="profile-action-btn blue">👥 グループ申し込み</button>
+    <button id="profile-btn-card-trade" class="profile-action-btn purple">🃏 カード交換</button>
+    <button id="profile-btn-trade" class="profile-action-btn yellow">🔄 アイテム交換</button>
+  </div>
+
+</div>
+
+<!-- 📦 トレード用数量選択モーダル -->
+<div id="trade-quantity-modal" style="display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #222; color: #fff; padding: 20px; border: 2px solid #555; z-index: 10000; border-radius: 8px; width: 280px; box-shadow: 0 4px 15px rgba(0,0,0,0.5);">
+    <h3 style="margin-top: 0; font-size: 16px; text-align: center;">アイテム数量選択</h3>
+    
+    <div style="margin-bottom: 15px; text-align: center; font-size: 14px; color: #ccc;">
+        <span id="trade-modal-item-name" style="color: #fff; font-weight: bold;">アイテム名</span><br>
+        <span style="font-size: 12px;">(所持数: <span id="trade-modal-max-quantity">0</span>)</span>
+    </div>
+
+    <div style="margin-bottom: 15px; text-align: center;">
+        <input type="number" id="trade-modal-quantity-input" min="1" value="1" style="width: 90%; padding: 8px; font-size: 16px; box-sizing: border-box; background: #111; color: #fff; border: 1px solid #777; border-radius: 4px;" placeholder="個数を入力">
+    </div>
+
+    <div style="display: flex; justify-content: space-between;">
+        <button id="trade-modal-confirm-btn" style="padding: 6px 15px; background: #28a745; color: white; border: none; border-radius: 4px; cursor: pointer; flex: 1; margin-right: 5px;">決定</button>
+        <button id="trade-modal-cancel-btn" style="padding: 6px 15px; background: #dc3545; color: white; border: none; border-radius: 4px; cursor: pointer; flex: 1; margin-left: 5px;">キャンセル</button>
+    </div>
+</div>
+
+<!-- 💰 トレード通貨入力モーダル -->
+<div id="trade-currency-modal" style="display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #222; color: #fff; padding: 20px; border: 2px solid #555; z-index: 10000; border-radius: 8px; width: 280px; box-shadow: 0 4px 15px rgba(0,0,0,0.5);">
+    <h3 id="trade-currency-title" style="margin-top: 0; font-size: 16px; text-align: center;">金額を入力</h3>
+    <div style="margin-bottom: 15px; text-align: center;">
+        <input type="number" id="trade-currency-input" min="0" style="width: 90%; padding: 8px; font-size: 16px; box-sizing: border-box; background: #111; color: #fff; border: 1px solid #777; border-radius: 4px;" placeholder="数値を入力">
+    </div>
+    <div style="display: flex; justify-content: space-between;">
+        <button id="trade-currency-confirm" style="padding: 6px 15px; background: #28a745; color: white; border: none; border-radius: 4px; cursor: pointer; flex: 1; margin-right: 5px;">決定</button>
+        <button id="trade-currency-cancel" style="padding: 6px 15px; background: #dc3545; color: white; border: none; border-radius: 4px; cursor: pointer; flex: 1; margin-left: 5px;">キャンセル</button>
+    </div>
+</div>
+
+<!-- ⚠️ トレード警告・エラー通知用モーダル -->
+<div id="trade-alert-modal" style="display: none; position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%); background: #222; color: #fff; padding: 20px; border: 2px solid #dc3545; z-index: 10001; border-radius: 8px; width: 260px; box-shadow: 0 4px 15px rgba(0,0,0,0.5); text-align: center;">
+    <p id="trade-alert-message" style="margin-top: 0; margin-bottom: 20px; font-size: 14px; line-height: 1.4;">ここにメッセージが入ります</p>
+    <button id="trade-alert-ok-btn" style="padding: 6px 20px; background: #dc3545; color: white; border: none; border-radius: 4px; cursor: pointer;">OK</button>
+</div>
+
+<!-- インベントリウィンドウ全体的外枠 -->
+<div id="inventory-window" class="game-window" style="display: none; height:auto; z-index: 9999999;">
+    
+    <!-- インベントリウィンドウのタイトルバー内などに配置 -->
+<div class="window-header">
+    <span>インベントリ</span>
+    <div>
+        <!-- 🌟 新しく追加する「アイテム整理」ボタン -->
+        <button id="organize-inventory-btn" style="margin-right: 8px; padding: 2px 8px; cursor: pointer; font-size: 12px;">整理</button>
+        <button id="inventory-close-btn" class="close-btn">&times;</button>
+    </div>
+</div>
+
+    <!-- アイテムタブ（装備・消費・ETC） -->
+	<!--
+    <div class="inventory-tabs">
+        <button class="tab-btn active">装備</button>
+        <button class="tab-btn">消費</button>
+        <button class="tab-btn">ETC</button>
+    </div>
+	-->
+
+    <!-- Canvasの描画内容がピタッと重なるコンテナエリア -->
+    <div id="inventory-canvas-area" style="position: relative; width: 300px; height: 400px;">
+        <canvas id="inventoryCanvas" style="width: 300px; height: 400px; display: block;"></canvas>
+    </div>
+</div>
+
+</div>
+
+<!-- 🌟 メイプル風アイテム交換ウィンドウ（全体デザイン統一版・ラベル削除・高さ安定化対応） -->
+<div id="trade-window" class="maple-window" style="
+    display: none;
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    width: 840px;
+    padding: 0;
+    z-index: 2000;
+    background: #e8e4dc;
+    border: 2px solid #555;
+    border-radius: 6px;
+    box-shadow: 4px 4px 15px rgba(0,0,0,0.5);
+    font-family: 'Verdana', sans-serif;
+">
+    <!-- ヘッダー（ドラッグ移動対応） -->
+    <div id="trade-header" style="
+        background: linear-gradient(to bottom, #d4e3f0, #8fa4b8);
+        border-bottom: 2px solid #555;
+        padding: 6px 12px;
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        border-radius: 4px 4px 0 0;
+        cursor: move;
+    ">
+        <span style="font-weight: bold; color: #fff; text-shadow: 1px 1px 2px rgba(0,0,0,0.8); font-size: 13px;">アイテムトレード</span>
+        <button type="button" class="maple-btn" onclick="closeTradeWindow()" style="padding: 1px 6px; font-size: 10px; cursor: pointer;">×</button>
+    </div>
+
+    <!-- メインコンテンツ全体 -->
+    <div style="padding: 12px; background: #f0eee6; border-radius: 0 0 6px 6px; display: flex; gap: 14px; box-sizing: border-box;">
+        
+        <!-- ================= 1. 左側エリア：アイテム交換（相手 ｜ 中央ボタン ｜ 自分） ================= -->
+        <div style="display: flex; gap: 10px; box-sizing: border-box;">
+            
+            <!-- 相手のエリア（左） -->
+            <div id="opponent-trade-container" style="width: 175px; background: #e3decb; border: 1px solid #9c9886; border-radius: 4px; padding: 10px; display: flex; flex-direction: column; justify-content: space-between; box-sizing: border-box; position: relative;">
+                
+                <!-- 🔒 相手がロックしたときに被せる薄い白のオーバーレイ -->
+                <div id="opponent-trade-overlay" style="display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(255, 255, 255, 0.4); border-radius: 4px; pointer-events: none; z-index: 10;"></div>
+
+                <div>
+                    <!-- アバター（上）＆名前（下）のコンテナ -->
+                    <div style="background: #fff; border: 1px solid #b5b3a4; padding: 6px; border-radius: 3px; text-align: center; margin-bottom: 10px; display: flex; flex-direction: column; align-items: center; gap: 4px; box-shadow: inset 1px 1px 2px rgba(0,0,0,0.05);">
+                        <!-- アバター用ミニCanvas (64x64) -->
+                        <div style="width: 64px; height: 64px; background: #faf9f5; border: 1px solid #ccc; border-radius: 2px; display: flex; align-items: center; justify-content: center; overflow: hidden; flex-shrink: 0;">
+                            <canvas id="trade-opponent-avatar-canvas" width="64" height="64" style="display: block;"></canvas>
+                        </div>
+                        <!-- 🌟 名前（未入室時も高さを固定し、ズレを防止） -->
+                        <div id="trade-target-name" style="font-size: 11px; font-weight: bold; color: #d34a4a; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; width: 100%; text-align: center; min-height: 16px; line-height: 16px;">（待機中...）</div>
+                    </div>
+                </div>
+
+                <!-- 3x3スロットのコンテナ -->
+                <div style="background: #d6d2c4; border: 2px inset #9c9886; padding: 6px; border-radius: 4px; margin-bottom: 10px; display: flex; justify-content: center;">
+                    <div id="opponent-slot-grid" style="display: grid; grid-template-columns: repeat(3, 40px); gap: 4px;"></div>
+                </div>
+                <!-- 通貨表示 -->
+                <div id="trade-opponent-meso" style="background: #fff; border: 1px solid #b5b3a4; border-radius: 3px; padding: 5px 8px; text-align: right; box-shadow: inset 1px 1px 3px rgba(0,0,0,0.05); font-family: 'Verdana', sans-serif; font-weight: bold; font-size: 12px; color: #e67e22;">
+                    0
+                </div>
+            </div>
+
+            <!-- 中央コントロールボタンエリアの部分 -->
+<div style="display: flex; flex-direction: column; justify-content: center; gap: 8px; width: 60px;">
+    <!-- 🌟 id="trade-lock-btn" を追加 -->
+    <button type="button" id="trade-lock-btn" class="maple-btn-orange" onclick="onTradeLockButtonClicked()" style="width: 100%; text-align: center; padding: 6px 0; font-size: 10px; cursor: pointer;">交換</button>
+    <button type="button" class="maple-btn" onclick="closeTradeWindow()" style="width: 100%; text-align: center; padding: 6px 0; font-size: 10px; cursor: pointer;">出る</button>
+</div>
+
+            <!-- 自分のエリア（右） -->
+            <div id="my-trade-container" style="width: 175px; background: #e3decb; border: 1px solid #9c9886; border-radius: 4px; padding: 10px; display: flex; flex-direction: column; justify-content: space-between; box-sizing: border-box; position: relative;">
+                
+                <!-- 🔒 自分側がロックしたときに被せる薄い白のオーバーレイ -->
+                <div id="my-trade-overlay" style="display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(255, 255, 255, 0.4); border-radius: 4px; pointer-events: none; z-index: 10;"></div>
+
+                <div>
+                    <!-- アバター（上）＆名前（下）のコンテナ -->
+                    <div style="background: #fff; border: 1px solid #b5b3a4; padding: 6px; border-radius: 3px; text-align: center; margin-bottom: 10px; display: flex; flex-direction: column; align-items: center; gap: 4px; box-shadow: inset 1px 1px 2px rgba(0,0,0,0.05);">
+                        <!-- アバター用ミニCanvas (64x64) -->
+                        <div style="width: 64px; height: 64px; background: #faf9f5; border: 1px solid #ccc; border-radius: 2px; display: flex; align-items: center; justify-content: center; overflow: hidden; flex-shrink: 0;">
+                            <canvas id="trade-my-avatar-canvas" width="64" height="64" style="display: block;"></canvas>
+                        </div>
+                        <!-- 🌟 名前（高さのバランスを合わせるため同様に設定） -->
+                        <div id="trade-my-name" style="font-size: 11px; font-weight: bold; color: #3b82f6; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; width: 100%; text-align: center; min-height: 16px; line-height: 16px;">自分</div>
+                    </div>
+                </div>
+
+                <!-- 3x3スロットのコンテナ -->
+                <div style="background: #d6d2c4; border: 2px inset #9c9886; padding: 6px; border-radius: 4px; margin-bottom: 10px; display: flex; justify-content: center;">
+                    <div id="my-slot-grid" style="display: grid; grid-template-columns: repeat(3, 40px); gap: 4px;"></div>
+                </div>
+                <!-- 通貨表示 -->
+                <div id="trade-my-meso" onclick="openTradeCurrencyInput()" style="background: #fff; border: 1px solid #b5b3a4; border-radius: 3px; padding: 5px 8px; text-align: right; box-shadow: inset 1px 1px 3px rgba(0,0,0,0.05); font-family: 'Verdana', sans-serif; font-weight: bold; font-size: 12px; color: #e67e22; cursor: pointer;" title="クリックして金額を変更">
+                    0
+                </div>
+            </div>
+
+        </div>
+
+        <!-- ================= 2. 右側エリア：専用チャット欄 ================= -->
+        <div style="flex: 1; background: #e3decb; border: 1px solid #9c9886; border-radius: 4px; padding: 10px; display: flex; flex-direction: column; justify-content: space-between; box-sizing: border-box;">
+            <!-- チャットログ表示欄 -->
+            <div id="trade-chat-box" style="flex: 1; background: #fff; border: 2px inset #9c9886; padding: 6px; font-size: 11px; overflow-y: auto; margin-bottom: 10px; color: #000; border-radius: 3px; min-height: 140px;">
+                <div>[システム]: 交換ウィンドウが開きました。</div>
+            </div>
+            <!-- 入力欄 ＋ ENTERボタン -->
+            <div style="display: flex; gap: 6px; align-items: center;">
+                <input type="text" id="trade-chat-input" placeholder="メッセージを入力..." style="flex: 1; height: 26px; font-size: 11px; padding: 0 8px; border: 1px solid #9c9886; border-radius: 3px; background: #fff; box-sizing: border-box; outline: none;" onkeydown="if(event.key==='Enter') sendTradeChat();">
+                <button type="button" class="maple-btn" onclick="sendTradeChat()" style="height: 26px; padding: 0 10px; font-size: 10px; cursor: pointer;">ENTER</button>
+            </div>
+        </div>
+
+    </div>
+</div>
+
+<!-- アクティブアイテム用ホバーポップアップ -->
+<div id="item-tooltip" style="
+    position: absolute;
+    display: none;
+    background: rgba(10, 15, 30, 0.95);
+    border: 1px solid #38bdf8;
+    color: #93c5fd;
+    padding: 6px 10px;
+    font-size: 12px;
+    border-radius: 4px;
+    pointer-events: none;
+    z-index: 10000;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.7);
+    backdrop-filter: blur(4px);
+"></div>
+
+<!-- ログイン画面（幅拡張・チャンネル完全フィット版） -->
+<div id="login-overlay" style="display:none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(10, 10, 15, 0.85); backdrop-filter: blur(8px); display: flex; align-items: center; justify-content: center; z-index: 9999;">
+  
+  <!-- カード全体の幅を 440px に拡張 -->
+  <div class="login-card" style="background: linear-gradient(135deg, rgba(20, 20, 30, 0.95), rgba(10, 10, 15, 0.98)); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 14px; padding: 30px 28px; width: 440px; max-width: 92vw; box-shadow: 0 20px 40px rgba(0,0,0,0.6); color: #fff; font-family: sans-serif; box-sizing: border-box;">
+    
+    <!-- ヘッダー：タイトルとサーバー稼働インジケーター -->
+    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 22px;">
+      <div>
+        <h2 style="margin: 0; font-size: 20px; letter-spacing: 1.5px; color: #fff; font-weight: 700;">IMG PROJECT</h2>
+        <p id="form-mode-desc" style="color: #777; font-size: 10px; margin: 3px 0 0 0; letter-spacing: 0.5px;">ENTER THE VIRTUAL WORLD</p>
+      </div>
+      <div style="display: flex; align-items: center; gap: 6px; font-size: 10px; color: #4CAF50; background: rgba(76, 175, 80, 0.1); padding: 4px 10px; border-radius: 20px; border: 1px solid rgba(76, 175, 80, 0.2);">
+        <span style="width: 6px; height: 6px; background-color: #4CAF50; border-radius: 50%; box-shadow: 0 0 8px #4CAF50;"></span>
+        ONLINE
+      </div>
+    </div>
+
+    <!-- 入力セクション -->
+    <div style="display: flex; flex-direction: column; gap: 12px; margin-bottom: 18px;">
+      <div>
+        <label style="display: block; font-size: 10px; color: #888; margin-bottom: 4px; letter-spacing: 0.5px;">IDENTIFIER / NAME</label>
+        <input type="text" id="user-name-input" class="login-input" placeholder="プレイヤー名" maxlength="10" style="width: 100%; background: rgba(0,0,0,0.35); border: 1px solid #333; border-radius: 6px; padding: 10px 12px; color: #fff; font-size: 16px; box-sizing: border-box; outline: none;">
+      </div>
+      <div>
+        <label style="display: block; font-size: 10px; color: #888; margin-bottom: 4px; letter-spacing: 0.5px;">PASSWORD</label>
+        <input type="password" id="user-pass-input" class="login-input" placeholder="••••••••" autocomplete="new-password" style="width: 100%; background: rgba(0,0,0,0.35); border: 1px solid #333; border-radius: 6px; padding: 10px 12px; color: #fff; font-size: 16px; box-sizing: border-box; outline: none;">
+      </div>
+    </div>
+
+    <!-- チャンネル選択セクション（黄金解・完全フィット版） -->
+    <div style="margin-bottom: 18px; width: 100%; box-sizing: border-box;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px;">
+        <label style="font-size: 10px; color: #888; letter-spacing: 0.8px; font-weight: 600;">SELECT CHANNEL</label>
+      </div>
+      
+      <div class="ch-btn-grid">
+        <button type="button" id="ch-btn-1" class="ch-btn active" onclick="selectChannel(1)">01 (0人)</button>
+        <button type="button" id="ch-btn-2" class="ch-btn" onclick="selectChannel(2)">02 (0人)</button>
+        <button type="button" id="ch-btn-3" class="ch-btn" onclick="selectChannel(3)">03 (0人)</button>
+        <button type="button" id="ch-btn-4" class="ch-btn" onclick="selectChannel(4)">04 (0人)</button>
+        <button type="button" id="ch-btn-5" class="ch-btn" onclick="selectChannel(5)">05 (0人)</button>
+      </div>
+    </div>
+
+    <!-- ネットワークフィード（IN/OUTライブログ） -->
+    <div style="margin-bottom: 18px;">
+      <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 4px;">
+        <span style="font-size: 10px; color: #666; letter-spacing: 0.5px;">NETWORK FEED</span>
+        <span style="font-size: 9px; color: #4CAF50; font-family: monospace;">LIVE</span>
+      </div>
+      <div id="login-activity-log" style="background: rgba(0,0,0,0.5); border: 1px solid rgba(255,255,255,0.05); border-radius: 6px; padding: 8px 10px; font-size: 11px; color: #aaa; height: 52px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; scrollbar-width: thin;">
+        <div style="color: #4CAF50; display: flex; align-items: center; gap: 6px;">
+          <span style="font-size: 9px; opacity: 0.7; font-family: monospace;">[18:42]</span> PlayerA がログインしました
+        </div>
+        <div style="color: #ff6b6b; display: flex; align-items: center; gap: 6px;">
+          <span style="font-size: 9px; opacity: 0.7; font-family: monospace;">[18:40]</span> PlayerB がログアウトしました
+        </div>
+      </div>
+    </div>
+
+    <!-- エラーメッセージ領域 -->
+    <div id="login-error" style="font-size: 11px; color: #ff5252; margin-bottom: 12px; min-height: 14px; text-align: center;"></div>
+
+    <!-- アクションボタン群 -->
+    <div style="display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px;">
+      <button id="start-game-btn" class="primary-btn" style="width: 100%; background: linear-gradient(135deg, #4f46e5, #3b82f6); border: none; border-radius: 6px; padding: 12px; color: #fff; font-weight: bold; font-size: 14px; cursor: pointer; box-shadow: 0 4px 12px rgba(59,130,246,0.3);">ログインして遊ぶ</button>
+      <button id="register-btn" class="primary-btn" style="width: 100%; background: transparent; border: 1px solid rgba(255,255,255,0.15); border-radius: 6px; padding: 10px; color: #ff80ff; font-size: 12px; cursor: pointer;">アカウント新規登録</button>
+    </div>
+
+    <!-- フッター（メンテナンス情報 ＆ 中央揃えの屋号） -->
+    <div style="border-top: 1px solid rgba(255,255,255,0.06); padding-top: 12px; font-size: 10px; color: #666; display: flex; flex-direction: column; gap: 6px;">
+      <div style="display: none; color: #888;">
+        <span>次回メンテナンス:</span> <span style="color: #aaa;">2026.10.07 (Wed) 14:00〜</span>
+      </div>
+      <div style="text-align: center;">
+        <span style="font-size: 12px; font-weight: bold; letter-spacing: 1.5px; font-family: monospace; color: #aaa;">© imgdata</span>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- 🛒 露店管理ウィンドウ (店番タブ化・未受取売上金ボックス追加・リッチ仕様) -->
+<div id="vending-window" class="maple-window" style="display: none; width: 580px; background: #eceff1; border: 2px solid #334155; border-radius: 6px; box-shadow: 0 20px 50px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.6); overflow: hidden; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; position: fixed; z-index: 10000;">
+    
+    <!-- 👑 ヘッダー -->
+    <div id="vending-header" class="maple-header" style="display: flex; justify-content: space-between; align-items: center; background: linear-gradient(180deg, #384e77 0%, #1a2942 100%); padding: 6px 12px; cursor: move; border-bottom: 1px solid #111827; box-shadow: inset 0 1px 0 rgba(255,255,255,0.2);">
+        <div style="display: flex; align-items: center; gap: 6px;">
+            <span style="font-size: 13px;">🛒</span>
+            <span style="font-weight: 700; color: #ffffff; text-shadow: 1px 1px 2px rgba(0,0,0,0.8); font-size: 12px; letter-spacing: 0.3px;">ショップ管理</span>
+        </div>
+        <button class="maple-btn" onclick="closeVendingMenu()" style="background: linear-gradient(180deg, #f87171 0%, #dc2626 100%); color: white; border: 1px solid #991b1b; width: 18px; height: 18px; border-radius: 3px; cursor: pointer; font-weight: bold; font-size: 10px; display: flex; align-items: center; justify-content: center; box-shadow: 0 1px 2px rgba(0,0,0,0.4);">✕</button>
+    </div>
+    
+    <!-- 🌟 メインコンテンツ -->
+    <div class="vending-container" style="padding: 10px; background: #dfe4ea; display: flex; gap: 10px; box-sizing: border-box;">
+        
+        <!-- 👈 【左カラム】 -->
+        <div style="width: 250px; display: flex; flex-direction: column; gap: 8px;">
+            
+            <!-- 1. 雇用商人プレビュー ＆ 店名直接入力枠 -->
+<div style="background: #f8fafc; border: 1px solid #94a3b8; border-radius: 4px; padding: 6px 8px; display: flex; align-items: center; gap: 8px; box-shadow: inset 0 1px 3px rgba(0,0,0,0.05);">
+    <!-- 🌟 クリックでモンスター変更ウィンドウが開くようにする -->
+    <div onclick="openMonsterSelectorForVending()" style="width: 40px; height: 40px; background: #cbd5e1; border: 1px solid #64748b; border-radius: 4px; display: flex; align-items: center; justify-content: center; overflow: hidden; position: relative; box-shadow: inset 0 2px 4px rgba(0,0,0,0.1); flex-shrink: 0; cursor: pointer;" title="クリックして店番モンスターを変更">
+        <canvas id="vending-merchant-preview-canvas" width="80" height="80" style="display: block; width: 40px; height: 40px; image-rendering: pixelated; image-rendering: crisp-edges; pointer-events: none;"></canvas>
+    </div>
+    <div style="display: flex; flex-direction: column; overflow: hidden; flex-grow: 1; gap: 2px;">
+        <span id="vending-merchant-name" style="font-size: 9px; color: #64748b; font-weight: bold; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">プレイヤー名の雇用商人</span>
+        <input type="text" id="vending-title-input" class="vending-input" value="いらっしゃいませ" placeholder="いらっしゃいませ" style="background: #ffffff; border: 1px solid #cbd5e1; padding: 2px 5px; border-radius: 3px; font-size: 11px; font-weight: 800; color: #1e293b; outline: none; width: 100%; box-sizing: border-box; box-shadow: inset 0 1px 2px rgba(0,0,0,0.05);">
+    </div>
+</div>
+
+            <!-- 🌟 【ここから下を一つのグループにまとめて隙間をなくす】 -->
+            <div style="display: flex; flex-direction: column; gap: 0px;">
+                <!-- 2. 出店スタイル（店番）のファイリング風タブエリア -->
+                <div style="display: flex; align-items: flex-end; gap: 4px; padding-left: 4px; margin-bottom: -1px; z-index: 2; position: relative;">
+                    <!-- 無人タブ -->
+                    <label id="vending-mode-monster-label" onclick="switchVendingTab('monster')" style="cursor: pointer; padding: 4px 12px; font-size: 10px; font-weight: bold; background: #ffffff; color: #1e293b; border: 1px solid #94a3b8; border-bottom: 2px solid #ffffff; border-top-left-radius: 6px; border-top-right-radius: 6px; box-shadow: 0 -2px 4px rgba(0,0,0,0.05); position: relative; z-index: 3; transition: all 0.1s;">
+                        <input type="radio" name="vending-mode" value="monster" checked style="display: none;">
+                        <span>👾 無人</span>
+                    </label>
+                    <!-- 有人タブ -->
+                    <label id="vending-mode-player-label" onclick="switchVendingTab('player')" style="cursor: pointer; padding: 3px 12px; font-size: 10px; font-weight: bold; background: #cbd5e1; color: #64748b; border: 1px solid #94a3b8; border-top-left-radius: 6px; border-top-right-radius: 6px; position: relative; z-index: 1; transition: all 0.1s; margin-top: 3px;">
+                        <input type="radio" name="vending-mode" value="player" style="display: none;">
+                        <span>👤 有人</span>
+                    </label>
+                </div>
+
+                <!-- 3. 商品リスト表示エリア -->
+                <div id="vending-item-list" style="height: 260px; overflow-y: auto; background: #ffffff; border: 1px solid #94a3b8; border-radius: 4px; padding: 4px; box-shadow: inset 0 2px 4px rgba(0,0,0,0.05); position: relative; z-index: 1;"></div>
+            </div>
+        </div>
+
+        <!-- 👉 【右カラム】未受取売上金・売上履歴・価格設定・チャット・決定ボタン -->
+        <div style="flex-grow: 1; display: flex; flex-direction: column; gap: 8px;">
+            
+            <!-- 💰 未受け取りの売上金情報ボックス ＆ 受け取りボタン -->
+            <div style="background: #f8fafc; border: 1px solid #94a3b8; border-radius: 4px; padding: 6px 8px; display: flex; justify-content: space-between; align-items: center; box-shadow: inset 0 1px 3px rgba(0,0,0,0.05);">
+                <div style="display: flex; flex-direction: column;">
+                    <span style="font-size: 9px; color: #64748b; font-weight: bold;">未受取の売上金</span>
+                    <!-- 🌟 align-items を center から baseline に変更して上下のズレを解消 -->
+                    <div style="display: flex; align-items: baseline; gap: 3px;">
+                        <span id="vending-unclaimed-gold" style="font-weight: 800; font-size: 12px; color: #b45309;">0</span>
+                        <span style="font-size: 10px; color: #475569; font-weight: bold;">メル</span>
+                    </div>
+                </div>
+                <!-- 🌟 0メルのときに押せないようにする制御スクリプトを内蔵したボタン -->
+                <button id="vending-claim-gold-btn" onclick="tryClaimVendingGold()" style="background: linear-gradient(180deg, #34d399 0%, #059669 100%); border: 1px solid #047857; color: white; padding: 4px 10px; border-radius: 3px; font-size: 10px; font-weight: bold; cursor: pointer; box-shadow: 0 1px 2px rgba(0,0,0,0.2); transition: all 0.15s;">
+                    📥 売上金を受け取る
+                </button>
+            </div>
+
+            <!-- 売上履歴ボタン -->
+            <button onclick="openVendingSalesLog()" style="background: linear-gradient(180deg, #f8fafc 0%, #e2e8f0 100%); border: 1px solid #94a3b8; color: #0284c7; padding: 6px 10px; border-radius: 4px; font-size: 11px; font-weight: bold; cursor: pointer; box-shadow: inset 0 1px 0 rgba(255,255,255,0.6); transition: all 0.15s; display: flex; align-items: center; justify-content: center; gap: 6px;">
+                <span>📜</span><span>売上履歴を確認する</span>
+            </button>
+
+            <!-- 価格設定エリア -->
+            <div id="vending-price-area" style="display:none; flex-direction: column; gap: 4px; background: #f8fafc; border: 1px solid #94a3b8; border-radius: 4px; padding: 6px 8px;">
+                <label class="vending-label" style="font-size: 10px; font-weight: bold; color: #475569; letter-spacing: 0.3px;">販売価格 (1個あたり)</label>
+                <div class="vending-price-wrapper" style="display: flex; align-items: center; gap: 4px;">
+                    <input type="number" id="vending-price" class="vending-price-input" placeholder="0" style="flex-grow: 1; background: #ffffff; border: 1px solid #cbd5e1; padding: 4px 6px; border-radius: 4px; font-size: 11px; color: #0f172a; outline: none;">
+                    <span class="vending-label" style="font-size: 10px; font-weight: bold; color: #334155; flex-shrink: 0;">メル</span>
+                </div>
+            </div>
+
+            <!-- チャットエリア -->
+            <div style="background: #ffffff; border: 1px solid #94a3b8; border-radius: 4px; display: flex; flex-direction: column; overflow: hidden; flex-grow: 1; min-height: 80px;">
+                <div id="vending-owner-chat-log" style="flex-grow: 1; padding: 4px 6px; font-size: 10px; color: #334155; overflow-y: auto; background: #fafafa;">
+                    <span style="color: #94a3b8;">[ショップ内チャットログ]</span>
+                </div>
+                <div style="display: flex; border-top: 1px solid #e2e8f0;">
+                    <input type="text" id="vending-owner-chat-input" placeholder="発言を入力..." style="flex-grow: 1; border: none; padding: 4px 6px; font-size: 10px; outline: none; background: #ffffff;">
+                    <button id="vending-owner-chat-send" style="background: #cbd5e1; border: none; padding: 0 10px; font-size: 10px; font-weight: bold; cursor: pointer; color: #334155;">送信</button>
+                </div>
+            </div>
+
+            <!-- 決定ボタン -->
+            <button id="vending-confirm-btn" class="maple-btn-orange" onclick="startVending()" style="width: 100%; padding: 7px; font-size: 12px; font-weight: bold; cursor: pointer; background: linear-gradient(180deg, #fbbf24 0%, #f59e0b 50%, #d97706 100%); color: #ffffff; border: 1px solid #b45309; border-radius: 4px; box-shadow: 0 2px 4px rgba(0,0,0,0.2), inset 0 1px 0 rgba(255,255,255,0.4); text-shadow: 0 1px 1px rgba(0,0,0,0.3); transition: all 0.15s;">
+                ✨ この内容で露店を開く
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- 📜 露店売上履歴ウィンドウ (ゴージャスリッチ仕様) -->
+<div id="vending-sales-log-window" class="maple-window" style="display: none; width: 360px; background: #f8fafc; border-radius: 8px; box-shadow: 0 16px 40px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.15) inset; overflow: hidden; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; position: fixed; z-index: 10001;">
+    <!-- ヘッダー -->
+    <div class="maple-header" style="display: flex; justify-content: space-between; align-items: center; background: linear-gradient(180deg, #1e293b 0%, #0f172a 100%); padding: 10px 14px; cursor: move; border-bottom: 1px solid #334155;">
+        <div style="display: flex; align-items: center; gap: 8px;">
+            <span style="font-size: 14px;">📜</span>
+            <span style="font-weight: 800; color: #f8fafc; font-size: 12px; letter-spacing: 0.5px;">[露店] 売上履歴ログ</span>
+        </div>
+        <button class="maple-btn" onclick="document.getElementById('vending-sales-log-window').style.display='none'" style="background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); color: white; border: 1px solid #b91c1c; width: 22px; height: 22px; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 11px; display: flex; align-items: center; justify-content: center;">✕</button>
+    </div>
+    <!-- ログリスト表示エリア -->
+    <div id="vending-sales-log-list" style="max-height: 200px; overflow-y: auto; background: #ffffff; padding: 10px; display: flex; flex-direction: column; gap: 6px;">
+        <p style="text-align: center; color: #64748b; font-size: 11px; margin: 10px 0;">売上履歴はありません。</p>
+    </div>
+</div>
+
+<!-- 🛒 他プレイヤーの露店表示ウィンドウ (管理ウィンドウ完全同期仕様) -->
+<div id="other-vending-window" class="maple-window" style="display: none; width: 580px; background: #eceff1; border: 2px solid #334155; border-radius: 6px; box-shadow: 0 20px 50px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.6); overflow: hidden; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; position: fixed; z-index: 10000;">
+    
+    <!-- 👑 ヘッダー（他プレイヤーの露店閲覧用） -->
+    <div id="other-vending-header" class="maple-header" style="display: flex; justify-content: space-between; align-items: center; background: linear-gradient(180deg, #384e77 0%, #1a2942 100%); padding: 6px 12px; cursor: move; border-bottom: 1px solid #111827; box-shadow: inset 0 1px 0 rgba(255,255,255,0.2);">
+        <div style="display: flex; align-items: center; gap: 6px;">
+            <span style="font-size: 13px;">🛒</span>
+            <span class="vending-title-display" style="font-weight: 700; color: #ffffff; text-shadow: 1px 1px 2px rgba(0,0,0,0.8); font-size: 12px; letter-spacing: 0.3px;">ショップ閲覧</span>
+        </div>
+        <button class="maple-btn" style="background: linear-gradient(180deg, #f87171 0%, #dc2626 100%); color: white; border: 1px solid #991b1b; width: 18px; height: 18px; border-radius: 3px; cursor: pointer; font-weight: bold; font-size: 10px; display: flex; align-items: center; justify-content: center; box-shadow: 0 1px 2px rgba(0,0,0,0.4);" 
+                onclick="closeOtherVendingWindow()">✕</button>
+    </div>
+    
+    <!-- 🌟 メインコンテンツ（2カラム） -->
+    <div style="padding: 10px; background: #dfe4ea; display: flex; gap: 10px; box-sizing: border-box;">
+        
+        <!-- 👈 【左カラム】 -->
+        <div style="width: 250px; display: flex; flex-direction: column; gap: 8px;">
+            
+            <!-- 1. 雇用商人プレビュー ＆ 店名表示枠（管理画面とデザイン統一） -->
+            <div style="background: #f8fafc; border: 1px solid #94a3b8; border-radius: 4px; padding: 6px 8px; display: flex; align-items: center; gap: 8px; box-shadow: inset 0 1px 3px rgba(0,0,0,0.05);">
+                <!-- モンスターを描画する専用キャンバス -->
+                <div style="width: 40px; height: 40px; background: #cbd5e1; border: 1px solid #64748b; border-radius: 4px; display: flex; align-items: center; justify-content: center; overflow: hidden; position: relative; box-shadow: inset 0 2px 4px rgba(0,0,0,0.1); flex-shrink: 0;">
+                    <canvas id="other-vending-merchant-preview-canvas" width="80" height="80" style="display: block; width: 40px; height: 40px; image-rendering: pixelated; image-rendering: crisp-edges;"></canvas>
+                </div>
+                <div style="display: flex; flex-direction: column; overflow: hidden; flex-grow: 1; gap: 2px;">
+                    <span id="other-vending-owner-name" style="font-size: 9px; color: #64748b; font-weight: bold; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">〇〇の雇用商人</span>
+                    <div id="other-vending-shop-title" style="background: #ffffff; padding: 2px 5px; border-radius: 3px; font-size: 11px; font-weight: 800; color: #1e293b; width: 100%; box-sizing: border-box; box-shadow: inset 0 1px 2px rgba(0,0,0,0.05); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">いらっしゃいませ</div>
+                </div>
+            </div>
+
+            <!-- 2. 所持金情報ボックス -->
+            <div style="background: #f1f5f9; border: 1px solid #94a3b8; border-radius: 4px; padding: 6px 10px; display: flex; justify-content: space-between; align-items: center;">
+                <span style="font-size: 10px; color: #475569; font-weight: bold;">あなたの所持金</span>
+                <div style="display: flex; align-items: center; gap: 4px;">
+                    <span id="user-money-display" style="font-weight: 800; font-size: 12px; color: #b45309;">-</span>
+                    <span style="font-size: 10px; color: #475569; font-weight: bold;">メル</span>
+                </div>
+            </div>
+
+            <!-- 3. 🛍️ 商品リスト表示エリア -->
+            <div id="other-vending-items" style="height: 260px; overflow-y: auto; background: #ffffff; border: 1px solid #94a3b8; border-radius: 4px; padding: 4px; box-shadow: inset 0 2px 4px rgba(0,0,0,0.05);">
+                <p style="text-align: center; color: #64748b; font-size: 11px; margin: 50px 0;">商品を読み込み中...</p>
+            </div>
+        </div>
+
+        <!-- 👉 【右カラム】 -->
+        <div style="flex-grow: 1; display: flex; flex-direction: column; gap: 8px;">
+            
+            <!-- 👤 3つのユーザ入室アバター表示エリア -->
+<div style="display: flex; gap: 6px; background: #f8fafc; border: 1px solid #94a3b8; border-radius: 4px; padding: 6px; box-shadow: inset 0 1px 3px rgba(0,0,0,0.05);">
+    <!-- 🌟 1枠目：名前やステータスを残したままアバターを配置 -->
+    <div id="visitor-slot-1" style="flex: 1; height: 75px; background: #e2e8f0; border: 1px solid #cbd5e1; border-radius: 3px; display: flex; flex-direction: column; align-items: center; justify-content: space-between; font-size: 10px; color: #64748b; overflow: hidden; position: relative; padding: 4px; box-sizing: border-box;">
+        <div id="visitor-name-1" style="font-weight: bold; color: #1e293b; font-size: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%;">あなた</div>
+        <canvas id="other-vending-my-avatar-canvas" width="64" height="64" style="display: block; width: 36px; height: 36px; image-rendering: pixelated; image-rendering: crisp-edges;"></canvas>
+        <div style="font-size: 8px; color: #2563eb; background: #dbeafe; padding: 0 3px; border-radius: 2px; font-weight: bold; line-height: 1.2;">入店中</div>
+    </div>
+    <!-- 2枠目 -->
+    <div style="flex: 1; height: 75px; background: #e2e8f0; border: 1px solid #cbd5e1; border-radius: 3px; display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: 10px; color: #64748b;">
+        <span>👤 2枠目</span>
+    </div>
+    <!-- 3枠目 -->
+    <div style="flex: 1; height: 75px; background: #e2e8f0; border: 1px solid #cbd5e1; border-radius: 3px; display: flex; flex-direction: column; align-items: center; justify-content: center; font-size: 10px; color: #64748b;">
+        <span>👤 3枠目</span>
+    </div>
+</div>
+
+            <!-- 💬 チャットエリア -->
+            <div style="background: #ffffff; border: 1px solid #94a3b8; border-radius: 4px; display: flex; flex-direction: column; overflow: hidden; flex-grow: 1; min-height: 95px;">
+                <div id="vending-chat-log" style="flex-grow: 1; padding: 4px 6px; font-size: 10px; color: #334155; overflow-y: auto; background: #fafafa;">
+                    <span style="color: #94a3b8;">[ショップ内チャット] ようこそ！</span>
+                </div>
+                <div style="display: flex; border-top: 1px solid #e2e8f0;">
+                    <input type="text" id="vending-chat-input" placeholder="発言を入力..." style="flex-grow: 1; border: none; padding: 4px 6px; font-size: 10px; outline: none; background: #ffffff;">
+                    <button id="vending-chat-send" style="background: #cbd5e1; border: none; padding: 0 10px; font-size: 10px; font-weight: bold; cursor: pointer; color: #334155;">送信</button>
+                </div>
+            </div>
+
+            <!-- 購入決定ボタン -->
+            <button id="vending-buy-btn" class="maple-btn-orange" style="width: 100%; padding: 7px; font-size: 12px; font-weight: bold; cursor: pointer; background: linear-gradient(180deg, #fbbf24 0%, #f59e0b 50%, #d97706 100%); color: #ffffff; border: 1px solid #b45309; border-radius: 4px; box-shadow: 0 2px 4px rgba(0,0,0,0.2), inset 0 1px 0 rgba(255,255,255,0.4); text-shadow: 0 1px 1px rgba(0,0,0,0.3); transition: all 0.15s; display: none;">
+                🪙 選択したアイテムを購入する
+            </button>
+        </div>
+    </div>
+</div>
+
+<!-- 🛒 購入数量指定ダイアログ -->
+<div id="vending-buy-dialog" class="maple-window" style="display: none; width: 260px; background: #eceff1; border: 2px solid #334155; border-radius: 6px; box-shadow: 0 15px 35px rgba(0,0,0,0.5); overflow: hidden; font-family: 'Segoe UI', Tahoma, sans-serif; position: fixed; z-index: 10005; left: 50%; top: 50%; transform: translate(-50%, -50%);">
+    <div style="background: linear-gradient(180deg, #384e77 0%, #1a2942 100%); padding: 5px 10px; display: flex; justify-content: space-between; align-items: center; color: white; font-size: 11px; font-weight: bold;">
+        <span>🛒 購入個数の指定</span>
+        <button onclick="closeVendingBuyDialog()" style="background: #dc2626; color: white; border: none; width: 16px; height: 16px; border-radius: 3px; cursor: pointer; font-size: 9px;">✕</button>
+    </div>
+    <div style="padding: 12px; display: flex; flex-direction: column; gap: 8px; background: #dfe4ea;">
+        <div id="dialog-item-name" style="font-size: 11px; font-weight: bold; color: #0f172a; text-align: center;">アイテム名</div>
+        
+        <div style="display: flex; align-items: center; justify-content: center; gap: 6px; background: #ffffff; padding: 6px; border: 1px solid #94a3b8; border-radius: 4px;">
+            <button onclick="adjustBuyCount(-1)" style="padding: 2px 8px; font-weight: bold; cursor: pointer;">-</button>
+            <input type="number" id="vending-buy-quantity" value="1" min="1" style="width: 50px; text-align: center; font-size: 12px; font-weight: bold; border: 1px solid #cbd5e1; border-radius: 3px; outline: none;" oninput="updateTotalPrice()">
+            <button onclick="adjustBuyCount(1)" style="padding: 2px 8px; font-weight: bold; cursor: pointer;">+</button>
+        </div>
+
+        <div style="font-size: 10px; color: #475569; display: flex; justify-content: space-between;">
+            <span>合計金額:</span>
+            <span id="dialog-total-price" style="font-weight: bold; color: #2563eb;">0 メル</span>
+        </div>
+
+        <div style="display: flex; gap: 6px; margin-top: 4px;">
+            <button onclick="closeVendingBuyDialog()" style="flex: 1; padding: 5px; font-size: 11px; font-weight: bold; background: #cbd5e1; border: 1px solid #94a3b8; border-radius: 4px; cursor: pointer;">キャンセル</button>
+            <button onclick="confirmVendingBuy()" style="flex: 1; padding: 5px; font-size: 11px; font-weight: bold; background: linear-gradient(180deg, #fbbf24 0%, #d97706 100%); color: white; border: 1px solid #b45309; border-radius: 4px; cursor: pointer;">購入する</button>
+        </div>
+    </div>
+</div>
+
+<div id="vending-notice-modal" style="display:none; position:fixed; top:30%; left:50%; transform:translateX(-50%); background:rgba(0,0,0,0.85); color:#fff; border:1px solid #ffcc00; padding:20px; z-index:210000; min-width:250px; text-align:center; border-radius:10px; box-shadow: 0 5px 15px rgba(0,0,0,0.5);">
+    <p id="vending-notice-text" style="margin-bottom:15px; font-weight:bold;"></p>
+    <button id="vending-notice-close-btn" style="padding:5px 20px; cursor:pointer; background:#444; color:#fff; border:1px solid #777; border-radius:4px;">閉じる</button>
+</div>
+
+<div id="vending-quantity-modal" style="display:none; position:fixed; top:50%; left:50%; transform:translate(-50%, -50%); background:rgba(0,0,0,0.9); color:#fff; border:2px solid #888; padding:20px; z-index:210000; min-width:280px; border-radius:8px; box-shadow: 0 0 15px rgba(0,0,0,0.5); font-family: sans-serif;">
+    <h3 id="modal-item-name" style="margin-top:0; color:#ffcc00; font-size:18px; border-bottom:1px solid #444; padding-bottom:10px;">アイテム名</h3>
+    
+    <div style="margin: 15px 0;">
+        <label style="display:block; margin-bottom:5px;">出品する数 (所持: <span id="modal-max-quantity">0</span>)</label>
+        <input type="number" id="modal-quantity-input" min="1" style="width:100%; padding:8px; box-sizing:border-box; background:#222; color:#fff; border:1px solid #555;">
+    </div>
+
+    <div style="margin: 15px 0;">
+        <label style="display:block; margin-bottom:5px;">1個あたりの販売価格 (G)</label>
+        <input type="number" id="modal-price-input" min="0" value="1000" style="width:100%; padding:8px; box-sizing:border-box; background:#222; color:#fff; border:1px solid #555;">
+    </div>
+
+    <div style="display:flex; justify-content: space-between; margin-top:20px;">
+        <button id="modal-confirm-btn" style="flex:1; margin-right:5px; padding:10px; cursor:pointer; background:#2ecc71; color:white; border:none; font-weight:bold; border-radius:4px;">出品確定</button>
+        <button id="modal-cancel-btn" style="flex:1; margin-left:5px; padding:10px; cursor:pointer; background:#e74c3c; color:white; border:none; font-weight:bold; border-radius:4px;">キャンセル</button>
+    </div>
+</div>
+
+<div id="vending-buy-confirm-modal" style="display:none; position:fixed; top:50%; left:50%; transform:translate(-50%, -50%); background:rgba(0,0,0,0.95); color:#fff; border:2px solid #ffcc00; padding:20px; z-index:220000; min-width:280px; border-radius:8px; box-shadow: 0 0 15px rgba(0,0,0,0.8); font-family: sans-serif; text-align: center;">
+    <h3 style="margin-top:0; color:#ffcc00; font-size:18px; border-bottom:1px solid #444; padding-bottom:10px;">購入の確認</h3>
+    <p id="buy-confirm-text" style="margin: 20px 0; line-height: 1.5; font-size: 15px;">このアイテムを購入しますか？</p>
+    
+    <div style="display:flex; justify-content: space-between; margin-top:20px;">
+        <button id="buy-confirm-btn" style="flex:1; margin-right:5px; padding:10px; cursor:pointer; background:#2ecc71; color:white; border:none; font-weight:bold; border-radius:4px;">購入する</button>
+        <button id="buy-cancel-btn" style="flex:1; margin-left:5px; padding:10px; cursor:pointer; background:#e74c3c; color:white; border:none; font-weight:bold; border-radius:4px;">キャンセル</button>
+    </div>
+</div>
+
+<!-- 🏪 ショップウィンドウ (ゴージャスリッチ仕様) -->
+<div id="shop-overlay" class="maple-window" style="display: none; width: 480px; background: #f8fafc; border-radius: 8px; box-shadow: 0 16px 40px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.15) inset; overflow: hidden; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; position: fixed; z-index: 10000;">
+    
+    <!-- 👑 ヘッダー：重厚感のあるグラデーション -->
+    <div id="shop-header" class="maple-header" style="display: flex; justify-content: space-between; align-items: center; background: linear-gradient(180deg, #1e293b 0%, #0f172a 100%); padding: 10px 14px; cursor: move; border-bottom: 1px solid #334155; box-shadow: 0 2px 4px rgba(0,0,0,0.2);">
+        <div style="display: flex; align-items: center; gap: 8px;">
+            <span style="font-size: 14px;">🛍️</span>
+            <span style="font-weight: 800; color: #f8fafc; text-shadow: 0 1px 2px rgba(0,0,0,0.6); font-size: 12px; letter-spacing: 0.5px;">[SHOP] よろず屋にようこそ！</span>
+        </div>
+        <button class="maple-btn" onclick="document.getElementById('shop-overlay').style.display='none'" style="background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); color: white; border: 1px solid #b91c1c; width: 22px; height: 22px; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 11px; display: flex; align-items: center; justify-content: center; box-shadow: 0 1px 3px rgba(0,0,0,0.3); transition: all 0.15s;">✕</button>
+    </div>
+
+    <!-- 上部アクション・所持金エリア -->
+    <div class="shop-main-area" style="display: flex; justify-content: space-between; align-items: center; padding: 12px 14px; background: #f1f5f9; border-bottom: 1px solid #cbd5e1; gap: 10px;">
+        <div class="shop-col shop-col-border" style="display: flex; gap: 8px; align-items: center;">
+            <button class="maple-btn" onclick="document.getElementById('shop-overlay').style.display='none'" style="background: #ffffff; border: 1px solid #cbd5e1; color: #475569; padding: 6px 10px; border-radius: 6px; font-size: 11px; font-weight: bold; cursor: pointer; box-shadow: 0 1px 2px rgba(0,0,0,0.02); transition: all 0.15s;">🚪 商店から出る</button>
+            <button class="maple-btn-orange" style="font-size: 11px; font-weight: bold; background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%); color: white; border: 1px solid #b45309; padding: 6px 12px; border-radius: 6px; cursor: pointer; box-shadow: 0 2px 4px rgba(217,119,6,0.2);">🛒 アイテムを買う</button>
+        </div>
+        <div class="shop-col" style="display: flex; align-items: center; gap: 10px;">
+            <button class="maple-btn-orange" style="font-size: 11px; font-weight: bold; background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%); color: white; border: 1px solid #1e40af; padding: 6px 12px; border-radius: 6px; cursor: pointer; box-shadow: 0 2px 4px rgba(59,130,246,0.2);">💰 アイテムを売る</button>
+            <div class="shop-gold-display" style="background: #ffffff; border: 1px solid #cbd5e1; padding: 4px 10px; border-radius: 6px; display: flex; align-items: center; gap: 4px; box-shadow: inset 0 1px 2px rgba(0,0,0,0.03);">
+                <span id="shop-user-gold" style="font-weight: 800; font-family: 'Segoe UI', Tahoma, sans-serif; font-size: 13px; color: #d97706;">0</span>
+                <span style="font-size: 10px; color: #64748b; font-weight: bold;">メル</span>
+            </div>
+        </div>
+    </div>
+
+    <!-- 左右2カラムのリスト＆タブエリア -->
+    <div class="shop-lists-wrapper" style="display: flex; height: 260px; background: #e2e8f0; gap: 1px;">
+        <!-- 左ペイン（購入リスト） -->
+        <div class="shop-list-pane" style="flex: 1; display: flex; flex-direction: column; background: #ffffff;">
+            <div class="shop-tabs" style="display: flex; gap: 3px; padding: 8px; background: #f8fafc; border-bottom: 1px solid #e2e8f0;">
+                <div class="shop-tab-item active" style="flex: 1; text-align: center; padding: 4px 0; font-size: 10px; font-weight: bold; color: #1e293b; background: #ffffff; border: 1px solid #cbd5e1; border-radius: 4px; box-shadow: 0 1px 2px rgba(0,0,0,0.02);">全体</div>
+            </div>
+            <div id="shop-item-list" class="shop-scroll-area" style="flex-grow: 1; overflow-y: auto; padding: 6px;"></div>
+        </div>
+        
+        <!-- 右ペイン（売却用インベントリリスト） -->
+        <div class="shop-list-pane" style="flex: 1; display: flex; flex-direction: column; background: #ffffff;">
+            <div class="shop-tabs" style="display: flex; gap: 3px; padding: 8px; background: #f8fafc; border-bottom: 1px solid #e2e8f0;">
+                <div class="shop-tab-item active" style="flex: 1; text-align: center; padding: 4px 0; font-size: 10px; font-weight: bold; color: #1e293b; background: #ffffff; border: 1px solid #cbd5e1; border-radius: 4px; box-shadow: 0 1px 2px rgba(0,0,0,0.02);">全体</div>
+                <div class="shop-tab-item" style="flex: 1; text-align: center; padding: 4px 0; font-size: 10px; font-weight: bold; color: #64748b; background: #e2e8f0; border: 1px solid #cbd5e1; border-radius: 4px;">装備</div>
+                <div class="shop-tab-item" style="flex: 1; text-align: center; padding: 4px 0; font-size: 10px; font-weight: bold; color: #64748b; background: #e2e8f0; border: 1px solid #cbd5e1; border-radius: 4px;">消費</div>
+                <div class="shop-tab-item" style="flex: 1; text-align: center; padding: 4px 0; font-size: 10px; font-weight: bold; color: #64748b; background: #e2e8f0; border: 1px solid #cbd5e1; border-radius: 4px;">ETC</div>
+            </div>
+            <div id="user-sell-list" class="shop-scroll-area" style="flex-grow: 1; overflow-y: auto; padding: 6px;"></div>
+        </div>
+    </div>
+
+    <!-- フッター -->
+    <div class="shop-footer" style="background: #f1f5f9; border-top: 1px solid #cbd5e1; padding: 8px 14px; text-align: center;">
+        <span style="display: none; color: #d97706; font-weight: bold; font-size: 11px;">♪ 掘り出し物があるかもしれないよ！</span>
+        <span style="font-size: 10px; color: #64748b; font-weight: 500;">💡 アイテムを選択して売買を行ってください</span>
+    </div>
+</div>
+
+<div id="custom-confirm" class="confirm-overlay" style="display: none; z-index: 200000;">
+    <div class="confirm-box">
+        <p id="confirm-message">このアイテムを購入しますか？</p>
+        
+        <div id="confirm-quantity-area" style="margin-bottom: 15px; text-align: center;">
+            <label for="buy-quantity" style="font-size: 14px; margin-right: 5px;">個数:</label>
+            <input type="number" id="buy-quantity" value="1" min="1" max="99" 
+                style="width: 60px; padding: 5px; border-radius: 4px; border: 1px solid #444; background: #1e293b; color: white; text-align: center;">
+        </div>
+
+        <div class="confirm-buttons">
+            <button id="confirm-no">いいえ</button>
+            <button id="confirm-yes">はい</button>
+        </div>
+    </div>
+</div>
+
+<div id="sell-confirm" class="confirm-overlay" style="display: none; z-index: 200000;">
+    <div class="confirm-box">
+        <p id="sell-confirm-message">このアイテムを売却しますか？</p>
+        <p id="sell-price-info" style="font-size: 0.9em; color: #ffd700;"></p> 
+        
+        <div id="sell-quantity-area" style="margin: 10px 0; text-align: center;">
+            <label for="sell-quantity" style="font-size: 14px; margin-right: 5px; color: #94a3b8;">個数:</label>
+            <input type="number" id="sell-quantity" value="1" min="1" 
+                style="width: 60px; padding: 5px; border-radius: 4px; border: 1px solid #444; background: #1e293b; color: white; text-align: center;">
+            <span id="sell-max-qty" style="font-size: 12px; color: #64748b; margin-left: 5px;"></span>
+        </div>
+
+        <div class="confirm-buttons">
+            <button id="sell-confirm-no">いいえ</button>
+            <button id="sell-confirm-yes" class="sell-btn">はい</button>
+        </div>
+    </div>
+</div>
+
+<div id="zukan-overlay" class="maple-window" style="display: none; width: 400px; height: 500px; top: 50%; left: 50%; transform: translate(-50%, -50%); position: fixed; z-index: 10000; background: #f8fafc; border-radius: 8px; box-shadow: 0 16px 40px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.15) inset; overflow: hidden; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif; flex-direction: column;">
+    
+    <!-- 👑 ヘッダー：重厚感のあるグラデーション -->
+    <div id="zukan-header" class="maple-header" style="display: flex; justify-content: space-between; align-items: center; background: linear-gradient(180deg, #1e293b 0%, #0f172a 100%); padding: 10px 14px; cursor: move; border-bottom: 1px solid #334155; box-shadow: 0 2px 4px rgba(0,0,0,0.2); flex-shrink: 0;">
+        <div style="display: flex; align-items: center; gap: 8px;">
+            <span style="font-size: 14px;">🗂️</span>
+            <span style="font-weight: 800; color: #f8fafc; text-shadow: 0 1px 2px rgba(0,0,0,0.6); font-size: 12px; letter-spacing: 0.5px;">[図鑑] デバッグ用カタログ</span>
+        </div>
+        <button class="maple-btn" style="background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); color: white; border: 1px solid #b91c1c; width: 22px; height: 22px; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 11px; display: flex; align-items: center; justify-content: center; box-shadow: 0 1px 3px rgba(0,0,0,0.3); transition: all 0.15s;" 
+                onclick="document.getElementById('zukan-overlay').style.display='none'">✕</button>
+    </div>
+
+    <!-- 🌟 タブエリア -->
+    <div class="zukan-tabs" style="display: flex; gap: 4px; padding: 10px 12px; background: #f1f5f9; border-bottom: 1px solid #e2e8f0; flex-shrink: 0;">
+        <div class="zukan-tab-item active" data-category="all" style="flex: 1; text-align: center; padding: 5px 0; font-size: 11px; font-weight: bold; color: #1e293b; background: #ffffff; border: 1px solid #cbd5e1; border-radius: 5px; cursor: pointer; box-shadow: 0 1px 2px rgba(0,0,0,0.03); transition: all 0.15s;">全体</div>
+        <div class="zukan-tab-item" data-category="equip" style="flex: 1; text-align: center; padding: 5px 0; font-size: 11px; font-weight: bold; color: #64748b; background: #e2e8f0; border: 1px solid #cbd5e1; border-radius: 5px; cursor: pointer; transition: all 0.15s;">装備</div>
+        <div class="zukan-tab-item" data-category="consume" style="flex: 1; text-align: center; padding: 5px 0; font-size: 11px; font-weight: bold; color: #64748b; background: #e2e8f0; border: 1px solid #cbd5e1; border-radius: 5px; cursor: pointer; transition: all 0.15s;">消費</div>
+        <div class="zukan-tab-item" data-category="etc" style="flex: 1; text-align: center; padding: 5px 0; font-size: 11px; font-weight: bold; color: #64748b; background: #e2e8f0; border: 1px solid #cbd5e1; border-radius: 5px; cursor: pointer; transition: all 0.15s;">ETC</div>
+    </div>
+
+    <!-- メインコンテンツ領域 -->
+    <div class="shop-main-area" style="height: 390px; overflow-y: auto; padding: 10px; background: #f8fafc; box-sizing: border-box;">
+        <div id="zukan-list-content" style="display: flex; flex-direction: column; gap: 4px;"></div>
+    </div>
+</div>
+
+<!-- 📖 エネミー図鑑ウィンドウ (ゴージャスリッチ・2ペイン分割レイアウト版) -->
+<div id="mzukan-overlay" class="maple-window" style="display: none; width: 750px; height: 480px; top: 50%; left: 50%; transform: translate(-50%, -50%); position: fixed; z-index: 10000; box-shadow: 0 16px 40px rgba(0,0,0,0.5), 0 0 0 1px rgba(255,255,255,0.15) inset; border-radius: 8px; overflow: hidden; background: #e2e8f0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;">
+    
+    <!-- 👑 ヘッダー：重厚感のあるグラデーションと洗練されたタイトル -->
+    <div id="mzukan-header" class="maple-header" style="display: flex; justify-content: space-between; align-items: center; background: linear-gradient(180deg, #1e293b 0%, #0f172a 100%); padding: 10px 16px; cursor: move; border-bottom: 1px solid #334155; box-shadow: 0 2px 4px rgba(0,0,0,0.2);">
+        <div style="display: flex; align-items: center; gap: 8px;">
+            <span style="font-size: 14px;">📖</span>
+            <span style="font-weight: 800; color: #f8fafc; text-shadow: 0 1px 2px rgba(0,0,0,0.6); font-size: 12px; letter-spacing: 0.5px;">エネミーカタログ (Enemy Database)</span>
+        </div>
+        <button id="mzukan-close-btn" class="maple-btn" style="background: linear-gradient(135deg, #ef4444 0%, #dc2626 100%); color: white; border: 1px solid #b91c1c; width: 22px; height: 22px; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 11px; display: flex; align-items: center; justify-content: center; box-shadow: 0 1px 3px rgba(0,0,0,0.3); transition: all 0.15s;">✕</button>
+    </div>
+
+    <!-- メインコンテンツエリア（左右2ペイン分割） -->
+    <div style="display: flex; height: calc(100% - 41px); box-sizing: border-box;">
+        
+        <!-- 👈 左側：モンスター一覧ペイン（ゴージャスリッチ対応コンテナ） -->
+        <div style="width: 42%; border-right: 1px solid #cbd5e1; background: #ffffff; overflow-y: auto; box-sizing: border-box;">
+            <table style="width: 100%; border-collapse: collapse; font-size: 12px; text-align: left;">
+                <thead>
+                    <tr style="background: linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%); border-bottom: 2px solid #cbd5e1; color: #475569; position: sticky; top: 0; z-index: 1;">
+                        <th style="padding: 8px 6px 8px 10px; width: 42px; text-align: center; font-size: 10px; font-weight: bold; letter-spacing: 0.5px;">ICON</th>
+                        <th style="padding: 8px 6px; font-size: 10px; font-weight: bold; letter-spacing: 0.5px;">ENEMY INFO</th>
+                        <th style="padding: 8px 10px 8px 6px; width: 45px; text-align: right; font-size: 10px; font-weight: bold; letter-spacing: 0.5px;">LV</th>
+                    </tr>
+                </thead>
+                <tbody id="mzukan-table-body">
+                    <!-- JavaScriptでここにリッチなリスト行が挿入されます -->
+                </tbody>
+            </table>
+        </div>
+
+        <!-- 👉 右側：選択したモンスターの詳細閲覧画面（プレミアムパネル） -->
+        <div id="mzukan-detail-pane" style="width: 58%; padding: 12px; background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%); overflow-y: auto; box-sizing: border-box; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center;">
+            <div style="color: #64748b; font-size: 12px; font-weight: 500; background: #ffffff; border: 1px solid #e2e8f0; padding: 16px 24px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.02);">
+                👈 左のリストからモンスターを選択してください
+            </div>
+        </div>
+
+    </div>
+</div>
+
+<!-- アイテムを捨てる時のポップアップ -->
+<div id="drop-form" style="display:none;">
+  <p id="drop-label"></p>
+  <input type="number" id="drop-input" min="1" value="1" style="width:60px; text-align:center;">
+  <p id="drop-error"></p>
+  <button id="drop-confirm">捨てる</button>
+  <button id="drop-cancel">やめる</button>
+</div>
+
+<div id="death-modal" class="death-overlay" style="display: none;">
+    <div class="death-card">
+        <h2 id="death-message">力尽きました...</h2>
+        <button id="respawn-button" class="death-btn">復活する</button>
+    </div>
+</div>
+
+<div id="disconnect-overlay" class="loading-cover" style="display: none;">
+    <div class="spinner"></div>
+    <div class="loading-text">サーバーとの接続が切れました</div>
+    <div class="loading-text" style="margin-top: 10px;">自動再接続を試みています...</div>
+</div>
+
+<div id="player-context-menu" style="display:none; position:fixed; background:#222; color:#fff; border:1px solid #ffcc00; z-index:20000; padding:10px; font-family:sans-serif; border-radius:4px;">
+    <div id="menu-player-name" style="font-weight:bold; color:#ffcc00; margin-bottom:5px; border-bottom:1px solid #444; padding-bottom:5px;">プレイヤー名</div>
+    
+    <!-- ここから5つの黄金メニュー -->
+    <div class="menu-item" onclick="handleProfileClick" style="padding: 8px; cursor: pointer;">👤 プロフィール</div>
+    <div class="menu-item" onclick="" style="padding: 8px; cursor: pointer;">📈 活動履歴</div>
+    <div class="menu-item" onclick="" style="padding: 8px; cursor: pointer;">🎁 コレクション</div>
+    <div class="menu-item" onclick="" style="padding: 8px; cursor: pointer;">🤝 コミュニティ</div>
+    <div class="menu-item" onclick="" style="padding: 8px; cursor: pointer; border-top: 1px solid #444; margin-top:5px;">⚙️ 詳細ツール</div>
+</div>
+
+<div id="player-profile-window" style="
+    display: none; 
+    position: fixed; 
+    top: 50%; 
+    left: 50%; 
+    transform: translate(-50%, -50%); 
+    width: 300px; 
+    background: #f8f8f8; 
+    border: 2px solid #555; 
+    border-radius: 8px; 
+    box-shadow: 0 0 15px rgba(0,0,0,0.5); 
+    z-index: 10000;
+    font-family: sans-serif;
+    overflow: hidden;">
+    
+    <div id="profile-header" style="background: #555; color: white; padding: 8px 12px; font-size: 14px; font-weight: bold; display: flex; justify-content: space-between; align-items: center; cursor: move;">
+        <span>Character Info</span>
+        <span onclick="closeProfile()" style="cursor: pointer; font-size: 18px;">×</span>
+    </div>
+
+    <div style="padding: 15px; color: #333;">
+        <div style="text-align: center; margin-bottom: 10px;">
+            <div id="profile-img-placeholder" style="width: 60px; height: 60px; background: #ddd; border-radius: 50%; margin: 0 auto 5px; display: flex; align-items: center; justify-content: center; font-size: 24px;">👤</div>
+            <h2 id="profile-name" style="margin: 0; font-size: 18px; color: #000;">プレイヤー名</h2>
+        </div>
+        
+        <table style="width: 100%; font-size: 13px; border-collapse: collapse;">
+            <tr><td style="padding: 4px; color: #666;">Level</td><td id="profile-level" style="padding: 4px; font-weight: bold;">--</td></tr>
+            <tr><td style="padding: 4px; color: #666;">Job</td><td id="profile-job" style="padding: 4px; font-weight: bold;">冒険者</td></tr>
+        </table>
+        
+        <button onclick="closeProfile()" style="display: block; width: 100%; margin-top: 15px; padding: 8px; background: #555; color: white; border: none; border-radius: 4px; cursor: pointer;">閉じる</button>
+    </div>
+</div>

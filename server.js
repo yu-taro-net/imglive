@@ -710,21 +710,787 @@ socket.on('logout', async () => {
     }
 });
 
-// 📖 クライアントからのコラム要求を受けて、PHP経由でロリポップのDBから取得する
-socket.on('request_column_data', async () => {
-    console.log("📡 [DEBUG] クライアントからコラムデータの要求を受信しました");
+// 📖 サーバー側で全ページ・全テーブルのデータを要求する処理（全30テーブル完結版）
+socket.on('request_pages_data', async () => {
+    console.log("📡 [DEBUG] ページデータの要求を受信しました");
     try {
-        // ロリポップ上に置いたPHPのURLを指定
-        const response = await fetch('https://imgv.jp/get_columns.php');
-        const rows = await response.json();
+        const response = await fetch('https://imgv.jp/get_pages2.php');
+        const data = await response.json();
 
-        console.log(`📡 [DEBUG] ロリポップから ${rows.length} 件のコラムデータを取得成功しました！`, rows);
+        console.log("📡 [DEBUG] ロリポップから全30テーブルのデータを取得成功しました！", data);
         
-        // 取得したデータをクライアントへ返す
-        socket.emit('receive_column_data', { columns: rows });
+        if (data.status === 'success' && data.tables) {
+            // 🌟 これまでのテーブル群
+            const pagesTable = data.tables['mysql_page_name'] || [];
+            const authorTable = data.tables['mysql_page_author'] || [];
+            const commentPointTable = data.tables['mysql_page_comment_point'] || [];
+            const insertionTable = data.tables['mysql_page_insertion'] || [];
+            const coverStateTable = data.tables['mysql_page_cover_state'] || [];
+            const createDateTable = data.tables['mysql_page_create_date'] || [];
+            const donationTable = data.tables['mysql_page_donation'] || [];
+            const editLeaderTable = data.tables['mysql_page_edit_leader'] || [];
+            const favoriteNumTable = data.tables['mysql_page_favorite_num'] || [];
+            const framesNumTable = data.tables['mysql_page_frames_num'] || [];
+            const freezeLeaderTable = data.tables['mysql_page_freeze_leader'] || [];
+            const freezeStateTable = data.tables['mysql_page_freeze_state'] || [];
+            const historyTable = data.tables['mysql_page_history'] || [];
+            const labelSrcTable = data.tables['mysql_page_id_label_src'] || [];
+            const lastUpdateDayTable = data.tables['mysql_page_last_update_day'] || [];
+            const leaderTable = data.tables['mysql_page_leader'] || [];
+            const logoTable = data.tables['mysql_page_logo'] || [];
+            const logoLeaderTable = data.tables['mysql_page_logo_leader'] || [];
+            const logoMiniSrcTable = data.tables['mysql_page_logo_mini_src'] || [];
+            const logoSrcTable = data.tables['mysql_page_logo_src'] || [];
+            const memberPowerTable = data.tables['mysql_page_member_power'] || [];
+            const photoMemberTable = data.tables['mysql_page_photo_member'] || [];
+            const rankTable = data.tables['mysql_page_rank'] || [];
+            const readingTable = data.tables['mysql_page_reading'] || [];
+            const subTitleTable = data.tables['mysql_page_sub_title'] || [];
+            const subTitleLeaderTable = data.tables['mysql_page_sub_title_leader'] || [];
+
+            // 🌟 今回追加する最後の3つのテーブル
+            const summaryTable = data.tables['mysql_page_summary'] || [];               // 要約詳細・更新回数等
+            const summaryLeaderTable = data.tables['mysql_page_summary_leader'] || []; // 要約リーダー
+            const totalPointsTable = data.tables['mysql_page_total_points'] || [];     // トータルポイント
+
+            // 🌟 各種引き当てマップを作成
+            const authorMap = {};
+            authorTable.forEach(row => { if (row.page_id) authorMap[row.page_id] = row.author_user_id; });
+
+            const commentPointMap = {};
+            commentPointTable.forEach(row => { if (row.page_id) commentPointMap[row.page_id] = row.comment_point; });
+
+            const insertionMap = {};
+            insertionTable.forEach(row => { if (row.page_id) insertionMap[row.page_id] = row; });
+
+            const coverStateMap = {};
+            coverStateTable.forEach(row => { if (row.page_id) coverStateMap[row.page_id] = row.cover_state; });
+
+            const createDateMap = {};
+            createDateTable.forEach(row => { if (row.page_id) createDateMap[row.page_id] = row.create_date; });
+
+            const donationMap = {};
+            donationTable.forEach(row => { if (row.page_id) donationMap[row.page_id] = row.donation_amount; });
+
+            const editLeaderMap = {};
+            editLeaderTable.forEach(row => { if (row.page_id) editLeaderMap[row.page_id] = row.user_id; });
+
+            const favoriteNumMap = {};
+            favoriteNumTable.forEach(row => { if (row.page_id) favoriteNumMap[row.page_id] = row.favorite_num; });
+
+            const framesNumMap = {};
+            framesNumTable.forEach(row => { if (row.page_id) framesNumMap[row.page_id] = row.frames_num; });
+
+            const freezeLeaderMap = {};
+            freezeLeaderTable.forEach(row => { if (row.page_id) freezeLeaderMap[row.page_id] = row.user_id; });
+
+            const freezeStateMap = {};
+            freezeStateTable.forEach(row => { 
+                if (row.page_id) {
+                    freezeStateMap[row.page_id] = {
+                        freeze_state: row.freeze_state || 'unfreeze',
+                        freeze_pass: row.freeze_pass || '',
+                        count_num: row.count_num || 0,
+                        last_update: row.last_update || '未記録'
+                    };
+                }
+            });
+
+            const historyMap = {};
+            historyTable.forEach(row => {
+                if (row.page_id) {
+                    if (!historyMap[row.page_id]) historyMap[row.page_id] = [];
+                    historyMap[row.page_id].push(row);
+                }
+            });
+
+            const labelSrcMap = {};
+            labelSrcTable.forEach(row => { if (row.page_id) labelSrcMap[row.page_id] = row.label_src; });
+
+            const lastUpdateDayMap = {};
+            lastUpdateDayTable.forEach(row => { if (row.page_id) lastUpdateDayMap[row.page_id] = row.last_update_day; });
+
+            const leaderMap = {};
+            leaderTable.forEach(row => { if (row.page_id) leaderMap[row.page_id] = row.user_id; });
+
+            const logoMap = {};
+            logoTable.forEach(row => {
+                if (row.page_id) {
+                    logoMap[row.page_id] = {
+                        photo_id: row.photo_id || null,
+                        logo_frame_color: row.logo_frame_color || '',
+                        last_update_date: row.last_update_date || '未記録'
+                    };
+                }
+            });
+
+            const logoLeaderMap = {};
+            logoLeaderTable.forEach(row => { if (row.page_id) logoLeaderMap[row.page_id] = row.user_id; });
+
+            const logoMiniSrcMap = {};
+            logoMiniSrcTable.forEach(row => { if (row.page_id) logoMiniSrcMap[row.page_id] = row.logo_src; });
+
+            const logoSrcMap = {};
+            logoSrcTable.forEach(row => { if (row.page_id) logoSrcMap[row.page_id] = row.logo_src; });
+
+            const memberPowerMap = {};
+            memberPowerTable.forEach(row => { if (row.page_id) memberPowerMap[row.page_id] = row.member_power; });
+
+            const photoMemberMap = {};
+            photoMemberTable.forEach(row => {
+                if (row.page_id) {
+                    if (!photoMemberMap[row.page_id]) photoMemberMap[row.page_id] = [];
+                    photoMemberMap[row.page_id].push(row);
+                }
+            });
+
+            const rankMap = {};
+            rankTable.forEach(row => { if (row.page_id) rankMap[row.page_id] = row.page_rank; });
+
+            const readingMap = {};
+            readingTable.forEach(row => { if (row.page_id) readingMap[row.page_id] = row.page_reading; });
+
+            const subTitleMap = {};
+            subTitleTable.forEach(row => {
+                if (row.page_id) {
+                    subTitleMap[row.page_id] = {
+                        user_id: row.user_id || '未設定',
+                        sub_title: row.sub_title || '',
+                        last_update_date: row.last_update_date || '未記録'
+                    };
+                }
+            });
+
+            const subTitleLeaderMap = {};
+            subTitleLeaderTable.forEach(row => { if (row.page_id) subTitleLeaderMap[row.page_id] = row.user_id; });
+
+            // 🌟 最後の3テーブル分のマップ作成
+            const summaryMap = {};
+            summaryTable.forEach(row => {
+                if (row.page_id) {
+                    summaryMap[row.page_id] = {
+                        user_id: row.user_id || '未設定',
+                        page_summary: row.page_summary || '',
+                        update_num: row.update_num !== undefined ? row.update_num : 0,
+                        update_date: row.update_date || '未記録'
+                    };
+                }
+            });
+
+            const summaryLeaderMap = {};
+            summaryLeaderTable.forEach(row => { if (row.page_id) summaryLeaderMap[row.page_id] = row.user_id; });
+
+            const totalPointsMap = {};
+            totalPointsTable.forEach(row => { if (row.page_id) totalPointsMap[row.page_id] = row.total_points; });
+
+            // 🌟 各ページアイテムに全30テーブルのデータを合体させる
+            const mergedPages = pagesTable.map((item, index) => {
+                const pId = item.page_id || item.id;
+                const freezeInfo = freezeStateMap[pId] || { freeze_state: 'unfreeze', freeze_pass: '', count_num: 0, last_update: '未記録' };
+                const logoInfo = logoMap[pId] || { photo_id: null, logo_frame_color: '', last_update_date: '未記録' };
+                const subTitleInfo = subTitleMap[pId] || { user_id: '未設定', sub_title: '', last_update_date: '未記録' };
+                const summaryInfo = summaryMap[pId] || { user_id: '未設定', page_summary: 'なし', update_num: 0, update_date: '未記録' };
+
+                return {
+                    ...item,
+                    page_id: pId,
+                    page_name: item.page_name || item.name || ('ページ ID: ' + pId),
+                    author_user_id: authorMap[pId] || '未設定',
+                    comment_point: commentPointMap[pId] !== undefined ? commentPointMap[pId] : 0,
+                    insertion: insertionMap[pId] || null,
+                    cover_state: coverStateMap[pId] || 'no_cover',
+                    create_date: createDateMap[pId] || '未設定',
+                    donation_amount: donationMap[pId] !== undefined ? donationMap[pId] : 0,
+                    edit_leader_user_id: editLeaderMap[pId] || '未設定',
+                    favorite_num: favoriteNumMap[pId] !== undefined ? favoriteNumMap[pId] : 0,
+                    frames_num: framesNumMap[pId] !== undefined ? framesNumMap[pId] : 0,
+                    freeze_leader_user_id: freezeLeaderMap[pId] || '未設定',
+                    freeze_state: freezeInfo.freeze_state,
+                    freeze_pass: freezeInfo.freeze_pass,
+                    freeze_count_num: freezeInfo.count_num,
+                    freeze_last_update: freezeInfo.last_update,
+                    history_list: historyMap[pId] || [],
+                    label_src: labelSrcMap[pId] || null,
+                    last_update_day: lastUpdateDayMap[pId] || '未設定',
+                    leader_user_id: leaderMap[pId] || '未設定',
+                    logo_photo_id: logoInfo.photo_id,
+                    logo_frame_color: logoInfo.logo_frame_color,
+                    logo_last_update_date: logoInfo.last_update_date,
+                    logo_leader_user_id: logoLeaderMap[pId] || '未設定',
+                    logo_mini_src: logoMiniSrcMap[pId] || null,
+                    logo_src: logoSrcMap[pId] || null,
+                    member_power: memberPowerMap[pId] !== undefined ? memberPowerMap[pId] : 0,
+                    photo_member_list: photoMemberMap[pId] || [],
+                    page_rank: rankMap[pId] || 'normal',
+                    page_reading: readingMap[pId] || '',
+                    sub_title: subTitleInfo.sub_title,
+                    sub_title_user_id: subTitleInfo.user_id,
+                    sub_title_last_update: subTitleInfo.last_update_date,
+                    sub_title_leader_user_id: subTitleLeaderMap[pId] || '未設定',
+                    // 🌟 最後の3テーブルフィールド
+                    page_summary: summaryInfo.page_summary,
+                    summary_user_id: summaryInfo.user_id,
+                    summary_update_num: summaryInfo.update_num,
+                    summary_update_date: summaryInfo.update_date,
+                    summary_leader_user_id: summaryLeaderMap[pId] || '未設定',
+                    total_points: totalPointsMap[pId] !== undefined ? totalPointsMap[pId] : 0
+                };
+            });
+
+            // 統合したデータをクライアントへ送信
+            socket.emit('receive_pages_data', {
+                status: 'success',
+                tables: data.tables,
+                pages: mergedPages
+            });
+        } else {
+            socket.emit('receive_pages_data', { status: 'error', tables: {} });
+        }
+
     } catch (err) {
-        console.error("❌ ロリポップからのデータ取得エラー:", err);
-        socket.emit('receive_column_data', { columns: [] });
+        console.error("❌ ページデータの取得エラー:", err);
+        socket.emit('receive_pages_data', { status: 'error', tables: {} });
+    }
+});
+
+// 📖 サーバー側でのコラムデータ要求処理（タイプ・バージョン追加版）
+socket.on('request_column_data', async () => {
+    console.log("📡 [DEBUG] コラムデータの要求を受信しました");
+    try {
+        const response = await fetch('https://imgv.jp/get_columns.php'); 
+        const data = await response.json();
+
+        if (data.status === 'success' && data.tables) {
+            const columnTable = data.tables['mysql_column_name'] || []; 
+            const authorTable = data.tables['mysql_column_author'] || []; 
+            const dateTable = data.tables['mysql_column_create_date'] || [];
+            const evalTable = data.tables['mysql_column_evaluation'] || [];
+            const freezeTable = data.tables['mysql_column_freeze_state'] || [];     
+            const lastUpdatedTable = data.tables['mysql_column_last_updated'] || []; 
+            const noteTable = data.tables['mysql_column_note'] || [];               
+            const openNumTable = data.tables['mysql_column_open_num'] || [];       
+            const rankTable = data.tables['mysql_column_rank'] || [];               
+            const readingTable = data.tables['mysql_column_reading'] || [];         
+            const summaryTable = data.tables['mysql_column_summary'] || [];         
+            const thumbnailTable = data.tables['mysql_column_thumbnail'] || [];     
+            const typeTable = data.tables['mysql_column_type'] || [];               // 🌟 タイプ
+            const versionTable = data.tables['mysql_column_version'] || [];         // 🌟 バージョン
+
+            // 各種マップの作成
+            const authorMap = {};
+            authorTable.forEach(row => { if (row.column_id) authorMap[row.column_id] = row.author_user_id; });
+
+            const dateMap = {};
+            dateTable.forEach(row => { if (row.column_id) dateMap[row.column_id] = row.create_date; });
+
+            const evalMap = {};
+            evalTable.forEach(row => { if (row.column_id) evalMap[row.column_id] = row.column_evaluation; });
+
+            const freezeMap = {};
+            freezeTable.forEach(row => { if (row.column_id) freezeMap[row.column_id] = row.freeze_state; });
+
+            const lastUpdatedMap = {};
+            lastUpdatedTable.forEach(row => { if (row.column_id) lastUpdatedMap[row.column_id] = row.last_updated; });
+
+            const noteMap = {};
+            noteTable.forEach(row => { if (row.column_id) noteMap[row.column_id] = row.column_note; });
+
+            const openNumMap = {};
+            openNumTable.forEach(row => { if (row.column_id) openNumMap[row.column_id] = row.open_num; });
+
+            const rankMap = {};
+            rankTable.forEach(row => { if (row.column_id) rankMap[row.column_id] = row.column_rank; });
+
+            const readingMap = {};
+            readingTable.forEach(row => { if (row.column_id) readingMap[row.column_id] = row.column_reading; });
+
+            const summaryMap = {};
+            summaryTable.forEach(row => { if (row.column_id) summaryMap[row.column_id] = row.summary; });
+
+            const thumbnailMap = {};
+            thumbnailTable.forEach(row => { 
+                if (row.column_id) {
+                    thumbnailMap[row.column_id] = {
+                        photo_id: row.photo_id || null,
+                        logo_src: row.logo_src || null
+                    };
+                }
+            });
+
+            // 🌟 新規追加分のマップ作成
+            const typeMap = {};
+            typeTable.forEach(row => { if (row.column_id) typeMap[row.column_id] = row.column_type; });
+
+            const versionMap = {};
+            versionTable.forEach(row => { if (row.column_id) versionMap[row.column_id] = row.version; });
+
+            // 各コラムアイテムに全情報を合体させる
+            const mergedColumns = columnTable.map((item, index) => {
+                const cId = item.column_id || item.id;
+                const thumb = thumbnailMap[cId] || { photo_id: null, logo_src: null };
+                
+                return {
+                    ...item,
+                    column_id: cId,
+                    author_user_id: authorMap[cId] || '未設定',
+                    create_date: dateMap[cId] || '未設定',
+                    column_evaluation: evalMap[cId] !== undefined ? evalMap[cId] : '0',
+                    freeze_state: freezeMap[cId] || 'unfreeze',
+                    last_updated: lastUpdatedMap[cId] || '未設定',
+                    mysql_column_note: noteMap[cId] || item.mysql_column_memo || '本文データがありません。',
+                    open_num: openNumMap[cId] !== undefined ? openNumMap[cId] : '0',
+                    column_rank: rankMap[cId] || 'normal',
+                    column_reading: readingMap[cId] || '',
+                    mysql_column_summary: summaryMap[cId] || item.mysql_column_summary || 'なし',
+                    thumbnail_photo_id: thumb.photo_id,
+                    thumbnail_logo_src: thumb.logo_src,
+                    column_type: typeMap[cId] || '未設定',
+                    version: versionMap[cId] || '1.0'
+                };
+            });
+
+            // 統合したデータをクライアントへ送信
+            socket.emit('receive_column_data', {
+                status: 'success',
+                columns: mergedColumns
+            });
+        } else {
+            socket.emit('receive_column_data', { status: 'success', columns: [] });
+        }
+
+    } catch (err) {
+        console.error("❌ コラムデータの取得エラー:", err);
+        socket.emit('receive_column_data', { status: 'success', columns: [] });
+    }
+});
+
+// 📖 クライアントからの写真データ要求を受けて、PHP経由でロリポップのDBから取得する（フォトテーブル追加版）
+socket.on('request_photo_data', async () => {
+    console.log("📡 [DEBUG] クライアントから写真データの要求を受信しました");
+    try {
+        const response = await fetch('https://imgv.jp/get_img_list.php'); // ファイル名要確認
+        const data = await response.json();
+
+        if (data.status === 'success' && data.tables) {
+            const namesTable = data.tables['mysql_new_photo_name'] || [];
+            const srcsTable = data.tables['mysql_new_photo_src'] || [];
+            const copyrightTable = data.tables['mysql_new_photo_copyright_user'] || [];
+            const evaluationTable = data.tables['mysql_new_photo_evaluation'] || [];
+            const lastUpdateTable = data.tables['mysql_new_photo_last_update_day'] || [];
+            const levelTable = data.tables['mysql_new_photo_level'] || [];
+            const niceTable = data.tables['mysql_new_photo_nice'] || [];
+            const noteTable = data.tables['mysql_new_photo_note'] || [];
+            const rankTable = data.tables['mysql_new_photo_rank'] || [];
+            const rarityTable = data.tables['mysql_new_photo_rarity'] || [];
+            const registDayTable = data.tables['mysql_new_photo_regist_day'] || [];
+            const sizeTable = data.tables['mysql_new_photo_size'] || [];
+
+            // 🌟 今回新規追加する4つのテーブル
+            const tipTable = data.tables['mysql_new_photo_tip'] || [];                 // チップ
+            const toievaPointTable = data.tables['mysql_new_photo_toieva_point'] || []; // Toievaポイント
+            const totalViewerTable = data.tables['mysql_new_photo_total_viewer'] || []; // 閲覧数
+            const uploadUserTable = data.tables['mysql_new_photo_upload_user'] || [];   // アップロードユーザー
+
+            // 🌟 各種マップの作成（photo_id または id をキーにする）
+            const srcMap = {};
+            srcsTable.forEach(s => {
+                const key = s.photo_id || s.id;
+                if (key) srcMap[key] = s.photo_src || s.src;
+            });
+
+            const copyrightMap = {};
+            copyrightTable.forEach(row => {
+                const key = row.photo_id || row.id;
+                if (key) {
+                    copyrightMap[key] = {
+                        page_id: row.page_id || null,
+                        photo_copyright_user_id: row.photo_copyright_user_id || '不明'
+                    };
+                }
+            });
+
+            const evaluationMap = {};
+            evaluationTable.forEach(row => {
+                const key = row.photo_id || row.id;
+                if (key) {
+                    evaluationMap[key] = {
+                        eval1: row.photo_evaluation1 || 0,
+                        eval2: row.photo_evaluation2 || 0,
+                        eval3: row.photo_evaluation3 || 0,
+                        eval4: row.photo_evaluation4 || 0,
+                        eval5: row.photo_evaluation5 || 0
+                    };
+                }
+            });
+
+            const lastUpdateMap = {};
+            lastUpdateTable.forEach(row => {
+                const key = row.photo_id || row.id;
+                if (key) lastUpdateMap[key] = row.photo_last_update_day || '未記録';
+            });
+
+            const levelMap = {};
+            levelTable.forEach(row => {
+                const key = row.photo_id || row.id;
+                if (key) levelMap[key] = row.photo_level || 1;
+            });
+
+            const niceMap = {};
+            niceTable.forEach(row => {
+                const key = row.photo_id || row.id;
+                if (key) niceMap[key] = row.photo_nice !== undefined ? row.photo_nice : 0;
+            });
+
+            const noteMap = {};
+            noteTable.forEach(row => {
+                const key = row.photo_id || row.id;
+                if (key) noteMap[key] = row.photo_note || '';
+            });
+
+            const rankMap = {};
+            rankTable.forEach(row => {
+                const key = row.photo_id || row.id;
+                if (key) rankMap[key] = row.photo_rank || 'sky';
+            });
+
+            const rarityMap = {};
+            rarityTable.forEach(row => {
+                const key = row.photo_id || row.id;
+                if (key) rarityMap[key] = row.photo_rarity || 'C';
+            });
+
+            const registDayMap = {};
+            registDayTable.forEach(row => {
+                const key = row.photo_id || row.id;
+                if (key) registDayMap[key] = row.regist_day || '未記録';
+            });
+
+            const sizeMap = {};
+            sizeTable.forEach(row => {
+                const key = row.photo_id || row.id;
+                if (key) {
+                    sizeMap[key] = {
+                        width: row.photo_width || 200,
+                        height: row.photo_height || 200
+                    };
+                }
+            });
+
+            // 🌟 新規追加分のマップ作成
+            const tipMap = {};
+            tipTable.forEach(row => {
+                const key = row.photo_id || row.id;
+                if (key) tipMap[key] = row.photo_tip !== undefined ? row.photo_tip : 0;
+            });
+
+            const toievaPointMap = {};
+            toievaPointTable.forEach(row => {
+                const key = row.photo_id || row.id;
+                if (key) {
+                    toievaPointMap[key] = {
+                        point: row.photo_toieva_point !== undefined ? row.photo_toieva_point : 0,
+                        last_click: row.last_click_date || '未記録'
+                    };
+                }
+            });
+
+            const totalViewerMap = {};
+            totalViewerTable.forEach(row => {
+                const key = row.photo_id || row.id;
+                if (key) totalViewerMap[key] = row.photo_total_viewer !== undefined ? row.photo_total_viewer : 0;
+            });
+
+            const uploadUserMap = {};
+            uploadUserTable.forEach(row => {
+                const key = row.photo_id || row.id;
+                if (key) {
+                    uploadUserMap[key] = {
+                        user_id: row.photo_upload_user_id || '不明',
+                        upload_date: row.upload_date || '未記録'
+                    };
+                }
+            });
+
+            // 🌟 各写真アイテムに情報を合体（マージ）させる
+            const mergedPhotos = namesTable.map((item, index) => {
+                const pId = item.photo_id || item.id || ('photo_' + index);
+                const cp = copyrightMap[pId] || { page_id: item.page_id || null, photo_copyright_user_id: '不明' };
+                const ev = evaluationMap[pId] || { eval1: 0, eval2: 0, eval3: 0, eval4: 0, eval5: 0 };
+                const sz = sizeMap[pId] || { width: 200, height: 200 };
+                const tv = toievaPointMap[pId] || { point: 0, last_click: '未記録' };
+                const uu = uploadUserMap[pId] || { user_id: '不明', upload_date: '未記録' };
+
+                return {
+                    ...item,
+                    photo_id: pId,
+                    photo_no: item.photo_no || (index + 1),
+                    page_id: cp.page_id,
+                    photo_src: srcMap[pId] || item.photo_src || '',
+                    photo_name: item.photo_name || ('フォト：' + pId),
+                    photo_copyright_user_id: cp.photo_copyright_user_id,
+                    photo_evaluation1: ev.eval1,
+                    photo_evaluation2: ev.eval2,
+                    photo_evaluation3: ev.eval3,
+                    photo_evaluation4: ev.eval4,
+                    photo_evaluation5: ev.eval5,
+                    photo_last_update_day: lastUpdateMap[pId] || '未記録',
+                    photo_level: levelMap[pId] || 1,
+                    photo_nice: niceMap[pId] !== undefined ? niceMap[pId] : 0,
+                    photo_note: noteMap[pId] || '',
+                    photo_rank: rankMap[pId] || 'sky',
+                    photo_rarity: rarityMap[pId] || 'C',
+                    regist_day: registDayMap[pId] || '未記録',
+                    photo_width: sz.width,
+                    photo_height: sz.height,
+                    // 🌟 新規追加フィールド
+                    photo_tip: tipMap[pId] !== undefined ? tipMap[pId] : 0,
+                    photo_toieva_point: tv.point,
+                    toieva_last_click_date: tv.last_click,
+                    photo_total_viewer: totalViewerMap[pId] !== undefined ? totalViewerMap[pId] : 0,
+                    photo_upload_user_id: uu.user_id,
+                    upload_date: uu.upload_date
+                };
+            });
+
+            console.log("📡 [DEBUG] 写真データを " + mergedPhotos.length + " 件構築しました！");
+            socket.emit('receive_photo_data', { photos: mergedPhotos });
+        } else {
+            socket.emit('receive_photo_data', { photos: [] });
+        }
+    } catch (err) {
+        console.error("❌ 写真データ取得エラー:", err);
+        socket.emit('receive_photo_data', { photos: [] });
+    }
+});
+
+// 📖 クライアントからのユーザーデータ要求を受けて、PHP経由でロリポップのDBから取得する（全63テーブル完全統合版）
+socket.on('request_users_data', async () => {
+    console.log("📡 [DEBUG] クライアントからユーザーデータの要求を受信しました");
+    try {
+        const response = await fetch('https://imgv.jp/get_users.php'); // 実際のURL環境に合わせてください
+        const data = await response.json();
+
+        if (data.status === 'success' && data.tables) {
+            const userNameTable = data.tables['mysql_user_name'] || [];
+            
+            // 既存テーブル群
+            const ageTable = data.tables['mysql_user_age'] || [];
+            const basePageTable = data.tables['mysql_user_base_page'] || [];
+            const birthdayTable = data.tables['mysql_user_birthday'] || [];
+            const blogUrlTable = data.tables['mysql_user_blog_url'] || [];
+            const communityTable = data.tables['mysql_user_community'] || [];
+            const conditionTable = data.tables['mysql_user_condition'] || [];
+            const coverPhotoTable = data.tables['mysql_user_cover_photo'] || [];
+            const degreeTable = data.tables['mysql_user_degree'] || [];
+
+            // お気に入り系10テーブル
+            const favAnimalTable = data.tables['mysql_user_favorite_animal'] || [];
+            const favBookTable = data.tables['mysql_user_favorite_book'] || [];
+            const favCharaTable = data.tables['mysql_user_favorite_chara'] || [];
+            const favColorTable = data.tables['mysql_user_favorite_color'] || [];
+            const favFoodTable = data.tables['mysql_user_favorite_food'] || [];
+            const favPageTable = data.tables['mysql_user_favorite_page'] || [];
+            const favPhotoTable = data.tables['mysql_user_favorite_photo'] || [];
+            const favSloganTable = data.tables['mysql_user_favorite_slogan'] || [];
+            const favThingTable = data.tables['mysql_user_favorite_thing'] || [];
+            const favWordTable = data.tables['mysql_user_favorite_word'] || [];
+
+            // 属性・リンク等11テーブル
+            const fromTable = data.tables['mysql_user_from'] || [];
+            const gameLinksTable = data.tables['mysql_user_game_links'] || [];
+            const goalTable = data.tables['mysql_user_goal'] || [];
+            const hobbyTable = data.tables['mysql_user_hobby'] || [];
+            const hpUrlTable = data.tables['mysql_user_hp_url'] || [];
+            const iconTable = data.tables['mysql_user_icon'] || [];
+            const itemRateTable = data.tables['mysql_user_item_rate'] || [];
+            const jobTable = data.tables['mysql_user_job'] || [];
+            const lastAccessTable = data.tables['mysql_user_last_access_time'] || [];
+            const levelTable = data.tables['mysql_user_level'] || [];
+            const mailAddressTable = data.tables['mysql_user_mail_address'] || [];
+            const mindsetTable = data.tables['mysql_user_mindset'] || [];
+
+            // 追加8テーブル
+            const myKeywordTable = data.tables['mysql_user_my_keyword'] || [];
+            const userNoTable = data.tables['mysql_user_no'] || [];
+            const occupationTable = data.tables['mysql_user_occupation'] || [];
+            const ownGameTable = data.tables['mysql_user_own_game'] || [];
+            const petsTable = data.tables['mysql_user_pets'] || [];
+            const planTable = data.tables['mysql_user_plan'] || [];
+            const popularityTable = data.tables['mysql_user_popularity'] || [];
+            const rankTable = data.tables['mysql_user_rank'] || [];
+
+            // 🌟 今回新規追加する14テーブル
+            const registDateTable = data.tables['mysql_user_regist_date'] || [];
+            const researchTable = data.tables['mysql_user_research'] || [];
+            const respectedPageTable = data.tables['mysql_user_respected_page'] || [];
+            const respectedSiteTable = data.tables['mysql_user_respected_site'] || [];
+            const respectedUserTable = data.tables['mysql_user_respected_user'] || [];
+            const routinePageTable = data.tables['mysql_user_routine_page'] || [];
+            const selfIntroTable = data.tables['mysql_user_self_introduction'] || [];
+            const signTable = data.tables['mysql_user_sign'] || [];
+            const specializationTable = data.tables['mysql_user_specialization'] || [];
+            const stateTable = data.tables['mysql_user_state'] || [];
+            const taskTable = data.tables['mysql_user_task'] || [];
+            const thumbnailTable = data.tables['mysql_user_thumbnail'] || [];
+            const typeTable = data.tables['mysql_user_type'] || [];
+            const zoneTable = data.tables['mysql_user_zone'] || [];
+
+            // 各種引き当てマップの作成
+            const ageMap = {}; ageTable.forEach(row => { const k = row.user_id || row.id; if (k) ageMap[k] = { age: row.age !== undefined ? row.age : 0, status: row.status || 'public' }; });
+            const basePageMap = {}; basePageTable.forEach(row => { const k = row.user_id || row.id; if (k) basePageMap[k] = { base_page_id: row.base_page_id || 'なし', status: row.status || 'public' }; });
+            const birthdayMap = {}; birthdayTable.forEach(row => { const k = row.user_id || row.id; if (k) birthdayMap[k] = { birthday: row.birthday || '未設定', status: row.status || 'public' }; });
+            const blogUrlMap = {}; blogUrlTable.forEach(row => { const k = row.user_id || row.id; if (k) blogUrlMap[k] = { url_id: row.url_id || null, status: row.status || 'public' }; });
+            const communityMap = {}; communityTable.forEach(row => { const k = row.user_id || row.id; if (k) communityMap[k] = { community_id: row.community_id || 'なし', status: row.status || 'public' }; });
+            const conditionMap = {}; conditionTable.forEach(row => { const k = row.user_id || row.id; if (k) conditionMap[k] = row.condition_percentage !== undefined ? row.condition_percentage : 100; });
+            const coverPhotoMap = {}; coverPhotoTable.forEach(row => { const k = row.user_id || row.id; if (k) coverPhotoMap[k] = { photo_id: row.photo_id || null, status: row.status || 'public' }; });
+            const degreeMap = {}; degreeTable.forEach(row => { const k = row.user_id || row.id; if (k) degreeMap[k] = { degree_id: row.degree_id || null, status: row.status || 'public' }; });
+
+            // お気に入りマップ
+            const favAnimalMap = {}; favAnimalTable.forEach(row => { const k = row.user_id || row.id; if (k) favAnimalMap[k] = row.animal_id || null; });
+            const favBookMap = {}; favBookTable.forEach(row => { const k = row.user_id || row.id; if (k) favBookMap[k] = row.book_id || null; });
+            const favCharaMap = {}; favCharaTable.forEach(row => { const k = row.user_id || row.id; if (k) favCharaMap[k] = row.chara_id || null; });
+            const favColorMap = {}; favColorTable.forEach(row => { const k = row.user_id || row.id; if (k) favColorMap[k] = row.color_id || null; });
+            const favFoodMap = {}; favFoodTable.forEach(row => { const k = row.user_id || row.id; if (k) favFoodMap[k] = row.food_id || null; });
+            const favPageMap = {}; favPageTable.forEach(row => { const k = row.user_id || row.id; if (k) favPageMap[k] = row.page_id || null; });
+            const favPhotoMap = {}; favPhotoTable.forEach(row => { const k = row.user_id || row.id; if (k) favPhotoMap[k] = row.photo_id || null; });
+            const favSloganMap = {}; favSloganTable.forEach(row => { const k = row.user_id || row.id; if (k) favSloganMap[k] = row.favorite_slogan || null; });
+            const favThingMap = {}; favThingTable.forEach(row => { const k = row.user_id || row.id; if (k) favThingMap[k] = row.favorite_thing || null; });
+            const favWordMap = {}; favWordTable.forEach(row => { const k = row.user_id || row.id; if (k) favWordMap[k] = row.favorite_word || null; });
+
+            // 属性・リンク等マップ
+            const fromMap = {}; fromTable.forEach(row => { const k = row.user_id || row.id; if (k) fromMap[k] = row.from_id || '未設定'; });
+            const gameLinksMap = {}; gameLinksTable.forEach(row => { const k = row.user_id || row.id; if (k) gameLinksMap[k] = { game_link_id: row.game_link_id || 'なし', update_at: row.update_at || '未記録' }; });
+            const goalMap = {}; goalTable.forEach(row => { const k = row.user_id || row.id; if (k) goalMap[k] = row.goal || '未設定'; });
+            const hobbyMap = {}; hobbyTable.forEach(row => { const k = row.user_id || row.id; if (k) hobbyMap[k] = row.hobby_id || '未設定'; });
+            const hpUrlMap = {}; hpUrlTable.forEach(row => { const k = row.user_id || row.id; if (k) hpUrlMap[k] = row.url_id || '未設定'; });
+            const iconMap = {}; iconTable.forEach(row => { const k = row.user_id || row.id; if (k) iconMap[k] = row.src || 'no_icon'; });
+            const itemRateMap = {}; itemRateTable.forEach(row => { const k = row.user_id || row.id; if (k) itemRateMap[k] = row.item_rate !== undefined ? row.item_rate : 0; });
+            const jobMap = {}; jobTable.forEach(row => { const k = row.user_id || row.id; if (k) jobMap[k] = row.job_id || '未設定'; });
+            const lastAccessMap = {}; lastAccessTable.forEach(row => { const k = row.user_id || row.id; if (k) lastAccessMap[k] = { time: row.last_access_time || '未記録', site: row.last_access_site || '不明', page_id: row.last_access_page_id || '不明' }; });
+            const levelMap = {}; levelTable.forEach(row => { const k = row.user_id || row.id; if (k) levelMap[k] = row.user_level !== undefined ? row.user_level : 1; });
+            const mailAddressMap = {}; mailAddressTable.forEach(row => { const k = row.user_id || row.id; if (k) mailAddressMap[k] = row.mail_address || '未設定'; });
+            const mindsetMap = {}; mindsetTable.forEach(row => { const k = row.user_id || row.id; if (k) mindsetMap[k] = row.mindset || '未設定'; });
+
+            // 追加8テーブルマップ
+            const myKeywordMap = {}; myKeywordTable.forEach(row => { const k = row.user_id || row.id; if (k) myKeywordMap[k] = row.my_keyword || '未設定'; });
+            const userNoMap = {}; userNoTable.forEach(row => { const k = row.user_id || row.id; if (k) userNoMap[k] = row.user_no || 0; });
+            const occupationMap = {}; occupationTable.forEach(row => { const k = row.user_id || row.id; if (k) occupationMap[k] = row.occupation || '未設定'; });
+            const ownGameMap = {}; ownGameTable.forEach(row => { const k = row.user_id || row.id; if (k) ownGameMap[k] = row.own_game_id || 'なし'; });
+            const petsMap = {}; petsTable.forEach(row => { const k = row.user_id || row.id; if (k) petsMap[k] = row.pets_id || 'なし'; });
+            const planMap = {}; planTable.forEach(row => { const k = row.user_id || row.id; if (k) planMap[k] = row.user_plan || 'regular'; });
+            const popularityMap = {}; popularityTable.forEach(row => { const k = row.user_id || row.id; if (k) popularityMap[k] = row.user_popularity !== undefined ? row.user_popularity : 0; });
+            const rankMap = {}; rankTable.forEach(row => { const k = row.user_id || row.id; if (k) rankMap[k] = row.user_rank || 'sky'; });
+
+            // 🌟 新規追加14テーブルのマップ作成
+            const registDateMap = {}; registDateTable.forEach(row => { const k = row.user_id || row.id; if (k) registDateMap[k] = row.regist_date || '未記録'; });
+            const researchMap = {}; researchTable.forEach(row => { const k = row.user_id || row.id; if (k) researchMap[k] = row.research_id || '未設定'; });
+            const respectedPageMap = {}; respectedPageTable.forEach(row => { const k = row.user_id || row.id; if (k) respectedPageMap[k] = row.respected_page_id || 'なし'; });
+            const respectedSiteMap = {}; respectedSiteTable.forEach(row => { const k = row.user_id || row.id; if (k) respectedSiteMap[k] = row.respected_site_id || 'なし'; });
+            const respectedUserMap = {}; respectedUserTable.forEach(row => { const k = row.user_id || row.id; if (k) respectedUserMap[k] = row.respected_user_id || 'なし'; });
+            const routinePageMap = {}; routinePageTable.forEach(row => { const k = row.user_id || row.id; if (k) routinePageMap[k] = row.page_id || 'なし'; });
+            const selfIntroMap = {}; selfIntroTable.forEach(row => { const k = row.user_id || row.id; if (k) selfIntroMap[k] = row.self_introduction || '未設定'; });
+            const signMap = {}; signTable.forEach(row => { const k = row.user_id || row.id; if (k) signMap[k] = row.sign_src || 'no_sign'; });
+            const specializationMap = {}; specializationTable.forEach(row => { const k = row.user_id || row.id; if (k) specializationMap[k] = row.specialization_id || '未設定'; });
+            const stateMap = {}; stateTable.forEach(row => { const k = row.user_id || row.id; if (k) stateMap[k] = row.user_state || 'なし'; });
+            const taskMap = {}; taskTable.forEach(row => { const k = row.user_id || row.id; if (k) taskMap[k] = row.task || 'なし'; });
+            const thumbnailMap = {}; thumbnailTable.forEach(row => {
+                const k = row.user_id || row.id;
+                if (k) thumbnailMap[k] = { photo_id: row.photo_id || 'no_thumbnail', frame_color: row.frame_color || 'no_frame', last_update: row.last_update_date || '0000-00-00 00:00:00' };
+            });
+            const typeMap = {}; typeTable.forEach(row => { const k = row.user_id || row.id; if (k) typeMap[k] = row.type || '不明'; });
+            const zoneMap = {}; zoneTable.forEach(row => { const k = row.user_id || row.id; if (k) zoneMap[k] = row.now_zone || '未設定'; });
+
+            // 🌟 各ユーザーアイテムに情報を合体（マージ）させる
+            const mergedUsers = userNameTable.map((item, index) => {
+                const uId = item.user_id || item.id || ('user_' + index);
+                const name = item.user_name || '名称なし';
+                const userStatus = item.status || 'public';
+
+                const ag = ageMap[uId] || { age: 0, status: 'public' };
+                const bp = basePageMap[uId] || { base_page_id: 'なし', status: 'public' };
+                const bd = birthdayMap[uId] || { birthday: '未設定', status: 'public' };
+                const bu = blogUrlMap[uId] || { url_id: null, status: 'public' };
+                const cm = communityMap[uId] || { community_id: 'なし', status: 'public' };
+                const cp = coverPhotoMap[uId] || { photo_id: null, status: 'public' };
+                const dg = degreeMap[uId] || { degree_id: null, status: 'public' };
+                const gl = gameLinksMap[uId] || { game_link_id: 'なし', update_at: '未記録' };
+                const la = lastAccessMap[uId] || { time: '未記録', site: '不明', page_id: '不明' };
+                const tn = thumbnailMap[uId] || { photo_id: 'no_thumbnail', frame_color: 'no_frame', last_update: '0000-00-00 00:00:00' };
+
+                return {
+                    ...item,
+                    user_id: uId,
+                    user_name: name,
+                    status: userStatus,
+                    age: ag.age,
+                    base_page_id: bp.base_page_id,
+                    birthday: bd.birthday,
+                    blog_url_id: bu.url_id,
+                    community_id: cm.community_id,
+                    condition_percentage: conditionMap[uId] !== undefined ? conditionMap[uId] : 100,
+                    cover_photo_id: cp.photo_id,
+                    degree_id: dg.degree_id,
+                    favorite_animal_id: favAnimalMap[uId] || '未設定',
+                    favorite_book_id: favBookMap[uId] || '未設定',
+                    favorite_chara_id: favCharaMap[uId] || '未設定',
+                    favorite_color_id: favColorMap[uId] || '未設定',
+                    favorite_food_id: favFoodMap[uId] || '未設定',
+                    favorite_page_id: favPageMap[uId] || '未設定',
+                    favorite_photo_id: favPhotoMap[uId] || '未設定',
+                    favorite_slogan: favSloganMap[uId] || '未設定',
+                    favorite_thing: favThingMap[uId] || '未設定',
+                    favorite_word: favWordMap[uId] || '未設定',
+                    from_id: fromMap[uId] || '未設定',
+                    game_link_id: gl.game_link_id,
+                    game_link_update_at: gl.update_at,
+                    goal: goalMap[uId] || '未設定',
+                    hobby_id: hobbyMap[uId] || '未設定',
+                    hp_url_id: hpUrlMap[uId] || '未設定',
+                    user_icon_src: iconMap[uId] || 'no_icon',
+                    item_rate: itemRateMap[uId] !== undefined ? itemRateMap[uId] : 0,
+                    job_id: jobMap[uId] || '未設定',
+                    last_access_time: la.time,
+                    last_access_site: la.site,
+                    last_access_page_id: la.page_id,
+                    user_level: levelMap[uId] !== undefined ? levelMap[uId] : 1,
+                    mail_address: mailAddressMap[uId] || '未設定',
+                    mindset: mindsetMap[uId] || '未設定',
+                    my_keyword: myKeywordMap[uId] || '未設定',
+                    user_no: userNoMap[uId] || (index + 1),
+                    occupation: occupationMap[uId] || '未設定',
+                    own_game_id: ownGameMap[uId] || 'なし',
+                    pets_id: petsMap[uId] || 'なし',
+                    user_plan: planMap[uId] || 'regular',
+                    user_popularity: popularityMap[uId] !== undefined ? popularityMap[uId] : 0,
+                    user_rank: rankMap[uId] || 'sky',
+                    // 🌟 新規追加14テーブルデータ
+                    regist_date: registDateMap[uId] || '未記録',
+                    research_id: researchMap[uId] || '未設定',
+                    respected_page_id: respectedPageMap[uId] || 'なし',
+                    respected_site_id: respectedSiteMap[uId] || 'なし',
+                    respected_user_id: respectedUserMap[uId] || 'なし',
+                    routine_page_id: routinePageMap[uId] || 'なし',
+                    self_introduction: selfIntroMap[uId] || '未設定',
+                    sign_src: signMap[uId] || 'no_sign',
+                    specialization_id: specializationMap[uId] || '未設定',
+                    user_state: stateMap[uId] || 'なし',
+                    task: taskMap[uId] || 'なし',
+                    thumbnail_photo_id: tn.photo_id,
+                    thumbnail_frame_color: tn.frame_color,
+                    thumbnail_last_update: tn.last_update,
+                    user_type: typeMap[uId] || '不明',
+                    now_zone: zoneMap[uId] || '未設定'
+                };
+            });
+
+            console.log("📡 [DEBUG] ユーザーデータを " + mergedUsers.length + " 件構築しました！");
+            socket.emit('receive_users_data', { status: 'success', users: mergedUsers, tables: data.tables });
+        } else {
+            socket.emit('receive_users_data', { status: 'error', users: [] });
+        }
+    } catch (err) {
+        console.error("❌ ユーザーデータ取得エラー:", err);
+        socket.emit('receive_users_data', { status: 'error', users: [] });
     }
 });
 

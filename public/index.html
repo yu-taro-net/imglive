@@ -323,19 +323,31 @@
 
   </div>
 
-  <!-- 下段：メッセージログボックス ＋ 右側ユーティリティボタン -->
-  <div style="display: flex; gap: 12px; align-items: stretch; margin-top: 0px;">
+  <!-- 下段：メッセージログボックス ＋ 右側ユーティリティボタン（2段組み対応） -->
+<div style="display: flex; gap: 12px; align-items: stretch; margin-top: 0px;">
     <div id="msg-box" style="flex: 1; margin-top: 0; min-height: 80px;"></div>
+    
+    <!-- 右側のボタンエリア：縦並び（column）にして2段に折り返す -->
     <div style="display: flex; flex-direction: column; gap: 6px; width: auto; justify-content: flex-end;">
-      <div style="display: flex; gap: 6px;">
+      
+      <!-- 【1段目】ショップ、図鑑、画像一覧、ページ一覧 -->
+      <div style="display: flex; gap: 6px; justify-content: flex-end;">
         <button id="pointShopBtn" onclick="openPointShop()" style="height: 32px; padding: 0 10px;">ポイントショップ</button>
         <button id="collectionBookBtn" onclick="toggleBookWindow()" style="height: 32px; font-size: 11px; padding: 0 10px;">📖 図鑑</button>
-        <!-- 🌟 スタイルを統一した「露店を開く」ボタン -->
+        <button id="photoWindowBtn" onclick="togglePhotoWindow()" style="height: 32px; font-size: 11px; padding: 0 10px;">🖼️ 画像一覧</button>
+        <button id="pageWindowBtn" onclick="togglePageWindow()" style="height: 32px; font-size: 11px; padding: 0 10px;">📄 ページ一覧</button>
+      </div>
+
+      <!-- 【2段目】コラム一覧、ユーザー一覧、露店を開く、ログアウト -->
+      <div style="display: flex; gap: 6px; justify-content: flex-end;">
+        <button id="columnWindowBtn" onclick="toggleColumnWindow()" style="height: 32px; font-size: 11px; padding: 0 10px;">📝 コラム一覧</button>
+        <button id="userWindowBtn" onclick="toggleUserWindow()" style="height: 32px; font-size: 11px; padding: 0 10px;">👤 ユーザ一覧</button>
         <button id="vendingOpenBtn" onclick="openVendingMenu()" style="height: 32px; padding: 0 10px;">⛺ 露店を開く</button>
         <button id="logoutBtn" onclick="logout()" style="height: 32px; font-size: 11px; padding: 0 10px;">ログアウト</button>
       </div>
+
     </div>
-  </div>
+</div>
 </div>
 
 <script>

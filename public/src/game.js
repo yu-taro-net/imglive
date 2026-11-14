@@ -217,16 +217,497 @@ function showCustomAlert(message, isSuccess = true) {
     }, 2500);
 }
 
+// 📦 サーバーから受け取ったページ（全30テーブル）データを格納する変数
+let currentPagesData = {};
+let currentPageItems = []; // メインで一覧表示するテーブルの配列（例: mysql_page_name など）
+
+// 📥 サーバーからのページデータを受信（全30テーブル完全統合版）
+if (typeof socket !== 'undefined' && socket) {
+    socket.on('receive_pages_data', (data) => {
+        console.log("📥 ページデータを受信しました:", data);
+        if (data.status === 'success' && data.tables) {
+            currentPagesData = data.tables;
+            
+            const pagesTable = data.tables['mysql_page_name'] || [];
+            const authorTable = data.tables['mysql_page_author'] || [];
+            const commentPointTable = data.tables['mysql_page_comment_point'] || [];
+            const insertionTable = data.tables['mysql_page_insertion'] || [];
+            const coverStateTable = data.tables['mysql_page_cover_state'] || [];
+            const createDateTable = data.tables['mysql_page_create_date'] || [];
+            const donationTable = data.tables['mysql_page_donation'] || [];
+            const editLeaderTable = data.tables['mysql_page_edit_leader'] || [];
+            const favoriteNumTable = data.tables['mysql_page_favorite_num'] || [];
+            const framesNumTable = data.tables['mysql_page_frames_num'] || [];
+            const freezeLeaderTable = data.tables['mysql_page_freeze_leader'] || [];
+            const freezeStateTable = data.tables['mysql_page_freeze_state'] || [];
+            const historyTable = data.tables['mysql_page_history'] || [];
+            const labelSrcTable = data.tables['mysql_page_id_label_src'] || [];
+            const lastUpdateDayTable = data.tables['mysql_page_last_update_day'] || [];
+            const leaderTable = data.tables['mysql_page_leader'] || [];
+            const logoTable = data.tables['mysql_page_logo'] || [];
+            const logoLeaderTable = data.tables['mysql_page_logo_leader'] || [];
+            const logoMiniSrcTable = data.tables['mysql_page_logo_mini_src'] || [];
+            const logoSrcTable = data.tables['mysql_page_logo_src'] || [];
+            const memberPowerTable = data.tables['mysql_page_member_power'] || [];
+            const photoMemberTable = data.tables['mysql_page_photo_member'] || [];
+            const rankTable = data.tables['mysql_page_rank'] || [];
+            const readingTable = data.tables['mysql_page_reading'] || [];
+            const subTitleTable = data.tables['mysql_page_sub_title'] || [];
+            const subTitleLeaderTable = data.tables['mysql_page_sub_title_leader'] || [];
+            
+            // 🌟 最後の3テーブル
+            const summaryTable = data.tables['mysql_page_summary'] || [];
+            const summaryLeaderTable = data.tables['mysql_page_summary_leader'] || [];
+            const totalPointsTable = data.tables['mysql_page_total_points'] || [];
+
+            // 各種マップの作成（省略せず全て網羅）
+            const authorMap = {};
+            authorTable.forEach(row => { if (row.page_id) authorMap[row.page_id] = row.author_user_id; });
+
+            const commentPointMap = {};
+            commentPointTable.forEach(row => { if (row.page_id) commentPointMap[row.page_id] = row.comment_point; });
+
+            const insertionMap = {};
+            insertionTable.forEach(row => { if (row.page_id) insertionMap[row.page_id] = row; });
+
+            const coverStateMap = {};
+            coverStateTable.forEach(row => { if (row.page_id) coverStateMap[row.page_id] = row.cover_state; });
+
+            const createDateMap = {};
+            createDateTable.forEach(row => { if (row.page_id) createDateMap[row.page_id] = row.create_date; });
+
+            const donationMap = {};
+            donationTable.forEach(row => { if (row.page_id) donationMap[row.page_id] = row.donation_amount; });
+
+            const editLeaderMap = {};
+            editLeaderTable.forEach(row => { if (row.page_id) editLeaderMap[row.page_id] = row.user_id; });
+
+            const favoriteNumMap = {};
+            favoriteNumTable.forEach(row => { if (row.page_id) favoriteNumMap[row.page_id] = row.favorite_num; });
+
+            const framesNumMap = {};
+            framesNumTable.forEach(row => { if (row.page_id) framesNumMap[row.page_id] = row.frames_num; });
+
+            const freezeLeaderMap = {};
+            freezeLeaderTable.forEach(row => { if (row.page_id) freezeLeaderMap[row.page_id] = row.user_id; });
+
+            const freezeStateMap = {};
+            freezeStateTable.forEach(row => { 
+                if (row.page_id) {
+                    freezeStateMap[row.page_id] = {
+                        freeze_state: row.freeze_state || 'unfreeze',
+                        freeze_pass: row.freeze_pass || '',
+                        count_num: row.count_num || 0,
+                        last_update: row.last_update || '未記録'
+                    };
+                }
+            });
+
+            const historyMap = {};
+            historyTable.forEach(row => {
+                if (row.page_id) {
+                    if (!historyMap[row.page_id]) historyMap[row.page_id] = [];
+                    historyMap[row.page_id].push(row);
+                }
+            });
+
+            const labelSrcMap = {};
+            labelSrcTable.forEach(row => { if (row.page_id) labelSrcMap[row.page_id] = row.label_src; });
+
+            const lastUpdateDayMap = {};
+            lastUpdateDayTable.forEach(row => { if (row.page_id) lastUpdateDayMap[row.page_id] = row.last_update_day; });
+
+            const leaderMap = {};
+            leaderTable.forEach(row => { if (row.page_id) leaderMap[row.page_id] = row.user_id; });
+
+            const logoMap = {};
+            logoTable.forEach(row => {
+                if (row.page_id) {
+                    logoMap[row.page_id] = {
+                        photo_id: row.photo_id || null,
+                        logo_frame_color: row.logo_frame_color || '',
+                        last_update_date: row.last_update_date || '未記録'
+                    };
+                }
+            });
+
+            const logoLeaderMap = {};
+            logoLeaderTable.forEach(row => { if (row.page_id) logoLeaderMap[row.page_id] = row.user_id; });
+
+            const logoMiniSrcMap = {};
+            logoMiniSrcTable.forEach(row => { if (row.page_id) logoMiniSrcMap[row.page_id] = row.logo_src; });
+
+            const logoSrcMap = {};
+            logoSrcTable.forEach(row => { if (row.page_id) logoSrcMap[row.page_id] = row.logo_src; });
+
+            const memberPowerMap = {};
+            memberPowerTable.forEach(row => { if (row.page_id) memberPowerMap[row.page_id] = row.member_power; });
+
+            const photoMemberMap = {};
+            photoMemberTable.forEach(row => {
+                if (row.page_id) {
+                    if (!photoMemberMap[row.page_id]) photoMemberMap[row.page_id] = [];
+                    photoMemberMap[row.page_id].push(row);
+                }
+            });
+
+            const rankMap = {};
+            rankTable.forEach(row => { if (row.page_id) rankMap[row.page_id] = row.page_rank; });
+
+            const readingMap = {};
+            readingTable.forEach(row => { if (row.page_id) readingMap[row.page_id] = row.page_reading; });
+
+            const subTitleMap = {};
+            subTitleTable.forEach(row => {
+                if (row.page_id) {
+                    subTitleMap[row.page_id] = {
+                        user_id: row.user_id || '未設定',
+                        sub_title: row.sub_title || '',
+                        last_update_date: row.last_update_date || '未記録'
+                    };
+                }
+            });
+
+            const subTitleLeaderMap = {};
+            subTitleLeaderTable.forEach(row => { if (row.page_id) subTitleLeaderMap[row.page_id] = row.user_id; });
+
+            // 🌟 最後の3テーブルのマップ作成
+            const summaryMap = {};
+            summaryTable.forEach(row => {
+                if (row.page_id) {
+                    summaryMap[row.page_id] = {
+                        user_id: row.user_id || '未設定',
+                        page_summary: row.page_summary || '',
+                        update_num: row.update_num !== undefined ? row.update_num : 0,
+                        update_date: row.update_date || '未記録'
+                    };
+                }
+            });
+
+            const summaryLeaderMap = {};
+            summaryLeaderTable.forEach(row => { if (row.page_id) summaryLeaderMap[row.page_id] = row.user_id; });
+
+            const totalPointsMap = {};
+            totalPointsTable.forEach(row => { if (row.page_id) totalPointsMap[row.page_id] = row.total_points; });
+
+            // 🌟 データの完全マージ
+            currentPageItems = pagesTable.map((item, index) => {
+                const pId = item.page_id || item.id;
+                const freezeInfo = freezeStateMap[pId] || { freeze_state: 'unfreeze', freeze_pass: '', count_num: 0, last_update: '未記録' };
+                const logoInfo = logoMap[pId] || { photo_id: null, logo_frame_color: '', last_update_date: '未記録' };
+                const subTitleInfo = subTitleMap[pId] || { user_id: '未設定', sub_title: '', last_update_date: '未記録' };
+                const summaryInfo = summaryMap[pId] || { user_id: '未設定', page_summary: 'なし', update_num: 0, update_date: '未記録' };
+
+                return {
+                    ...item,
+                    page_id: pId,
+                    page_name: item.page_name || item.name || ('ページ ID: ' + pId),
+                    author_user_id: item.author_user_id || authorMap[pId] || '未設定',
+                    comment_point: item.comment_point !== undefined ? item.comment_point : (commentPointMap[pId] !== undefined ? commentPointMap[pId] : 0),
+                    insertion: item.insertion || insertionMap[pId] || null,
+                    cover_state: item.cover_state || coverStateMap[pId] || 'no_cover',
+                    create_date: item.create_date || createDateMap[pId] || '未設定',
+                    donation_amount: item.donation_amount !== undefined ? item.donation_amount : (donationMap[pId] !== undefined ? donationMap[pId] : 0),
+                    edit_leader_user_id: item.edit_leader_user_id || editLeaderMap[pId] || '未設定',
+                    favorite_num: item.favorite_num !== undefined ? item.favorite_num : (favoriteNumMap[pId] !== undefined ? favoriteNumMap[pId] : 0),
+                    frames_num: item.frames_num !== undefined ? item.frames_num : (framesNumMap[pId] !== undefined ? framesNumMap[pId] : 0),
+                    freeze_leader_user_id: item.freeze_leader_user_id || freezeLeaderMap[pId] || '未設定',
+                    freeze_state: item.freeze_state || freezeInfo.freeze_state,
+                    freeze_pass: item.freeze_pass || freezeInfo.freeze_pass,
+                    freeze_count_num: item.freeze_count_num !== undefined ? item.freeze_count_num : freezeInfo.count_num,
+                    freeze_last_update: item.freeze_last_update || freezeInfo.last_update,
+                    history_list: item.history_list || historyMap[pId] || [],
+                    label_src: item.label_src || labelSrcMap[pId] || null,
+                    last_update_day: item.last_update_day || lastUpdateDayMap[pId] || '未設定',
+                    leader_user_id: item.leader_user_id || leaderMap[pId] || '未設定',
+                    logo_photo_id: item.logo_photo_id || logoInfo.photo_id,
+                    logo_frame_color: item.logo_frame_color || logoInfo.logo_frame_color,
+                    logo_last_update_date: item.logo_last_update_date || logoInfo.last_update_date,
+                    logo_leader_user_id: item.logo_leader_user_id || logoLeaderMap[pId] || '未設定',
+                    logo_mini_src: item.logo_mini_src || logoMiniSrcMap[pId] || null,
+                    logo_src: item.logo_src || logoSrcMap[pId] || null,
+                    member_power: item.member_power !== undefined ? item.member_power : (memberPowerMap[pId] !== undefined ? memberPowerMap[pId] : 0),
+                    photo_member_list: item.photo_member_list || photoMemberMap[pId] || [],
+                    page_rank: item.page_rank || rankMap[pId] || 'normal',
+                    page_reading: item.page_reading || readingMap[pId] || '',
+                    sub_title: item.sub_title || subTitleInfo.sub_title,
+                    sub_title_user_id: item.sub_title_user_id || subTitleInfo.user_id,
+                    sub_title_last_update: item.sub_title_last_update || subTitleInfo.last_update_date,
+                    sub_title_leader_user_id: item.sub_title_leader_user_id || subTitleLeaderMap[pId] || '未設定',
+                    // 🌟 最後の3テーブルフィールド
+                    page_summary: item.page_summary || summaryInfo.page_summary,
+                    summary_user_id: item.summary_user_id || summaryInfo.user_id,
+                    summary_update_num: item.summary_update_num !== undefined ? item.summary_update_num : summaryInfo.update_num,
+                    summary_update_date: item.summary_update_date || summaryInfo.update_date,
+                    summary_leader_user_id: item.summary_leader_user_id || summaryLeaderMap[pId] || '未設定',
+                    total_points: item.total_points !== undefined ? item.total_points : (totalPointsMap[pId] !== undefined ? totalPointsMap[pId] : 0)
+                };
+            });
+
+            renderPageList();
+        }
+    });
+}
+
+// 🚀 ページの一覧を左ペインに描画する関数
+function renderPageList() {
+    const container = document.getElementById('page-list-content');
+    if (!container) return;
+
+    container.innerHTML = '';
+
+    if (currentPageItems.length === 0) {
+        container.innerHTML = "<div style='color:#888; padding:10px; text-align:center;'>ページデータがありません</div>";
+        return;
+    }
+
+    currentPageItems.forEach((item, index) => {
+        const row = document.createElement('div');
+        row.className = "page-item-row";
+        row.style.cursor = "pointer";
+        row.style.padding = "10px 15px";
+        row.style.borderBottom = "1px solid #e0e0e0";
+        
+        // 実際のカラム構造に合わせてIDやタイトルを設定
+        const pageId = item.page_id || item.id || (index + 1);
+        const pageName = item.page_name || item.name || `ページ ID: ${pageId}`;
+
+        row.innerHTML = 
+            '<div style="font-size:11px; color:#888;">ID: ' + pageId + '</div>' +
+            '<div style="font-weight:bold; font-size:13px; color:#333; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">' + pageName + '</div>';
+
+        // 🖱️ リスト項目をクリックしたときの処理（右側に詳細を表示）
+        row.onclick = () => {
+            document.querySelectorAll('.page-item-row').forEach(r => r.style.background = '');
+            row.style.background = '#e2e8f0';
+
+            showPageDetail(item);
+        };
+
+        container.appendChild(row);
+    });
+}
+
+// 📄 右側のエリアに選択したページの詳細内容を載せる関数（修正版）
+function showPageDetail(item) {
+    const detailPane = document.getElementById('page-detail-view');
+    if (!detailPane) return;
+
+    const pageId = item.page_id || item.id || 'なし';
+    const pageName = item.page_name || item.name || '名称なし';
+    const authorId = item.author_user_id || '未設定';
+    const commentPoint = item.comment_point !== undefined ? item.comment_point : 0;
+    
+    // 各種データ
+    const coverState = item.cover_state || 'no_cover';
+    const createDate = item.create_date || '未設定';
+    const donationAmount = item.donation_amount !== undefined ? item.donation_amount : 0;
+    const editLeaderId = item.edit_leader_user_id || '未設定';
+    const favoriteNum = item.favorite_num !== undefined ? item.favorite_num : 0;
+    const framesNum = item.frames_num !== undefined ? item.frames_num : 0;
+    const freezeLeaderId = item.freeze_leader_user_id || '未設定';
+    const freezeState = item.freeze_state || 'unfreeze';
+    const freezePass = item.freeze_pass || '';
+    const freezeCount = item.freeze_count_num !== undefined ? item.freeze_count_num : 0;
+    const freezeLastUpdate = item.freeze_last_update || '未記録';
+    const labelSrc = item.label_src || null;
+
+    const lastUpdateDay = item.last_update_day || '未設定';
+    const leaderId = item.leader_user_id || '未設定';
+    const logoPhotoId = item.logo_photo_id || 'なし';
+    const logoFrameColor = item.logo_frame_color || 'なし';
+    const logoLeaderId = item.logo_leader_user_id || '未設定';
+    const memberPower = item.member_power !== undefined ? item.member_power : 0;
+    const logoSrc = item.logo_src || null;
+
+    const pageRank = item.page_rank || 'normal';
+    const pageReading = item.page_reading || '';
+    const subTitle = item.sub_title || 'なし';
+    const subTitleUserId = item.sub_title_user_id || '未設定';
+    const subTitleLeaderId = item.sub_title_leader_user_id || '未設定';
+
+    // 🌟 最後の3テーブルデータ
+    const pageSummary = item.page_summary || '要約なし';
+    const summaryUserId = item.summary_user_id || '未設定';
+    const summaryUpdateNum = item.summary_update_num !== undefined ? item.summary_update_num : 0;
+    const summaryUpdateDate = item.summary_update_date || '未記録';
+    const summaryLeaderId = item.summary_leader_user_id || '未設定';
+    const totalPoints = item.total_points !== undefined ? item.total_points : 0;
+
+    // 挿入データ（insertion）
+    const ins = item.insertion || {};
+    const col1 = ins.insertion_column_id1 || 'null';
+    const col2 = ins.insertion_column_id2 || 'null';
+    const lastDate = ins.last_expansion_date || '未記録';
+
+    // バッジ表現
+    const coverBadge = coverState === 'cover' 
+        ? '<span style="background: #dcfce7; color: #16a34a; padding: 2px 6px; border-radius: 4px; font-weight: bold;">有 (Cover)</span>'
+        : '<span style="background: #f1f5f9; color: #64748b; padding: 2px 6px; border-radius: 4px; font-weight: bold;">無 (No Cover)</span>';
+
+    const freezeBadge = freezeState === 'freeze'
+        ? '<span style="background: #fee2e2; color: #dc2626; padding: 2px 6px; border-radius: 4px; font-weight: bold;">🔒 凍結中 (Freeze)</span>'
+        : '<span style="background: #dcfce7; color: #16a34a; padding: 2px 6px; border-radius: 4px; font-weight: bold;">🔓 公開中 (Unfreeze)</span>';
+
+    const rankColor = pageRank === 'sky' ? '#0284c7' : '#64748b';
+    const rankBadge = '<span style="background: ' + rankColor + '; color: #fff; padding: 2px 6px; border-radius: 4px; font-weight: bold; text-transform: uppercase;">' + pageRank + '</span>';
+
+    const labelImageHtml = labelSrc ? '<img src="' + labelSrc + '" alt="Label" style="max-width: 50px; height: auto; border: 1px solid #ccc; border-radius: 4px; margin-right: 5px;" />' : '<span style="color:#888; font-size:11px;">なし</span>';
+    const logoImageHtml = logoSrc ? '<img src="' + logoSrc + '" alt="Logo" style="max-width: 50px; height: auto; border: 1px solid #ccc; border-radius: 4px; margin-right: 5px;" />' : '<span style="color:#888; font-size:11px;">なし</span>';
+
+    detailPane.innerHTML = 
+        '<div style="font-size: 12px; color: #666; margin-bottom: 3px;">識別ID: ' + pageId + ' | 読み仮名: ' + pageReading + '</div>' +
+        '<h2 style="margin-top: 0; font-size: 18px; color: #222; border-bottom: 2px solid #ddd; padding-bottom: 6px;">' + pageName + '</h2>' +
+        
+        '<div style="margin-top: 12px; line-height: 1.6; color: #444;">' +
+            '<div style="display: flex; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; align-items: center;">' +
+                '<div><strong>状態:</strong> ' + freezeBadge + '</div>' +
+                '<div><strong>ランク:</strong> ' + rankBadge + '</div>' +
+                '<div><strong>トータルPt:</strong> <span style="color: #d97706; font-weight: bold;">🏆 ' + totalPoints + ' pt</span></div>' +
+                '<div><strong>コメントPt:</strong> <span style="color: #2563eb; font-weight: bold;">💬 ' + commentPoint + ' pt</span></div>' +
+                '<div><strong>フレーム:</strong> 🖼️ ' + framesNum + '</div>' +
+                '<div><strong>パワー:</strong> ⚡ ' + memberPower + '</div>' +
+                '<div><strong>お気に入り:</strong> ❤️ ' + favoriteNum + '</div>' +
+                '<div><strong>寄付金:</strong> 💰 ' + donationAmount + ' 円</div>' +
+            '</div>' +
+            
+            '<p style="margin: 4px 0;"><strong>サブタイトル:</strong> <span style="color: #0f172a; background: #f1f5f9; padding: 2px 6px; border-radius: 3px;">' + subTitle + '</span> (Sub Author: ' + subTitleUserId + ')</p>' +
+            '<p style="margin: 4px 0;"><strong>作成者 (Author ID):</strong> <span style="font-family: monospace; background: #e2e8f0; padding: 2px 4px; border-radius: 3px; color: #0f172a;">' + authorId + '</span></p>' +
+            '<p style="margin: 4px 0;"><strong>リーダー陣:</strong> ページ: ' + leaderId + ' / 編集: ' + editLeaderId + ' / 凍結: ' + freezeLeaderId + ' / ロゴ: ' + logoLeaderId + ' / サブタイ: ' + subTitleLeaderId + ' / 要約: ' + summaryLeaderId + '</p>' +
+            '<p style="margin: 4px 0;"><strong>作成日時:</strong> ' + createDate + ' / <strong>最終更新:</strong> ' + lastUpdateDay + '</p>' +
+            
+            // 🌟 要約セクション (修正済み)
+            '<div style="margin-top: 12px; padding: 10px; background: #fdfdfd; border: 1px solid #cbd5e1; border-radius: 4px;">' +
+                '<h4 style="margin: 0 0 4px 0; font-size: 11px; color: #475569;">📝 ページ要約 (mysql_page_summary) [更新回数: ' + summaryUpdateNum + '回 / 最終更新: ' + summaryUpdateDate + ']</h4>' +
+                '<p style="font-size: 12px; margin: 0; color: #334155; white-space: pre-wrap;">' + pageSummary + '</p>' +
+                '<div style="font-size: 10px; color: #64748b; margin-top: 4px;">要約執筆者: ' + summaryUserId + '</div>' +
+            '</div>' +
+
+            // ロゴ・画像セクション
+            '<div style="margin-top: 10px; padding: 8px 10px; background: #fdfdfd; border: 1px solid #e2e8f0; border-radius: 4px;">' +
+                '<h4 style="margin: 0 0 4px 0; font-size: 11px; color: #475569;">🎨 画像・ロゴ設定</h4>' +
+                '<div style="display: flex; gap: 15px; align-items: center;">' +
+                    '<div><span style="font-size:10px; color:#666;">ロゴ:</span><br>' + logoImageHtml + '</div>' +
+                    '<div><span style="font-size:10px; color:#666;">ラベル:</span><br>' + labelImageHtml + '</div>' +
+                    '<div style="font-size: 11px; color: #555;">Photo ID: ' + logoPhotoId + '<br>フレーム色: <code>' + logoFrameColor + '</code></div>' +
+                '</div>' +
+            '</div>' +
+
+            // Insertion データ
+            '<div style="margin-top: 8px; padding: 8px 10px; background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 4px;">' +
+                '<h4 style="margin: 0 0 4px 0; font-size: 11px; color: #475569;">📥 ページ挿入設定 (mysql_page_insertion)</h4>' +
+                '<p style="font-size: 11px; margin: 1px 0;"><strong>Column 1:</strong> ' + col1 + ' | <strong>Column 2:</strong> ' + col2 + ' | <strong>最終拡張日:</strong> ' + lastDate + '</p>' +
+            '</div>' +
+        '</div>';
+}
+// 🚀 ページ読み込み時や接続時にテスト用データをサーバーに要求する関数
+function fetchPagesData() {
+    if (typeof socket !== 'undefined' && socket) {
+        console.log("🚀 サーバーへページデータを要求します...");
+        socket.emit('request_pages_data');
+    }
+}
+
+// 画面読み込み時に自動でデータ取得をリクエスト
+window.addEventListener('DOMContentLoaded', () => {
+    fetchPagesData();
+});
+
+// 🖼️ ページ一覧ウィンドウを開閉する関数
+function togglePageWindow() {
+    const win = document.getElementById('page-window');
+    if (!win) {
+        console.error("❌ 'page-window' 要素が見つかりません。HTMLを確認してください。");
+        return;
+    }
+
+    const isHidden = (win.style.display === 'none' || win.style.display === '');
+
+    if (isHidden) {
+        win.style.display = 'flex';
+        console.log("📂 ページ一覧ウィンドウを開きました");
+
+        if (Object.keys(currentPagesData).length === 0) {
+            fetchPagesData();
+        } else {
+            renderPageList();
+        }
+    } else {
+        win.style.display = 'none';
+        console.log("📁 ページ一覧ウィンドウを閉じました");
+    }
+}
+
 // 📦 サーバーから受け取ったコラムデータを格納する変数
 let currentColumnItems = [];
 
-// 📥 サーバーからのコラムデータを受信
+// 📥 サーバーからのコラムデータを受信（全18テーブル完全統合版）
 if (typeof socket !== 'undefined' && socket) {
     socket.on('receive_column_data', (data) => {
         console.log("📥 コラムデータを受信しました:", data);
-        currentColumnItems = data.columns || [];
+
+        let rawColumns = [];
+        let authorMap = {}, dateMap = {}, evalMap = {}, freezeMap = {}, lastUpdatedMap = {}, noteMap = {};
+        let openNumMap = {}, rankMap = {}, readingMap = {}, summaryMap = {}, thumbnailMap = {};
+        let typeMap = {}, versionMap = {}; // 🌟 追加
+
+        if (data && data.tables) {
+            rawColumns = data.tables['mysql_column_name'] || [];
+            
+            const t = data.tables;
+            if (Array.isArray(t['mysql_column_author'])) t['mysql_column_author'].forEach(r => { if (r.column_id) authorMap[r.column_id] = r.author_user_id; });
+            if (Array.isArray(t['mysql_column_create_date'])) t['mysql_column_create_date'].forEach(r => { if (r.column_id) dateMap[r.column_id] = r.create_date; });
+            if (Array.isArray(t['mysql_column_evaluation'])) t['mysql_column_evaluation'].forEach(r => { if (r.column_id) evalMap[r.column_id] = r.column_evaluation; });
+            if (Array.isArray(t['mysql_column_freeze_state'])) t['mysql_column_freeze_state'].forEach(r => { if (r.column_id) freezeMap[r.column_id] = r.freeze_state; });
+            if (Array.isArray(t['mysql_column_last_updated'])) t['mysql_column_last_updated'].forEach(r => { if (r.column_id) lastUpdatedMap[r.column_id] = r.last_updated; });
+            if (Array.isArray(t['mysql_column_note'])) t['mysql_column_note'].forEach(r => { if (r.column_id) noteMap[r.column_id] = r.column_note; });
+            if (Array.isArray(t['mysql_column_open_num'])) t['mysql_column_open_num'].forEach(r => { if (r.column_id) openNumMap[r.column_id] = r.open_num; });
+            if (Array.isArray(t['mysql_column_rank'])) t['mysql_column_rank'].forEach(r => { if (r.column_id) rankMap[r.column_id] = r.column_rank; });
+            if (Array.isArray(t['mysql_column_reading'])) t['mysql_column_reading'].forEach(r => { if (r.column_id) readingMap[r.column_id] = r.column_reading; });
+            if (Array.isArray(t['mysql_column_summary'])) t['mysql_column_summary'].forEach(r => { if (r.column_id) summaryMap[r.column_id] = r.summary; });
+            if (Array.isArray(t['mysql_column_thumbnail'])) t['mysql_column_thumbnail'].forEach(r => { 
+                if (r.column_id) thumbnailMap[r.column_id] = { photo_id: r.photo_id, logo_src: r.logo_src }; 
+            });
+            // 🌟 新規追加分のパース
+            if (Array.isArray(t['mysql_column_type'])) t['mysql_column_type'].forEach(r => { if (r.column_id) typeMap[r.column_id] = r.column_type; });
+            if (Array.isArray(t['mysql_column_version'])) t['mysql_column_version'].forEach(r => { if (r.column_id) versionMap[r.column_id] = r.version; });
+        } 
+        else if (data && Array.isArray(data.columns)) {
+            rawColumns = data.columns;
+        } 
+        else if (Array.isArray(data)) {
+            rawColumns = data;
+        }
+
+        if (Array.isArray(rawColumns)) {
+            currentColumnItems = rawColumns.map((item, index) => {
+                const cId = item.column_id || item.id || (index + 1);
+                const thumb = thumbnailMap[cId] || { photo_id: item.thumbnail_photo_id || null, logo_src: item.thumbnail_logo_src || null };
+
+                return {
+                    ...item,
+                    column_id: cId,
+                    column_name: item.column_name || item.name || ('コラム ID: ' + cId),
+                    author_user_id: item.author_user_id || authorMap[cId] || '未設定',
+                    create_date: item.create_date || dateMap[cId] || '未設定',
+                    column_evaluation: item.column_evaluation !== undefined ? item.column_evaluation : (evalMap[cId] !== undefined ? evalMap[cId] : '0'),
+                    freeze_state: item.freeze_state || freezeMap[cId] || 'unfreeze',
+                    last_updated: item.last_updated || lastUpdatedMap[cId] || '未設定',
+                    mysql_column_note: item.mysql_column_note || noteMap[cId] || '本文データがありません。',
+                    open_num: item.open_num !== undefined ? item.open_num : (openNumMap[cId] !== undefined ? openNumMap[cId] : '0'),
+                    column_rank: item.column_rank || rankMap[cId] || 'normal',
+                    column_reading: item.column_reading || readingMap[cId] || '',
+                    mysql_column_summary: item.mysql_column_summary || summaryMap[cId] || 'なし',
+                    thumbnail_photo_id: thumb.photo_id,
+                    thumbnail_logo_src: thumb.logo_src,
+                    column_type: item.column_type || typeMap[cId] || '未設定',
+                    version: item.version || versionMap[cId] || '1.0'
+                };
+            });
+        } else {
+            currentColumnItems = [];
+        }
         
-        // 受信したコラムを描画する関数を呼ぶ
         renderColumnList();
     });
 }
@@ -239,7 +720,7 @@ function renderColumnList() {
     container.innerHTML = '';
 
     if (currentColumnItems.length === 0) {
-        container.innerHTML = "<div style='color:#888; padding:10px;'>コラムデータがありません</div>";
+        container.innerHTML = '<div style="color:#888; padding:10px;">コラムデータがありません</div>';
         return;
     }
 
@@ -250,10 +731,12 @@ function renderColumnList() {
         row.style.padding = "10px 15px";
         row.style.borderBottom = "1px solid #e0e0e0";
         
-        row.innerHTML = `
-            <div style="font-size:11px; color:#888;">ID: ${item.column_id}</div>
-            <div style="font-weight:bold; font-size:14px; color:#333;">${item.column_name}</div>
-        `;
+        const columnId = item.column_id || 'なし';
+        const columnName = item.column_name || '名称なし';
+
+        row.innerHTML = 
+            '<div style="font-size:11px; color:#888;">ID: ' + columnId + '</div>' +
+            '<div style="font-weight:bold; font-size:14px; color:#333;">' + columnName + '</div>';
 
         // 🖱️ リスト項目をクリックしたときの処理（右側に詳細を表示）
         row.onclick = () => {
@@ -266,29 +749,60 @@ function renderColumnList() {
         };
 
         container.appendChild(row);
-
-        // テスト用：最初のエントリを自動で選択状態にしておきたい場合はコメントアウトを解除
-        // if (index === 0) row.click();
     });
 }
 
-// 📄 右側のエリアに選択したコラムの詳細内容を載せる関数
+// 📄 右側のエリアに選択したコラムの詳細内容を載せる関数（全18テーブル完結版）
 function showColumnDetail(item) {
     const detailPane = document.getElementById('column-detail-view');
     if (!detailPane) return;
 
-    // データベースの各フィールドに合わせて詳細を構築
-    // (memo, note, summary など、入っているプロパティを柔軟に表示)
-    detailPane.innerHTML = `
-        <div style="font-size: 12px; color: #666; margin-bottom: 5px;">識別ID: ${item.column_id}</div>
-        <h2 style="margin-top: 0; font-size: 20px; color: #222; border-bottom: 2px solid #ddd; padding-bottom: 8px;">${item.column_name}</h2>
+    const columnId = item.column_id || 'なし';
+    const columnName = item.column_name || '名称なし';
+    const columnReading = item.column_reading || '';
+    const columnType = item.column_type || '未設定';
+    const version = item.version || '1.0';
+    const authorId = item.author_user_id || '未設定';
+    const createDate = item.create_date || '未設定';
+    const lastUpdated = item.last_updated || '未設定';
+    const freezeState = item.freeze_state || 'unfreeze';
+    const evaluation = item.column_evaluation !== undefined ? item.column_evaluation : '0';
+    const openNum = item.open_num !== undefined ? item.open_num : '0';
+    const columnRank = item.column_rank || 'normal';
+    const columnSummary = item.mysql_column_summary || 'なし';
+    const columnNote = item.mysql_column_note || '詳細な本文データがありません。';
+    const photoId = item.thumbnail_photo_id ? item.thumbnail_photo_id : 'なし';
+    const logoSrc = item.thumbnail_logo_src ? item.thumbnail_logo_src : 'なし';
+
+    // 凍結バッジ
+    const freezeBadge = freezeState === 'freeze' 
+        ? '<span style="background: #fee2e2; color: #dc2626; padding: 2px 8px; border-radius: 4px; font-weight: bold;">🔒 凍結中</span>'
+        : '<span style="background: #dcfce7; color: #16a34a; padding: 2px 8px; border-radius: 4px; font-weight: bold;">🔓 公開中</span>';
+
+    // ランクバッジの色分け
+    const rankColor = columnRank === 'silver' ? '#64748b' : (columnRank === 'sky' ? '#0284c7' : '#d97706');
+    const rankBadge = '<span style="background: ' + rankColor + '; color: #fff; padding: 2px 8px; border-radius: 4px; font-weight: bold; text-transform: uppercase;">' + columnRank + '</span>';
+
+    detailPane.innerHTML = 
+        '<div style="font-size: 12px; color: #666; margin-bottom: 5px;">識別ID: ' + columnId + ' | 読み仮名: ' + columnReading + '</div>' +
+        '<h2 style="margin-top: 0; font-size: 20px; color: #222; border-bottom: 2px solid #ddd; padding-bottom: 8px;">' + columnName + '</h2>' +
         
-        <div style="margin-top: 15px; line-height: 1.6; color: #444;">
-            <p><strong>サマリー:</strong> ${item.mysql_column_summary || 'なし'}</p>
-            <p><strong>メモ / 本文:</strong></p>
-            <div style="background: #f9f9f9; padding: 12px; border: 1px solid #ddd; border-radius: 4px; min-height: 100px; white-space: pre-wrap;">${item.mysql_column_memo || item.mysql_column_note || '詳細な本文データがありません。'}</div>
-        </div>
-    `;
+        '<div style="margin-top: 15px; line-height: 1.6; color: #444;">' +
+            '<div style="display: flex; gap: 10px; margin-bottom: 12px; flex-wrap: wrap;">' +
+                '<div><strong>状態:</strong> ' + freezeBadge + '</div>' +
+                '<div><strong>ランク:</strong> ' + rankBadge + '</div>' +
+                '<div><strong>タイプ:</strong> <span style="background: #e0f2fe; color: #0369a1; padding: 2px 6px; border-radius: 4px;">' + columnType + '</span></div>' +
+                '<div><strong>Ver:</strong> ' + version + '</div>' +
+                '<div><strong>閲覧数:</strong> 👁️ ' + openNum + '</div>' +
+                '<div><strong>評価:</strong> ⭐ ' + evaluation + '</div>' +
+            '</div>' +
+            '<p><strong>作成者 (Author ID):</strong> <span style="font-family: monospace; background: #e2e8f0; padding: 2px 6px; border-radius: 3px; color: #0f172a;">' + authorId + '</span></p>' +
+            '<p><strong>作成日時:</strong> ' + createDate + ' / <strong>最終更新:</strong> ' + lastUpdated + '</p>' +
+            '<p><strong>サムネイル情報:</strong> Photo ID: <code style="background:#eee; padding:2px 4px;">' + photoId + '</code> / Logo Src: <code style="background:#eee; padding:2px 4px;">' + logoSrc + '</code></p>' +
+            '<p><strong>サマリー:</strong> ' + columnSummary + '</p>' +
+            '<p><strong>本文ノート (mysql_column_note):</strong></p>' +
+            '<div style="background: #f9f9f9; padding: 12px; border: 1px solid #ddd; border-radius: 4px; min-height: 120px; white-space: pre-wrap; font-family: monospace; font-size: 13px;">' + columnNote + '</div>' +
+        '</div>';
 }
 
 // 🚀 ページ読み込み時や接続時にテスト用データをサーバーに要求する関数
@@ -303,6 +817,472 @@ function fetchColumnData() {
 window.addEventListener('DOMContentLoaded', () => {
     fetchColumnData();
 });
+
+// 📝 コラム一覧ウィンドウを開閉する関数
+function toggleColumnWindow() {
+    const win = document.getElementById('column-window'); 
+    if (!win) {
+        console.error("❌ 'column-window' 要素が見つかりません。HTMLを確認してください。");
+        return;
+    }
+
+    const isHidden = (win.style.display === 'none' || win.style.display === '');
+
+    if (isHidden) {
+        win.style.display = 'flex';
+        console.log("📂 コラム一覧ウィンドウを開きました");
+        
+        // データがまだ読み込まれていなければ要求、あれば再描画
+        if (currentColumnItems.length === 0) {
+            fetchColumnData();
+        } else {
+            renderColumnList();
+        }
+    } else {
+        win.style.display = 'none';
+        console.log("📁 コラム一覧ウィンドウを閉じました");
+    }
+}
+
+// 📦 サーバーから受け取った写真データを格納する変数
+let currentPhotoItems = [];
+
+// 📥 サーバーからの写真データを受信
+if (typeof socket !== 'undefined' && socket) {
+    socket.on('receive_photo_data', (data) => {
+        console.log("📥 写真データを受信しました:", data);
+        currentPhotoItems = data.photos || [];
+        
+        // 受信した写真を描画する関数を呼ぶ
+        renderPhotoList();
+    });
+}
+
+// 🚀 写真の一覧を左ペインに描画する関数
+function renderPhotoList() {
+    const container = document.getElementById('photo-list-content');
+    if (!container) return;
+
+    container.innerHTML = '';
+
+    if (currentPhotoItems.length === 0) {
+        container.innerHTML = "<div style='color:#888; padding:10px; text-align:center;'>写真データがありません</div>";
+        return;
+    }
+
+    currentPhotoItems.forEach((item, index) => {
+        const row = document.createElement('div');
+        row.className = "photo-item-row";
+        row.style.cursor = "pointer";
+        row.style.padding = "10px 15px";
+        row.style.borderBottom = "1px solid #e0e0e0";
+        
+        // 🌟 実際のデータ構造（id, photo_id, photo_no）に合わせて表示名義を構築
+        const displayTitle = item.title || item.name || `写真 ID: ${item.photo_id || item.id || (index + 1)}`;
+        const subText = `No. ${item.photo_no || (index + 1)} (Page: ${item.page_id || '-'})`;
+
+        row.innerHTML = `
+            <div style="font-size:11px; color:#888;">${subText}</div>
+            <div style="font-weight:bold; font-size:13px; color:#333; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${displayTitle}</div>
+        `;
+
+        // 🖱️ リスト項目をクリックしたときの処理（右側に詳細を表示）
+        row.onclick = () => {
+            document.querySelectorAll('.photo-item-row').forEach(r => r.style.background = '');
+            row.style.background = '#e2e8f0';
+
+            showPhotoDetail(item);
+        };
+
+        container.appendChild(row);
+    });
+}
+
+// 📄 右側のエリアに選択した写真の詳細内容を載せる関数（Base64安全処理・フォトテーブル追加対応版）
+function showPhotoDetail(item) {
+    const detailPane = document.getElementById('photo-detail-view');
+    if (!detailPane) return;
+
+    let imageSrc = item.photo_src || '';
+
+    // 🌟 Base64データの整形・クリーニング
+    if (imageSrc) {
+        // 1. 改行やタブなどの不要な制御文字を完全に削除
+        imageSrc = imageSrc.replace(/[\r\n\t]+/g, '');
+
+        // 2. URLエンコードなどでスペースになってしまった部分を Base64 の '+' に復元
+        imageSrc = imageSrc.replace(/ /g, '+');
+
+        // 3. "data:image/..." のプレフィックスがない場合は自動で付与する
+        if (!imageSrc.startsWith('data:image/')) {
+            imageSrc = 'data:image/png;base64,' + imageSrc;
+        }
+    }
+
+    // 各種データの安全な取得
+    const photoName = item.photo_name || '写真詳細';
+    const photoId = item.id || item.photo_id || 'なし';
+    const photoNo = item.photo_no || '-';
+    const pageId = item.page_id || 'なし';
+    const copyrightUser = item.photo_copyright_user_id || '不明';
+    const photoLevel = item.photo_level || 1;
+    const lastUpdate = item.photo_last_update_day || '未記録';
+
+    const photoNice = item.photo_nice !== undefined ? item.photo_nice : 0;
+    const photoNote = item.photo_note || 'メモなし';
+    const photoRank = item.photo_rank || 'sky';
+    const photoRarity = item.photo_rarity || 'C';
+    const registDay = item.regist_day || '未記録';
+    const photoWidth = item.photo_width || 200;
+    const photoHeight = item.photo_height || 200;
+
+    // 🌟 新規追加データ
+    const photoTip = item.photo_tip !== undefined ? item.photo_tip : 0;
+    const toievaPoint = item.photo_toieva_point !== undefined ? item.photo_toieva_point : 0;
+    const toievaLastClick = item.toieva_last_click_date || '未記録';
+    const totalViewer = item.photo_total_viewer !== undefined ? item.photo_total_viewer : 0;
+    const uploadUserId = item.photo_upload_user_id || '不明';
+    const uploadDate = item.upload_date || '未記録';
+
+    // 評価データ
+    const ev1 = item.photo_evaluation1 || 0;
+    const ev2 = item.photo_evaluation2 || 0;
+    const ev3 = item.photo_evaluation3 || 0;
+    const ev4 = item.photo_evaluation4 || 0;
+    const ev5 = item.photo_evaluation5 || 0;
+
+    // ランクの色分けバッジ
+    const rankColor = photoRank === 'platinum' ? '#7c3aed' : (photoRank === 'bronze' ? '#b45309' : '#0284c7');
+    const rankBadge = '<span style="background: ' + rankColor + '; color: #fff; padding: 2px 6px; border-radius: 4px; font-weight: bold; text-transform: uppercase; font-size: 11px;">' + photoRank + '</span>';
+
+    detailPane.innerHTML = `
+        <div style="font-size: 12px; color: #666; margin-bottom: 3px;">識別ID: ${photoId} (No: ${photoNo}) | レアリティ: <strong>[${photoRarity}]</strong></div>
+        <h2 style="margin-top: 0; font-size: 18px; color: #222; border-bottom: 2px solid #ddd; padding-bottom: 6px;">${photoName}</h2>
+        
+        <div style="margin-top: 12px; line-height: 1.6; color: #444;">
+            ${imageSrc ? `
+                <div style="margin-bottom: 12px; background: #111; padding: 10px; border-radius: 4px; text-align: center; max-height: 220px; overflow: hidden; display: flex; align-items: center; justify-content: center;">
+                    <img src="${imageSrc}" style="max-width: 100%; max-height: 200px; border-radius: 2px; object-fit: contain;" onerror="this.onerror=null; this.parentNode.innerHTML='<span style=\\'color:#f87171; font-size:12px;\\'>⚠️ 画像のデコード（読み込み）に失敗しました</span>';">
+                </div>
+            ` : '<div style="color: #888; margin-bottom: 12px;">[画像データなし]</div>'}
+            
+            <div style="display: flex; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; align-items: center;">
+                <div><strong>ランク:</strong> ${rankBadge}</div>
+                <div><strong>レベル:</strong> Lv.${photoLevel}</div>
+                <div><strong>サイズ:</strong> ${photoWidth}×${photoHeight}</div>
+                <div><strong>閲覧数:</strong> 👀 ${totalViewer}</div>
+                <div><strong>ナイス:</strong> 👍 ${photoNice}</div>
+                <div><strong>チップ:</strong> 🪙 ${photoTip}</div>
+                <div><strong>Toieva Pt:</strong> 🌟 ${toievaPoint}</div>
+            </div>
+
+            <p style="margin: 4px 0;"><strong>アップロード者:</strong> <span style="font-family: monospace; background: #e2e8f0; padding: 2px 4px; border-radius: 3px; color: #0f172a;">${uploadUserId}</span> (${uploadDate})</p>
+            <p style="margin: 4px 0;"><strong>著作権者:</strong> <span style="background: #e2e8f0; padding: 2px 6px; border-radius: 3px; color: #0f172a;">${copyrightUser}</span></p>
+            <p style="margin: 4px 0;"><strong>Page ID:</strong> <code>${pageId}</code> | <strong>Photo ID:</strong> ${photoId}</p>
+            <p style="margin: 4px 0;"><strong>評価 (Eval):</strong> 1:${ev1} / 2:${ev2} / 3:${ev3} / 4:${ev4} / 5:${ev5}</p>
+            <p style="margin: 4px 0;"><strong>登録日時:</strong> ${registDay} / <strong>最終更新:</strong> ${lastUpdate}</p>
+            
+            <!-- メモ表示セクション -->
+            <div style="margin-top: 10px; padding: 8px 10px; background: #fdfdfd; border: 1px solid #cbd5e1; border-radius: 4px;">
+                <h4 style="margin: 0 0 2px 0; font-size: 11px; color: #475569;">📝 写真メモ (mysql_new_photo_note)</h4>
+                <p style="font-size: 12px; margin: 0; color: #334155; white-space: pre-wrap;">${photoNote}</p>
+            </div>
+        </div>
+    `;
+}
+
+// 🚀 ページ読み込み時や接続時にテスト用データをサーバーに要求する関数
+function fetchPhotoData() {
+    if (typeof socket !== 'undefined' && socket) {
+        console.log("🚀 サーバーへ写真データを要求します...");
+        socket.emit('request_photo_data');
+    }
+}
+
+// テスト用：画面（DOM）の読み込みが完了したら自動でサーバーへデータ取得をリクエスト
+window.addEventListener('DOMContentLoaded', () => {
+    fetchPhotoData();
+});
+
+// 🖼️ 写真一覧ウィンドウを開閉する関数
+function togglePhotoWindow() {
+    const win = document.getElementById('photo-window');
+    if (!win) {
+        console.error("❌ 'photo-window' 要素が見つかりません。HTMLの記述を確認してください。");
+        return;
+    }
+
+    // 現在の表示状態をチェック
+    const isHidden = (win.style.display === 'none' || win.style.display === '');
+
+    if (isHidden) {
+        // ウィンドウを開く
+        win.style.display = 'flex'; // 中央配置などのレイアウトを維持するため flex に設定
+        console.log("📂 写真一覧ウィンドウを開きました");
+
+        // まだ写真データが読み込まれていない場合は、自動でサーバーへ取得をリクエスト
+        if (typeof currentPhotoItems === 'undefined' || currentPhotoItems.length === 0) {
+            if (typeof fetchPhotoData === 'function') {
+                fetchPhotoData();
+            } else {
+                console.warn("⚠️ fetchPhotoData 関数が見つかりません。");
+            }
+        } else {
+            // すでにデータがある場合はリストを描画し直す
+            if (typeof renderPhotoList === 'function') {
+                renderPhotoList();
+            }
+        }
+    } else {
+        // ウィンドウを閉じる
+        win.style.display = 'none';
+        console.log("📁 写真一覧ウィンドウを閉じました");
+    }
+}
+
+// 📦 サーバーから受け取ったユーザーデータを格納する変数
+let currentUsersData = [];
+
+// 📥 サーバーからのユーザーデータを受信
+if (typeof socket !== 'undefined' && socket) {
+    socket.on('receive_users_data', (data) => {
+        console.log("📥 ユーザーデータを受信しました:", data);
+        if (data.status === 'success') {
+            currentUsersData = data.users || [];
+            
+            // 受信したユーザー一覧を描画する関数を呼ぶ
+            renderUserList();
+        }
+    });
+}
+
+// 🚀 ユーザーの一覧を左ペインに描画する関数
+function renderUserList() {
+    const container = document.getElementById('user-list-content');
+    if (!container) return;
+
+    container.innerHTML = '';
+
+    if (currentUsersData.length === 0) {
+        container.innerHTML = "<div style='color:#888; padding:10px; text-align:center;'>ユーザーデータがありません</div>";
+        return;
+    }
+
+    currentUsersData.forEach((item, index) => {
+        const row = document.createElement('div');
+        row.className = "user-item-row";
+        row.style.cursor = "pointer";
+        row.style.padding = "10px 15px";
+        row.style.borderBottom = "1px solid #e0e0e0";
+        
+        // 🌟 実際のデータ構造（user_name, user_id, status）に合わせて表示名義を構築
+        const displayName = item.user_name || '名称なし';
+        const displayId = item.user_id || item.id || (index + 1);
+        const subText = `ID: ${displayId} (Status: ${item.status || 'public'})`;
+
+        row.innerHTML = `
+            <div style="font-size:11px; color:#888;">${subText}</div>
+            <div style="font-weight:bold; font-size:13px; color:#333; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${displayName}</div>
+        `;
+
+        // 🖱️ リスト項目をクリックしたときの処理（右側に詳細を表示）
+        row.onclick = () => {
+            document.querySelectorAll('.user-item-row').forEach(r => r.style.background = '');
+            row.style.background = '#e2e8f0';
+
+            showUserDetail(item);
+        };
+
+        container.appendChild(row);
+    });
+}
+
+// 📄 右側のエリアに選択したユーザーの詳細内容を載せる関数（全63テーブル完全統合・完全対応版）
+function showUserDetail(item) {
+    const detailPane = document.getElementById('user-detail-view');
+    if (!detailPane) return;
+
+    const userId = item.user_id || item.id || 'なし';
+    const userName = item.user_name || '名称なし';
+    const userStatus = item.status || 'public';
+
+    // 🌟 ユーザー基本・属性データ
+    const userNo = item.user_no || '-';
+    const userLevel = item.user_level !== undefined ? item.user_level : 1;
+    const userRank = item.user_rank || 'sky';
+    const userPlan = item.user_plan || 'regular';
+    const popularity = item.user_popularity !== undefined ? item.user_popularity : 0;
+    const registDate = item.regist_date || '未記録';
+    const mailAddress = item.mail_address || '未設定';
+    const age = item.age !== undefined ? item.age : 0;
+    const birthday = item.birthday || '未設定';
+    const fromId = item.from_id || '未設定';
+    const jobId = item.job_id || '未設定';
+    const occupation = item.occupation || '未設定';
+    const hobbyId = item.hobby_id || '未設定';
+    const goal = item.goal || '未設定';
+    const mindset = item.mindset || '未設定';
+    const myKeyword = item.my_keyword || '未設定';
+    const researchId = item.research_id || '未設定';
+    const specializationId = item.specialization_id || '未設定';
+    const userType = item.user_type || '不明';
+    const nowZone = item.now_zone || '未設定';
+    const basePageId = item.base_page_id || 'なし';
+    const communityId = item.community_id || 'なし';
+    const conditionPercentage = item.condition_percentage !== undefined ? item.condition_percentage : 100;
+    const coverPhotoId = item.cover_photo_id || 'なし';
+    const degreeId = item.degree_id || 'なし';
+    const ownGameId = item.own_game_id || 'なし';
+    const petsId = item.pets_id || 'なし';
+    const selfIntro = item.self_introduction || '自己紹介文なし';
+    const userState = item.user_state || 'なし';
+    const task = item.task || 'なし';
+
+    // 🌟 リスペクト・ルーティン・署名・サムネイル情報
+    const respectedUser = item.respected_user_id || 'なし';
+    const respectedPage = item.respected_page_id || 'なし';
+    const respectedSite = item.respected_site_id || 'なし';
+    const routinePage = item.routine_page_id || 'なし';
+    const signSrc = item.sign_src || 'no_sign';
+    const thumbPhoto = item.thumbnail_photo_id || 'no_thumbnail';
+    const thumbFrame = item.thumbnail_frame_color || 'no_frame';
+
+    // 🌟 URL・リンク・アクセス情報
+    const hpUrlId = item.hp_url_id || '未設定';
+    const blogUrlId = item.blog_url_id || '未設定';
+    const gameLinkId = item.game_link_id || 'なし';
+    const lastAccessTime = item.last_access_time || '未記録';
+    const lastAccessSite = item.last_access_site || '不明';
+    const itemRate = item.item_rate !== undefined ? item.item_rate : 0;
+
+    // 🌟 お気に入りデータ
+    const favAnimal = item.favorite_animal_id || '未設定';
+    const favFood = item.favorite_food_id || '未設定';
+    const favPhoto = item.favorite_photo_id || '未設定';
+    const favBook = item.favorite_book_id || '未設定';
+    const favChara = item.favorite_chara_id || '未設定';
+    const favColor = item.favorite_color_id || '未設定';
+    const favPage = item.favorite_page_id || '未設定';
+    const favSlogan = item.favorite_slogan || '未設定';
+    const favThing = item.favorite_thing || '未設定';
+    const favWord = item.favorite_word || '未設定';
+
+    // ステータスのバッジ表現
+    const statusBadge = userStatus === 'public'
+        ? '<span style="background: #dcfce7; color: #16a34a; padding: 2px 6px; border-radius: 4px; font-weight: bold;">公開 (Public)</span>'
+        : '<span style="background: #f1f5f9; color: #64748b; padding: 2px 6px; border-radius: 4px; font-weight: bold;">非公開 / その他 (' + userStatus + ')</span>';
+
+    detailPane.innerHTML = 
+        '<div style="font-size: 12px; color: #666; margin-bottom: 3px;">No: ' + userNo + ' | 識別ID: ' + userId + ' | Lv.<strong>' + userLevel + '</strong> | Rank: <strong>' + userRank + '</strong></div>' +
+        '<h2 style="margin-top: 0; font-size: 18px; color: #222; border-bottom: 2px solid #ddd; padding-bottom: 6px;">' + userName + '</h2>' +
+        
+        '<div style="margin-top: 12px; line-height: 1.6; color: #444;">' +
+            '<div style="display: flex; gap: 8px; margin-bottom: 10px; flex-wrap: wrap; align-items: center;">' +
+                '<div><strong>ステータス:</strong> ' + statusBadge + '</div>' +
+                '<div><strong>プラン:</strong> ' + userPlan + '</div>' +
+                '<div><strong>人気度:</strong> ⭐ ' + popularity + '</div>' +
+                '<div><strong>タイプ:</strong> ' + userType + '</div>' +
+                '<div><strong>コンディション:</strong> ⚡ ' + conditionPercentage + '%</div>' +
+            '</div>' +
+
+            '<p style="margin: 4px 0;"><strong>ユーザー名:</strong> ' + userName + ' (登録: ' + registDate + ')</p>' +
+            '<p style="margin: 4px 0;"><strong>User ID:</strong> <span style="font-family: monospace; background: #e2e8f0; padding: 2px 4px; border-radius: 3px; color: #0f172a;">' + userId + '</span></p>' +
+            '<p style="margin: 4px 0;"><strong>メールアドレス:</strong> ' + mailAddress + '</p>' +
+            '<p style="margin: 4px 0;"><strong>誕生日:</strong> ' + birthday + ' (' + age + '歳) | <strong>ゾーン:</strong> 🌍 ' + nowZone + '</p>' +
+            '<p style="margin: 4px 0;"><strong>出身:</strong> ' + fromId + ' | <strong>職業:</strong> ' + jobId + ' (職種: ' + occupation + ')</p>' +
+            '<p style="margin: 4px 0;"><strong>専門:</strong> ' + specializationId + ' | <strong>研究:</strong> ' + researchId + '</p>' +
+            '<p style="margin: 4px 0;"><strong>趣味:</strong> ' + hobbyId + ' | <strong>目標:</strong> ' + goal + '</p>' +
+            '<p style="margin: 4px 0;"><strong>マインドセット:</strong> ' + mindset + ' | <strong>キーワード:</strong> ' + myKeyword + '</p>' +
+            '<p style="margin: 4px 0;"><strong>保有ゲームID:</strong> ' + ownGameId + ' | <strong>ペットID:</strong> ' + petsId + '</p>' +
+            '<p style="margin: 4px 0;"><strong>ベースページID:</strong> <code>' + basePageId + '</code> | <strong>コミュニティID:</strong> <code>' + communityId + '</code></p>' +
+            
+            // 自己紹介文セクション
+            '<div style="margin-top: 8px; padding: 8px 10px; background: #fdfdfd; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 11px;">' +
+                '<strong>📝 自己紹介:</strong> ' + selfIntro +
+            '</div>' +
+
+            // 🌟 リスペクト・タスク等情報
+            '<div style="margin-top: 8px; padding: 8px 10px; background: #f1f5f9; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 11px;">' +
+                '<p style="margin: 2px 0;"><strong>リスペクト (人/頁/庭):</strong> ' + respectedUser + ' / ' + respectedPage + ' / ' + respectedSite + '</p>' +
+                '<p style="margin: 2px 0;"><strong>ルーティン頁:</strong> ' + routinePage + ' | <strong>タスク:</strong> ' + task + ' | <strong>状態:</strong> ' + userState + '</p>' +
+                '<p style="margin: 2px 0;"><strong>サイン:</strong> ' + signSrc + ' | <strong>サムネイル:</strong> ' + thumbPhoto + ' (' + thumbFrame + ')</p>' +
+            '</div>' +
+
+            // 🌟 リンク・アクセス情報セクション
+            '<div style="margin-top: 8px; padding: 8px 10px; background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 4px; font-size: 11px;">' +
+                '<p style="margin: 2px 0;"><strong>HP URL:</strong> ' + hpUrlId + ' | <strong>ブログURL:</strong> ' + blogUrlId + '</p>' +
+                '<p style="margin: 2px 0;"><strong>ゲームリンクID:</strong> ' + gameLinkId + '</p>' +
+                '<p style="margin: 2px 0;"><strong>最終アクセス:</strong> ' + lastAccessTime + ' (' + lastAccessSite + ')</p>' +
+                '<p style="margin: 2px 0;"><strong>アイテムレート:</strong> ' + itemRate + '</p>' +
+            '</div>' +
+
+            // お気に入り情報セクション
+            '<div style="margin-top: 10px; padding: 10px; background: #f8fafc; border: 1px solid #cbd5e1; border-radius: 4px;">' +
+                '<h4 style="margin: 0 0 6px 0; font-size: 11px; color: #334155;">❤️ お気に入り・好みの設定</h4>' +
+                '<div style="display: grid; grid-template-columns: 1fr 1fr; gap: 4px; font-size: 11px; color: #475569;">' +
+                    '<div><strong>動物:</strong> ' + favAnimal + '</div>' +
+                    '<div><strong>食べ物:</strong> ' + favFood + '</div>' +
+                    '<div><strong>写真:</strong> ' + favPhoto + '</div>' +
+                    '<div><strong>本:</strong> ' + favBook + '</div>' +
+                    '<div><strong>キャラ:</strong> ' + favChara + '</div>' +
+                    '<div><strong>カラー:</strong> ' + favColor + '</div>' +
+                    '<div><strong>ページ:</strong> ' + favPage + '</div>' +
+                    '<div><strong>スローガン:</strong> ' + favSlogan + '</div>' +
+                    '<div><strong>大切なもの:</strong> ' + favThing + '</div>' +
+                    '<div><strong>言葉:</strong> ' + favWord + '</div>' +
+                '</div>' +
+            '</div>' +
+        '</div>';
+}
+
+// 🚀 ページ読み込み時や接続時にテスト用データをサーバーに要求する関数
+function fetchUserData() {
+    if (typeof socket !== 'undefined' && socket) {
+        console.log("🚀 サーバーへユーザーデータを要求します...");
+        socket.emit('request_users_data');
+    }
+}
+
+// テスト用：画面（DOM）の読み込みが完了したら自動でサーバーへデータ取得をリクエスト
+window.addEventListener('DOMContentLoaded', () => {
+    fetchUserData();
+});
+
+// 👤 ユーザー一覧ウィンドウを開閉する関数
+function toggleUserWindow() {
+    const win = document.getElementById('user-window');
+    if (!win) {
+        console.error("❌ 'user-window' 要素が見つかりません。HTMLの記述を確認してください。");
+        return;
+    }
+
+    // 現在の表示状態をチェック
+    const isHidden = (win.style.display === 'none' || win.style.display === '');
+
+    if (isHidden) {
+        // ウィンドウを開く
+        win.style.display = 'flex'; // 中央配置などのレイアウトを維持するため flex に設定
+        console.log("📂 ユーザー一覧ウィンドウを開きました");
+
+        // まだユーザーデータが読み込まれていない場合は、自動でサーバーへ取得をリクエスト
+        if (typeof currentUsersData === 'undefined' || currentUsersData.length === 0) {
+            if (typeof fetchUserData === 'function') {
+                fetchUserData();
+            } else {
+                console.warn("⚠️ fetchUserData 関数が見つかりません。");
+            }
+        } else {
+            // すでにデータがある場合はリストを描画し直す
+            if (typeof renderUserList === 'function') {
+                renderUserList();
+            }
+        }
+    } else {
+        // ウィンドウを閉じる
+        win.style.display = 'none';
+        console.log("📁 ユーザー一覧ウィンドウを閉じました");
+    }
+}
 
 // ==========================================
 // 🌟 2. 相手からのグループ招待を受信する処理（ここに配置！）
@@ -9248,7 +10228,7 @@ function calculateTradeCommonBoundingBox(animState, images) {
 }
 
 // ============================================================
-// 🏪 露店入店中エリアへの自キャラ描画関数（完全静止・重心固定版）
+// 🏪 露店入店中エリアへの自キャラ描画関数（完全静止・重心固定版・CORS対策済）
 // ============================================================
 function drawOtherVendingMyAvatar() {
     const canvas = document.getElementById('other-vending-my-avatar-canvas');
@@ -9272,7 +10252,8 @@ function drawOtherVendingMyAvatar() {
             lastCharKey: '',
             cache: [],
             internalFrame: 0,
-            lastTime: performance.now()
+            lastTime: performance.now(),
+            commonBox: null
         };
 
         const animState = canvas._vendingAnimState;
@@ -9294,6 +10275,7 @@ function drawOtherVendingMyAvatar() {
                 if (animState.lastCharKey !== charKey || animState.cache.length === 0) {
                     animState.lastCharKey = charKey;
                     animState.cache = [];
+                    animState.commonBox = null;
                     animState.internalFrame = 0;
 
                     let charNum = String(g).replace(/[^0-9]/g, '');
@@ -9306,23 +10288,37 @@ function drawOtherVendingMyAvatar() {
 
                     const totalFrames = 20; // 20コマ
                     
-                    // 🌟 【対策】全20コマを一度プリロードし、共通の切り抜き領域（バウンディングボックス）を算出する
                     let loadedCount = 0;
                     const tempImages = [];
 
                     for (let i = 0; i < totalFrames; i++) {
                         const frameNum = String(i).padStart(2, '0');
                         const img = new Image();
+                        
+                        // 🌟 CORS制限を回避するため anonymous を指定
                         img.crossOrigin = "anonymous";
+                        
+                        // 💡 もしこれでも汚染される場合は、URL末尾にダミーのタイムスタンプ等を付与してキャッシュ起因のCORSバグを防ぐことも有効です
                         img.src = `${baseDomain}/char_assets/${paddedNum}/${paddedStyleNum}/Idle/Characters-Character${paddedStyleNum}-Idle_${frameNum}.png`;
                         
                         img.onload = () => {
                             loadedCount++;
                             if (loadedCount === totalFrames) {
-                                // 全画像ロード完了後に、全コマを網羅する「共通の最大バウンディングボックス」を計算
-                                calculateCommonBoundingBox(animState, tempImages);
+                                // 全画像ロード完了後に、ご提示いただいた自動トリミング関数を安全に実行
+                                try {
+                                    calculateCommonBoundingBox(animState, tempImages);
+                                } catch (e) {
+                                    console.warn("⚠️ BoundingBoxの自動計算でエラーが発生したため、デフォルト全域を使用します:", e);
+                                    animState.commonBox = { x: 0, y: 0, w: tempImages[0].naturalWidth, h: tempImages[0].naturalHeight };
+                                }
                             }
                         };
+
+                        img.onerror = () => {
+                            loadedCount++;
+                            console.error("❌ アバター画像のロードに失敗しました:", img.src);
+                        };
+
                         tempImages.push(img);
                         animState.cache.push(img);
                     }
@@ -9367,7 +10363,7 @@ function drawOtherVendingMyAvatar() {
                         };
 
                         const targetHeight = 60; 
-                        const scale = targetHeight / box.h;
+                        const scale = targetHeight / (box.h || 1);
                         
                         const dw = box.w * scale;
                         const dh = box.h * scale;
@@ -9385,12 +10381,16 @@ function drawOtherVendingMyAvatar() {
                         ctx.shadowOffsetX = 0;
                         ctx.shadowOffsetY = 2;
 
-                        // 🌟 すべてのコマを「同一の共通ボックス（box）」基準で切り出して描画する
-                        ctx.drawImage(
-                            currentImg, 
-                            box.x, box.y, box.w, box.h, 
-                            dx, dy, dw, dh
-                        );
+                        try {
+                            ctx.drawImage(
+                                currentImg, 
+                                box.x, box.y, box.w, box.h, 
+                                dx, dy, dw, dh
+                            );
+                        } catch (drawErr) {
+                            // 万が一の描画時セキュリティエラー対策
+                            // console.error("DrawImage error:", drawErr);
+                        }
                         
                         ctx.restore();
                         ctx.restore();
@@ -9405,7 +10405,9 @@ function drawOtherVendingMyAvatar() {
     }
 }
 
-// 🌟 全20コマのブレを完全になくすための共通ボックス算出ヘルパー関数
+// ============================================================
+// 🌟 全20コマのブレを完全になくすための共通ボックス算出ヘルパー関数（そのまま踏襲）
+// ============================================================
 function calculateCommonBoundingBox(animState, images) {
     let minX = 9999, minY = 9999, maxX = 0, maxY = 0;
     const imgW = images[0].naturalWidth;
@@ -9420,17 +10422,24 @@ function calculateCommonBoundingBox(animState, images) {
     images.forEach(img => {
         tempCtx.clearRect(0, 0, imgW, imgH);
         tempCtx.drawImage(img, 0, 0);
-        const data = tempCtx.getImageData(0, 0, imgW, imgH).data;
+        
+        // ※万が一CORSで弾かれた場合に備えてtry-catchで囲み、安全にフォールバックさせます
+        try {
+            const data = tempCtx.getImageData(0, 0, imgW, imgH).data;
 
-        for (let y = 0; y < imgH; y++) {
-            for (let x = 0; x < imgW; x++) {
-                if (data[(y * imgW + x) * 4 + 3] > 5) {
-                    if (x < minX) minX = x;
-                    if (x > maxX) maxX = x;
-                    if (y < minY) minY = y;
-                    if (y > maxY) maxY = y;
+            for (let y = 0; y < imgH; y++) {
+                for (let x = 0; x < imgW; x++) {
+                    if (data[(y * imgW + x) * 4 + 3] > 5) {
+                        if (x < minX) minX = x;
+                        if (x > maxX) maxX = x;
+                        if (y < minY) minY = y;
+                        if (y > maxY) maxY = y;
+                    }
                 }
             }
+        } catch (e) {
+            // 万が一汚染エラーが出た場合は強制的に全域サイズにする
+            minX = 0; minY = 0; maxX = imgW - 1; maxY = imgH - 1;
         }
     });
 

@@ -7196,8 +7196,9 @@ function drawVendingSign(p) {
     // ==========================================
     // 🔍 【ガチガチ・デバッグ監視ブロック】
     // ==========================================
-    console.group(`🚨 [VENDING DEBUG] 看板評価チェッカー: キャラ名 [${p.name || '不明'}] (ID: ${p.id})`);
-    console.log("・raw p object:", {
+    //console.group(`🚨 [VENDING DEBUG] 看板評価チェッカー: キャラ名 [${p.name || '不明'}] (ID: ${p.id})`);
+    /*
+	console.log("・raw p object:", {
         is_vending: p.is_vending,
         mode: p.mode,
         vending_mode: p.vending_mode,
@@ -7211,12 +7212,14 @@ function drawVendingSign(p) {
         title: p.vending_title,
         itemsCount: Array.isArray(p.vending_items) ? p.vending_items.length : 'not array'
     });
+	*/
 
     const ch_check = (p.channel !== undefined && p.channel !== null && Number(p.channel) !== Number(typeof hero !== 'undefined' ? hero.channel : 1));
     const mode_check = String(p.mode || p.vending_mode || '').toLowerCase();
     const merchant_check = p.monsterType || p.merchantType || p.monster_type || p.vending_type || '';
     const offline_check = (p.is_offline === true || p.is_offline === 1 || p.is_offline === "1");
 
+	/*
     console.log("👉 評価結果:", {
         "【破綻要因1】チャンネル違いか？": ch_check,
         "【破綻要因2】無人モード判定(monster等)か？": ['monster', 'offline', 'npc', 'kiosk'].includes(mode_check),
@@ -7224,6 +7227,7 @@ function drawVendingSign(p) {
         "【破綻要因4】オフラインフラグがあるか？": offline_check
     });
     console.groupEnd();
+	*/
     // ==========================================
 
     // 🌟 【超重要チャンネルガード】もしキャラクターのチャンネル情報が存在し、かつ今の自分のチャンネルと違う場合は絶対に描画しない！
