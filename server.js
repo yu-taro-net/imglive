@@ -760,6 +760,8 @@ socket.on('request_login_logs', async (callback) => {
             created_at: toJstSqlString(row.created_at)
         }));
 
+        console.log('🧪 [SERVER logs[last]]', logs[logs.length - 1]);
+
         if (typeof callback === 'function') {
             callback({ success: true, logs });
         } else {
