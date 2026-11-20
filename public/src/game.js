@@ -88,6 +88,49 @@ const socket = io(SOCKET_URL, {
 console.log(`接続先: ${SOCKET_URL}`); // 確認用にコンソールに表示
 
 // ============================================================
+// ✈️ 別ドメインからのトークン受け取り ＆ 自動ログイン処理
+// ============================================================
+
+// 1. URLのクエリパラメータ（?token=xxxxx）からトークンを取り出す
+const urlParams = new URLSearchParams(window.location.search);
+const urlToken = urlParams.get('token');
+
+let targetToken = null;
+
+if (urlToken) {
+    console.log("✈️ 別ドメインからトークンを受け取りました！");
+    targetToken = urlToken;
+    
+    // 2. 移動先（サイトB）側の localStorage にも保存しておく（次回リロード対策）
+    localStorage.setItem('game_token', urlToken);
+    
+    // 3. URLバーにトークンが丸見えだと見栄えが悪いので、パラメータを綺麗に消す（履歴の置換）
+    window.history.replaceState({}, document.title, window.location.pathname);
+} else {
+    // URLにない場合は、通常の localStorage から探す（通常のリロード時など）
+    targetToken = localStorage.getItem('game_token');
+}
+
+// 4. 取得できたトークンを使って、サーバーへ自動ログインを送信！
+if (targetToken) {
+    console.log("🔄 トークンを使ってサーバーへ自動ログインを試行します...");
+    
+    // すでにSocket.ioが接続済みなら即送信、まだなら接続完了を待つ
+    if (typeof socket !== 'undefined') {
+        if (socket.connected) {
+            socket.emit('auto_login', { token: targetToken });
+        } else {
+            socket.once('connect', () => {
+                socket.emit('auto_login', { token: targetToken });
+            });
+        }
+    }
+} else {
+    console.log("⚠️ トークンが見つかりません。通常のログイン画面を表示します。");
+    // 必要に応じて通常のログイン画面を表示する処理などをここに置く
+}
+
+// ============================================================
 // 🌟 システムメッセージをチャット欄（#msg-box）に追加する完全版関数
 // ============================================================
 function addSystemMessage(text) {
@@ -1043,16 +1086,76 @@ function togglePhotoWindow() {
 // 📦 サーバーから受け取ったユーザーデータを格納する変数
 let currentUsersData = [];
 
-// 📥 サーバーからのユーザーデータを受信
+// 📥 サーバーからのユーザーデータ受信 ＆ 即時描画（完全一体型）
 if (typeof socket !== 'undefined' && socket) {
-    socket.on('receive_users_data', (data) => {
-        console.log("📥 ユーザーデータを受信しました:", data);
-        if (data.status === 'success') {
-            currentUsersData = data.users || [];
-            
-            // 受信したユーザー一覧を描画する関数を呼ぶ
-            renderUserList();
+    socket.off('receive_users_data');
+    
+    socket.on('receive_users_data', function(incomingData) {
+        console.log("📥 [一体型版] ユーザーデータを受信しました:", incomingData);
+        
+        if (window.forceBreakTimeout) {
+            clearTimeout(window.forceBreakTimeout);
         }
+
+        // 1. データの抽出
+        let userList = [];
+        if (incomingData && incomingData.users && Array.isArray(incomingData.users)) {
+            userList = incomingData.users;
+        } else if (Array.isArray(incomingData)) {
+            userList = incomingData;
+        }
+
+        currentUsersData = userList;
+
+        // 2. 描画先コンテナの取得
+        const container = document.getElementById('user-list-content');
+        if (!container) {
+            console.error("❌ #user-list-content が見つかりません！");
+            return;
+        }
+
+        // 3. 中身をクリア
+        container.innerHTML = '';
+
+        if (userList.length === 0) {
+            container.innerHTML = "<div style='color:#888; padding:15px; text-align:center; font-size:11px;'>ユーザーデータがありません</div>";
+            return;
+        }
+
+        // 4. その場で直接HTML要素を組み立てて追加！
+        userList.forEach((item, index) => {
+            const safeItem = item || {};
+            const row = document.createElement('div');
+            row.className = "user-item-row";
+            row.style.cursor = "pointer";
+            row.style.padding = "10px 15px";
+            row.style.borderBottom = "1px solid #e0e0e0";
+            row.style.background = "#ffffff";
+            
+            const displayName = safeItem.user_name || '名称なし';
+            const displayId = safeItem.user_id || ('id_' + index);
+            const displayStatus = safeItem.status || 'public';
+            const displayLevel = safeItem.user_level !== undefined ? safeItem.user_level : 1;
+
+            row.innerHTML = `
+                <div style="font-size:11px; color:#888;">ID: ${displayId} | Lv.${displayLevel} (Status: ${displayStatus})</div>
+                <div style="font-weight:bold; font-size:13px; color:#333; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">${displayName}</div>
+            `;
+
+            // 🖱️ クリック時の詳細表示
+            row.onclick = () => {
+                document.querySelectorAll('.user-item-row').forEach(r => r.style.background = '#ffffff');
+                row.style.background = '#e2e8f0';
+
+                if (typeof showUserDetail === 'function') {
+                    showUserDetail(safeItem);
+                }
+            };
+
+            container.appendChild(row);
+        });
+
+        console.log("✨ ユーザー一覧の即時描画が完了しました！");
     });
 }
 
@@ -4096,8 +4199,8 @@ socket.on('login_data', (data) => {
     console.log("🏁 [重要] login_data 到着:", data);
     
     // 💡 ログイン判定が完了したので、読み込みカバーを強制的に非表示にする
-    const loadingCover = document.getElementById('loading-cover');
-    if (loadingCover) loadingCover.style.display = 'none';
+	//const loadingCover = document.getElementById('loading-cover');
+    //if (loadingCover) loadingCover.style.display = 'none';
 
     const loginError = document.getElementById('login-error');
     const loginOverlay = document.getElementById('login-overlay');
@@ -5166,7 +5269,7 @@ function renderShopUI(data) {
                 </div>
                 <div style="flex-grow: 1; font-family: 'Segoe UI', Tahoma, sans-serif; pointer-events: none;">
                     <div style="font-weight: 700; color: #0f172a; font-size: 12px; letter-spacing: 0.2px;">${item.display_name || item.name}</div>
-                    <div style="font-size: 11px; color: #d97706; font-weight: 600; margin-top: 1px;">${(item.price || 0).toLocaleString()} <span style="font-size: 9px; color: #64748b;">メル</span></div>
+                    <div style="font-size: 11px; color: #d97706; font-weight: 600; margin-top: 1px;">${(item.price || 0).toLocaleString()} <span style="font-size: 9px; color: #64748b;">コイン</span></div>
                 </div>
             </div>
             <button onclick="buyItem('${String(actualItemId)}', '${item.type || item.item_type}', '${safeBuyName}')" 
@@ -5267,7 +5370,7 @@ function renderShopUI(data) {
                 </div>
                 <div style="flex-grow: 1; font-family: 'Segoe UI', Tahoma, sans-serif; pointer-events: none; text-align: left;">
                     <div style="font-weight: 700; color: #0f172a; font-size: 12px; letter-spacing: 0.2px;">${itemName}</div>
-                    <div style="font-size: 11px; color: #16a34a; font-weight: 600; margin-top: 1px;">${displayPrice.toLocaleString()} <span style="font-size: 9px; color: #64748b;">メル</span></div>
+                    <div style="font-size: 11px; color: #16a34a; font-weight: 600; margin-top: 1px;">${displayPrice.toLocaleString()} <span style="font-size: 9px; color: #64748b;">コイン</span></div>
                 </div>
             </div>
             <button onclick="sellItem('${String(sendId)}', ${targetSlot}, '${safeItemName}', ${item.count || 1}, ${isEquip})" 
@@ -6114,13 +6217,13 @@ if (typeof socket !== 'undefined') {
         }
     });
 
-    // 🌟 サーバーから「メル不足・バッグ一杯」などの購入失敗通知を受け取る
+    // 🌟 サーバーから「コイン不足・バッグ一杯」などの購入失敗通知を受け取る
     socket.off('shop_purchase_failed'); // 多重登録防止
     socket.on('shop_purchase_failed', (data) => {
         // メッセージの内容を分岐
         let alertText = "アイテムを購入できませんでした。";
         if (data.reason === 'not_enough_gold') {
-            alertText = "メルが足りないよ。";
+            alertText = "コインが足りないよ。";
         } else if (data.reason === 'inventory_full') {
             alertText = "バッグがいっぱいだね。";
         }
@@ -6190,7 +6293,7 @@ if (typeof socket !== 'undefined' && socket) {
 
             // オプション：商品が売れたことをシステムメッセージ等で軽く知らせる場合
             if (typeof showFloatingText === 'function' && data.earnedGold) {
-                // 必要に応じて画面上に「売上 +〇〇メル！」などの演出を入れることもできます
+                // 必要に応じて画面上に「売上 +〇〇コイン！」などの演出を入れることもできます
             }
         });
     }
@@ -7271,9 +7374,10 @@ function openMonsterSelectorForVending() {
     `;
 
     // 現在選択されているモンスターIDを特定（変数がない場合は hero からフォールバック取得）
-    const activeMonsterId = (typeof currentVendingMonsterId !== 'undefined' ? currentVendingMonsterId : 
-                            (typeof selectedVendingMonsterType !== 'undefined' ? selectedVendingMonsterType : 
-                            (typeof hero !== 'undefined' ? hero.monsterType : null)));
+    const activeMonsterId = (typeof window.myVendingMonsterType !== 'undefined' && window.myVendingMonsterType ? window.myVendingMonsterType :
+                            (typeof currentVendingMonsterId !== 'undefined' ? currentVendingMonsterId :
+                            (typeof selectedVendingMonsterType !== 'undefined' ? selectedVendingMonsterType :
+                            (typeof hero !== 'undefined' ? hero.monsterType : null))));
 
     // MONSTER_CONFIGS から選択肢を動的生成
     if (typeof MONSTER_CONFIGS !== 'undefined' && Array.isArray(MONSTER_CONFIGS)) {
@@ -7303,13 +7407,19 @@ function openMonsterSelectorForVending() {
                 console.log("4. active_venders の状態:", typeof active_venders !== 'undefined' ? active_venders : "未定義");
                 console.log("5. activeOfflineShops の状態:", typeof activeOfflineShops !== 'undefined' ? activeOfflineShops : "未定義");
 
-                // 1. 変数に保存
-                selectedVendingMonsterType = conf.id;
-                currentVendingMonsterId = conf.id; 
+                // 1. 変数とグローバル状態に即時反映
+                window.myVendingMonsterType = conf.id;
+                if (typeof selectedVendingMonsterType !== 'undefined') {
+                    selectedVendingMonsterType = conf.id;
+                }
+                if (typeof currentVendingMonsterId !== 'undefined') {
+                    currentVendingMonsterId = conf.id;
+                }
                 
                 // 🌟 2. 【即時反映】主人公のデータも一緒に更新
                 if (typeof hero !== 'undefined') {
                     hero.monsterType = conf.id;
+                    hero.monster_type = conf.id;
                     console.log("✅ hero.monsterType を更新しました:", hero.monsterType);
                 } else {
                     console.warn("⚠️ hero が未定義のため更新スキップ");
@@ -7322,6 +7432,7 @@ function openMonsterSelectorForVending() {
                         const v = active_venders[key];
                         if (typeof hero !== 'undefined' && (String(v.dbId) === String(hero.dbId) || key === socket.id)) {
                             v.monsterType = conf.id;
+                            v.monster_type = conf.id;
                             updatedCount++;
                             console.log(`✨ active_venders[${key}] の monsterType を直接書き換えました:`, v.monsterType);
                         }
@@ -7340,6 +7451,7 @@ function openMonsterSelectorForVending() {
                         );
                         if (isMine) {
                             shop.monsterType = conf.id;
+                            shop.monster_type = conf.id;
                             console.log(`✨ activeOfflineShops[${index}] の monsterType も同期更新しました:`, shop.monsterType);
                         }
                     });
@@ -7354,16 +7466,35 @@ function openMonsterSelectorForVending() {
                     console.log("📡 サーバーへ 'update_vending_monster' を送信します:", { monsterType: conf.id, dbId: resolvedDbId });
                     socket.emit('update_vending_monster', { 
                         monsterType: conf.id,
+                        monster_type: conf.id,
                         dbId: resolvedDbId 
                     });
                 } else {
                     console.warn("⚠️ [VENDING] データベースID(dbId)が見つからないため、サーバーへの更新通知ができませんでした！ hero:", typeof hero !== 'undefined' ? hero : "未定義");
                 }
 
-                // 5. モーダル内のメインプレビューを即座にそのモンスターの姿に切り替える
+                // 5. メイン画面のプレビューキャンバスを即座にそのモンスターの姿・アニメーションに切り替える
+                const previewCanvas = document.getElementById('vending-merchant-preview-canvas');
+                if (previewCanvas) {
+                    const ctx = previewCanvas.getContext('2d');
+                    if (ctx) {
+                        ctx.clearRect(0, 0, previewCanvas.width, previewCanvas.height);
+                    }
+                }
+
+                if (typeof drawVendingMerchantPreview === 'function') {
+                    drawVendingMerchantPreview(conf.id);
+                    console.log("🎨 drawVendingMerchantPreview でプレビューを再描画しました:", conf.id);
+                }
                 if (typeof renderVendingMerchantPreview === 'function') {
                     renderVendingMerchantPreview(conf.id, "vending-merchant-preview-canvas");
-                    console.log("🎨 プレビューを再描画しました");
+                    console.log("🎨 renderVendingMerchantPreview でプレビューを再描画しました:", conf.id);
+                }
+
+                // 表示ラベル等のDOMがあれば連動更新
+                const labelEl = document.getElementById('vending-selected-monster-name') || document.getElementById('vending-monster-name');
+                if (labelEl) {
+                    labelEl.textContent = conf.name || conf.id;
                 }
                 
                 console.groupEnd();
@@ -7560,7 +7691,7 @@ socket.on('show_offline_sales_dialog', (data) => {
                 <span>👤 <b>${s.buyerName}</b></span>
                 ${formattedTime}
             </div>
-            📦 <b>${s.itemName} x${s.quantity}</b> を <span style="color: #b45309; font-weight: bold;">${s.totalPrice.toLocaleString()}メル</span> で購入
+            📦 <b>${s.itemName} x${s.quantity}</b> を <span style="color: #b45309; font-weight: bold;">${s.totalPrice.toLocaleString()}コイン</span> で購入
         `;
         itemRow.appendChild(textInfo);
 
@@ -7589,7 +7720,7 @@ socket.on('show_offline_sales_dialog', (data) => {
 
     const totalDiv = document.createElement('div');
     totalDiv.style.cssText = "font-size: 12px; font-weight: bold; color: #047857; background: #f0fdf4; border: 1px solid #bbf7d0; padding: 6px; border-radius: 4px; text-align: center;";
-    totalDiv.innerText = `💰 総売上: +${data.totalEarnings.toLocaleString()} メル`;
+    totalDiv.innerText = `💰 総売上: +${data.totalEarnings.toLocaleString()} コイン`;
     content.appendChild(totalDiv);
 
     const okBtn = document.createElement('button');
@@ -7659,7 +7790,7 @@ function updateUserMoneyDisplay() {
 }
 
 // ============================================================
-// 🌟 売上金が0メルのときにボタンを無効化する制御用スクリプト
+// 🌟 売上金が0コインのときにボタンを無効化する制御用スクリプト
 // ============================================================
 
 // 売上金を受け取ろうとしたときのラッパー関数
@@ -7670,7 +7801,7 @@ function tryClaimVendingGold() {
     // カンマなどを除外して数値化
     const currentGold = parseInt(goldElem.textContent.replace(/,/g, ''), 10) || 0;
     
-    // 0メル以下の場合は何もしない（ガード）
+    // 0コイン以下の場合は何もしない（ガード）
     if (currentGold <= 0) {
         return; 
     }
@@ -7690,7 +7821,7 @@ function updateClaimButtonState() {
     const currentGold = parseInt(goldElem.textContent.replace(/,/g, ''), 10) || 0;
 
     if (currentGold <= 0) {
-        // 0メルのとき：無効状態（グレーアウト・半透明・カーソル変更）
+        // 0コインのとき：無効状態（グレーアウト・半透明・カーソル変更）
         btnElem.style.background = "linear-gradient(180deg, #cbd5e1 0%, #94a3b8 100%)";
         btnElem.style.borderColor = "#64748b";
         btnElem.style.color = "#475569";
@@ -7698,7 +7829,7 @@ function updateClaimButtonState() {
         btnElem.style.opacity = "0.6";
         btnElem.title = "受け取れる売上金がありません";
     } else {
-        // 1メル以上のとき：有効状態（通常のグリーン）
+        // 1コイン以上のとき：有効状態（通常のグリーン）
         btnElem.style.background = "linear-gradient(180deg, #34d399 0%, #059669 100%)";
         btnElem.style.borderColor = "#047857";
         btnElem.style.color = "#ffffff";
@@ -8427,7 +8558,70 @@ function initVendingOwnerChatEvents() {
 }
 
 // ============================================================
-// :::OPEN_VENDING_MENU::: 🏪 未出店対応・チャンネル厳格ガード版
+// 🚨 【厳重監視】Monster1 になってしまう原因を特定するためのスパイロガー
+// ============================================================
+(function() {
+    let _internalMonsterType = "Monster1";
+
+    // 1. window.myVendingMonsterType のゲッター・セッターを監視
+    Object.defineProperty(window, 'myVendingMonsterType', {
+        get: function() {
+            return _internalMonsterType;
+        },
+        set: function(val) {
+            const stack = new Error().stack;
+            console.log(`🕵️‍♂️ [MONSTER SPY] 代入検出 -> 試行値: "${val}" (現在の保持値: "${_internalMonsterType}")`);
+            
+            // もし Monster28 などが設定されているのに、何者かが "Monster1" に変えようとした場合
+            if (val === "Monster1" && _internalMonsterType && _internalMonsterType !== "Monster1") {
+                console.error(`🚨 【犯人特定】Monster28等から Monster1 へ強制上書きしようとするコードを検知しました！`, {
+                    試行された値: val,
+                    直前の値: _internalMonsterType,
+                    呼び出し元スタック: stack
+                });
+            }
+
+            if (val) {
+                let str = String(val).trim();
+                if (/^\d+$/.test(str)) str = "Monster" + str;
+                _internalMonsterType = str;
+            }
+        },
+        configurable: true
+    });
+
+    // 2. グローバル変数 selectedVendingMonsterType が存在する場合の同期・監視
+    if (typeof selectedVendingMonsterType !== 'undefined') {
+        let originalSelected = selectedVendingMonsterType;
+        Object.defineProperty(window, 'selectedVendingMonsterType', {
+            get: function() { return originalSelected; },
+            set: function(val) {
+                console.log(`🕵️‍♂️ [SELECTED SPY] selectedVendingMonsterType 代入: "${val}"`, new Error().stack);
+                originalSelected = val;
+            },
+            configurable: true
+        });
+    }
+})();
+
+// ============================================================
+// 🛠️ 自分の露店編集中フラグ（禁止マーク連動）を切り替えるヘルパー
+// ============================================================
+function setMyVendingEditingFlag(isEditingFlag) {
+    window.isVendingWindowOpen = Boolean(isEditingFlag);
+
+    if (typeof hero !== 'undefined' && hero && hero.dbId && Array.isArray(activeOfflineShops)) {
+        activeOfflineShops.forEach((shop) => {
+            const ownerId = shop.owner_id ?? shop.dbId ?? shop.user_id;
+            if (ownerId !== undefined && String(ownerId) === String(hero.dbId)) {
+                shop.isEditing = Boolean(isEditingFlag);
+            }
+        });
+    }
+}
+
+// ============================================================
+// :::OPEN_VENDING_MENU::: 🏪 未出店対応・チャンネル厳格ガード・プレビュー完全連動版
 // ============================================================
 function openVendingMenu() {
     console.group("🕵️‍♂️ [CLIENT DEBUG] openVendingMenu 呼び出し");
@@ -8440,11 +8634,13 @@ function openVendingMenu() {
 
     // まずウィンドウは隠した状態でサーバーへ確認
     win.style.display = 'none';
+    setMyVendingEditingFlag(false);
 
     if (typeof socket !== 'undefined' && socket) {
         socket.emit('request_my_vending_info', (response) => {
             console.group("🕵️‍♂️ [CLIENT DEBUG] request_my_vending_info の返却値");
             console.log("受信した response 全体:", response);
+            console.log("shopData の全キー:", response?.shopData ? Object.keys(response.shopData) : "なし");
             console.groupEnd();
 
             // 🌟 【パターンA】すでに露店（無人露店など）を出品中の場合
@@ -8462,11 +8658,13 @@ function openVendingMenu() {
                     }
                     
                     win.style.display = 'none';
+                    setMyVendingEditingFlag(false);
                     return; // 🛑 別チャンネルなのでストップ
                 }
 
                 // チャンネルが一致している場合：管理メニューとして開く
                 win.style.display = 'block';
+                setMyVendingEditingFlag(true); // 🚫 ここで禁止マーク（赤丸）をONにする！
                 console.log("🖥️ [DEBUG] チャンネル一致。管理メニューを表示します。");
 
                 const goldSpan = document.getElementById('vending-unclaimed-gold');
@@ -8474,14 +8672,39 @@ function openVendingMenu() {
                 if (goldSpan) {
                     goldSpan.innerText = unclaimed.toLocaleString();
                 }
+
+                // 🌟 【修正】DBから値が来ている場合のみ更新し、来ていなければ現在の保持値(Monster28等)を維持！
+                const dbMonster = response.shopData.monster_type 
+                               || response.shopData.monsterType 
+                               || response.shopData.merchantType;
+
+                let activeMonster = window.myVendingMonsterType || "Monster1";
+                if (dbMonster) {
+                    let str = String(dbMonster).trim();
+                    if (/^\d+$/.test(str)) str = "Monster" + str;
+                    activeMonster = str;
+                    window.myVendingMonsterType = activeMonster;
+                }
+
+                console.log("🎯 [VENDING] 最終決定したモンスタータイプ:", activeMonster);
+                if (typeof drawVendingMerchantPreview === 'function') {
+                    drawVendingMerchantPreview(activeMonster);
+                }
+
                 setupMyShopManagementUI(response.shopData);
 
             } else {
                 // 🌟 【パターンB】まだ露店を出品していない場合（新規オープン）
                 console.log("🖥️ [DEBUG] 出店データなし。新規の露店設定画面として開きます。");
                 win.style.display = 'block';
+                setMyVendingEditingFlag(true);
 
-                // 必要に応じて新規用のUI初期化やリセット処理があればここに記述
+                const defaultMonster = window.myVendingMonsterType || "Monster1";
+                window.myVendingMonsterType = defaultMonster;
+                if (typeof drawVendingMerchantPreview === 'function') {
+                    drawVendingMerchantPreview(defaultMonster);
+                }
+
                 if (typeof initVendingOwnerChatEvents === 'function') {
                     initVendingOwnerChatEvents();
                 }
@@ -8524,10 +8747,26 @@ function getVendingItemsData() {
 }
 
 // ============================================================
-// 🌟 自分の無人露店データをUIやボタンに適用・セットする共通関数（未受取金反映対応版）
+// 🌟 自分の無人露店データをUIやボタンに適用・セットする共通関数（モンスター完全同期版）
 // ============================================================
 function setupMyShopManagementUI(shop) {
     if (!shop) return;
+
+    // 👑 🌟 【超重要】データベースの monster_type を最優先で取得して適用・確定する！
+    const dbMonster = shop.monster_type || shop.monsterType || shop.merchantType;
+    if (dbMonster) {
+        let str = String(dbMonster).trim();
+        if (/^\d+$/.test(str)) {
+            str = "Monster" + str;
+        }
+        // ガード付きのセッターを経由して安全にセット
+        window.myVendingMonsterType = str;
+        
+        console.log(`🎯 [SETUP UI] データベースのモンスタータイプをUIに反映: ${str}`);
+        if (typeof drawVendingMerchantPreview === 'function') {
+            drawVendingMerchantPreview(str);
+        }
+    }
 
     // 1. 復元中フラグをON
     window.isRestoringVending = true;
@@ -8811,7 +9050,237 @@ function forceCloseVending() {
 }
 
 // ============================================================
-// :::OPEN_OTHER_PLAYER_VENDING::: 🏪 他者の露店閲覧・ゴージャスリッチ描画（共通関数活用版）
+// 🛠️ 雇用商人プレビュー共通描画ループ（64x64 / 高さ46px 統一版）
+// ============================================================
+function runVendingMonsterPreviewLoop(options) {
+    const {
+        canvas,
+        loopFlagKey,
+        stateKey,
+        getMonsterType,
+        getAnimIdle,
+        displayWidth = 64,
+        displayHeight = 64,
+        targetHeight = 46,
+        shadowBlur = 4,
+        shadowOffsetY = 2
+    } = options;
+
+    if (!canvas) return;
+    if (canvas[loopFlagKey]) return;
+    canvas[loopFlagKey] = true;
+
+    const baseDomain = (typeof IMAGE_DOMAIN !== 'undefined') ? IMAGE_DOMAIN : '';
+
+    canvas[stateKey] = {
+        lastCharKey: '',
+        cache: [],
+        internalFrame: 0,
+        lastTime: performance.now(),
+        commonBox: null,
+        targetMonster: getMonsterType(),
+        targetAnimIdle: getAnimIdle()
+    };
+
+    const animState = canvas[stateKey];
+
+    const renderLoop = () => {
+        if (!document.body.contains(canvas)) {
+            canvas[loopFlagKey] = false;
+            return;
+        }
+
+        const activeMonster = getMonsterType() || animState.targetMonster || "Monster1";
+        const activeIdle = Number(getAnimIdle() || animState.targetAnimIdle || 20);
+        const charKey = `${activeMonster}_${activeIdle}`;
+
+        if (animState.lastCharKey !== charKey || animState.cache.length === 0) {
+            animState.lastCharKey = charKey;
+            animState.cache = [];
+            animState.commonBox = null;
+            animState.internalFrame = 0;
+
+            const totalFrames = activeIdle;
+            let loadedCount = 0;
+            const tempImages = [];
+
+            for (let i = 0; i < totalFrames; i++) {
+                const frameNum = String(i).padStart(3, '0');
+                const img = new Image();
+                img.crossOrigin = "anonymous";
+                img.src = `${baseDomain}/char_assets_enemy/${activeMonster}/Idle/tile${frameNum}.png`;
+
+                img.onload = () => {
+                    loadedCount++;
+                    if (loadedCount === totalFrames) {
+                        try {
+                            calculateCommonBoundingBox(animState, tempImages);
+                        } catch (e) {
+                            const firstImg = tempImages[0];
+                            if (firstImg) {
+                                animState.commonBox = { x: 0, y: 0, w: firstImg.naturalWidth, h: firstImg.naturalHeight };
+                            }
+                        }
+                    }
+                };
+
+                img.onerror = () => {
+                    loadedCount++;
+                    console.error(`❌ [PREVIEW ERROR] 画像ロード失敗 path: ${img.src}`);
+                };
+
+                tempImages.push(img);
+                animState.cache.push(img);
+            }
+        }
+
+        const now = performance.now();
+        if (now - animState.lastTime > 90) {
+            if (animState.cache.length > 0 && animState.cache[0].complete && animState.cache[0].naturalWidth > 0) {
+                animState.internalFrame = (animState.internalFrame + 1) % animState.cache.length;
+            }
+            animState.lastTime = now;
+        }
+
+        const ctx = canvas.getContext('2d');
+        if (ctx) {
+            const currentImg = animState.cache[animState.internalFrame];
+
+            if (currentImg && currentImg.complete && currentImg.naturalWidth !== 0) {
+                const dpr = window.devicePixelRatio || 2;
+                const targetCanvasWidth = displayWidth * dpr;
+                const targetCanvasHeight = displayHeight * dpr;
+
+                if (canvas.width !== targetCanvasWidth || canvas.height !== targetCanvasHeight) {
+                    canvas.width = targetCanvasWidth;
+                    canvas.height = targetCanvasHeight;
+                    canvas.style.width = `${displayWidth}px`;
+                    canvas.style.height = `${displayHeight}px`;
+                }
+
+                ctx.save();
+                ctx.imageSmoothingEnabled = false;
+                ctx.scale(dpr, dpr);
+                ctx.clearRect(0, 0, displayWidth, displayHeight);
+
+                const box = animState.commonBox || {
+                    x: 0, y: 0, w: currentImg.naturalWidth, h: currentImg.naturalHeight
+                };
+
+                const scale = targetHeight / (box.h || 1);
+
+                const dw = box.w * scale;
+                const dh = box.h * scale;
+                const dx = (displayWidth - dw) / 2;
+                const dy = (displayHeight - dh) / 2 - 2;
+
+                ctx.shadowColor = "rgba(0, 0, 0, 0.4)";
+                ctx.shadowBlur = shadowBlur;
+                ctx.shadowOffsetX = 0;
+                ctx.shadowOffsetY = shadowOffsetY;
+
+                try {
+                    ctx.drawImage(
+                        currentImg,
+                        box.x, box.y, box.w, box.h,
+                        dx, dy, dw, dh
+                    );
+                } catch (drawErr) {}
+
+                ctx.restore();
+            }
+        }
+
+        requestAnimationFrame(renderLoop);
+    };
+
+    requestAnimationFrame(renderLoop);
+}
+
+// ============================================================
+// :::DRAW_OTHER_VENDING_MERCHANT_PREVIEW::: 🛒 雇用商人プレビュー用（他者閲覧）
+// ============================================================
+function drawOtherVendingMerchantPreview(merchantData) {
+    const canvas = document.getElementById('other-vending-merchant-preview-canvas');
+    if (!canvas) {
+        console.error("❌ [VENDING PREVIEW] エラー: 'other-vending-merchant-preview-canvas' がDOMに見つかりません！");
+        return;
+    }
+
+    const ownerNameEl = document.getElementById('other-vending-owner-name');
+    if (ownerNameEl && merchantData) {
+        ownerNameEl.textContent = `${merchantData.ownerName || "〇〇"}の雇用商人`;
+    }
+
+    const shopTitleEl = document.getElementById('other-vending-shop-title');
+    if (shopTitleEl && merchantData) {
+        shopTitleEl.textContent = merchantData.shopTitle || "いらっしゃいませ";
+    }
+
+    const currentMonsterType = (merchantData && merchantData.monsterType) || window.otherPlayerMonsterType || "Monster1";
+    const currentAnimIdle = Number(merchantData && (merchantData.anim_idle ?? merchantData.animIdle))
+        || window.otherPlayerAnimIdle
+        || 20;
+
+    if (canvas._vendingAnimState) {
+        canvas._vendingAnimState.targetMonster = currentMonsterType;
+        canvas._vendingAnimState.targetAnimIdle = currentAnimIdle;
+    }
+
+    runVendingMonsterPreviewLoop({
+        canvas,
+        loopFlagKey: '_isAnimLoopRunning',
+        stateKey: '_vendingAnimState',
+        getMonsterType: () => window.otherPlayerMonsterType || (canvas._vendingAnimState && canvas._vendingAnimState.targetMonster) || "Monster1",
+        getAnimIdle: () => window.otherPlayerAnimIdle || (canvas._vendingAnimState && canvas._vendingAnimState.targetAnimIdle) || 20,
+        displayWidth: 64,
+        displayHeight: 64,
+        targetHeight: 46,
+        shadowBlur: 4,
+        shadowOffsetY: 2
+    });
+}
+
+// ============================================================
+// :::DRAW_VENDING_MERCHANT_PREVIEW::: 🛒 自分のショップ管理プレビュー描画（他者と同一仕様）
+// ============================================================
+function drawVendingMerchantPreview(monsterType) {
+    const canvas = document.getElementById('vending-merchant-preview-canvas');
+    if (!canvas) return;
+
+    const activeMonsterType = monsterType || window.myVendingMonsterType || "Monster1";
+
+    let activeAnimIdle = 27;
+    if (typeof MONSTER_CONFIGS !== 'undefined' && Array.isArray(MONSTER_CONFIGS)) {
+        const mConf = MONSTER_CONFIGS.find(m => String(m.id) === String(activeMonsterType));
+        if (mConf) {
+            if (mConf.id === "Monster1") activeAnimIdle = 27;
+            else activeAnimIdle = Number(mConf.anim_idle || mConf.animIdle || mConf.idle || 20);
+        }
+    }
+
+    if (canvas._myAnimState) {
+        canvas._myAnimState.targetMonster = activeMonsterType;
+        canvas._myAnimState.targetAnimIdle = activeAnimIdle;
+    }
+
+    runVendingMonsterPreviewLoop({
+        canvas,
+        loopFlagKey: '_isMyAnimLoopRunning',
+        stateKey: '_myAnimState',
+        getMonsterType: () => window.myVendingMonsterType || (canvas._myAnimState && canvas._myAnimState.targetMonster) || "Monster1",
+        getAnimIdle: () => (canvas._myAnimState && canvas._myAnimState.targetAnimIdle) || activeAnimIdle || 27,
+        displayWidth: 64,
+        displayHeight: 64,
+        targetHeight: 46,
+        shadowBlur: 4,
+        shadowOffsetY: 2
+    });
+}
+
+
+// ============================================================
+// :::OPEN_OTHER_PLAYER_VENDING::: 🏪 他者の露店閲覧・ゴージャスリッチ描画（matchedShop完全連携版）
 // ============================================================
 function openOtherPlayerVending(p) {
 
@@ -8830,7 +9299,11 @@ function openOtherPlayerVending(p) {
         "p.id": p?.id,
         "p.owner_id": p?.owner_id,
         "p.title": p?.title,
-        "p.vending_title": p?.vending_title
+        "p.vending_title": p?.vending_title,
+        "p.monsterType": p?.monsterType,
+        "p.merchantType": p?.merchantType,
+        "p.anim_idle": p?.anim_idle,
+        "p.animIdle": p?.animIdle
     });
     
     // activeOfflineShops との照合テスト
@@ -8902,9 +9375,9 @@ function openOtherPlayerVending(p) {
         }
 
         // 🌟 店主名をフィールド上のネームプレートと完全一致させる
+        let shopOwnerName = "";
         const ownerNameEl = document.getElementById('other-vending-owner-name');
         if (ownerNameEl) {
-            let shopOwnerName = "";
             if (p) {
                 shopOwnerName = p.name || p.owner_name || p.username || p.ownerName || p.characterName || (p.owner && (p.owner.name || p.owner.username));
             }
@@ -8934,12 +9407,51 @@ function openOtherPlayerVending(p) {
             drawOtherVendingMyAvatar();
         }
         
-        // 👑 他プレイヤーの雇用商人モンスターのタイプを取得してプレビューを描画！
-        const monsterType = p.monsterType || p.merchantType || p.monster_type || (matchedShop ? matchedShop.monsterType : null) || "Monster8";
+        // 👑 🌟 【ゲーム本体と完全同期】MONSTER_CONFIGS から本来の anim_idle を安全に逆引き！
+        const rawMatchedMonster = matchedShop?.monsterType || matchedShop?.merchantType || matchedShop?.monster_type || matchedShop?.enemyId || "Monster1";
+        let strType = String(rawMatchedMonster).trim();
+        if (/^\d+$/.test(strType)) {
+            strType = "Monster" + strType;
+        }
+        const monsterType = p.monsterType || p.merchantType || p.monster_type || strType;
+
+        let animIdle = 0;
+
+        // 1. まず MONSTER_CONFIGS からゲーム本体と同じ方法で探す（これが最も確実！）
+        if (typeof MONSTER_CONFIGS !== 'undefined' && Array.isArray(MONSTER_CONFIGS)) {
+            const mConf = MONSTER_CONFIGS.find(m => String(m.id) === String(monsterType));
+            if (mConf) {
+                if (mConf.id === "Monster1") {
+                    animIdle = 27; // ゲーム本体の定義に完全準拠
+                } else {
+                    animIdle = Number(mConf.anim_idle || mConf.animIdle || mConf.idle || 0);
+                }
+            }
+        }
+
+        // 2. それでも設定が見つからない場合の個別/デフォルトフォールバック
+        if (!animIdle || animIdle <= 0) {
+            if (monsterType === "Monster1") {
+                animIdle = 27;
+            } else {
+                // その他のモンスターのコマ数（もし分かっていればここで個別指定、なければデフォルト20）
+                animIdle = 20; 
+            }
+        }
+
         window.otherPlayerMonsterType = monsterType; 
+        window.otherPlayerAnimIdle = animIdle;
         
-        if (typeof renderVendingMerchantPreview === 'function') {
-            renderVendingMerchantPreview(monsterType, "other-vending-merchant-preview-canvas");
+        console.log(`🎯 [VENDING PREVIEW 適用] モンスター: ${monsterType}, コマ数(anim_idle): ${animIdle}`);
+		
+        // 🌟 雇用商人プレビュー描画関数を呼び出し
+        if (typeof drawOtherVendingMerchantPreview === 'function') {
+            drawOtherVendingMerchantPreview({
+                ownerName: shopOwnerName,
+                shopTitle: p.vending_title || p.title || (matchedShop ? (matchedShop.title || matchedShop.vending_title) : "いらっしゃいませ"),
+                monsterType: monsterType,
+                anim_idle: animIdle
+            });
         }
 
         if (itemsContainer) {
@@ -9055,6 +9567,59 @@ function openOtherPlayerVending(p) {
     });
 }
 
+// ============================================================
+// 🚪 無人露店閲覧中の「管理者入室」による強制退去処理（ステップ1）
+// ============================================================
+function forceKickFromOtherVending(payload = {}) {
+    const viewingOwnerId = window._currentVendingOwnerId;
+    const otherVendingWin = document.getElementById('other-vending-window');
+
+    // 1. 他人の露店を開いていなければ何もしない
+    if (!viewingOwnerId || !otherVendingWin || otherVendingWin.style.display === 'none') {
+        return;
+    }
+
+    // 2. 「いま見ている露店の店主」と「入室した管理者」が一致するか判定
+    const enteredOwnerId = payload.ownerId ?? payload.owner_id ?? payload.shopId ?? null;
+    if (enteredOwnerId !== null && String(enteredOwnerId) !== String(viewingOwnerId)) {
+        console.log(`ℹ️ [VENDING_KICK] 別店舗(店主ID: ${enteredOwnerId})の通知のためスキップ（現在閲覧中: ${viewingOwnerId}）`);
+        return;
+    }
+
+    // 3. 強制退去ログを出力
+    console.warn("🚨 [VENDING_KICK] 閲覧中の無人露店に管理者本人が陳列入室したため、強制退去します！", {
+        viewingOwnerId,
+        enteredOwnerId,
+        time: new Date().toLocaleTimeString()
+    });
+
+    // 4. 閲覧中IDをリセットし、閲覧ウィンドウ（と購入確認ダイアログ）を閉じる
+    window._currentVendingOwnerId = null;
+    otherVendingWin.style.display = 'none';
+
+    const buyDialog = document.getElementById('vending-buy-dialog') || document.getElementById('vending-buy-modal');
+    if (buyDialog) {
+        buyDialog.style.display = 'none';
+    }
+
+    // 5. ユーザーへメッセージ表示
+    const msg = payload.message || "管理者が陳列のため入室したため、無人露店から退室しました。";
+    if (typeof showCustomAlert === 'function') {
+        showCustomAlert(msg);
+    } else if (typeof addSystemMessage === 'function') {
+        addSystemMessage(msg);
+    } else {
+        alert(msg);
+    }
+}
+
+// サーバーからの通知を受け取る
+if (typeof socket !== 'undefined' && socket) {
+    socket.on('vending_owner_entered', (payload) => {
+        forceKickFromOtherVending(payload);
+    });
+}
+
 function closeOtherVendingWindow() {
     const win = document.getElementById('other-vending-window');
     if (win) {
@@ -9075,7 +9640,7 @@ function closeOtherVendingWindow() {
 }
 
 // ============================================================
-// :::RESTORE_VENDING_ITEMS_TO_UI::: 🏪 露店アイテムのUI復元（ゴージャスリッチ仕様連動版）
+// :::RESTORE_VENDING_ITEMS_TO_UI::: 🏪 露店アイテムのUI復元（安全強化版）
 // ============================================================
 function restoreVendingItemsToUI(itemsArray) {
     // 1. 出品用バッファを一度リセット
@@ -9098,8 +9663,13 @@ function restoreVendingItemsToUI(itemsArray) {
         addItemToVendingList(item);
     });
 	
-	// 🌟 5. 【ここがポイント！】露店データを一括で読み込んで復元したときは、スクロールを一番上に強制リセットする！
+	// 🌟 5. スクロールを一番上に強制リセット
     listContainer.scrollTop = 0;
+
+    // 🛡️ 【追加の安全策】アイテム復元完了と同時に、現在の正しいモンスタープレビューを再確認・維持する
+    if (typeof window.myVendingMonsterType !== 'undefined' && typeof drawVendingMerchantPreview === 'function') {
+        drawVendingMerchantPreview(window.myVendingMonsterType);
+    }
 
     console.log("✨ [Vending] 露店管理ウィンドウの陳列商品を完全に復元しました:", vendingItemsBuffer);
 }
@@ -9197,7 +9767,7 @@ function createVendingItemHTML(item) {
                 <div style="display: flex; align-items: baseline; gap: 3px;">
                     <span style="display:none; color: ${priceColor}; font-size: 11px; font-weight: 700;">1個当り</span>
                     <span style="color: ${priceColor}; font-weight: 800; font-size: 11px;">${displayPrice}</span>
-                    <span style="color: ${priceColor}; font-size: 11px; font-weight: 700;">メル</span>
+                    <span style="color: ${priceColor}; font-size: 11px; font-weight: 700;">コイン</span>
                 </div>
             </div>
         </div>
@@ -9214,6 +9784,82 @@ if (typeof socket !== 'undefined' && socket) {
                 shop.isEditing = data.isEditing; // 状態を更新
             }
         }
+    });
+}
+
+// ============================================================
+// 🖥️ ログイン画面の NETWORK FEED（#login-activity-log）描画
+// ============================================================
+function renderLoginActivityLog(logs) {
+    const logBox = document.getElementById('login-activity-log');
+    if (!logBox) return;
+
+    if (!Array.isArray(logs) || logs.length === 0) {
+        logBox.innerHTML = `<div style="color: #777;">履歴はまだありません。 <span style="font-size: 9px; color: #38bdf8; font-family: monospace;">[DB]</span></div>`;
+        return;
+    }
+
+    logBox.innerHTML = logs.map((row) => {
+        const isLogin = row.event_type === 'LOGIN';
+        const color = isLogin ? '#4CAF50' : '#ff6b6b';
+        const suffix = isLogin ? 'さんがログインしました' : 'さんがログアウトしました';
+
+        const dt = row.created_at ? new Date(row.created_at) : new Date();
+        const hh = String(dt.getHours()).padStart(2, '0');
+        const mm = String(dt.getMinutes()).padStart(2, '0');
+
+        const safeName = String(row.username || 'Player')
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;');
+
+        return `
+            <div style="color: ${color}; display: flex; align-items: center; gap: 6px; flex-shrink: 0;">
+                <span style="font-size: 9px; opacity: 0.7; font-family: monospace;">[${hh}:${mm}]</span>
+                <span>${safeName} ${suffix}</span>
+                <span style="font-size: 9px; color: #38bdf8; font-family: monospace;">[DB]</span>
+            </div>
+        `;
+    }).join('');
+
+    logBox.scrollTop = logBox.scrollHeight;
+}
+
+function loadLoginActivityLog() {
+    console.log("🔍 [LOGIN_LOG DEBUG] loadLoginActivityLog 呼び出し開始");
+
+    if (typeof socket === 'undefined' || !socket) {
+        console.warn("⚠️ [LOGIN_LOG DEBUG] socket がまだ未定義です");
+        return;
+    }
+
+    const sendRequest = () => {
+        console.log("📤 [LOGIN_LOG DEBUG] request_login_logs を送信します");
+        socket.emit('request_login_logs', (res) => {
+            console.log("📥 [LOGIN_LOG DEBUG] request_login_logs 受信:", res);
+            if (res && res.success && Array.isArray(res.logs)) {
+                renderLoginActivityLog(res.logs);
+            }
+        });
+    };
+
+    if (socket.connected) {
+        sendRequest();
+    } else {
+        socket.once('connect', sendRequest);
+    }
+}
+
+// 画面読み込み後に1回呼んでみる
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', loadLoginActivityLog);
+} else {
+    loadLoginActivityLog();
+}
+
+if (typeof socket !== 'undefined' && socket) {
+    socket.on('login_logs_updated', (logs) => {
+        renderLoginActivityLog(logs);
     });
 }
 
@@ -9552,7 +10198,7 @@ socket.on('vending_sales_log_res', (data) => {
         row.innerHTML = `
             <div style="display: flex; justify-content: space-between; font-weight: bold; color: #0f172a;">
                 <span>🛒 ${log.item_name} x${log.quantity}</span>
-                <span style="color: #16a34a;">+${Number(log.total_price).toLocaleString()} メル</span>
+                <span style="color: #16a34a;">+${Number(log.total_price).toLocaleString()} コイン</span>
             </div>
             <div style="display: flex; justify-content: space-between; color: #64748b; font-size: 9px;">
                 <span>購入者: ${log.buyer_name}</span>
@@ -9566,7 +10212,7 @@ socket.on('vending_sales_log_res', (data) => {
 // 🔔 リアルタイムで商品が売れたときのシステム通知
 socket.on('vending_item_sold_notification', (data) => {
     if (typeof showSystemMessage === 'function') {
-        showSystemMessage(`【露店売上】${data.buyerName} が ${data.itemName} x${data.quantity} を ${data.totalPrice.toLocaleString()}メル で購入しました！`);
+        showSystemMessage(`【露店売上】${data.buyerName} が ${data.itemName} x${data.quantity} を ${data.totalPrice.toLocaleString()}コイン で購入しました！`);
     }
 });
 
@@ -9597,9 +10243,9 @@ if (typeof socket !== 'undefined' && socket) {
         // 2. ダイアログ（通知）を表示する
         const claimedAmount = data.claimed || 0;
         if (typeof showNotification === 'function') {
-            showNotification(`💰 ${claimedAmount.toLocaleString()} メルを受け取りました！(売り切れ品を片付けました)`, "#2ecc71");
+            showNotification(`💰 ${claimedAmount.toLocaleString()} コインを受け取りました！(売り切れ品を片付けました)`, "#2ecc71");
         } else {
-            alert(`${claimedAmount.toLocaleString()} メルを受け取りました！`);
+            alert(`${claimedAmount.toLocaleString()} コインを受け取りました！`);
         }
 
         // 3. 手元の hero オブジェクトなどの未受取金を 0 に更新
@@ -9854,7 +10500,7 @@ function addItemToVendingList(item) {
                 <span style="color: #0f172a; font-weight: 700; font-size: 12px; letter-spacing: 0.2px;">${displayName}</span>
                 <div style="display: flex; align-items: baseline; gap: 3px;">
                     <span style="color: ${priceColor}; font-weight: 800; font-size: 11px;">${displayPrice}</span>
-                    <span style="color: #64748b; font-size: 9px; font-weight: 600;">メル</span>
+                    <span style="color: #64748b; font-size: 9px; font-weight: 600;">コイン</span>
                 </div>
             </div>
         </div>
@@ -9869,7 +10515,7 @@ function addItemToVendingList(item) {
     `;
     
     listContainer.appendChild(itemEl);
-    console.log(`${displayName} を価格 ${displayPrice} メルで販売リストに追加しました。`);
+    console.log(`${displayName} を価格 ${displayPrice} コインで販売リストに追加しました。`);
 
     // 🌟 アイテムが追加された瞬間に、リストのスクロールを一番下へ移動する！
     listContainer.scrollTop = listContainer.scrollHeight;
@@ -11028,125 +11674,223 @@ function setupOpponentTrade(opponentData) {
     }
 }
 
-// 相手のアバター描画用関数（右向き・高解像度・自動余白カット対応）
+// ============================================================
+// 🤝 トレード画面用の相手アバター描画関数（Idleアニメ・重心固定・右向き版）
+// ============================================================
 function drawOpponentTradeAvatar(opponentData) {
-    console.log("🎨 [drawOpponentTradeAvatar] 実行開始:", opponentData);
-    console.log("🔍 【受け取った相手の全データ】:", JSON.stringify(opponentData, null, 2));
-	
     const canvas = document.getElementById('trade-opponent-avatar-canvas');
     if (!canvas) return;
-    const ctx = canvas.getContext('2d');
 
     if (!opponentData) return;
 
-    // 相手のモデルIDとバリエーションを取得（なければデフォルト）
-    const g = (opponentData.model_id !== undefined && opponentData.model_id !== null) ? opponentData.model_id : 0;
-    const v = opponentData.charVar || 1;
+    // 最新の相手データを保持（ループ中や再呼び出し時に最新値へ追従）
+    canvas._latestOpponentData = opponentData;
 
-    // フォルダ名やファイル名用に2桁の文字列に変換
-    const groupNum = String(g).padStart(2, '0');
-    const varNum = String(v).padStart(2, '0');
-    const action = "Idle"; // 基本の立ちポーズ
-    const frameNum = "00"; // 最初のフレーム
+    const rawDomain = (typeof IMAGE_DOMAIN !== 'undefined' && IMAGE_DOMAIN) ? String(IMAGE_DOMAIN) : '';
+    const baseDomain = rawDomain.replace(/\/+$/, '');
 
-    const displayWidth = 64;
-    const displayHeight = 64;
-    const dpr = window.devicePixelRatio || 1;
+    // 共通領域算出ヘルパー（外部に calculateTradeCommonBoundingBox があれば優先利用）
+    const computeCommonBox = (state, images) => {
+        if (typeof calculateTradeCommonBoundingBox === 'function') {
+            calculateTradeCommonBoundingBox(state, images);
+            if (state.commonBox) return;
+        }
 
-    // Canvas自体の内部解像度を物理ピクセルに合わせて倍増させる
-    if (canvas.width !== displayWidth * dpr || canvas.height !== displayHeight * dpr) {
-        canvas.width = displayWidth * dpr;
-        canvas.height = displayHeight * dpr;
-        canvas.style.width = displayWidth + 'px';
-        canvas.style.height = displayHeight + 'px';
-    }
+        const sample = images.find(img => img && img.complete && img.naturalWidth > 0 && img.naturalHeight > 0);
+        if (!sample) return;
 
-    // 1. その場で新しい画像オブジェクトを作成してパスを指定！
-    const img = new Image();
-    img.src = `${IMAGE_DOMAIN}char_assets/${groupNum}/${varNum}/${action}/Characters-Character${varNum}-${action}_${frameNum}.png`;
-
-    // 描画を実行する内部関数（自動余白カット処理を含む）
-    const renderImage = (targetImg) => {
-        ctx.save();
-        ctx.imageSmoothingEnabled = false; // ドット絵のシャープさを保つ
-        ctx.scale(dpr, dpr);
-        ctx.clearRect(0, 0, displayWidth, displayHeight);
-
-        // 🌟 一時キャンバスで余白自動カット（ご提示いただいた自分のアバターと同じロジック）
+        // ロード済み画像全体の非透明ピクセル範囲を集計して共通ボックスを算出
+        const w = sample.naturalWidth;
+        const h = sample.naturalHeight;
         const tempCanvas = document.createElement('canvas');
-        tempCanvas.width = targetImg.width;
-        tempCanvas.height = targetImg.height;
-        const tempCtx = tempCanvas.getContext('2d');
-        tempCtx.drawImage(targetImg, 0, 0);
+        tempCanvas.width = w;
+        tempCanvas.height = h;
+        const tempCtx = tempCanvas.getContext('2d', { willReadFrequently: true });
 
-        const imgData = tempCtx.getImageData(0, 0, targetImg.width, targetImg.height);
-        const data = imgData.data;
-
-        let minX = targetImg.width, minY = targetImg.height, maxX = 0, maxY = 0;
+        let minX = w, minY = h, maxX = 0, maxY = 0;
         let found = false;
 
-        for (let y = 0; y < targetImg.height; y++) {
-            for (let x = 0; x < targetImg.width; x++) {
-                const alpha = data[(y * targetImg.width + x) * 4 + 3];
-                if (alpha > 10) {
-                    if (x < minX) minX = x;
-                    if (x > maxX) maxX = x;
-                    if (y < minY) minY = y;
-                    if (y > maxY) maxY = y;
-                    found = true;
+        images.forEach((img) => {
+            if (!img || !img.complete || img.naturalWidth === 0 || img.naturalHeight === 0) return;
+            tempCtx.clearRect(0, 0, w, h);
+            tempCtx.drawImage(img, 0, 0, w, h);
+            const data = tempCtx.getImageData(0, 0, w, h).data;
+
+            for (let y = 0; y < h; y++) {
+                for (let x = 0; x < w; x++) {
+                    const alpha = data[(y * w + x) * 4 + 3];
+                    if (alpha > 10) {
+                        if (x < minX) minX = x;
+                        if (x > maxX) maxX = x;
+                        if (y < minY) minY = y;
+                        if (y > maxY) maxY = y;
+                        found = true;
+                    }
                 }
             }
+        });
+
+        if (found && maxX >= minX && maxY >= minY) {
+            state.commonBox = {
+                x: minX,
+                y: minY,
+                w: maxX - minX + 1,
+                h: maxY - minY + 1
+            };
+        } else {
+            state.commonBox = { x: 0, y: 0, w, h };
         }
-
-        if (!found) {
-            minX = 0; minY = 0; maxX = targetImg.width; maxY = targetImg.height;
-        }
-
-        const sourceX = minX;
-        const sourceY = minY;
-        const sourceWidth = maxX - minX + 1;
-        const sourceHeight = maxY - minY + 1;
-
-        // 🌟 サイズフィット計算
-        const targetHeight = 48; 
-        const scale = targetHeight / sourceHeight;
-        
-        const dw = sourceWidth * scale;
-        const dh = sourceHeight * scale;
-        
-        const dx = (displayWidth - dw) / 2;
-        const dy = (displayHeight - dh) / 2;
-
-        // 🌟 描画（相手なので反転はせずそのまま右向きで描画）
-        ctx.drawImage(
-            targetImg, 
-            sourceX, sourceY, sourceWidth, sourceHeight, 
-            dx, dy, dw, dh
-        );
-        
-        ctx.restore();
-        console.log(`✨ 相手のアバター画像を余白カット＆自動フィットして描画しました (Group:${groupNum}, Var:${varNum})`);
     };
 
-    // 2. ロード完了したら描画、まだなら読み込みを待つ
-    if (img.complete && img.naturalWidth !== 0) {
-        renderImage(img);
-    } else {
-        // ロード中はひとまずプレースホルダーを表示しつつ、完了したら描き直す
-        ctx.save();
-        ctx.fillStyle = "#333333";
-        ctx.fillRect(8, 8, 48, 48);
-        ctx.fillStyle = "#ffffff";
-        ctx.font = "10px sans-serif";
-        ctx.fillText(`Loading`, 14, 38);
-        ctx.restore();
+    // 初回のみ専用アニメーションループを起動
+    if (!canvas._isAnimLoopRunning) {
+        canvas._isAnimLoopRunning = true;
 
-        img.onload = () => {
-            renderImage(img);
+        canvas._vendingAnimState = {
+            lastCharKey: '',
+            cache: [],
+            internalFrame: 0,
+            lastTime: performance.now(),
+            commonBox: null
         };
-        img.onerror = () => {
-            console.error(`❌ アバター画像の直接ロードに失敗しました: ${img.src}`);
+
+        const animState = canvas._vendingAnimState;
+
+        const renderLoop = () => {
+            // キャンバスが画面から消えていたらループを完全停止
+            if (!document.body.contains(canvas)) {
+                canvas._isAnimLoopRunning = false;
+                return;
+            }
+
+            const latestData = canvas._latestOpponentData;
+            if (latestData) {
+                // 相手のモデルIDとバリエーションを取得（なければデフォルト）
+                const rawModel = (latestData.model_id !== undefined && latestData.model_id !== null)
+                    ? latestData.model_id
+                    : ((latestData.groupId !== undefined && latestData.groupId !== null) ? latestData.groupId : 0);
+                const rawVar = (latestData.charVar !== undefined && latestData.charVar !== null)
+                    ? latestData.charVar
+                    : ((latestData.style_id !== undefined && latestData.style_id !== null) ? latestData.style_id : 1);
+
+                const charKey = `${rawModel}_${rawVar}`;
+
+                // キャラクターやスタイル変更時は Idle 画像キャッシュを再構築
+                if (animState.lastCharKey !== charKey || animState.cache.length === 0) {
+                    animState.lastCharKey = charKey;
+                    animState.cache = [];
+                    animState.internalFrame = 0;
+                    animState.commonBox = null;
+
+                    let charNum = String(rawModel).replace(/[^0-9]/g, '');
+                    if (!charNum) charNum = "0";
+                    const paddedNum = String(parseInt(charNum, 10)).padStart(2, '0');
+
+                    let styleNum = String(rawVar).replace(/[^0-9]/g, '');
+                    if (!styleNum) styleNum = "1";
+                    const paddedStyleNum = String(parseInt(styleNum, 10)).padStart(2, '0');
+
+                    const totalFrames = 20; // 20コマのIdleアニメーション
+                    let loadedCount = 0;
+                    const tempImages = [];
+
+                    for (let i = 0; i < totalFrames; i++) {
+                        const frameNum = String(i).padStart(2, '0');
+                        const img = new Image();
+                        img.crossOrigin = "anonymous";
+                        img.src = `${baseDomain}/char_assets/${paddedNum}/${paddedStyleNum}/Idle/Characters-Character${paddedStyleNum}-Idle_${frameNum}.png`;
+
+                        img.onload = () => {
+                            loadedCount++;
+                            if (loadedCount === totalFrames) {
+                                computeCommonBox(animState, tempImages);
+                            }
+                        };
+                        img.onerror = () => {
+                            loadedCount++;
+                            if (loadedCount === totalFrames && !animState.commonBox) {
+                                computeCommonBox(animState, tempImages);
+                            }
+                        };
+
+                        tempImages.push(img);
+                        animState.cache.push(img);
+                    }
+                }
+
+                // 一定時間ごとにアニメーションフレームを進める（約90msごと）
+                const now = performance.now();
+                if (now - animState.lastTime > 90) {
+                    if (animState.cache.length > 0 && animState.cache[0].complete && animState.cache[0].naturalWidth > 0) {
+                        animState.internalFrame = (animState.internalFrame + 1) % animState.cache.length;
+                    }
+                    animState.lastTime = now;
+                }
+
+                const ctx = canvas.getContext('2d');
+                if (ctx) {
+                    const currentImg = animState.cache[animState.internalFrame];
+
+                    if (currentImg && currentImg.complete && currentImg.naturalWidth !== 0) {
+                        const dpr = window.devicePixelRatio || 2;
+                        const displayWidth = 64;
+                        const displayHeight = 64;
+
+                        const targetCanvasWidth = displayWidth * dpr;
+                        const targetCanvasHeight = displayHeight * dpr;
+
+                        if (canvas.width !== targetCanvasWidth || canvas.height !== targetCanvasHeight) {
+                            canvas.width = targetCanvasWidth;
+                            canvas.height = targetCanvasHeight;
+                            canvas.style.width = '64px';
+                            canvas.style.height = '64px';
+                        }
+
+                        ctx.save();
+                        ctx.imageSmoothingEnabled = false;
+                        ctx.scale(dpr, dpr);
+                        ctx.clearRect(0, 0, displayWidth, displayHeight);
+
+                        // 計算済みの共通ボックスを使用（未完了時はフォールバック）
+                        const box = animState.commonBox || {
+                            x: 0, y: 0, w: currentImg.naturalWidth, h: currentImg.naturalHeight
+                        };
+
+                        const targetHeight = 60;
+                        const scale = targetHeight / box.h;
+
+                        const dw = box.w * scale;
+                        const dh = box.h * scale;
+
+                        const dx = (displayWidth - dw) / 2;
+                        const dy = (displayHeight - dh) / 2 - 2;
+
+                        ctx.save();
+                        // 🌟 相手アバターは反転せず右向きのまま描画
+
+                        // 🌟 輪郭の視認性を高めるソフトシャドウ
+                        ctx.shadowColor = "rgba(0, 0, 0, 0.4)";
+                        ctx.shadowBlur = 4;
+                        ctx.shadowOffsetX = 0;
+                        ctx.shadowOffsetY = 2;
+
+                        // 共通ボックス基準で全コマを統一描画し、ぶれを抑制
+                        ctx.drawImage(
+                            currentImg,
+                            box.x, box.y, box.w, box.h,
+                            dx, dy, dw, dh
+                        );
+
+                        ctx.restore();
+                        ctx.restore();
+                    }
+                }
+            }
+
+            requestAnimationFrame(renderLoop);
         };
+
+        requestAnimationFrame(renderLoop);
     }
 }
 
@@ -11586,7 +12330,7 @@ window.addEventListener('load', () => {
     // タイムアウト設定：5秒経っても反応がなければ強制的にログイン画面を表示
     const timeoutTimer = setTimeout(() => {
         console.log("⏰ サーバー応答なし：タイムアウトしました");
-        if (loadingCover) loadingCover.style.display = 'none';
+        //if (loadingCover) loadingCover.style.display = 'none';
         
         if (loginOverlay) {
             loginOverlay.style.opacity = '1';
@@ -11600,7 +12344,6 @@ window.addEventListener('load', () => {
         clearTimeout(timeoutTimer); // タイムアウトをキャンセル
         console.log("✨ 自動ログイン成功！", userData);
 
-        if (loadingCover) loadingCover.style.display = 'none';
         if (loginOverlay) {
             loginOverlay.style.opacity = '0';
             loginOverlay.style.pointerEvents = 'none';
@@ -11609,6 +12352,23 @@ window.addEventListener('load', () => {
         // 🌟 ゲーム画面とUIエリアを出現させる！
         if (mainContainer) mainContainer.style.display = 'flex';
         if (uiContainer) uiContainer.style.display = 'flex';
+
+        // ==========================================================
+        // 🌟 【ここ！】ゲーム画面とUIエリアが出現したのをトリガーにしてカバーを外す
+        // ==========================================================
+        if (loadingCover) {
+            // requestAnimationFrame を使って「画面の表示が確定した直後」に安全に消す
+            requestAnimationFrame(() => {
+                setTimeout(() => {
+                    loadingCover.style.transition = 'opacity 0.3s ease';
+                    loadingCover.style.opacity = '0';
+                    setTimeout(() => {
+                        loadingCover.style.display = 'none';
+                        loadingCover.style.opacity = '1'; // 次回のために戻す
+                    }, 300); // 0.3秒かけてフワッと消す
+                }, 50); // わずかな描画待ちの猶予
+            });
+        }
     };
 
     // 予め 'login_data' のリスナーを登録しておく
@@ -11630,7 +12390,7 @@ window.addEventListener('load', () => {
     } else {
         clearTimeout(timeoutTimer); // トークン不要なので解除
         console.log("⚠️ トークンなし、ログイン画面を表示");
-        if (loadingCover) loadingCover.style.display = 'none';
+        //if (loadingCover) loadingCover.style.display = 'none';
         
         if (loginOverlay) {
             loginOverlay.style.opacity = '1';
@@ -11659,6 +12419,32 @@ function logout() {
         location.reload(); 
     }, 150); // 0.15秒後にリロード
 }
+
+// ============================================================
+// 🔗 複数ドメインへのクロスドメインリンク自動トークン付与
+// ============================================================
+const crossDomainLinks = document.querySelectorAll('.cross-domain-link');
+
+crossDomainLinks.forEach(link => {
+    link.addEventListener('click', (e) => {
+        const currentToken = localStorage.getItem('game_token');
+        
+        if (currentToken) {
+            e.preventDefault();
+            // HTMLの href に書かれているリンク先（各ドメインのURL）をそのままベースにする
+            const baseUrl = link.getAttribute('href');
+            
+            // すでに ? や & が含まれているかどうかに応じて綺麗に結合する
+            const separator = baseUrl.includes('?') ? '&' : '?';
+            const targetUrl = `${baseUrl}${separator}token=${encodeURIComponent(currentToken)}`;
+            
+            console.log("🔗 クリック検知！トークン付きURLへジャンプします:", targetUrl);
+            window.location.href = targetUrl;
+        } else {
+            console.warn("⚠️ トークンが見つからないため、通常のリンクとして移動します。");
+        }
+    });
+});
 
 // --- 👾 クライアント側で不足しているサーバーデータを補完 ---
 

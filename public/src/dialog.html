@@ -364,10 +364,8 @@
                 <div>
                     <!-- アバター（上）＆名前（下）のコンテナ -->
                     <div style="background: #fff; border: 1px solid #b5b3a4; padding: 6px; border-radius: 3px; text-align: center; margin-bottom: 10px; display: flex; flex-direction: column; align-items: center; gap: 4px; box-shadow: inset 1px 1px 2px rgba(0,0,0,0.05);">
-                        <!-- アバター用ミニCanvas (64x64) -->
-                        <div style="width: 64px; height: 64px; background: #faf9f5; border: 1px solid #ccc; border-radius: 2px; display: flex; align-items: center; justify-content: center; overflow: hidden; flex-shrink: 0;">
-                            <canvas id="trade-opponent-avatar-canvas" width="64" height="64" style="display: block;"></canvas>
-                        </div>
+                        <!-- アバター用ミニCanvas (64x64・枠なし) -->
+                        <canvas id="trade-opponent-avatar-canvas" width="64" height="64" style="display: block; flex-shrink: 0;"></canvas>
                         <!-- 🌟 名前（未入室時も高さを固定し、ズレを防止） -->
                         <div id="trade-target-name" style="font-size: 11px; font-weight: bold; color: #d34a4a; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; width: 100%; text-align: center; min-height: 16px; line-height: 16px;">（待機中...）</div>
                     </div>
@@ -399,10 +397,8 @@
                 <div>
                     <!-- アバター（上）＆名前（下）のコンテナ -->
                     <div style="background: #fff; border: 1px solid #b5b3a4; padding: 6px; border-radius: 3px; text-align: center; margin-bottom: 10px; display: flex; flex-direction: column; align-items: center; gap: 4px; box-shadow: inset 1px 1px 2px rgba(0,0,0,0.05);">
-                        <!-- アバター用ミニCanvas (64x64) -->
-                        <div style="width: 64px; height: 64px; background: #faf9f5; border: 1px solid #ccc; border-radius: 2px; display: flex; align-items: center; justify-content: center; overflow: hidden; flex-shrink: 0;">
-                            <canvas id="trade-my-avatar-canvas" width="64" height="64" style="display: block;"></canvas>
-                        </div>
+                        <!-- アバター用ミニCanvas (64x64・枠なし) -->
+                        <canvas id="trade-my-avatar-canvas" width="64" height="64" style="display: block; flex-shrink: 0;"></canvas>
                         <!-- 🌟 名前（高さのバランスを合わせるため同様に設定） -->
                         <div id="trade-my-name" style="font-size: 11px; font-weight: bold; color: #3b82f6; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; width: 100%; text-align: center; min-height: 16px; line-height: 16px;">自分</div>
                     </div>
@@ -555,9 +551,9 @@
             
             <!-- 1. 雇用商人プレビュー ＆ 店名直接入力枠 -->
 <div style="background: #f8fafc; border: 1px solid #94a3b8; border-radius: 4px; padding: 6px 8px; display: flex; align-items: center; gap: 8px; box-shadow: inset 0 1px 3px rgba(0,0,0,0.05);">
-    <!-- 🌟 クリックでモンスター変更ウィンドウが開くようにする -->
-    <div onclick="openMonsterSelectorForVending()" style="width: 40px; height: 40px; background: #cbd5e1; border: 1px solid #64748b; border-radius: 4px; display: flex; align-items: center; justify-content: center; overflow: hidden; position: relative; box-shadow: inset 0 2px 4px rgba(0,0,0,0.1); flex-shrink: 0; cursor: pointer;" title="クリックして店番モンスターを変更">
-        <canvas id="vending-merchant-preview-canvas" width="80" height="80" style="display: block; width: 40px; height: 40px; image-rendering: pixelated; image-rendering: crisp-edges; pointer-events: none;"></canvas>
+    <!-- 🌟 クリックでモンスター変更ウィンドウが開くようにする（サイズを他プレイヤーと同じ 64x64px に統一） -->
+    <div onclick="openMonsterSelectorForVending()" style="width: 64px; height: 64px; background: #cbd5e1; border: 1px solid #64748b; border-radius: 4px; display: flex; align-items: center; justify-content: center; overflow: hidden; position: relative; box-shadow: inset 0 2px 4px rgba(0,0,0,0.1); flex-shrink: 0; cursor: pointer;" title="クリックして店番モンスターを変更">
+        <canvas id="vending-merchant-preview-canvas" width="128" height="128" style="display: block; width: 64px; height: 64px; image-rendering: pixelated; image-rendering: crisp-edges; pointer-events: none;"></canvas>
     </div>
     <div style="display: flex; flex-direction: column; overflow: hidden; flex-grow: 1; gap: 2px;">
         <span id="vending-merchant-name" style="font-size: 9px; color: #64748b; font-weight: bold; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">プレイヤー名の雇用商人</span>
@@ -596,10 +592,10 @@
                     <!-- 🌟 align-items を center から baseline に変更して上下のズレを解消 -->
                     <div style="display: flex; align-items: baseline; gap: 3px;">
                         <span id="vending-unclaimed-gold" style="font-weight: 800; font-size: 12px; color: #b45309;">0</span>
-                        <span style="font-size: 10px; color: #475569; font-weight: bold;">メル</span>
+                        <span style="font-size: 10px; color: #475569; font-weight: bold;">コイン</span>
                     </div>
                 </div>
-                <!-- 🌟 0メルのときに押せないようにする制御スクリプトを内蔵したボタン -->
+                <!-- 🌟 0コインのときに押せないようにする制御スクリプトを内蔵したボタン -->
                 <button id="vending-claim-gold-btn" onclick="tryClaimVendingGold()" style="background: linear-gradient(180deg, #34d399 0%, #059669 100%); border: 1px solid #047857; color: white; padding: 4px 10px; border-radius: 3px; font-size: 10px; font-weight: bold; cursor: pointer; box-shadow: 0 1px 2px rgba(0,0,0,0.2); transition: all 0.15s;">
                     📥 売上金を受け取る
                 </button>
@@ -615,7 +611,7 @@
                 <label class="vending-label" style="font-size: 10px; font-weight: bold; color: #475569; letter-spacing: 0.3px;">販売価格 (1個あたり)</label>
                 <div class="vending-price-wrapper" style="display: flex; align-items: center; gap: 4px;">
                     <input type="number" id="vending-price" class="vending-price-input" placeholder="0" style="flex-grow: 1; background: #ffffff; border: 1px solid #cbd5e1; padding: 4px 6px; border-radius: 4px; font-size: 11px; color: #0f172a; outline: none;">
-                    <span class="vending-label" style="font-size: 10px; font-weight: bold; color: #334155; flex-shrink: 0;">メル</span>
+                    <span class="vending-label" style="font-size: 10px; font-weight: bold; color: #334155; flex-shrink: 0;">コイン</span>
                 </div>
             </div>
 
@@ -675,9 +671,9 @@
             
             <!-- 1. 雇用商人プレビュー ＆ 店名表示枠（管理画面とデザイン統一） -->
             <div style="background: #f8fafc; border: 1px solid #94a3b8; border-radius: 4px; padding: 6px 8px; display: flex; align-items: center; gap: 8px; box-shadow: inset 0 1px 3px rgba(0,0,0,0.05);">
-                <!-- モンスターを描画する専用キャンバス -->
-                <div style="width: 40px; height: 40px; background: #cbd5e1; border: 1px solid #64748b; border-radius: 4px; display: flex; align-items: center; justify-content: center; overflow: hidden; position: relative; box-shadow: inset 0 2px 4px rgba(0,0,0,0.1); flex-shrink: 0;">
-                    <canvas id="other-vending-merchant-preview-canvas" width="80" height="80" style="display: block; width: 40px; height: 40px; image-rendering: pixelated; image-rendering: crisp-edges;"></canvas>
+                <!-- 🌟 雇用商人プレビュー（右側のアバターと同じ 64x64px サイズに変更） -->
+                <div style="width: 64px; height: 64px; background: #cbd5e1; border: 1px solid #64748b; border-radius: 4px; display: flex; align-items: center; justify-content: center; overflow: hidden; position: relative; box-shadow: inset 0 2px 4px rgba(0,0,0,0.1); flex-shrink: 0;">
+                    <canvas id="other-vending-merchant-preview-canvas" width="128" height="128" style="display: block; width: 64px; height: 64px; image-rendering: pixelated; image-rendering: crisp-edges;"></canvas>
                 </div>
                 <div style="display: flex; flex-direction: column; overflow: hidden; flex-grow: 1; gap: 2px;">
                     <span id="other-vending-owner-name" style="font-size: 9px; color: #64748b; font-weight: bold; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">〇〇の雇用商人</span>
@@ -686,16 +682,16 @@
             </div>
 
             <!-- 2. 所持金情報ボックス -->
-            <div style="background: #f1f5f9; border: 1px solid #94a3b8; border-radius: 4px; padding: 6px 10px; display: flex; justify-content: space-between; align-items: center;">
-                <span style="font-size: 10px; color: #475569; font-weight: bold;">あなたの所持金</span>
-                <div style="display: flex; align-items: center; gap: 4px;">
+            <div style="background: #f1f5f9; border: 1px solid #94a3b8; border-radius: 4px; padding: 6px 10px; display: flex; justify-content: space-between; align-items: center; line-height: 1;">
+                <span style="font-size: 10px; color: #475569; font-weight: bold; display: inline-flex; align-items: center;">あなたの所持金</span>
+                <div style="display: flex; align-items: baseline; gap: 3px;">
                     <span id="user-money-display" style="font-weight: 800; font-size: 12px; color: #b45309;">-</span>
-                    <span style="font-size: 10px; color: #475569; font-weight: bold;">メル</span>
+                    <span style="font-size: 10px; color: #475569; font-weight: bold;">コイン</span>
                 </div>
             </div>
 
             <!-- 3. 🛍️ 商品リスト表示エリア -->
-            <div id="other-vending-items" style="height: 260px; overflow-y: auto; background: #ffffff; border: 1px solid #94a3b8; border-radius: 4px; padding: 4px; box-shadow: inset 0 2px 4px rgba(0,0,0,0.05);">
+            <div id="other-vending-items" style="height: 236px; overflow-y: auto; background: #ffffff; border: 1px solid #94a3b8; border-radius: 4px; padding: 4px; box-shadow: inset 0 2px 4px rgba(0,0,0,0.05);">
                 <p style="text-align: center; color: #64748b; font-size: 11px; margin: 50px 0;">商品を読み込み中...</p>
             </div>
         </div>
@@ -705,7 +701,7 @@
             
             <!-- 👤 3つのユーザ入室アバター表示エリア -->
             <div style="display: flex; gap: 6px; background: #f8fafc; border: 1px solid #94a3b8; border-radius: 4px; padding: 6px; box-shadow: inset 0 1px 3px rgba(0,0,0,0.05);">
-                <!-- 🌟 1枠目：高さを調整し、アバターと名前がぴったり収まるように最適化 -->
+                <!-- 1枠目 -->
                 <div id="visitor-slot-1" style="flex: 1; height: 95px; background: #e2e8f0; border: 1px solid #cbd5e1; border-radius: 3px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 1px; overflow: hidden; position: relative; padding: 3px 4px; box-sizing: border-box;">
                     <canvas id="other-vending-my-avatar-canvas" width="128" height="128" style="display: block; width: 64px; height: 64px; image-rendering: pixelated; image-rendering: crisp-edges;"></canvas>
                     <div id="visitor-name-1" style="font-weight: bold; color: #1e293b; font-size: 10px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; line-height: 1.2;">あなた</div>
@@ -756,7 +752,7 @@
 
         <div style="font-size: 10px; color: #475569; display: flex; justify-content: space-between;">
             <span>合計金額:</span>
-            <span id="dialog-total-price" style="font-weight: bold; color: #2563eb;">0 メル</span>
+            <span id="dialog-total-price" style="font-weight: bold; color: #2563eb;">0 コイン</span>
         </div>
 
         <div style="display: flex; gap: 6px; margin-top: 4px;">
@@ -822,7 +818,7 @@
             <button class="maple-btn-orange" style="font-size: 11px; font-weight: bold; background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%); color: white; border: 1px solid #1e40af; padding: 6px 12px; border-radius: 6px; cursor: pointer; box-shadow: 0 2px 4px rgba(59,130,246,0.2);">💰 アイテムを売る</button>
             <div class="shop-gold-display" style="background: #ffffff; border: 1px solid #cbd5e1; padding: 4px 10px; border-radius: 6px; display: flex; align-items: center; gap: 4px; box-shadow: inset 0 1px 2px rgba(0,0,0,0.03);">
                 <span id="shop-user-gold" style="font-weight: 800; font-family: 'Segoe UI', Tahoma, sans-serif; font-size: 13px; color: #d97706;">0</span>
-                <span style="font-size: 10px; color: #64748b; font-weight: bold;">メル</span>
+                <span style="font-size: 10px; color: #64748b; font-weight: bold;">コイン</span>
             </div>
         </div>
     </div>

@@ -556,6 +556,11 @@ async function performLogin(socket, user, token, channel, group, style_id) {
         if (typeof notifyFriendsToRefresh === 'function') {
             await notifyFriendsToRefresh(user.id);
         }
+		
+		// 📝 ログイン履歴を login_logs に記録
+        await saveLoginLog(user.id, user.username, 'LOGIN', selectedChannel);
+		
+		await broadcastLoginLogs();
 
     } catch (err) {
         console.error("❌ performLogin処理エラー:", err);
@@ -706,6 +711,33 @@ socket.on('logout', async () => {
             
         } catch (err) {
             console.error("❌ ログアウト処理エラー:", err);
+        }
+    }
+});
+
+// ============================================================
+// 📜 直近のログイン・ログアウト履歴を取得するイベント
+// ============================================================
+socket.on('request_login_logs', async (callback) => {
+    try {
+        const [rows] = await pool.query(
+            `SELECT id, username, event_type, channel, created_at
+             FROM login_logs
+             ORDER BY id DESC
+             LIMIT 20`
+        );
+        // 古い順→新しい順に並べ替えて、下が最新になるようにする
+        const logs = rows.reverse();
+
+        if (typeof callback === 'function') {
+            callback({ success: true, logs });
+        } else {
+            socket.emit('login_logs_data', logs);
+        }
+    } catch (err) {
+        console.error('❌ [LOGIN_LOG] 取得エラー:', err.message);
+        if (typeof callback === 'function') {
+            callback({ success: false, logs: [] });
         }
     }
 });
@@ -1064,6 +1096,73 @@ socket.on('request_column_data', async () => {
     }
 });
 
+// 📖 サーバー側でシリーズデータの要求を受信してロリポップから取得・送信する処理
+socket.on('request_series_data', async () => {
+    console.log("📡 [DEBUG] シリーズデータの要求を受信しました");
+    try {
+        // 先ほど作成したシリーズ用のPHPファイルを呼び出す
+        const response = await fetch('https://imgv.jp/get_series.php'); // ※必要に応じてURLやファイル名を確認・調整してください
+        const data = await response.json();
+
+        console.log("📡 [DEBUG] ロリポップからシリーズの全テーブルデータを取得成功しました！", data);
+        
+        // クライアントへそのまま送信
+        socket.emit('receive_series_data', data);
+    } catch (err) {
+        console.error("❌ シリーズデータの取得エラー:", err);
+        socket.emit('receive_series_data', { status: 'error', tables: {} });
+    }
+});
+
+// 📖 サーバー側でサークルデータの要求を受信してロリポップから取得・送信する処理
+socket.on('request_circle_data', async () => {
+    console.log("📡 [DEBUG] サークルデータの要求を受信しました");
+    try {
+        // サークル用のPHPファイルを呼び出す
+        const response = await fetch('https://imgv.jp/get_circle.php'); // ※実際のファイル名やURLに合わせて調整してください
+        const data = await response.json();
+
+        console.log("📡 [DEBUG] ロリポップからサークルの全テーブルデータを取得成功しました！", data);
+        
+        // クライアントへ送信
+        socket.emit('receive_circle_data', data);
+    } catch (err) {
+        console.error("❌ サークルデータの取得エラー:", err);
+        socket.emit('receive_circle_data', { status: 'error', tables: {} });
+    }
+});
+
+// 📖 サーバー側でコメントデータの要求を受信してロリポップから取得・送信する処理
+socket.on('request_comment_data', async () => {
+    console.log("📡 [DEBUG] コメントデータの要求を受信しました");
+    try {
+        const response = await fetch('https://imgv.jp/get_comment.php');
+        const data = await response.json();
+
+        console.log("📡 [DEBUG] ロリポップからコメントの全テーブルデータを取得成功しました！", data);
+        
+        socket.emit('receive_comment_data', data);
+    } catch (err) {
+        console.error("❌ コメントデータの取得エラー:", err);
+        socket.emit('receive_comment_data', { status: 'error', tables: {} });
+    }
+});
+
+socket.on('request_table_data', async () => {
+    console.log("📡 [DEBUG] コメントデータの要求を受信しました");
+    try {
+        const response = await fetch('https://imgv.jp/get_tables.php');
+        const data = await response.json();
+
+        console.log("📡 [DEBUG] ロリポップからコメントの全テーブルデータを取得成功しました！", data);
+        
+        socket.emit('receive_table_data', data);
+    } catch (err) {
+        console.error("❌ コメントデータの取得エラー:", err);
+        socket.emit('receive_table_data', { status: 'error', tables: {} });
+    }
+});
+
 // 📖 クライアントからの写真データ要求を受けて、PHP経由でロリポップのDBから取得する（フォトテーブル追加版）
 socket.on('request_photo_data', async () => {
     console.log("📡 [DEBUG] クライアントから写真データの要求を受信しました");
@@ -1263,25 +1362,15 @@ socket.on('request_photo_data', async () => {
     }
 });
 
-// 📖 クライアントからのユーザーデータ要求を受けて、PHP経由でロリポップのDBから取得する（デバッグ強化版）
+// 📖 クライアントからのユーザーデータ要求を受けて、PHP経由でロリポップのDBから取得する（全63テーブル完全統合版）
 socket.on('request_users_data', async () => {
     console.log("📡 [DEBUG] クライアントからユーザーデータの要求を受信しました");
     try {
-        console.log("🌐 [DEBUG] https://imgv.jp/get_users.php へフェッチ中...");
-        const response = await fetch('https://imgv.jp/get_users.php');
-        
-        if (!response.ok) {
-            console.error(`❌ [ERROR] HTTPエラーステータス: ${response.status}`);
-        }
-
+        const response = await fetch('https://imgv.jp/get_users.php'); // 実際のURL環境に合わせてください
         const data = await response.json();
-        console.log("📥 [DEBUG] PHPからJSONデータを受信完了。構造をチェックします...");
 
         if (data.status === 'success' && data.tables) {
-            console.log("✅ [DEBUG] status === 'success' 確認。テーブルデータの展開を開始します...");
-
             const userNameTable = data.tables['mysql_user_name'] || [];
-            console.log(`👤 [DEBUG] 対象ユーザー名テーブル件数: ${userNameTable.length}件`);
             
             // 既存テーブル群
             const ageTable = data.tables['mysql_user_age'] || [];
@@ -1329,7 +1418,7 @@ socket.on('request_users_data', async () => {
             const popularityTable = data.tables['mysql_user_popularity'] || [];
             const rankTable = data.tables['mysql_user_rank'] || [];
 
-            // 新規追加14テーブル
+            // 🌟 今回新規追加する14テーブル
             const registDateTable = data.tables['mysql_user_regist_date'] || [];
             const researchTable = data.tables['mysql_user_research'] || [];
             const respectedPageTable = data.tables['mysql_user_respected_page'] || [];
@@ -1344,8 +1433,6 @@ socket.on('request_users_data', async () => {
             const thumbnailTable = data.tables['mysql_user_thumbnail'] || [];
             const typeTable = data.tables['mysql_user_type'] || [];
             const zoneTable = data.tables['mysql_user_zone'] || [];
-
-            console.log("🗺️ [DEBUG] 各種引き当てマップの作成を開始します...");
 
             // 各種引き当てマップの作成
             const ageMap = {}; ageTable.forEach(row => { const k = row.user_id || row.id; if (k) ageMap[k] = { age: row.age !== undefined ? row.age : 0, status: row.status || 'public' }; });
@@ -1393,7 +1480,7 @@ socket.on('request_users_data', async () => {
             const popularityMap = {}; popularityTable.forEach(row => { const k = row.user_id || row.id; if (k) popularityMap[k] = row.user_popularity !== undefined ? row.user_popularity : 0; });
             const rankMap = {}; rankTable.forEach(row => { const k = row.user_id || row.id; if (k) rankMap[k] = row.user_rank || 'sky'; });
 
-            // 新規追加14テーブルマップ
+            // 🌟 新規追加14テーブルのマップ作成
             const registDateMap = {}; registDateTable.forEach(row => { const k = row.user_id || row.id; if (k) registDateMap[k] = row.regist_date || '未記録'; });
             const researchMap = {}; researchTable.forEach(row => { const k = row.user_id || row.id; if (k) researchMap[k] = row.research_id || '未設定'; });
             const respectedPageMap = {}; respectedPageTable.forEach(row => { const k = row.user_id || row.id; if (k) respectedPageMap[k] = row.respected_page_id || 'なし'; });
@@ -1411,8 +1498,6 @@ socket.on('request_users_data', async () => {
             });
             const typeMap = {}; typeTable.forEach(row => { const k = row.user_id || row.id; if (k) typeMap[k] = row.type || '不明'; });
             const zoneMap = {}; zoneTable.forEach(row => { const k = row.user_id || row.id; if (k) zoneMap[k] = row.now_zone || '未設定'; });
-
-            console.log("🔗 [DEBUG] マップ作成完了。ユーザーデータのマージ（統合）を開始します...");
 
             // 🌟 各ユーザーアイテムに情報を合体（マージ）させる
             const mergedUsers = userNameTable.map((item, index) => {
@@ -1477,6 +1562,7 @@ socket.on('request_users_data', async () => {
                     user_plan: planMap[uId] || 'regular',
                     user_popularity: popularityMap[uId] !== undefined ? popularityMap[uId] : 0,
                     user_rank: rankMap[uId] || 'sky',
+                    // 🌟 新規追加14テーブルデータ
                     regist_date: registDateMap[uId] || '未記録',
                     research_id: researchMap[uId] || '未設定',
                     respected_page_id: respectedPageMap[uId] || 'なし',
@@ -1496,14 +1582,13 @@ socket.on('request_users_data', async () => {
                 };
             });
 
-            console.log("📡 [DEBUG] ユーザーデータの構築が正常に完了しました！件数: " + mergedUsers.length + "件。クライアントへ送信します。");
+            console.log("📡 [DEBUG] ユーザーデータを " + mergedUsers.length + " 件構築しました！");
             socket.emit('receive_users_data', { status: 'success', users: mergedUsers, tables: data.tables });
         } else {
-            console.warn("⚠️ [WARNING] PHPのレスポンスが success ではないか、tables が存在しません。", data);
             socket.emit('receive_users_data', { status: 'error', users: [] });
         }
     } catch (err) {
-        console.error("❌ [ERROR] ユーザーデータ取得・マージ処理中に例外エラーが発生しました:", err);
+        console.error("❌ ユーザーデータ取得エラー:", err);
         socket.emit('receive_users_data', { status: 'error', users: [] });
     }
 });
@@ -2309,7 +2394,7 @@ socket.on('organizeInventory', async () => {
 });
 
         // ============================================================
-// :::DISCONNECT::: 👋 接続解除 (Disconnect) 処理（キー完全統一・座標保持版）
+// :::DISCONNECT::: 👋 接続解除 (Disconnect) 処理（キー完全統一・座標保持・isEditing解除版）
 // ============================================================
 socket.on('disconnect', async () => {
     LOG.SYS(`ユーザーが切断しました: ${socket.id}`);
@@ -2318,6 +2403,31 @@ socket.on('disconnect', async () => {
     try {
         const p = players[socket.id];
         const name = p ? p.name : (socket.username || socket.id);
+        const targetDbId = (p && p.dbId) || socket.vendingEditingUserId || null;
+
+		// 📝 切断（ログアウト）履歴を login_logs に記録
+        if (p && p.name) {
+            await saveLoginLog(p.dbId, p.name, 'LOGOUT', p.channel);
+        } else if (socket.username) {
+            await saveLoginLog(null, socket.username, 'LOGOUT', null);
+        }
+		
+		await broadcastLoginLogs();
+		
+        // 🔓 切断時に vending_shops の isEditing を 0 に戻す（無人露店は維持したまま編集フラグだけ解除）
+        if (targetDbId) {
+            try {
+                const [res] = await pool.query(
+                    `UPDATE vending_shops SET isEditing = 0 WHERE user_id = ? AND isEditing != 0`,
+                    [targetDbId]
+                );
+                if (res && res.affectedRows > 0) {
+                    LOG.SYS(`[Vending] ${name} (user_id: ${targetDbId}) の切断に伴い vending_shops.isEditing を 0 にリセットしました。`);
+                }
+            } catch (dbErr) {
+                console.error(`❌ [Vending] isEditing リセットエラー (user_id: ${targetDbId}):`, dbErr.message);
+            }
+        }
 
         if (p && p.dbId) {
             await notifyFriendsToRefresh(p.dbId);
@@ -2840,7 +2950,7 @@ socket.on('drop_gold', (data) => {
     socket.emit('chat', { 
         id: 'SYSTEM_LOG', 
         name: '情報', 
-        text: `[${new Date().toLocaleTimeString('ja-JP', { timeZone: 'Asia/Tokyo', hour: '2-digit', minute: '2-digit' })}] ${amount}メルを捨てました。`
+        text: `[${new Date().toLocaleTimeString('ja-JP', { timeZone: 'Asia/Tokyo', hour: '2-digit', minute: '2-digit' })}] ${amount}コインを捨てました。`
     });
 });
 
@@ -3372,7 +3482,7 @@ socket.on('sell_request', async (data) => {
         socket.emit('chat', {
             id: 'SYSTEM_LOG',
             name: '店主',
-            text: `${catalogItem.display_name}を${sellQty}個売って、${totalEarned}メル受け取ったよ。`
+            text: `${catalogItem.display_name}を${sellQty}個売って、${totalEarned}コイン受け取ったよ。`
         });
 		*/
 		
@@ -3695,6 +3805,30 @@ socket.on('request_my_vending_info', async (callback) => {
                 channelId: assignedChannel, // 念のため
                 ch: assignedChannel
             };
+
+            // 📣 【ステップ2追加】管理者本人が露店管理メニュー（陳列・確認）に入ったことを通知
+            const kickPayload = {
+                ownerId: String(shop.user_id ?? p.dbId),
+                owner_id: String(shop.user_id ?? p.dbId),
+                shopId: shop.user_id ?? p.dbId,
+                channel: assignedChannel,
+                message: `${shop.owner_name || "管理者"}が陳列のため入室したため、無人露店から退室しました。`,
+                timestamp: new Date().toISOString()
+            };
+
+            console.log("📣 [SERVER][VENDING_KICK] 管理者入室を通知します:", {
+                ownerId: kickPayload.ownerId,
+                ownerName: shop.owner_name,
+                channel: assignedChannel,
+                socketId: socket.id
+            });
+
+            // 同じチャンネル（またはルーム）に配信したい場合は io.to(...) へ調整可能
+            if (typeof io !== 'undefined' && io) {
+                io.emit('vending_owner_entered', kickPayload);
+            } else {
+                socket.broadcast.emit('vending_owner_entered', kickPayload);
+            }
 
             if (typeof callback === 'function') {
                 callback({ success: true, shopData: shopData });
@@ -4373,8 +4507,8 @@ socket.on('claim_vending_gold', async () => {
         });
 
         // 画面の表示を更新するための通知
-        socket.emit('globalNotification', { message: `💰 ${unclaimed.toLocaleString()} メルを受け取りました！(売り切れ品を片付けました)`, color: "#2ecc71" });
-        console.log(`[Vending] ${p.name} が ${unclaimed} メルを回収しました。`);
+        socket.emit('globalNotification', { message: `💰 ${unclaimed.toLocaleString()} コインを受け取りました！(売り切れ品を片付けました)`, color: "#2ecc71" });
+        console.log(`[Vending] ${p.name} が ${unclaimed} コインを回収しました。`);
 
     } catch (err) {
         console.error("❌ [CLAIM_GOLD_ERROR]:", err.message);
@@ -4661,6 +4795,24 @@ socket.on('request_latest_shop_data', async (data) => {
         console.error("❌ 露店最新データの取得エラー:", err);
     }
 });
+
+// ============================================================
+// 📣 管理者本人の陳列入室を閲覧中クライアントへ通知する関数（ステップ2）
+// ============================================================
+function emitVendingOwnerEntered(io, ownerId, extra = {}) {
+    if (!io || !ownerId) return;
+
+    const payload = {
+        ownerId: String(ownerId),
+        owner_id: String(ownerId),
+        shopId: extra.shopId ?? null,
+        message: extra.message || "管理者が陳列のため入室したため、無人露店から退室しました。",
+        timestamp: new Date().toISOString()
+    };
+
+    console.log("📣 [SERVER][VENDING_KICK] 管理者入室をブロードキャスト:", payload);
+    io.emit("vending_owner_entered", payload);
+}
 
 // ============================================================
 // 🚨 【ガチガチ・デバッグチェッカー】データの汚染・消滅を完全特定する
@@ -10799,6 +10951,55 @@ async function emitPlayerList() {
         io.emit('updatePlayerList', playerList);
     } catch (err) {
         console.error("❌ emitPlayerList エラー:", err);
+    }
+}
+
+// ============================================================
+// 📝 ログイン・ログアウトを login_logs に記録する関数
+// ============================================================
+const recentLoginLogCache = new Map();
+
+async function saveLoginLog(userId, username, eventType, channel = null) {
+    if (!username || !eventType) return;
+
+    const dedupeKey = `${String(username)}::${String(eventType)}`;
+    const nowMs = Date.now();
+    const lastMs = recentLoginLogCache.get(dedupeKey) || 0;
+
+    // 3秒（3000ms）以内の同一ユーザー・同一イベントは重複とみなしてスキップ
+    if (nowMs - lastMs < 3000) {
+        return;
+    }
+    recentLoginLogCache.set(dedupeKey, nowMs);
+
+    const jstNow = new Date(nowMs + 9 * 60 * 60 * 1000)
+        .toISOString()
+        .replace('T', ' ')
+        .slice(0, 19);
+
+    try {
+        await pool.query(
+            `INSERT INTO login_logs (user_id, username, event_type, channel, created_at)
+             VALUES (?, ?, ?, ?, ?)`,
+            [userId || null, username, eventType, channel || null, jstNow]
+        );
+    } catch (err) {
+        console.error('❌ [LOGIN_LOG] 記録エラー:', err.message);
+    }
+}
+
+async function broadcastLoginLogs(limit = 20) {
+    try {
+        const [rows] = await pool.query(
+            `SELECT id, username, event_type, channel, created_at
+             FROM login_logs
+             ORDER BY id DESC
+             LIMIT ?`,
+            [Number(limit) || 20]
+        );
+        io.emit('login_logs_updated', rows.reverse());
+    } catch (err) {
+        console.error('❌ [LOGIN_LOG] ブロードキャストエラー:', err.message);
     }
 }
 

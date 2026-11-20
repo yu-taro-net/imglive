@@ -2086,3 +2086,99 @@ canvas.is-pointer {
     text-align: center;
     margin-top: 100px;
 }
+
+/* 🌐 ポータルナビゲーション全体をすっきり美しく収めるグリッドコンテナ */
+#wiki-news-feed {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: 8px;
+    padding: 12px;
+    background: rgba(15, 23, 42, 0.6);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 8px;
+    backdrop-filter: blur(8px);
+    max-height: 400px;
+    overflow-y: auto; /* 数が多いので高さを超えたらスマートにスクロール */
+}
+
+/* 各段落の余計なマージンをリセット */
+#wiki-news-feed p {
+    margin: 0;
+}
+
+/* 🏷️ ラベル感あふれる美しいカード風リンクボタン */
+.cross-domain-link {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 8px 12px;
+    background: rgba(30, 41, 59, 0.7);
+    color: #e2e8f0 !important;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 6px;
+    font-size: 12px;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    text-decoration: none !important;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* 🖱️ ホバー時（マウスを乗せたとき）の極上なインタラクション */
+.cross-domain-link:hover {
+    background: rgba(56, 189, 248, 0.15);
+    border-color: rgba(56, 189, 248, 0.5);
+    color: #38bdf8 !important;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(56, 189, 248, 0.15);
+}
+
+/* 👆 クリック時のレスポンス */
+.cross-domain-link:active {
+    transform: translateY(0px);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}
+
+#wiki-news-feed {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 10px;
+}
+
+/* 🏷️ ラベル感あふれるカード風リンクボタン（#wiki-news-feed 向け調整版） */
+#wiki-news-feed .cross-domain-link {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 54px;
+    padding: 6px 12px;
+    background: rgba(30, 41, 59, 0.7);
+    color: #e2e8f0 !important;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 500;
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    text-decoration: none !important;
+    transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+    white-space: nowrap;
+}
+
+/* 🖱️ ホバー時のインタラクション */
+#wiki-news-feed .cross-domain-link:hover {
+    background: rgba(56, 189, 248, 0.15);
+    border-color: rgba(56, 189, 248, 0.5);
+    color: #38bdf8 !important;
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(56, 189, 248, 0.15);
+}
+
+/* 👆 クリック時のレスポンス */
+#wiki-news-feed .cross-domain-link:active {
+    transform: translateY(0px);
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.3);
+}

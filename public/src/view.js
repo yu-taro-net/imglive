@@ -5515,7 +5515,7 @@ socket.on('gold_log', (data) => {
     if (typeof itemLogs !== 'undefined') {
         itemLogs.push({
             //text: `💰 Gold: ${data.amount} GOLD 手に入れました！`, // ← ここを書き換え
-            text: `ゴールドを得ました。(+${data.amount})`, // ← ここを書き換え
+            text: `コインを得ました。(+${data.amount})`, // ← ここを書き換え
             timer: 500 
         });
 
@@ -6153,7 +6153,7 @@ function drawGame(hero, others, enemies, items, platforms, ladders, damageTexts,
         }
 		*/
     
-    // 🌟 接続切れ時の描画（アニメーション付き）
+    // 🌟 接続切れ時の描画（アニメーション付き ＆ 再接続ボタン追加版）
     if (window.isDisconnected) {
         ctx.save();
         ctx.setTransform(1, 0, 0, 1, 0, 0); // 座標リセット
@@ -6162,17 +6162,13 @@ function drawGame(hero, others, enemies, items, platforms, ladders, damageTexts,
         ctx.fillStyle = "rgba(0, 0, 0, 0.8)";
         ctx.fillRect(0, 0, canvas.width, canvas.height); 
         
-        // アニメーション用の透明度計算 (Math.sinでゆっくり明滅)
         const pulse = 0.5 + 0.4 * Math.abs(Math.sin(Date.now() / 500));
         ctx.globalAlpha = pulse;
         
         const centerX = canvas.width / 2;
         const centerY = canvas.height / 2;
 
-        // 💡 対策：影(shadow)の代わりに、黒い文字を少しずらして重ねることで
-        // 動作を重くせずにきれいに縁取る方法が一番安全でアニメーションも止まりません！
-        
-        // 1. メインテキスト（黒の影用）
+        // 1. メインテキスト（黒の影）
         ctx.fillStyle = "#000000";
         ctx.textAlign = "center";
         ctx.textBaseline = "middle";
@@ -6183,15 +6179,32 @@ function drawGame(hero, others, enemies, items, platforms, ladders, damageTexts,
         ctx.fillStyle = "#ffffff";
         ctx.fillText("接続が切れました", centerX, centerY);
         
-        // 3. サブテキスト（黒の影用）
+        // 3. サブテキスト（再接続を促す文言）
         ctx.font = "20px 'Segoe UI', sans-serif";
         ctx.fillStyle = "#000000";
-        ctx.fillText("ブラウザをリロード（再読み込み）してください", centerX + 2, centerY + 62);
-
-        // 4. サブテキスト（白）
+        ctx.fillText("下のボタンを押して再接続を試みるか、リロードしてください", centerX + 2, centerY + 52);
         ctx.fillStyle = "#ffffff";
-        ctx.fillText("ブラウザをリロード（再読み込み）してください", centerX, centerY + 60);
+        ctx.fillText("下のボタンを押して再接続を試みるか、リロードしてください", centerX, centerY + 50);
         
+        // 🌟 4. 【追加】再接続ボタンの描画
+        ctx.globalAlpha = 1.0; // ボタンは明滅させない
+        const btnWidth = 200;
+        const btnHeight = 50;
+        const btnX = centerX - (btnWidth / 2);
+        const btnY = centerY + 90;
+
+        // ボタンの背景（青色）
+        ctx.fillStyle = "#2563eb";
+        ctx.fillRect(btnX, btnY, btnWidth, btnHeight);
+        ctx.strokeStyle = "#93c5fd";
+        ctx.lineWidth = 2;
+        ctx.strokeRect(btnX, btnY, btnWidth, btnHeight);
+
+        // ボタンの文字
+        ctx.fillStyle = "#ffffff";
+        ctx.font = "bold 18px 'Segoe UI', sans-serif";
+        ctx.fillText("🔄 再接続する", centerX, btnY + (btnHeight / 2));
+
         ctx.restore();
     }
 	
@@ -6229,6 +6242,34 @@ if (activeHoverEquipment && typeof drawItemTooltip === 'function') {
     }
     // --- [描画処理：ここまで] ---
 }
+
+canvas.addEventListener('click', (event) => {
+    // 💡 接続が切れている状態のときだけ判定
+    if (window.isDisconnected) {
+        const rect = canvas.getBoundingClientRect();
+        const clickX = (event.clientX - rect.left) * (canvas.width / rect.width);
+        const clickY = (event.clientY - rect.top) * (canvas.height / rect.height);
+
+        const centerX = canvas.width / 2;
+        const centerY = canvas.height / 2;
+        const btnWidth = 200;
+        const btnHeight = 50;
+        const btnX = centerX - (btnWidth / 2);
+        const btnY = centerY + 90;
+
+        // 「再接続する」ボタンの範囲内がクリックされたか判定
+        if (clickX >= btnX && clickX <= btnX + btnWidth && clickY >= btnY && clickY <= btnY + btnHeight) {
+            console.log("🔄 再接続ボタンが押されました。ページをリロードして安全に復帰します...");
+            
+            // ローディングカバーを表示状態に戻してからリロード（自然な見た目にするため）
+            const loadingCover = document.getElementById('loading-cover');
+            if (loadingCover) loadingCover.style.display = 'flex';
+
+            // 💾 トークンは localStorage に残っているため、リロードしても自動ログインがそのまま走ります！
+            location.reload();
+        }
+    }
+});
 
 // ============================================================
 // :::DRAW_ACTIVE_ITEM_HUD::: 🧪 複数使用中アイテムの並び描画（特定アイテム限定版）
@@ -7927,7 +7968,7 @@ function drawGoldUI(hero) {
 
     // --- 4. 2.14G対応・可変フォントサイズによる数値表示 ---
     const goldVal = hero.gold || 0;
-    const goldText = goldVal.toLocaleString() + " G"; 
+    const goldText = goldVal.toLocaleString() + " C"; 
 
     // 桁数（文字数）に応じてフォントサイズを自動調整し、はみ出しを防ぐ
     let fontSize = 16;
@@ -10932,47 +10973,43 @@ function drawExpAndDebug(hero) {
 */
 
 // ============================================================
-// :::DRAW_CHAT_BUBBLE::: 💬 キャラクター頭上の吹き出しレンダリング（位置完全同期版）
+// :::DRAW_CHAT_BUBBLE::: 💬 キャラクター頭上の吹き出しレンダリング（全角コロン版）
 // ============================================================
-/**
- * 役割：
- * - 動的レイアウト：テキスト幅に応じた流体的な横幅算出
- * - 座標の厳密化：地面・足場の判定（groundExtraOffset）をキャラクター描画と完全に同期
- * - 視覚効果：ドロップシャドウによる背景からの浮遊感と、シャープな枠線
- */
 function drawChatBubble(p, text) {
     ctx.save();
     
-    // 1. フォント設定とメトリクス取得
+    // 1. プレイヤー名と全角コロンを含めた表示テキストを構築
+    const playerName = p.name || "名無し";
+    const fullText = `${playerName}：${text}`; // 🌟 半角から全角コロンに変更
+
+    // 2. フォント設定とメトリクス取得
     const fontSize = VIEW_CONFIG.chat.fontSize || 12;
     ctx.font = `500 ${fontSize}px 'Segoe UI', sans-serif`;
-    const textWidth = ctx.measureText(text).width;
+    const textWidth = ctx.measureText(fullText).width;
 
     const paddingX = 14;
     const bw = textWidth + (paddingX * 2);
     const bh = 26;
 
-    // 🌟 2. エモーション描画と同様の「キャラクターの正確な足元・描画Y座標」を計算
+    // 3. キャラクターの正確な足元・描画Y座標を計算
     const g = p.model_id !== undefined ? p.model_id : (p.group || 0);
     let footOffset = VIEW_CONFIG.player.visualOffset + (VIEW_CONFIG.groupOffsets[g] || 0);
     if (p.y > VIEW_CONFIG.groundThreshold) {
         footOffset += VIEW_CONFIG.player.groundExtraOffset;
     }
-    // キャラクターの頭頂部（あるいはスプライトの上の基準位置）を算出
     const spriteDrawY = p.y + VIEW_CONFIG.player.hitboxH - VIEW_CONFIG.player.drawH + footOffset;
 
-    // 3. 吹き出しの位置決定（configのオフセット量を適用）
-    const chatOffsetY = VIEW_CONFIG.chat.offsetY || 65; // 設定値がなければデフォルト65等
+    // 4. 吹き出しの位置決定
     const bx = p.x + 20 - bw / 2;
-    const by = spriteDrawY + 70 - bh; // 頭上からさらにオフセット分上に配置
+    const by = spriteDrawY + 70 - bh;
 
-    // 4. 視覚的レイヤー（ドロップシャドウで背景マップから文字を切り離す）
+    // 5. 視覚的レイヤー（ドロップシャドウ）
     ctx.shadowColor = "rgba(0, 0, 0, 0.25)";
     ctx.shadowBlur = 8;
     ctx.shadowOffsetX = 0;
     ctx.shadowOffsetY = 3;
 
-    // 5. 背景パネルと上質な極細の枠線
+    // 6. 背景パネルと枠線
     ctx.fillStyle = "rgba(255, 255, 255, 0.96)";
     ctx.strokeStyle = "rgba(0, 0, 0, 0.15)";
     ctx.lineWidth = 1;
@@ -10982,12 +11019,12 @@ function drawChatBubble(p, text) {
     ctx.fill();
     ctx.stroke();
 
-    // 6. 以降の描画（しっぽ・文字）にはシャドウを継承させない
+    // 7. 以降の描画にはシャドウを継承させない
     ctx.shadowColor = "transparent";
     ctx.shadowBlur = 0;
     ctx.shadowOffsetY = 0;
 
-    // 7. しっぽ（キャラクターと吹き出しを繋ぐポインター）
+    // 8. しっぽの描画
     const tailWidth = 8;
     const tailHeight = 5;
     const centerX = bx + bw / 2;
@@ -11000,12 +11037,12 @@ function drawChatBubble(p, text) {
     ctx.closePath();
     ctx.fill();
 
-    // 8. テキスト描画（垂直・水平ともに完全な中央揃え）
+    // 9. テキスト描画（全体を同じフォント・同じ色で描画）
     ctx.fillStyle = "#222222";
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     
-    ctx.fillText(text, centerX, by + bh / 2);
+    ctx.fillText(fullText, centerX, by + bh / 2);
 
     ctx.restore();
 }
