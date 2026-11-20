@@ -718,6 +718,7 @@ socket.on('logout', async () => {
 function toJstSqlString(val) {
     if (!val) return '';
 
+    // すでに文字列の場合（"2026-11-20T19:37:29.000Z" や "2026-11-20 19:37:29"）はTZ変換せずそのまま整形
     if (typeof val === 'string') {
         const clean = val.trim().replace('T', ' ').replace(/Z$/i, '').replace(/\.\d+$/, '');
         if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(clean)) {
@@ -725,22 +726,13 @@ function toJstSqlString(val) {
         }
     }
 
+    // Date オブジェクトの場合も、もしレンタルサーバー側で数字がそのまま入っているなら
+    // タイムゾーン変換せず要素を並べるか、ローカル環境と合わせて調整します
     const dt = val instanceof Date ? val : new Date(val);
     if (Number.isNaN(dt.getTime())) return String(val);
 
-    const parts = new Intl.DateTimeFormat('sv-SE', {
-        timeZone: 'Asia/Tokyo',
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-        hour12: false
-    }).formatToParts(dt);
-
-    const map = Object.fromEntries(parts.map((p) => [p.type, p.value]));
-    return `${map.year}-${map.month}-${map.day} ${map.hour}:${map.minute}:${map.second}`;
+    const pad = (n) => String(n).padStart(2, '0');
+    return `${dt.getFullYear()}-${pad(dt.getMonth() + 1)}-${pad(dt.getDate())} ${pad(dt.getHours())}:${pad(dt.getMinutes())}:${pad(dt.getSeconds())}`;
 }
 
 // ============================================================
