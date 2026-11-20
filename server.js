@@ -715,6 +715,34 @@ socket.on('logout', async () => {
     }
 });
 
+function toJstSqlString(val) {
+    if (!val) return '';
+
+    if (typeof val === 'string') {
+        const clean = val.trim().replace('T', ' ').replace(/Z$/i, '').replace(/\.\d+$/, '');
+        if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/.test(clean)) {
+            return clean;
+        }
+    }
+
+    const dt = val instanceof Date ? val : new Date(val);
+    if (Number.isNaN(dt.getTime())) return String(val);
+
+    const parts = new Intl.DateTimeFormat('sv-SE', {
+        timeZone: 'Asia/Tokyo',
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        hour12: false
+    }).formatToParts(dt);
+
+    const map = Object.fromEntries(parts.map((p) => [p.type, p.value]));
+    return `${map.year}-${map.month}-${map.day} ${map.hour}:${map.minute}:${map.second}`;
+}
+
 // ============================================================
 // 📜 直近のログイン・ログアウト履歴を取得するイベント
 // ============================================================
@@ -727,7 +755,10 @@ socket.on('request_login_logs', async (callback) => {
              LIMIT 20`
         );
         // 古い順→新しい順に並べ替えて、下が最新になるようにする
-        const logs = rows.reverse();
+        const logs = rows.reverse().map((row) => ({
+            ...row,
+            created_at: toJstSqlString(row.created_at)
+        }));
 
         if (typeof callback === 'function') {
             callback({ success: true, logs });

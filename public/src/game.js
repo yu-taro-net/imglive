@@ -9788,6 +9788,45 @@ if (typeof socket !== 'undefined' && socket) {
 }
 
 // ============================================================
+// 🕒 JST時刻表示ヘルパー（クライアント側・画面描画用）
+// ============================================================
+function formatJstTime(createdAt) {
+    const toJstHm = (dateObj) => dateObj.toLocaleTimeString('ja-JP', {
+        timeZone: 'Asia/Tokyo',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false
+    });
+
+    if (!createdAt) {
+        return toJstHm(new Date());
+    }
+
+    if (typeof createdAt === 'string') {
+        const raw = createdAt.trim();
+
+        // 末尾に Z やタイムゾーン指定（+09:00 / -05:00 等）がある場合は Date として Asia/Tokyo に変換
+        if (/(?:Z|[+-]\d{2}:?\d{2})$/i.test(raw)) {
+            const dt = new Date(raw);
+            if (!Number.isNaN(dt.getTime())) {
+                return toJstHm(dt);
+            }
+        }
+
+        // タイムゾーン表記がない "YYYY-MM-DD HH:mm:ss" などはそのまま時刻を抜く
+        const plainMatch = raw.match(/(?:\s|T)(\d{2}):(\d{2})(?::\d{2})?/);
+        if (plainMatch) {
+            return `${plainMatch[1]}:${plainMatch[2]}`;
+        }
+    }
+
+    const dt = createdAt instanceof Date ? createdAt : new Date(createdAt);
+    if (Number.isNaN(dt.getTime())) return '--:--';
+
+    return toJstHm(dt);
+}
+
+// ============================================================
 // 🖥️ ログイン画面の NETWORK FEED（#login-activity-log）描画
 // ============================================================
 function renderLoginActivityLog(logs) {
@@ -9804,9 +9843,9 @@ function renderLoginActivityLog(logs) {
         const color = isLogin ? '#4CAF50' : '#ff6b6b';
         const suffix = isLogin ? 'さんがログインしました' : 'さんがログアウトしました';
 
-        const dt = row.created_at ? new Date(row.created_at) : new Date();
-        const hh = String(dt.getHours()).padStart(2, '0');
-        const mm = String(dt.getMinutes()).padStart(2, '0');
+        const timeText = formatJstTime(row.created_at);
+		
+		console.log('🧪 [row.created_at]', row.created_at);
 
         const safeName = String(row.username || 'Player')
             .replace(/&/g, '&amp;')
@@ -9815,7 +9854,7 @@ function renderLoginActivityLog(logs) {
 
         return `
             <div style="color: ${color}; display: flex; align-items: center; gap: 6px; flex-shrink: 0;">
-                <span style="font-size: 9px; opacity: 0.7; font-family: monospace;">[${hh}:${mm}]</span>
+                <span style="font-size: 9px; opacity: 0.7; font-family: monospace;">[${timeText}]</span>
                 <span>${safeName} ${suffix}</span>
                 <span style="font-size: 9px; color: #38bdf8; font-family: monospace;">[DB]</span>
             </div>
