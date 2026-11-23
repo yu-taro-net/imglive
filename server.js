@@ -11181,15 +11181,46 @@ function getJSTDate() {
     return new Date(now.getTime() + (9 * 60 * 60 * 1000));
 }
 
-// ============================================================
-// :::EMIT_PLAYER_LIST::: 👤 全プレイヤーリストの集計・共有放送
-// ============================================================
 async function emitPlayerList() {
     try {
         const playerList = [];
+
+        // オンライン中プレイヤーの dbId 一覧を集める
+        const dbIds = Object.values(players)
+            .map((p) => p.dbId)
+            .filter((id) => id !== undefined && id !== null);
+
+        // 🌟 login_logs から各 user_id の最新 LOGIN ドメインを一括取得
+        const domainByUserId = new Map();
+        if (dbIds.length > 0) {
+            const placeholders = dbIds.map(() => '?').join(',');
+            const [logRows] = await pool.query(
+                `SELECT l.user_id, l.domain
+                 FROM login_logs l
+                 INNER JOIN (
+                     SELECT user_id, MAX(id) AS max_id
+                     FROM login_logs
+                     WHERE event_type = 'LOGIN'
+                       AND domain IS NOT NULL
+                       AND domain != ''
+                       AND user_id IN (${placeholders})
+                     GROUP BY user_id
+                 ) latest
+                   ON l.user_id = latest.user_id
+                  AND l.id = latest.max_id`,
+                dbIds
+            );
+
+            for (const row of logRows) {
+                if (row.user_id != null && row.domain) {
+                    domainByUserId.set(Number(row.user_id), row.domain);
+                }
+            }
+        }
+
         for (const socketId in players) {
             const p = players[socketId];
-            
+
             // 🌟 念のため、毎回データベースの最新 fame を直接引いてくる（またはメモリの値を使う）
             let currentFame = p.popularity !== undefined ? p.popularity : 0;
             if (p.dbId) {
@@ -11200,17 +11231,21 @@ async function emitPlayerList() {
                 }
             }
 
+            // 🌟 最新ログインドメインを取得（なければメモリ上の p.domain をフォールバック）
+            const latestDomain = (p.dbId != null && domainByUserId.get(Number(p.dbId))) || p.domain || "";
+
             playerList.push({
                 id: p.id || p.dbId || socketId,
                 dbId: p.dbId,
                 name: p.name || 'Player',
                 channel: p.channel || 1,
                 level: p.level || 1,
-                model_id: p.model_id || 1,    
+                model_id: p.model_id || 1,
                 popularity: currentFame, // 🌟 確実に入った人気度を渡す
                 guild: p.guild || "無所属",
                 inventory: p.inventory || [],
-                
+                domain: latestDomain, // 🌟 最新ログインドメインを追加
+
                 // 🌟 【超重要】ここに露店・看板情報を確実に載せてブロードキャストする！
                 is_vending: p.is_vending || false,
                 mode: p.mode || p.vending_mode || 'monster',

@@ -2960,12 +2960,11 @@ socket.on('updatePlayerList', (playerList) => {
         const oldP = pid ? existingMap.get(pid) : null;
 
         if (oldP) {
-            // 🛡️ 既存データに露店関連のプロパティがあれば、新しいリスト側を引き継ぎ・または保護する
             return {
-                ...oldP,    // 古いデータの状態（露店情報など）を一旦ベースにする
-                ...newP,   // 新しい位置やステータスで上書き
-                
-                // 🌟 ただし、もし新しい方に無くて古い方にある重要データは絶対に消さない！
+                ...oldP,
+                ...newP,
+
+                domain: newP.domain || oldP.domain || "", // 🌟 念のため既存domainも保護
                 mode: newP.mode || oldP.mode || oldP.vending_mode || 'monster',
                 vending_mode: newP.vending_mode || oldP.vending_mode || newP.mode || 'monster',
                 monsterType: newP.monsterType || oldP.monsterType || oldP.monster_type || 'Monster5',
@@ -2974,9 +2973,9 @@ socket.on('updatePlayerList', (playerList) => {
             };
         }
 
-        // 全く新しいプレイヤーの場合は、最低限のフォールバックをかけて返す
         return {
             ...newP,
+            domain: newP.domain || "", // 🌟 空文字に正規化
             mode: newP.mode || newP.vending_mode || 'monster',
             vending_mode: newP.vending_mode || newP.mode || 'monster',
             monsterType: newP.monsterType || newP.monster_type || 'Monster5',
@@ -4287,21 +4286,21 @@ if (typeof window._isOnlineListOpen === 'undefined') {
 function drawOnlineList(ctx) {
     if (!currentOnlinePlayers || currentOnlinePlayers.length === 0) return;
 
-    // 📐 レイアウト基準値
+    // 📐 レイアウト基準値（2段表示用に rowHeight を少し広げる）
     const padding = 12;
     const headerHeight = 28;
-    const rowHeight = 30; 
+    const rowHeight = 38;
     const bgWidth = 240;
-    
+
     // 🌟 開閉状態によって高さを切り替える
     const isOpen = window._isOnlineListOpen;
-    const bgHeight = isOpen 
+    const bgHeight = isOpen
         ? headerHeight + (currentOnlinePlayers.length * rowHeight) + (padding * 2)
         : headerHeight; // 閉じているときはヘッダーの高さのみ
 
-    const startX = VIEW_CONFIG.SCREEN_WIDTH - bgWidth - 15; 
-    const startY = 80; 
-    const cornerRadius = 10; 
+    const startX = VIEW_CONFIG.SCREEN_WIDTH - bgWidth - 15;
+    const startY = 80;
+    const cornerRadius = 10;
 
     // マウス位置の判定
     let hoveredRowIndex = -1;
@@ -4319,7 +4318,7 @@ function drawOnlineList(ctx) {
             if (mouseY >= startY && mouseY <= startY + headerHeight) {
                 isHeaderHovered = true;
                 hoveredButtonType = -2; // ヘッダークリック用
-            } 
+            }
             // リストが開いていて、各プレイヤー行にマウスがある場合
             else if (isOpen) {
                 currentOnlinePlayers.forEach((p, index) => {
@@ -4368,10 +4367,10 @@ function drawOnlineList(ctx) {
     ctx.textAlign = "left";
     ctx.textBaseline = "middle";
     ctx.fillStyle = isHeaderHovered ? "#ffffff" : "#FFD700";
-    
+
     ctx.shadowColor = "rgba(0, 0, 0, 0.7)";
     ctx.shadowBlur = 3;
-    
+
     // 開閉アイコン（▼ または ▲）を添える
     const toggleIcon = isOpen ? "▲ 閉じる" : "▼ 開く";
     ctx.fillText(`ONLINE (${currentOnlinePlayers.length})`, startX + padding, startY + (headerHeight / 2) + 2);
@@ -4409,12 +4408,14 @@ function drawOnlineList(ctx) {
         }
 
         const centerY = rowY + (rowHeight / 2);
+        const upperY = centerY - 6;
+        const lowerY = centerY + 8;
 
         // ユーザーアイコン
         const userImg = window._onlineIconCache.profile;
-        const iconRadius = 9; 
+        const iconRadius = 9;
         const iconX = startX + padding + iconRadius;
-        
+
         ctx.save();
         ctx.beginPath();
         ctx.arc(iconX, centerY, iconRadius, 0, Math.PI * 2);
@@ -4434,23 +4435,32 @@ function drawOnlineList(ctx) {
         ctx.arc(iconX, centerY, iconRadius, 0, Math.PI * 2);
         ctx.stroke();
 
-        // チャンネル番号
+        // 上段左：チャンネル番号
         ctx.font = "10px Arial";
         ctx.fillStyle = "#7dd3fc";
         ctx.textAlign = "left";
         ctx.textBaseline = "middle";
-        ctx.fillText(`CH.${p.channel}`, startX + 34, centerY);
+        ctx.fillText(`CH.${p.channel}`, startX + 34, upperY);
 
-        // 🌟 各プレイヤーのレベル表記
+        // 上段中：各プレイヤーのレベル表記
         const playerLevel = p.level !== undefined ? p.level : (p.lv !== undefined ? p.lv : 1);
-        ctx.fillStyle = "#fde047"; 
-        ctx.fillText(`Lv.${playerLevel}`, startX + 78, centerY);
+        ctx.fillStyle = "#fde047";
+        ctx.fillText(`Lv.${playerLevel}`, startX + 78, upperY);
 
-        // プレイヤー名
+        // 上段右：プレイヤー名
         const isAnyElementHovered = isRowHovered;
         ctx.font = isAnyElementHovered ? "bold 11px Arial" : "11px Arial";
         ctx.fillStyle = isAnyElementHovered ? "#ffffff" : "#e2e8f0";
-        ctx.fillText(p.name, startX + 115, centerY);
+        ctx.fillText(p.name, startX + 115, upperY);
+
+        // 🌟 下段：login_logs の最新 LOGIN ドメイン表記
+        if (p.domain) {
+            ctx.font = "9px Arial";
+            ctx.fillStyle = isRowHovered ? "#cbd5e1" : "#94a3b8";
+            ctx.textAlign = "left";
+            ctx.textBaseline = "middle";
+            ctx.fillText(p.domain, startX + 34, lowerY);
+        }
 
         // 右側の2つのボタン（成果・ギャラリー）
         const rightIcons = [
