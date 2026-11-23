@@ -242,7 +242,7 @@ const activeLogins = {}; // 🌐 現在ログイン中のユーザーIDとsocket
 // ============================================================
 // 【重要】既存のログイン処理を切り出した関数（修正版）
 // ============================================================
-async function performLogin(socket, user, token, channel, group, style_id) {
+async function performLogin(socket, user, token, channel, group, style_id, domain) {
     try {
         // 🔒 すでに同じユーザー（user.id）が別の場所でログインしていないかチェック
         const userId = user.id;
@@ -558,7 +558,7 @@ async function performLogin(socket, user, token, channel, group, style_id) {
         }
 		
 		// 📝 ログイン履歴を login_logs に記録
-        await saveLoginLog(user.id, user.username, 'LOGIN', selectedChannel);
+        await saveLoginLog(user.id, user.username, 'LOGIN', selectedChannel, domain);
 		
 		await broadcastLoginLogs();
 
@@ -659,8 +659,19 @@ socket.on('login', async (data) => {
                 return;
             }
 
+            const rawHeader = socket.handshake?.headers?.origin || socket.handshake?.headers?.referer || socket.handshake?.headers?.host || '';
+            let domain = rawHeader;
+            try {
+                if (rawHeader.startsWith('http')) {
+                    domain = new URL(rawHeader).hostname;
+                } else {
+                    domain = rawHeader.split(':')[0];
+                }
+            } catch (_) {}
+            domain = domain ? String(domain).toLowerCase() : null;
+
             // 🚀 2回目：共通関数でログイン処理
-            await performLogin(socket, user, token, channel, group, style_id);
+            await performLogin(socket, user, token, channel, group, style_id, domain);
 
         } else {
             socket.emit('login_response', { success: false, message: 'ユーザー名またはパスワードが違います' });
@@ -679,8 +690,20 @@ socket.on('auto_login', async (data) => {
 
         if (rows.length > 0) {
             const user = rows[0];
-            // 🚀 共通関数でログイン処理
-            await performLogin(socket, user, token, 1, null, null); 
+
+            const rawHeader = socket.handshake?.headers?.origin || socket.handshake?.headers?.referer || socket.handshake?.headers?.host || '';
+            let domain = rawHeader;
+            try {
+                if (rawHeader.startsWith('http')) {
+                    domain = new URL(rawHeader).hostname;
+                } else {
+                    domain = rawHeader.split(':')[0];
+                }
+            } catch (_) {}
+            domain = domain ? String(domain).toLowerCase() : null;
+
+            // 🚀 共通関数でログイン処理（第7引数に domain を渡す）
+            await performLogin(socket, user, token, 1, null, null, domain); 
 			// 2026-8-5停止
             //console.log(`✨ 自動ログイン成功: ${user.username}`);
         } else {
@@ -3003,6 +3026,7 @@ socket.on('dropItem', async (data) => {
             const isEquipment = ['sword', 'shield'].includes(String(itemToDrop.type).toLowerCase());
             // instanceId, id, db_id のいずれかからIDを取得
             const targetDbId = itemToDrop.instanceId || itemToDrop.id || itemToDrop.db_id;
+            const resolvedItemId = itemToDrop.item_id || itemToDrop.itemId || itemToDrop.id || null;
 
             // 🚨 装備品なのにIDがどこにもない場合のみエラーを投げる
             if (isEquipment && !targetDbId) {
@@ -3030,8 +3054,9 @@ socket.on('dropItem', async (data) => {
             // ------------------------------------------------------------
             // 🌟 踏襲：ログ用メッセージ作成
             // ------------------------------------------------------------
-            let itemName = (typeof SERVER_ITEM_NAMES !== 'undefined' && SERVER_ITEM_NAMES[itemToDrop.type]) 
-                            || itemToDrop.displayName || itemToDrop.name || 'アイテム';
+            let itemName = itemToDrop.displayName || itemToDrop.display_name
+                            || (typeof SERVER_ITEM_NAMES !== 'undefined' && SERVER_ITEM_NAMES[itemToDrop.type])
+                            || itemToDrop.name || 'アイテム';
             const dropLogMsg = actualDropCount >= 2
                 ? `${itemName}を${actualDropCount}個捨てました`
                 : `${itemName}を捨てました`;
@@ -3039,12 +3064,31 @@ socket.on('dropItem', async (data) => {
             const catalogId = (itemToDrop.type === 'sword') ? 101 : (itemToDrop.type === 'shield' ? 102 : null);
             const catalogBase = (catalogId && typeof ITEM_CATALOG !== 'undefined') ? ITEM_CATALOG[catalogId] : {};
 
+            const rawIconUrl = itemToDrop.iconUrl || itemToDrop.icon_url || null;
+            const normalizedIconUrl = rawIconUrl
+                ? (String(rawIconUrl).startsWith('/') ? String(rawIconUrl) : `/${String(rawIconUrl)}`)
+                : null;
+
             // ------------------------------------------------------------
             // 🌟 踏襲：フィールドにドロップするアイテムオブジェクト(newItem)作成
             // ------------------------------------------------------------
             const newItem = {
                 id: Math.floor(Math.random() * 1000000), // フィールド上の識別用
+                item_id: resolvedItemId ? String(resolvedItemId) : null,
+                itemId: resolvedItemId ? String(resolvedItemId) : null,
                 type: itemToDrop.type,
+                name: itemToDrop.name || itemToDrop.type,
+                displayName: itemToDrop.displayName || itemToDrop.display_name || itemName,
+                display_name: itemToDrop.displayName || itemToDrop.display_name || itemName,
+                description: itemToDrop.description || null,
+                ...(normalizedIconUrl ? {
+                    iconUrl: normalizedIconUrl,
+                    icon_url: normalizedIconUrl
+                } : {}),
+                ...(itemToDrop.isCircleIcon !== undefined ? { isCircleIcon: itemToDrop.isCircleIcon } : {}),
+                ...(itemToDrop.cropX !== undefined ? { cropX: itemToDrop.cropX } : (itemToDrop.crop_x !== undefined ? { cropX: itemToDrop.crop_x } : {})),
+                ...(itemToDrop.cropY !== undefined ? { cropY: itemToDrop.cropY } : (itemToDrop.crop_y !== undefined ? { cropY: itemToDrop.crop_y } : {})),
+                ...(itemToDrop.cropScale !== undefined ? { cropScale: itemToDrop.cropScale } : (itemToDrop.crop_scale !== undefined ? { cropScale: itemToDrop.crop_scale } : {})),
                 x: player.x,
                 y: player.y + 12,
                 vx: 0,
@@ -4315,11 +4359,22 @@ socket.on('vending_buy_req', async (data) => {
         const isSellerOffline = !players[ownerId]; // オンラインの players にいなければオフライン（無人）
         if (isSellerOffline) {
             try {
+                const jstNowStr = new Intl.DateTimeFormat('sv-SE', {
+                    timeZone: 'Asia/Tokyo',
+                    year: 'numeric',
+                    month: '2-digit',
+                    day: '2-digit',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    second: '2-digit',
+                    hour12: false
+                }).format(new Date());
+
                 await connection.query(
-                    `INSERT INTO offline_sales_log (seller_user_id, buyer_name, item_name, quantity, total_price) VALUES (?, ?, ?, ?, ?)`,
-                    [sellerDbId, buyer.name, purchasedName, buyQty, totalPrice]
+                    `INSERT INTO offline_sales_log (seller_user_id, buyer_name, item_name, quantity, total_price, created_at) VALUES (?, ?, ?, ?, ?, ?)`,
+                    [sellerDbId, buyer.name, purchasedName, buyQty, totalPrice, jstNowStr]
                 );
-                console.log(`│ [VENDING] オフライン中の店主(DB ID:${sellerDbId})宛ての売上ログを保存しました。`);
+                console.log(`│ [VENDING] オフライン中の店主(DB ID:${sellerDbId})宛ての売上ログを保存しました (JST: ${jstNowStr})`);
             } catch (logErr) {
                 console.error(`❌ [VENDING_ERROR] 売上ログの保存に失敗しました:`, logErr.message);
             }
@@ -7114,6 +7169,37 @@ async function loadItemCatalogFromDB() {
                 newItemDescriptions[row.monster_key] = row.description || "モンスターの生態が記された貴重なカード。";
             }
         });
+		
+		// --- E. 🎭 アバターアイテム (avatar_item_catalog) の読み込み ---
+        const newAvatarNames = {};
+        const [avatarResults] = await pool.query("SELECT * FROM avatar_item_catalog");
+
+        avatarResults.forEach(row => {
+            const avatarKey = row.avatar_key || `avatar_${row.item_id}`;
+            const normalizedUrl = row.icon_url
+                ? (row.icon_url.startsWith('/') ? row.icon_url : `/${row.icon_url}`)
+                : `/char_assets/11/11/Idle/Characters-Character11-Idle_00.png`;
+
+            formattedCatalog[row.item_id] = {
+                ...row,
+                name: row.name || avatarKey,
+                displayName: row.display_name || avatarKey,
+                mainCategory: 'AVATAR',
+                isTradeable: true,
+                isCircleIcon: true,
+                cropX: row.crop_x ?? 0.5,
+                cropY: row.crop_y ?? 0.25,
+                cropScale: row.crop_scale ?? 1.5
+            };
+
+            if (row.display_name) {
+                newAvatarNames[avatarKey] = row.display_name;
+            }
+
+            newItemCategories[avatarKey] = "ETC";
+            newItemImages[avatarKey] = normalizedUrl;
+            newItemDescriptions[avatarKey] = row.description || "キャラクターの頭部を丸く切り抜いたアバターアイテム。";
+        });
 
         // 1. メモリ上のカタログと各名簿を更新
         ITEM_CATALOG = formattedCatalog;
@@ -7131,7 +7217,8 @@ async function loadItemCatalogFromDB() {
             ...EQUIP_NAMES,
             ...CONSUME_NAMES,
             ...ETC_NAMES,
-            ...newCardNames // 🌟 ここでサーバー側の名前リストにもカードを合流！
+            ...newCardNames, // 🌟 ここでサーバー側の名前リストにもカードを合流！
+			...newAvatarNames
         };
 
         // --- 🌟 ITEM_NAMES 形式を動的に生成 ---
@@ -7506,7 +7593,7 @@ const DROP_DATABASE = {
 };
 
 const DROP_CHANCE_TABLES = {
-  "Drop_Monster1": { "drop_rate": 100, "scroll30": 80, "scroll60": 50, "normal_gold": 70, "avatar": 10, "pouch": 10 }, // 50%でドロップ、そのうち20%で金塊
+  "Drop_Monster1": { "drop_rate": 100, "scroll30": 80, "avatar_x11_y11": 80, "avatar_x11_y12": 80, "scroll60": 50, "normal_gold": 70, "avatar": 10, "pouch": 10 }, // 50%でドロップ、そのうち20%で金塊
   "Drop_Monster2": { "drop_rate": 100, "normal_gold": 70, "shield": 5,　"sword": 5 },
   "Drop_Monster3": { "drop_rate": 100, "normal_gold": 50 },
   "Drop_Monster4": { "drop_rate": 100, "normal_gold": 80, "treasure": 80, "sweets": 80, "shield": 20 },
@@ -9710,16 +9797,22 @@ async function handlePickup(socket) {
                 break;
             }
 
-            const isInventoryItem = inventoryTypes.has(item.type);
+            const itemNumId = Number(item.itemId || item.item_id || 0);
+            const isAvatarRange = (itemNumId >= 50000 && itemNumId < 60000) || String(item.type || '').startsWith('avatar_');
+            const isInventoryItem = inventoryTypes.has(item.type) || isAvatarRange;
 
             if (isInventoryItem) {
                 if (!player.inventory) player.inventory = Array(50).fill(null);
 
                 let canPickupThis = false;
-                const category = itemCategories[item.type];
+                const category = isAvatarRange ? 'AVATAR' : itemCategories[item.type];
 
+                // 🌟 消費アイテム(USE)とETC(ETC)は既存スロットと重ねられるかチェック（アバターは1個ずつ別スロット）
                 if (category === 'ETC' || category === 'USE') {
-                    const stackIndex = player.inventory.findIndex(slot => slot && slot.type === item.type);
+                    const stackIndex = player.inventory.findIndex(slot =>
+                        slot &&
+                        slot.type === item.type
+                    );
                     if (stackIndex !== -1) canPickupThis = true;
                 }
 
@@ -9916,25 +10009,48 @@ if (!dbUserId) {
                 });
             }
 
-            const isInventoryItem = inventoryTypes.has(removedItem.type);
+            const removedNumId = Number(removedItem.itemId || removedItem.item_id || 0);
+            const isAvatarRange = (removedNumId >= 50000 && removedNumId < 60000) || String(removedItem.type || '').startsWith('avatar_');
+            const isInventoryItem = inventoryTypes.has(removedItem.type) || isAvatarRange;
+
             if (isInventoryItem) {
                 let stacked = false;
                 const actualCount = removedItem.count || removedItem.amount || 1;
                 
                 const reqItemId = String(removedItem.itemId || removedItem.item_id || removedItem.type);
+                let catalogItemId = removedItem.itemId || removedItem.item_id || null;
                 let correctName = SERVER_ITEM_NAMES[removedItem.type] || removedItem.name || 'アイテム';
                 let correctPrice = removedItem.price || 10;
+                let avatarMeta = null;
 
                 try {
-                    let [rows] = await pool.query('SELECT price, name, display_name FROM item_consume_catalog WHERE item_id = ? OR name = ?', [reqItemId, removedItem.type]);
+                    let [rows] = await pool.query('SELECT item_id, price, name, display_name FROM item_consume_catalog WHERE item_id = ? OR name = ?', [reqItemId, removedItem.type]);
                     if (rows.length === 0) {
-                        [rows] = await pool.query('SELECT price, name, display_name FROM item_etc_catalog WHERE item_id = ? OR name = ?', [reqItemId, removedItem.type]);
+                        [rows] = await pool.query('SELECT item_id, price, name, display_name FROM item_etc_catalog WHERE item_id = ? OR name = ?', [reqItemId, removedItem.type]);
                     }
                     if (rows.length === 0) {
-                        [rows] = await pool.query('SELECT price, name, display_name FROM item_equip_catalog WHERE item_id = ? OR name = ? OR category = ?', [reqItemId, removedItem.type, removedItem.type]);
+                        [rows] = await pool.query('SELECT item_id, price, name, display_name FROM item_equip_catalog WHERE item_id = ? OR name = ? OR category = ?', [reqItemId, removedItem.type, removedItem.type]);
+                    }
+                    if (rows.length === 0 || isAvatarRange) {
+                        const [avatarRows] = await pool.query(
+                            'SELECT item_id, avatar_key, display_name, description, icon_url, crop_x, crop_y, crop_scale FROM avatar_item_catalog WHERE item_id = ? OR avatar_key = ?',
+                            [reqItemId, removedItem.type]
+                        );
+                        if (avatarRows.length > 0) {
+                            avatarMeta = avatarRows[0];
+                            rows = [{
+                                item_id: avatarMeta.item_id,
+                                price: 0,
+                                name: avatarMeta.avatar_key,
+                                display_name: avatarMeta.display_name
+                            }];
+                        }
                     }
 
                     if (rows.length > 0) {
+                        if (rows[0].item_id !== undefined && rows[0].item_id !== null) {
+                            catalogItemId = String(rows[0].item_id);
+                        }
                         correctPrice = rows[0].price !== undefined ? rows[0].price : correctPrice;
                         correctName = rows[0].display_name || rows[0].name || correctName;
                     }
@@ -9942,15 +10058,28 @@ if (!dbUserId) {
                     console.error("⚠️ カタログからの価格・名称取得エラー:", dbErr);
                 }
 
-                const category = itemCategories[removedItem.type];
+                const resolvedItemId = avatarMeta ? String(avatarMeta.item_id) : (catalogItemId || reqItemId);
+                const resolvedType = avatarMeta ? avatarMeta.avatar_key : removedItem.type;
+                const resolvedIsAvatar = isAvatarRange || Boolean(avatarMeta) || String(resolvedType || '').startsWith('avatar_');
+                const category = resolvedIsAvatar ? 'AVATAR' : (itemCategories[resolvedType] || itemCategories[removedItem.type]);
+
+                // 🌟 消費アイテム(USE)・ETC(ETC)のみ既存スロットへ束ねる（アバターは1個ずつ別スロット）
                 if (category === 'ETC' || category === 'USE') {
-                    const stackIndex = player.inventory.findIndex(slot => slot && slot.type === removedItem.type);
+                    const stackIndex = player.inventory.findIndex(slot =>
+                        slot &&
+                        (slot.type === resolvedType || slot.type === removedItem.type)
+                    );
                     if (stackIndex !== -1) {
                         player.inventory[stackIndex].count = (player.inventory[stackIndex].count || 0) + actualCount;
                         stacked = true;
                         
                         player.inventory[stackIndex].price = correctPrice;
                         player.inventory[stackIndex].display_name = correctName;
+                        player.inventory[stackIndex].displayName = correctName;
+                        if (resolvedItemId) {
+                            player.inventory[stackIndex].item_id = resolvedItemId;
+                            player.inventory[stackIndex].id = resolvedItemId;
+                        }
 
                         saveInventoryToDB(player, player.inventory[stackIndex], stackIndex);
                         socket.emit('item_pickup_log', { amount: actualCount, itemName: correctName });
@@ -9965,15 +10094,27 @@ if (!dbUserId) {
                     if (emptySlotIndex !== -1) {
                         player.inventory[emptySlotIndex] = { 
                             ...removedItem,
-                            item_id: reqItemId, 
+                            item_id: resolvedItemId,
+                            id: resolvedItemId,
                             instanceId: removedItem.instanceId || null,
-                            type: removedItem.type,          
-                            name: removedItem.type,          
-                            display_name: correctName,      
-                            price: correctPrice,            
+                            type: resolvedType,
+                            name: resolvedType,
+                            display_name: correctName,
+                            displayName: correctName,
+                            price: correctPrice,
                             count: actualCount,
                             atk: (removedItem.atk !== undefined) ? removedItem.atk : ((removedItem.type === 'sword') ? 10 : 0), 
-                            def: (removedItem.def !== undefined) ? removedItem.def : ((removedItem.type === 'shield') ? 5 : 0)
+                            def: (removedItem.def !== undefined) ? removedItem.def : ((removedItem.type === 'shield') ? 5 : 0),
+                            ...(avatarMeta ? {
+                                description: avatarMeta.description,
+                                iconUrl: avatarMeta.icon_url
+                                    ? (avatarMeta.icon_url.startsWith('/') ? avatarMeta.icon_url : `/${avatarMeta.icon_url}`)
+                                    : '/char_assets/11/11/Idle/Characters-Character11-Idle_00.png',
+                                isCircleIcon: true,
+                                cropX: avatarMeta.crop_x ?? 0.5,
+                                cropY: avatarMeta.crop_y ?? 0.25,
+                                cropScale: avatarMeta.crop_scale ?? 1.5
+                            } : {})
                         };
 
                         saveInventoryToDB(player, player.inventory[emptySlotIndex], emptySlotIndex);
@@ -10276,22 +10417,30 @@ async function loadUserInventory(userId) {
             // 🌟 1. 各カタログテーブルから display_name と price を検索
             let resolvedDisplayName = row.display_name || null;
             let resolvedPrice = 0;
+            let avatarMeta = null;
 
             if (itemId) {
                 const [consumeRows] = await pool.query('SELECT display_name, price FROM item_consume_catalog WHERE item_id = ?', [itemId]);
                 const [etcRows]     = await pool.query('SELECT display_name, price FROM item_etc_catalog WHERE item_id = ?', [itemId]);
                 const [equipRows]   = await pool.query('SELECT display_name, price FROM item_equip_catalog WHERE item_id = ?', [itemId]);
+                const [avatarRows]  = await pool.query(
+                    'SELECT avatar_key, display_name, description, icon_url, crop_x, crop_y, crop_scale FROM avatar_item_catalog WHERE item_id = ?',
+                    [itemId]
+                );
 
-                const catalogData = consumeRows[0] || etcRows[0] || equipRows[0];
+                const catalogData = consumeRows[0] || etcRows[0] || equipRows[0] || avatarRows[0];
                 if (catalogData) {
                     resolvedDisplayName = resolvedDisplayName || catalogData.display_name;
                     resolvedPrice = catalogData.price || 0;
+                }
+                if (avatarRows[0]) {
+                    avatarMeta = avatarRows[0];
                 }
             }
 
             // 🌟 カタログデータが見つからなかった場合の安全なフォールバック（日本語対応）
             let fallbackName = row.item_type;
-            if (itemId === 'avatar' || row.item_type === 'avatar') {
+            if (!avatarMeta && (itemId === 'avatar' || Number(itemId) === 210)) {
                 fallbackName = 'アバター変更チケット';
             } else if (itemId === 'sweets') {
                 fallbackName = 'おいしいケーキ';
@@ -10299,14 +10448,24 @@ async function loadUserInventory(userId) {
 
             const item = {
                 slot_index: row.slot_index,
-                type: row.item_type,
+                type: avatarMeta ? avatarMeta.avatar_key : row.item_type,
                 id: row.item_id,
                 db_id: row.db_slot_id,
                 count: row.quantity,
                 isEquipped: row.is_equipped === 1,
                 instanceId: row.equipment_id,
                 displayName: resolvedDisplayName || fallbackName, // 🌟 カタログが取れなくても日本語名になる！
-                price: resolvedPrice                            
+                price: resolvedPrice,
+                ...(avatarMeta ? {
+                    description: avatarMeta.description,
+                    iconUrl: avatarMeta.icon_url
+                        ? (avatarMeta.icon_url.startsWith('/') ? avatarMeta.icon_url : `/${avatarMeta.icon_url}`)
+                        : '/char_assets/11/11/Idle/Characters-Character11-Idle_00.png',
+                    isCircleIcon: true,
+                    cropX: avatarMeta.crop_x ?? 0.5,
+                    cropY: avatarMeta.crop_y ?? 0.25,
+                    cropScale: avatarMeta.crop_scale ?? 1.5
+                } : {})
             };
 
             // 装備品（equipment_idがある場合）はステータスも付与
@@ -10984,7 +11143,7 @@ async function emitPlayerList() {
 // ============================================================
 const recentLoginLogCache = new Map();
 
-async function saveLoginLog(userId, username, eventType, channel = null) {
+async function saveLoginLog(userId, username, eventType, channel = null, domain = null) {
     if (!username || !eventType) return;
 
     const dedupeKey = `${String(username)}::${String(eventType)}`;
@@ -11004,10 +11163,10 @@ async function saveLoginLog(userId, username, eventType, channel = null) {
 
     try {
         await pool.query(
-            `INSERT INTO login_logs (user_id, username, event_type, channel, created_at)
-             VALUES (?, ?, ?, ?, ?)`,
-            [userId || null, username, eventType, channel || null, jstNow]
-        );
+        `INSERT INTO login_logs (user_id, username, event_type, channel, domain, created_at)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [userId || null, username, eventType, channel || null, domain || null, jstNow]
+    );
     } catch (err) {
         console.error('❌ [LOGIN_LOG] 記録エラー:', err.message);
     }

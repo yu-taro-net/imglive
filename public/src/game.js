@@ -3645,8 +3645,8 @@ const initLoginSystem = () => {
         return;
     }
 
-    // ★ここで要素が確実に見つかったタイミングで、保存されたログを画面に復元！
-    loadSavedLogs();
+    // 古い localStorage ログの復元は行わない
+    // loadSavedLogs();
 
     // --- 1. ログインボタンの処理 ---
     startBtn.onclick = () => {
@@ -3669,11 +3669,42 @@ const initLoginSystem = () => {
 
         nameInput.blur();
         passwordInput.blur();
-		
-		localStorage.setItem('current_username', userName);
-        
-        // ネットワークフィードに自分のログインログを追加＆保存
-        addNetworkLog(`${userName} がログインしました`, 'login');
+
+        localStorage.setItem('current_username', userName);
+
+        // ★ ログイン開始ボタンを押した瞬間に、NETWORK FEED に緑文字で1行追加
+        const logBox = document.getElementById('login-activity-log');
+        if (logBox) {
+            const timeText = typeof formatJstTime === 'function'
+                ? formatJstTime(new Date())
+                : new Date().toLocaleTimeString('ja-JP', {
+                    timeZone: 'Asia/Tokyo',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    hour12: false
+                });
+
+            const safeName = String(userName || 'Player')
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;');
+
+            const line = document.createElement('div');
+            line.style.cssText = 'color: #4CAF50; display: flex; align-items: center; gap: 6px; flex-shrink: 0;';
+            line.innerHTML = `
+                <span style="font-size: 9px; opacity: 0.7; font-family: monospace;">[${timeText}]</span>
+                <span>${safeName}さんがログインしました</span>
+            `;
+
+            logBox.appendChild(line);
+
+            // 最新3件だけ残す
+            while (logBox.children.length > 20) {
+                logBox.removeChild(logBox.firstElementChild);
+            }
+
+            logBox.scrollTop = logBox.scrollHeight;
+        }
 
         if (typeof socket !== 'undefined' && socket.connected) {
             socket.emit('login', { 
@@ -10281,8 +10312,8 @@ if (typeof socket !== 'undefined' && socket) {
 
         // 2. ダイアログ（通知）を表示する
         const claimedAmount = data.claimed || 0;
-        if (typeof showNotification === 'function') {
-            showNotification(`💰 ${claimedAmount.toLocaleString()} コインを受け取りました！(売り切れ品を片付けました)`, "#2ecc71");
+        if (typeof showCustomAlert === 'function') {
+            showCustomAlert(`💰 ${claimedAmount.toLocaleString()} コインを受け取りました！(売り切れ品を片付けました)`, "#2ecc71");
         } else {
             alert(`${claimedAmount.toLocaleString()} コインを受け取りました！`);
         }
@@ -10404,7 +10435,7 @@ function markItemAsSold(itemId) {
 }
 
 // ============================================================
-// :::ADD_ITEM_TO_VENDING_LIST::: 🏪 露店への商品陳列・データ供給 (デザイン統一・ベースライン揃え版)
+// :::ADD_ITEM_TO_VENDING_LIST::: 🏪 露店への商品陳列・データ供給 (デザイン統一・枠サイズ揃え版)
 // ============================================================
 function addItemToVendingList(item) {
     const listContainer = document.getElementById('vending-item-list');
@@ -10412,25 +10443,68 @@ function addItemToVendingList(item) {
     // IMAGE_DOMAIN が未定義の場合の安全なフォールバック対策
     const imageBase = (typeof IMAGE_DOMAIN !== 'undefined') ? IMAGE_DOMAIN : 'assets/';
 
+    const resolveAvatarAssetUrl = (numId, typeStr) => {
+        if (numId >= 50001 && numId <= 50240) {
+            const idx = numId - 50001;
+            const x = Math.floor(idx / 15);
+            const y = (idx % 15) + 1;
+            const xx = String(x).padStart(2, '0');
+            const yy = String(y).padStart(2, '0');
+            return `/char_assets/${xx}/${yy}/Idle/Characters-Character${xx}${yy}-Idle_00.png`;
+        }
+        const m = String(typeStr || '').trim().match(/^avatar_x(\d{1,2})_y(\d{1,2})$/i);
+        if (m) {
+            const xx = String(Number(m[1])).padStart(2, '0');
+            const yy = String(Number(m[2])).padStart(2, '0');
+            return `/char_assets/${xx}/${yy}/Idle/Characters-Character${xx}${yy}-Idle_00.png`;
+        }
+        return null;
+    };
+
     // ==========================================
     // 🔍 完璧デバッグセクション
     // ==========================================
     console.group(`🏪 露店追加デバッグ: ${item?.name || '不明なアイテム'}`);
     console.log("1. 受信データ:", item);
 
-    let finalIconPath = "";
-    const dbImageName = (item.data && item.data.image_name) || item.image_name || item.iconName;
-    const targetItemId = Number(item.item_id || (item.data && item.data.item_id) || item.id || 0);
+    const dbImageName = (item && item.data && item.data.image_name) || item?.image_name || item?.iconName;
+    const targetItemId = Number(item?.item_id || (item && item.data && item.data.item_id) || item?.id || 0);
+    const itemTypeStr = String(item?.type || (item && item.data && item.data.type) || '');
+    const catalogEntry = (targetItemId && typeof ITEM_CATALOG !== 'undefined' && ITEM_CATALOG[targetItemId]) || null;
 
-    if (item?.iconUrl && item.iconUrl !== "") {
-        finalIconPath = item.iconUrl;
+    const isAvatarItem = Boolean(
+        item?.isCircleIcon ||
+        catalogEntry?.isCircleIcon ||
+        item?.iconUrl ||
+        item?.icon_url ||
+        catalogEntry?.iconUrl ||
+        catalogEntry?.icon_url ||
+        (targetItemId >= 50000 && targetItemId < 60000) ||
+        itemTypeStr.startsWith('avatar_')
+    );
+
+    let finalIconPath = "";
+    const rawAvatarUrl =
+        item?.iconUrl ||
+        item?.icon_url ||
+        catalogEntry?.iconUrl ||
+        catalogEntry?.icon_url ||
+        (isAvatarItem ? resolveAvatarAssetUrl(targetItemId, itemTypeStr) : null);
+
+    if (rawAvatarUrl && String(rawAvatarUrl) !== "") {
+        const strUrl = String(rawAvatarUrl);
+        if (strUrl.startsWith('http://') || strUrl.startsWith('https://') || strUrl.startsWith('/')) {
+            finalIconPath = strUrl;
+        } else {
+            finalIconPath = `/${strUrl}`;
+        }
     } else if (dbImageName) {
         const hasExt = String(dbImageName).includes('.');
         finalIconPath = `${imageBase}item_assets/${dbImageName}${hasExt ? '' : '.png'}`;
     } else if (targetItemId === 201) {
         finalIconPath = `${imageBase}item_assets/sweets.png`;
     } else {
-        const fallbackType = item.type || (item.data && item.data.type) || 'default';
+        const fallbackType = itemTypeStr || 'default';
         finalIconPath = `${imageBase}item_assets/${fallbackType}${String(fallbackType).includes('.') ? '' : '.png'}`;
     }
 
@@ -10456,7 +10530,7 @@ function addItemToVendingList(item) {
 
     const isSoldOut = item.isSoldOut || Number(item.count || item.quantity || 0) <= 0;
 
-    let displayName = item.displayName || item.name || item.item_name || item.itemName || (item.data && item.data.name) || "名称不明アイテム";
+    let displayName = item.displayName || item.name || item.item_name || item.itemName || (item.data && item.data.name) || catalogEntry?.name || "名称不明アイテム";
     let iconGlowStyle = ""; 
 
     const isEquipment = (
@@ -10502,6 +10576,21 @@ function addItemToVendingList(item) {
     const displayPrice = item.price ? Number(item.price).toLocaleString() : "0";
     const itemCount = item.count || item.quantity || 1;
 
+    // 🌟 枠サイズは他アイテムと同じ 36px に揃え、顔クロップ倍率で大きく見せる
+    const thumbBoxSize = 36;
+    const thumbRadius = isAvatarItem ? '50%' : '6px';
+    const cropX = Number(item.cropX ?? item.crop_x ?? catalogEntry?.cropX ?? catalogEntry?.crop_x ?? 0.5);
+    const cropY = Number(item.cropY ?? item.crop_y ?? catalogEntry?.cropY ?? catalogEntry?.crop_y ?? 0.6);
+    const cropScale = Number(item.cropScale ?? item.crop_scale ?? catalogEntry?.cropScale ?? catalogEntry?.crop_scale ?? 3.0);
+
+    const thumbBoxStyle = isAvatarItem
+        ? `width: ${thumbBoxSize}px; height: ${thumbBoxSize}px; min-width: ${thumbBoxSize}px; display: flex; align-items: center; justify-content: center; background: radial-gradient(circle, #f8fafc 0%, #e2e8f0 100%); border: 1px solid #cbd5e1; border-radius: ${thumbRadius}; position: relative; overflow: hidden; box-shadow: inset 0 1px 2px rgba(255,255,255,0.85);`
+        : `width: ${thumbBoxSize}px; height: ${thumbBoxSize}px; min-width: ${thumbBoxSize}px; display: flex; align-items: center; justify-content: center; background: radial-gradient(circle, #f8fafc 0%, #e2e8f0 100%); border: 1px solid #cbd5e1; border-radius: ${thumbRadius}; position: relative; overflow: hidden; box-shadow: inset 0 1px 2px rgba(255,255,255,0.8);`;
+
+    const imgStyle = isAvatarItem
+        ? `width: 100%; height: 100%; object-fit: cover; transform: scale(${cropScale}); transform-origin: ${Math.round(cropX * 100)}% ${Math.round(cropY * 100)}%; image-rendering: auto; ${iconGlowStyle}`
+        : `max-width: 28px; max-height: 28px; object-fit: contain; image-rendering: pixelated; ${iconGlowStyle}`;
+
     const itemEl = document.createElement('div');
     itemEl.id = `vending-item-${itemId}`;
     // 🌟 他人の露店側と同じボーダー・トランジション等のデザインに統一
@@ -10521,11 +10610,11 @@ function addItemToVendingList(item) {
     // 🌟 価格表示を縦並び ＆ align-items: baseline に統一したクリーンなHTML構造
     itemEl.innerHTML = `
         <div style="display: flex; align-items: center; gap: 10px; flex: 1; pointer-events: none;">
-            <div style="width: 36px; height: 36px; min-width: 36px; display: flex; align-items: center; justify-content: center; background: radial-gradient(circle, #f8fafc 0%, #e2e8f0 100%); border: 1px solid #cbd5e1; border-radius: 6px; position: relative; overflow: hidden; box-shadow: inset 0 1px 2px rgba(255,255,255,0.8);">
+            <div style="${thumbBoxStyle}">
                 ${finalIconPath ? `
                     <img src="${finalIconPath}" 
                          onerror="this.onerror=null; this.src='assets/items/default.png';" 
-                         style="max-width: 28px; max-height: 28px; object-fit: contain; image-rendering: pixelated; ${iconGlowStyle}">
+                         style="${imgStyle}">
                 ` : `
                     <div style="width: 16px; height: 16px; background: #cbd5e1; border-radius: 2px;"></div>
                 `}
