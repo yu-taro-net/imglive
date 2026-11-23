@@ -3689,16 +3689,29 @@ const initLoginSystem = () => {
                 .replace(/</g, '&lt;')
                 .replace(/>/g, '&gt;');
 
+            const rawDomain = (typeof window !== 'undefined' && window.location && window.location.hostname)
+                ? String(window.location.hostname).trim().toLowerCase()
+                : '';
+            const safeDomain = rawDomain
+                .replace(/&/g, '&amp;')
+                .replace(/</g, '&lt;')
+                .replace(/>/g, '&gt;');
+
+            const domainBadge = safeDomain
+                ? `<span style="font-size: 9px; color: #94a3b8; font-family: monospace;">(${safeDomain})</span>`
+                : '';
+
             const line = document.createElement('div');
             line.style.cssText = 'color: #4CAF50; display: flex; align-items: center; gap: 6px; flex-shrink: 0;';
             line.innerHTML = `
                 <span style="font-size: 9px; opacity: 0.7; font-family: monospace;">[${timeText}]</span>
                 <span>${safeName}さんがログインしました</span>
+                ${domainBadge}
             `;
 
             logBox.appendChild(line);
 
-            // 最新3件だけ残す
+            // 最新20件だけ残す
             while (logBox.children.length > 20) {
                 logBox.removeChild(logBox.firstElementChild);
             }
@@ -3793,6 +3806,207 @@ const initLoginSystem = () => {
 
 // 実行開始
 initLoginSystem();
+
+// ============================================================
+// 🌟 自キャラクリック用・放射状丸ボタンメニュー（可変アイテム対応）
+// ============================================================
+const SELF_RADIAL_MENU_ITEMS = [
+    {
+        id: 'inventory',
+        label: 'バッグ',
+        icon: '🎒',
+        onSelect: () => {
+            if (typeof toggleInventory === 'function') toggleInventory();
+            console.log('[RadialMenu] バッグを選択');
+        }
+    },
+    {
+        id: 'monster_book',
+        label: '図鑑',
+        icon: '🃏',
+        onSelect: () => {
+            if (typeof toggleMonsterBook === 'function') toggleMonsterBook();
+            console.log('[RadialMenu] 図鑑を選択');
+        }
+    },
+    {
+        id: 'status',
+        label: 'ステータス',
+        icon: '📊',
+        onSelect: () => {
+            if (typeof toggleStatus === 'function') toggleStatus();
+            console.log('[RadialMenu] ステータスを選択');
+        }
+    }
+    // 🌟 後からここに { id: '...', label: '...', icon: '...', onSelect: () => {} } を足すだけで増えます
+];
+
+const selfRadialMenu = {
+    isOpen: false,
+    closing: false,
+    progress: 0,          // 0 〜 1（ふわっと展開度）
+    centerX: 0,         // スクリーン座標（Canvas上のX）
+    centerY: 0,         // スクリーン座標（Canvas上のY）
+    radius: 68,         // 展開時の放射半径(px)
+    buttonRadius: 22,   // 丸ボタンの半径(px)
+    hoveredIndex: -1,
+    items: SELF_RADIAL_MENU_ITEMS,
+
+    open(screenX, screenY, canvasWidth, canvasHeight) {
+        const marginX = this.buttonRadius + 12;
+        const marginY = this.buttonRadius + 12;
+
+        this.centerX = Math.max(marginX, Math.min(canvasWidth - marginX, screenX));
+        this.centerY = Math.max(marginY, Math.min(canvasHeight - marginY, screenY));
+
+        console.log('[RadialMenu]', {
+            screenY,
+            centerY: this.centerY,
+            canvasHeight,
+            marginY
+        });
+
+        this.isOpen = true;
+        this.closing = false;
+        this.hoveredIndex = -1;
+    },
+
+    close() {
+        if (!this.isOpen) return;
+        this.closing = true;
+        this.hoveredIndex = -1;
+    },
+
+    forceClose() {
+        this.isOpen = false;
+        this.closing = false;
+        this.progress = 0;
+        this.hoveredIndex = -1;
+    },
+
+    update(dt = 1 / 60) {
+        if (!this.isOpen && this.progress <= 0) return;
+
+        const speed = 10; // 展開・収納の速さ
+        if (!this.closing) {
+            this.progress = Math.min(1, this.progress + dt * speed);
+        } else {
+            this.progress = Math.max(0, this.progress - dt * speed);
+            if (this.progress <= 0) {
+                this.isOpen = false;
+                this.closing = false;
+            }
+        }
+    },
+
+    // 各丸ボタンの現在座標を計算（上方向 -PI/2 を基準に等間隔配置）
+    getButtonPositions() {
+        const count = this.items.length;
+        if (count === 0) return [];
+
+        const easeOut = 1 - Math.pow(1 - this.progress, 3);
+        const currentRadius = this.radius * easeOut;
+        const startAngle = -Math.PI / 2;
+        const step = (Math.PI * 2) / count;
+
+        return this.items.map((item, index) => {
+            const angle = startAngle + step * index;
+            return {
+                index,
+                item,
+                x: this.centerX + Math.cos(angle) * currentRadius,
+                y: this.centerY + Math.sin(angle) * currentRadius,
+                r: this.buttonRadius * (0.4 + 0.6 * easeOut),
+                alpha: Math.min(1, easeOut * 1.25)
+            };
+        });
+    },
+
+    // クリック処理：丸ボタン押下なら true、メニュー外クリックで閉じた場合も true（既存クリックを貫通させない）
+    handleClick(screenX, screenY) {
+        if (!this.isOpen || this.closing) return false;
+
+        const buttons = this.getButtonPositions();
+        for (const btn of buttons) {
+            const dx = screenX - btn.x;
+            const dy = screenY - btn.y;
+            if (dx * dx + dy * dy <= (btn.r + 4) * (btn.r + 4)) {
+                if (typeof btn.item.onSelect === 'function') {
+                    btn.item.onSelect();
+                }
+                this.close();
+                return true;
+            }
+        }
+
+        // ボタン以外をクリックしたら閉じる
+        this.close();
+        return true;
+    },
+
+    handleMouseMove(screenX, screenY) {
+        if (!this.isOpen || this.closing) {
+            this.hoveredIndex = -1;
+            return;
+        }
+        const buttons = this.getButtonPositions();
+        let found = -1;
+        for (const btn of buttons) {
+            const dx = screenX - btn.x;
+            const dy = screenY - btn.y;
+            if (dx * dx + dy * dy <= (btn.r + 2) * (btn.r + 2)) {
+                found = btn.index;
+                break;
+            }
+        }
+        this.hoveredIndex = found;
+    },
+
+    draw(ctx) {
+        if (!this.isOpen && this.progress <= 0) return;
+
+        const buttons = this.getButtonPositions();
+        ctx.save();
+
+        for (const btn of buttons) {
+            const isHovered = this.hoveredIndex === btn.index;
+            ctx.globalAlpha = btn.alpha;
+
+            // 放射のガイド線（うっすら）
+            ctx.beginPath();
+            ctx.moveTo(this.centerX, this.centerY);
+            ctx.lineTo(btn.x, btn.y);
+            ctx.strokeStyle = 'rgba(255, 255, 255, 0.22)';
+            ctx.lineWidth = 1.5;
+            ctx.stroke();
+
+            // 丸ボタン本体
+            ctx.beginPath();
+            ctx.arc(btn.x, btn.y, btn.r, 0, Math.PI * 2);
+            ctx.fillStyle = isHovered ? 'rgba(56, 189, 248, 0.92)' : 'rgba(15, 23, 42, 0.88)';
+            ctx.fill();
+            ctx.lineWidth = isHovered ? 2.5 : 1.5;
+            ctx.strokeStyle = isHovered ? '#ffffff' : 'rgba(148, 163, 184, 0.7)';
+            ctx.stroke();
+
+            // アイコン
+            ctx.font = `${Math.round(btn.r * 0.85)}px sans-serif`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillStyle = '#ffffff';
+            ctx.fillText(btn.item.icon || '●', btn.x, btn.y - 2);
+
+            // ボタン下のラベル
+            if (this.progress > 0.65) {
+                ctx.font = '11px sans-serif';
+                ctx.fillStyle = '#f8fafc';
+                ctx.fillText(btn.item.label, btn.x, btn.y + btn.r + 11);
+            }
+        }
+
+        ctx.restore();
+    }
+};
 
 // ============================================================
 // :::SETUP_LOGIN_HOTKEY::: 🔑 パスワード入力欄のログイン・ショートカット
@@ -6343,6 +6557,8 @@ let hoveredEquipItem = null;
 let hoveredEquipMouseX = 0;
 let hoveredEquipMouseY = 0;
 
+let _prevRadialHeroY = null;
+
 function update() {
 
     // 🌟 接続が切れていたら「位置計算」と「サーバー送信」をスキップする
@@ -6401,6 +6617,24 @@ function update() {
     if (typeof isTouchingAnything !== 'undefined' && isTouchingAnything) {
         hero.jumping = false;
         hero.dy = 0;
+    }
+	
+	// 🌟 自キャラが動いたら（歩行・ジャンプ・梯子の上下移動）放射状メニューを閉じる
+    if (typeof selfRadialMenu !== 'undefined' && selfRadialMenu.isOpen && !selfRadialMenu.closing && typeof hero !== 'undefined' && hero) {
+        const moveX = Math.abs(hero.vx || 0) > 0.1;
+        const jumpMove = Boolean(hero.jumping) && Math.abs(hero.dy || hero.vy || 0) > 0.1;
+        const climbSpeedY = Math.abs(hero.vy ?? hero.dy ?? 0);
+        const climbDeltaY = _prevRadialHeroY !== null && typeof hero.y === 'number'
+            ? Math.abs(hero.y - _prevRadialHeroY)
+            : 0;
+        const isClimbingUpDown = Boolean(hero.climbing) && (climbSpeedY > 0.1 || climbDeltaY > 0.1);
+
+        if (moveX || jumpMove || isClimbingUpDown) {
+            selfRadialMenu.close();
+        }
+    }
+    if (typeof hero !== 'undefined' && hero && typeof hero.y === 'number') {
+        _prevRadialHeroY = hero.y;
     }
 
     // 🌟 【修正】立ち止まっているときのHP自動回復（サーバーへ回復リクエストを送る方式）
@@ -6470,6 +6704,14 @@ function update() {
 	// 🪙 【追加】ショップ閲覧ウィンドウが開いている間、所持金表示を常に最新に同期・更新する
     if (typeof updateUserMoneyDisplay === 'function') {
         updateUserMoneyDisplay();
+    }
+	
+	// 🌟 自キャラ放射状メニューの更新＆描画
+    if (typeof selfRadialMenu !== 'undefined') {
+        selfRadialMenu.update(1 / 60);
+        if (typeof ctx !== 'undefined' && ctx) {
+            selfRadialMenu.draw(ctx);
+        }
     }
 
     requestAnimationFrame(update); // 次のフレームへ
@@ -9877,16 +10119,29 @@ function renderLoginActivityLog(logs) {
         const timeText = formatJstTime(row.created_at);
 		
 		console.log('🧪 [row.created_at]', row.created_at);
+		
+		console.log('🧪 [row]', row);
 
         const safeName = String(row.username || 'Player')
             .replace(/&/g, '&amp;')
             .replace(/</g, '&lt;')
             .replace(/>/g, '&gt;');
 
+        const rawDomain = row.domain ? String(row.domain).trim() : '';
+        const safeDomain = rawDomain
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;');
+
+        const domainBadge = safeDomain
+            ? `<span style="font-size: 9px; color: #94a3b8; font-family: monospace;">(${safeDomain})</span>`
+            : '';
+
         return `
             <div style="color: ${color}; display: flex; align-items: center; gap: 6px; flex-shrink: 0;">
                 <span style="font-size: 9px; opacity: 0.7; font-family: monospace;">[${timeText}]</span>
                 <span>${safeName} ${suffix}</span>
+                ${domainBadge}
                 <span style="font-size: 9px; color: #38bdf8; font-family: monospace;">[DB]</span>
             </div>
         `;

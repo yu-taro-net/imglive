@@ -1461,6 +1461,59 @@ window.selectedPlayer = null;
 // ============================================================
 const stageCanvas = document.getElementById('stage');
 
+// ============================================================
+// 🌟 自キャラ左クリックで放射状メニューを開く（STEP 3）
+// ============================================================
+if (stageCanvas) {
+    stageCanvas.addEventListener('click', function(e) {
+        if (typeof hero === 'undefined' || !hero) return;
+        if (typeof selfRadialMenu === 'undefined') return;
+
+        const rect = stageCanvas.getBoundingClientRect();
+        const viewW = (typeof VIEW_CONFIG !== 'undefined' && VIEW_CONFIG.SCREEN_WIDTH) ? VIEW_CONFIG.SCREEN_WIDTH : 800;
+        const viewH = (typeof VIEW_CONFIG !== 'undefined' && VIEW_CONFIG.SCREEN_HEIGHT) ? VIEW_CONFIG.SCREEN_HEIGHT : 600;
+
+        const canvasX = ((e.clientX - rect.left) / rect.width) * viewW;
+        const canvasY = ((e.clientY - rect.top) / rect.height) * viewH;
+
+        // すでに開いている場合は、メニュー側のクリック判定へ（STEP 4 で本格連携）
+        if (selfRadialMenu.isOpen && !selfRadialMenu.closing) {
+            selfRadialMenu.handleClick(canvasX, canvasY);
+            return;
+        }
+
+        // 自キャラ(hero)の矩形内か判定（既存の右クリック判定と合わせた基準）
+        const hitHero =
+            canvasX >= hero.x - 30 && canvasX <= hero.x + 70 &&
+            canvasY >= hero.y - 50 && canvasY <= hero.y + 50;
+
+        if (hitHero) {
+    const g = hero.model_id !== undefined ? hero.model_id : (hero.group || 0);
+    let footOffset = (VIEW_CONFIG?.player?.visualOffset || 0) + ((VIEW_CONFIG?.groupOffsets && VIEW_CONFIG.groupOffsets[g]) || 0);
+
+    if (VIEW_CONFIG?.groundThreshold !== undefined && hero.y > VIEW_CONFIG.groundThreshold) {
+        footOffset += (VIEW_CONFIG?.player?.groundExtraOffset || 0);
+    }
+
+    const hitboxH = VIEW_CONFIG?.player?.hitboxH || 0;
+    const drawH = VIEW_CONFIG?.player?.drawH || 64;
+
+    // 実際に描画されているキャラ画像の上端Y
+    const spriteDrawY = hero.y + hitboxH - drawH + footOffset;
+
+    // 横方向：drawChatBubble と同じくキャラ中心付近（必要に応じて微調整）
+    const menuCenterX = hero.x + 20;
+
+    // 縦方向：見た目上のキャラ中心付近を基準に、微調整オフセット（adjustY）を足す
+    // 例: spriteDrawY + drawH * 0.55 で胴体〜腰あたり。上に上げたいときは adjustY をマイナスにする
+    const adjustY = 0;
+    const menuCenterY = spriteDrawY + drawH * 0.55 + adjustY;
+
+    selfRadialMenu.open(menuCenterX, menuCenterY, viewW, viewH);
+}
+    });
+}
+
 if (stageCanvas) {
     stageCanvas.addEventListener('contextmenu', function(e) {
         e.preventDefault();

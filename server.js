@@ -764,7 +764,7 @@ function toJstSqlString(val) {
 socket.on('request_login_logs', async (callback) => {
     try {
         const [rows] = await pool.query(
-            `SELECT id, username, event_type, channel, created_at
+            `SELECT id, username, event_type, channel, domain, created_at
              FROM login_logs
              ORDER BY id DESC
              LIMIT 20`
@@ -7200,6 +7200,37 @@ async function loadItemCatalogFromDB() {
             newItemImages[avatarKey] = normalizedUrl;
             newItemDescriptions[avatarKey] = row.description || "キャラクターの頭部を丸く切り抜いたアバターアイテム。";
         });
+		
+		// --- F. 🏅 モンスター討伐の証 (monster_proof_catalog) の読み込み ---
+        const newProofNames = {};
+        const [proofResults] = await pool.query("SELECT * FROM monster_proof_catalog");
+
+        proofResults.forEach(row => {
+            const proofKey = row.proof_key || `proof_${row.item_id}`;
+            const normalizedUrl = row.icon_url
+                ? (row.icon_url.startsWith('/') ? row.icon_url : `/${row.icon_url}`)
+                : `/char_assets_enemy/Monster1/Idle/tile000.png`;
+
+            formattedCatalog[row.item_id] = {
+                ...row,
+                name: row.name || proofKey,
+                displayName: row.display_name || proofKey,
+                mainCategory: 'MONSTER_PROOF',
+                isTradeable: row.isTradeable !== undefined ? Boolean(row.isTradeable) : true,
+                isCircleIcon: true,
+                cropX: row.crop_x ?? 0.5,
+                cropY: row.crop_y ?? 0.5,
+                cropScale: row.crop_scale ?? 1.5
+            };
+
+            if (row.display_name) {
+                newProofNames[proofKey] = row.display_name;
+            }
+
+            newItemCategories[proofKey] = "ETC";
+            newItemImages[proofKey] = normalizedUrl;
+            newItemDescriptions[proofKey] = row.description || "モンスターを討伐した証のコレクションアイテム。";
+        });
 
         // 1. メモリ上のカタログと各名簿を更新
         ITEM_CATALOG = formattedCatalog;
@@ -7218,7 +7249,8 @@ async function loadItemCatalogFromDB() {
             ...CONSUME_NAMES,
             ...ETC_NAMES,
             ...newCardNames, // 🌟 ここでサーバー側の名前リストにもカードを合流！
-			...newAvatarNames
+			...newAvatarNames,
+			...newProofNames // 🌟 討伐の証も合流
         };
 
         // --- 🌟 ITEM_NAMES 形式を動的に生成 ---
@@ -7593,7 +7625,7 @@ const DROP_DATABASE = {
 };
 
 const DROP_CHANCE_TABLES = {
-  "Drop_Monster1": { "drop_rate": 100, "scroll30": 80, "avatar_x11_y11": 80, "avatar_x11_y12": 80, "scroll60": 50, "normal_gold": 70, "avatar": 10, "pouch": 10 }, // 50%でドロップ、そのうち20%で金塊
+  "Drop_Monster1": { "drop_rate": 100, "scroll30": 80, "proof_monster1": 80, "avatar_x11_y11": 80, "avatar_x11_y12": 80, "scroll60": 50, "normal_gold": 70, "avatar": 10, "pouch": 10 }, // 50%でドロップ、そのうち20%で金塊
   "Drop_Monster2": { "drop_rate": 100, "normal_gold": 70, "shield": 5,　"sword": 5 },
   "Drop_Monster3": { "drop_rate": 100, "normal_gold": 50 },
   "Drop_Monster4": { "drop_rate": 100, "normal_gold": 80, "treasure": 80, "sweets": 80, "shield": 20 },
@@ -9799,15 +9831,18 @@ async function handlePickup(socket) {
 
             const itemNumId = Number(item.itemId || item.item_id || 0);
             const isAvatarRange = (itemNumId >= 50000 && itemNumId < 60000) || String(item.type || '').startsWith('avatar_');
-            const isInventoryItem = inventoryTypes.has(item.type) || isAvatarRange;
+            const isProofRange = (itemNumId >= 60000 && itemNumId < 70000) || String(item.type || '').startsWith('proof_');
+            const isInventoryItem = inventoryTypes.has(item.type) || isAvatarRange || isProofRange;
 
             if (isInventoryItem) {
                 if (!player.inventory) player.inventory = Array(50).fill(null);
 
                 let canPickupThis = false;
-                const category = isAvatarRange ? 'AVATAR' : itemCategories[item.type];
+                const category = isAvatarRange
+                    ? 'AVATAR'
+                    : (isProofRange ? 'ETC' : itemCategories[item.type]);
 
-                // 🌟 消費アイテム(USE)とETC(ETC)は既存スロットと重ねられるかチェック（アバターは1個ずつ別スロット）
+                // 🌟 消費アイテム(USE)とETC(ETC・討伐の証)は既存スロットと重ねられるかチェック（アバターは1個ずつ別スロット）
                 if (category === 'ETC' || category === 'USE') {
                     const stackIndex = player.inventory.findIndex(slot =>
                         slot &&
@@ -10011,7 +10046,8 @@ if (!dbUserId) {
 
             const removedNumId = Number(removedItem.itemId || removedItem.item_id || 0);
             const isAvatarRange = (removedNumId >= 50000 && removedNumId < 60000) || String(removedItem.type || '').startsWith('avatar_');
-            const isInventoryItem = inventoryTypes.has(removedItem.type) || isAvatarRange;
+            const isProofRange = (removedNumId >= 60000 && removedNumId < 70000) || String(removedItem.type || '').startsWith('proof_');
+            const isInventoryItem = inventoryTypes.has(removedItem.type) || isAvatarRange || isProofRange;
 
             if (isInventoryItem) {
                 let stacked = false;
@@ -10022,6 +10058,7 @@ if (!dbUserId) {
                 let correctName = SERVER_ITEM_NAMES[removedItem.type] || removedItem.name || 'アイテム';
                 let correctPrice = removedItem.price || 10;
                 let avatarMeta = null;
+                let proofMeta = null;
 
                 try {
                     let [rows] = await pool.query('SELECT item_id, price, name, display_name FROM item_consume_catalog WHERE item_id = ? OR name = ?', [reqItemId, removedItem.type]);
@@ -10046,6 +10083,21 @@ if (!dbUserId) {
                             }];
                         }
                     }
+                    if (rows.length === 0 || isProofRange) {
+                        const [proofRows] = await pool.query(
+                            'SELECT item_id, proof_key, display_name, description, icon_url, crop_x, crop_y, crop_scale FROM monster_proof_catalog WHERE item_id = ? OR proof_key = ?',
+                            [reqItemId, removedItem.type]
+                        );
+                        if (proofRows.length > 0) {
+                            proofMeta = proofRows[0];
+                            rows = [{
+                                item_id: proofMeta.item_id,
+                                price: 0,
+                                name: proofMeta.proof_key,
+                                display_name: proofMeta.display_name
+                            }];
+                        }
+                    }
 
                     if (rows.length > 0) {
                         if (rows[0].item_id !== undefined && rows[0].item_id !== null) {
@@ -10058,12 +10110,19 @@ if (!dbUserId) {
                     console.error("⚠️ カタログからの価格・名称取得エラー:", dbErr);
                 }
 
-                const resolvedItemId = avatarMeta ? String(avatarMeta.item_id) : (catalogItemId || reqItemId);
-                const resolvedType = avatarMeta ? avatarMeta.avatar_key : removedItem.type;
+                const resolvedItemId = avatarMeta
+                    ? String(avatarMeta.item_id)
+                    : (proofMeta ? String(proofMeta.item_id) : (catalogItemId || reqItemId));
+                const resolvedType = avatarMeta
+                    ? avatarMeta.avatar_key
+                    : (proofMeta ? proofMeta.proof_key : removedItem.type);
                 const resolvedIsAvatar = isAvatarRange || Boolean(avatarMeta) || String(resolvedType || '').startsWith('avatar_');
-                const category = resolvedIsAvatar ? 'AVATAR' : (itemCategories[resolvedType] || itemCategories[removedItem.type]);
+                const resolvedIsProof = isProofRange || Boolean(proofMeta) || String(resolvedType || '').startsWith('proof_');
+                const category = resolvedIsAvatar
+                    ? 'AVATAR'
+                    : (resolvedIsProof ? 'ETC' : (itemCategories[resolvedType] || itemCategories[removedItem.type]));
 
-                // 🌟 消費アイテム(USE)・ETC(ETC)のみ既存スロットへ束ねる（アバターは1個ずつ別スロット）
+                // 🌟 消費アイテム(USE)・ETC(ETC・討伐の証)のみ既存スロットへ束ねる（アバターは1個ずつ別スロット）
                 if (category === 'ETC' || category === 'USE') {
                     const stackIndex = player.inventory.findIndex(slot =>
                         slot &&
@@ -10114,6 +10173,16 @@ if (!dbUserId) {
                                 cropX: avatarMeta.crop_x ?? 0.5,
                                 cropY: avatarMeta.crop_y ?? 0.25,
                                 cropScale: avatarMeta.crop_scale ?? 1.5
+                            } : {}),
+                            ...(proofMeta ? {
+                                description: proofMeta.description,
+                                iconUrl: proofMeta.icon_url
+                                    ? (proofMeta.icon_url.startsWith('/') ? proofMeta.icon_url : `/${proofMeta.icon_url}`)
+                                    : '/char_assets_enemy/Monster1/Idle/tile000.png',
+                                isCircleIcon: true,
+                                cropX: proofMeta.crop_x ?? 0.5,
+                                cropY: proofMeta.crop_y ?? 0.5,
+                                cropScale: proofMeta.crop_scale ?? 1.5
                             } : {})
                         };
 
@@ -10418,6 +10487,7 @@ async function loadUserInventory(userId) {
             let resolvedDisplayName = row.display_name || null;
             let resolvedPrice = 0;
             let avatarMeta = null;
+            let proofMeta = null;
 
             if (itemId) {
                 const [consumeRows] = await pool.query('SELECT display_name, price FROM item_consume_catalog WHERE item_id = ?', [itemId]);
@@ -10427,8 +10497,12 @@ async function loadUserInventory(userId) {
                     'SELECT avatar_key, display_name, description, icon_url, crop_x, crop_y, crop_scale FROM avatar_item_catalog WHERE item_id = ?',
                     [itemId]
                 );
+                const [proofRows]   = await pool.query(
+                    'SELECT proof_key, display_name, description, icon_url, crop_x, crop_y, crop_scale FROM monster_proof_catalog WHERE item_id = ?',
+                    [itemId]
+                );
 
-                const catalogData = consumeRows[0] || etcRows[0] || equipRows[0] || avatarRows[0];
+                const catalogData = consumeRows[0] || etcRows[0] || equipRows[0] || avatarRows[0] || proofRows[0];
                 if (catalogData) {
                     resolvedDisplayName = resolvedDisplayName || catalogData.display_name;
                     resolvedPrice = catalogData.price || 0;
@@ -10436,11 +10510,14 @@ async function loadUserInventory(userId) {
                 if (avatarRows[0]) {
                     avatarMeta = avatarRows[0];
                 }
+                if (proofRows[0]) {
+                    proofMeta = proofRows[0];
+                }
             }
 
             // 🌟 カタログデータが見つからなかった場合の安全なフォールバック（日本語対応）
             let fallbackName = row.item_type;
-            if (!avatarMeta && (itemId === 'avatar' || Number(itemId) === 210)) {
+            if (!avatarMeta && !proofMeta && (itemId === 'avatar' || Number(itemId) === 210)) {
                 fallbackName = 'アバター変更チケット';
             } else if (itemId === 'sweets') {
                 fallbackName = 'おいしいケーキ';
@@ -10448,7 +10525,7 @@ async function loadUserInventory(userId) {
 
             const item = {
                 slot_index: row.slot_index,
-                type: avatarMeta ? avatarMeta.avatar_key : row.item_type,
+                type: avatarMeta ? avatarMeta.avatar_key : (proofMeta ? proofMeta.proof_key : row.item_type),
                 id: row.item_id,
                 db_id: row.db_slot_id,
                 count: row.quantity,
@@ -10465,6 +10542,16 @@ async function loadUserInventory(userId) {
                     cropX: avatarMeta.crop_x ?? 0.5,
                     cropY: avatarMeta.crop_y ?? 0.25,
                     cropScale: avatarMeta.crop_scale ?? 1.5
+                } : {}),
+                ...(proofMeta ? {
+                    description: proofMeta.description,
+                    iconUrl: proofMeta.icon_url
+                        ? (proofMeta.icon_url.startsWith('/') ? proofMeta.icon_url : `/${proofMeta.icon_url}`)
+                        : '/char_assets_enemy/Monster1/Idle/tile000.png',
+                    isCircleIcon: true,
+                    cropX: proofMeta.crop_x ?? 0.5,
+                    cropY: proofMeta.crop_y ?? 0.5,
+                    cropScale: proofMeta.crop_scale ?? 1.5
                 } : {})
             };
 
@@ -11175,7 +11262,7 @@ async function saveLoginLog(userId, username, eventType, channel = null, domain 
 async function broadcastLoginLogs(limit = 20) {
     try {
         const [rows] = await pool.query(
-            `SELECT id, username, event_type, channel, created_at
+            `SELECT id, username, event_type, channel, domain, created_at
              FROM login_logs
              ORDER BY id DESC
              LIMIT ?`,
