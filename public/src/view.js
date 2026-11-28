@@ -1893,71 +1893,144 @@ if (testBtn) {
     });
 }
 
-// ============================================================
-// :::OPEN_DROP_FORM::: 🗑️ アイテム廃棄用入力フォームの展開と制御
-// ============================================================
-/**
- * 役割：
- * - 廃棄対象アイテムの所持数確認と、入力条件（最大所持数等）の設定
- * - 入力フォームの表示とフォーカス制御
- * - 数量確定時（Enter/ボタン）の送信、およびキャンセル（Escape/ボタン）処理
- * - 異常な入力（数値外や所持数オーバー）に対するガードとエラー表示
- */
-function openDropForm(slotIndex, item) {
-    const currentAmount = item.count || item.amount || 1;
+const emitDropBookCard = ({ monsterKey, rank, displayName, amount, mouseX, mouseY, canvasEl = null }) => {
+    const dropQty = Math.max(1, Number(amount) || 1);
+    const normalizedRank = (rank !== undefined && rank !== null) ? Number(rank) : 1;
 
-    // 1個しかない場合は即座に送信して終了
+    // 1. サーバーへカードドロップ要求を送信（rank / cardRank 両方を引き継ぎ）
+    if (typeof socket !== 'undefined' && socket && typeof socket.emit === 'function') {
+        socket.emit('dropBookCard', {
+            monsterKey,
+            rank: normalizedRank,
+            cardRank: normalizedRank,
+            displayName,
+            amount: dropQty,
+            dropX: mouseX,
+            dropY: mouseY
+        });
+    }
+
+    // 2. クライアント側の所持カード数も即時減算（サーバー同期前の見た目反映用）
+    if (typeof playerCardCollection !== 'undefined' && playerCardCollection?.[monsterKey]?.[normalizedRank]) {
+        const entry = playerCardCollection[monsterKey][normalizedRank];
+        const before = typeof entry.count === 'number' ? entry.count : (entry.unlocked ? 1 : 0);
+        const after = Math.max(0, before - dropQty);
+        entry.count = after;
+        if (after <= 0) {
+            entry.unlocked = false;
+        }
+    }
+
+    // 3. 掴み解除＆カーソルを通常状態へ戻す
+    if (typeof grabbedBookCard !== 'undefined') {
+        grabbedBookCard = null;
+    }
+    window._bookDiscardCursorGuardUntil = Date.now() + 200;
+    const targetCanvas = canvasEl || ((typeof canvas !== 'undefined' && canvas)
+        ? canvas
+        : (document.getElementById('stage') || document.querySelector('canvas')));
+    if (targetCanvas) {
+        targetCanvas.style.cursor = '';
+    }
+    if (document.body) {
+        document.body.style.cursor = '';
+    }
+    if (typeof _syncBookGrabCursor === 'function') {
+        const hoverNow = (typeof _isHoveringBookCard === 'function' && typeof mouseX === 'number' && typeof mouseY === 'number')
+            ? _isHoveringBookCard(mouseX, mouseY)
+            : false;
+        _syncBookGrabCursor(targetCanvas, hoverNow);
+    }
+
+    // 4. キャッシュ無効化と再描画
+    if (typeof _bookCacheLastDataHash !== 'undefined') {
+        _bookCacheLastDataHash = "";
+    }
+    if (typeof drawBookWindow === 'function') {
+        drawBookWindow();
+    }
+};
+
+function openDropForm(slotIndex, item, options = null) {
+    const currentAmount = item.count || item.amount || 1;
+    const isCardDrop = Boolean(options && options.isCard);
+
+    const emitDrop = (amount) => {
+        if (isCardDrop && typeof options.onConfirmDrop === 'function') {
+            options.onConfirmDrop(amount);
+            return;
+        }
+        socket.emit('dropItem', { index: slotIndex, amount });
+        if (typeof selectedSlotIndex !== 'undefined') {
+            selectedSlotIndex = -1;
+        }
+    };
+
+    // 1個（1枚）しかない場合は即座に送信して終了
     if (currentAmount <= 1) {
-        socket.emit('dropItem', { index: slotIndex, amount: 1 });
-        selectedSlotIndex = -1;
+        emitDrop(1);
+        if (typeof options?.onClose === 'function') options.onClose();
         return;
     }
 
-    // 複数個ある場合は入力フォームを表示
+    // 複数ある場合は入力フォームを表示
     const form = document.getElementById('drop-form');
     const label = document.getElementById('drop-label');
     const input = document.getElementById('drop-input');
     const error = document.getElementById('drop-error');
 
-    label.innerText = `${currentAmount}個持っています。何個捨てますか？`;
+    label.innerText = isCardDrop
+        ? `${currentAmount}枚持っています。何枚マップに落としますか？`
+        : `${currentAmount}個持っています。何個捨てますか？`;
     error.innerText = "";
     input.style.border = "1px solid #ccc";
-    input.value = currentAmount;
+    input.value = 1; // カードを落とす場合は初期値1枚など好みに合わせて調整可能
     input.max = currentAmount;
     input.min = 1;
 
-    isDiscarding = true;
+    if (typeof isDiscarding !== 'undefined') {
+        isDiscarding = true;
+    }
     form.style.display = 'block';
     form.style.pointerEvents = 'auto';
-    canvas.style.cursor = "default";
+    if (typeof canvas !== 'undefined' && canvas) {
+        canvas.style.cursor = "default";
+    }
 
     setTimeout(() => input.focus(), 10);
 
+    const closeForm = () => {
+        if (typeof isDiscarding !== 'undefined') {
+            isDiscarding = false;
+        }
+        if (typeof selectedSlotIndex !== 'undefined') {
+            selectedSlotIndex = -1;
+        }
+        form.style.display = 'none';
+        form.style.pointerEvents = 'none';
+        input.onkeydown = null;
+        if (typeof options?.onClose === 'function') {
+            options.onClose();
+        }
+    };
+
     const handleConfirm = () => {
-        let dropAmount = parseInt(input.value);
+        const dropAmount = parseInt(input.value, 10);
         if (isNaN(dropAmount) || dropAmount <= 0) {
-            error.innerText = "1個以上の数値を入力してください";
+            error.innerText = "1以上の数値を入力してください";
             input.style.border = "2px solid #ff4444";
             return;
         }
         if (dropAmount > currentAmount) {
-            error.innerText = `そんなに持っていません！(最大${currentAmount}個)`;
+            error.innerText = `そんなに持っていません！(最大${currentAmount}枚)`;
             input.style.border = "2px solid #ff4444";
             return;
         }
-        socket.emit('dropItem', { index: slotIndex, amount: dropAmount });
+        emitDrop(dropAmount);
         closeForm();
     };
 
     const handleCancel = () => closeForm();
-
-    const closeForm = () => {
-        isDiscarding = false;
-        selectedSlotIndex = -1;
-        form.style.display = 'none';
-        form.style.pointerEvents = 'none';
-        input.onkeydown = null;
-    };
 
     document.getElementById('drop-confirm').onclick = handleConfirm;
     document.getElementById('drop-cancel').onclick = handleCancel;
@@ -2579,16 +2652,6 @@ socket.on('your_id', id => {
   if (typeof hero !== 'undefined') hero.id = id;
 });
 
-// ============================================================
-// :::HANDLE_SERVER_EVENTS::: 📥 サーバーイベント（アイテム取得）の演出処理
-// ============================================================
-/**
- * 役割：
- * - 取得されたアイテムリスト(data.lastPickedItems)の順次処理
- * - ステータスボーナス値に基づく「8段階レアリティ」のカラー判定
- * - 取得位置からプレイヤーへの吸い込みエフェクト(pickingUpEffects)の生成
- * - 取得時のフィードバック（サウンド再生）の実行
- */
 function handleServerEvents(data) {
     if (!data.lastPickedItems || data.lastPickedItems.length === 0) return;
 
@@ -2619,7 +2682,7 @@ function handleServerEvents(data) {
         }
 
         // ① 吸い込みエフェクトの追加
-        pickingUpEffects.push({
+        const effObj = {
             type: picked.type,
             timer: VIEW_CONFIG.pickupEffect.duration,
             startX: picked.x + 20,
@@ -2629,10 +2692,20 @@ function handleServerEvents(data) {
             targetPlayerId: picked.pickerId,
             // 🌟 決定した詳細ランク色をエフェクト情報に追加
             effectColor: bonusColor,
-            // 🌟 【ここを追加】モンスターカードのランクとIDを確実にエフェクトへ引き継ぐ
+            // 🌟 モンスターカードの識別情報・ランク・アイコンを確実にエフェクトへ引き継ぐ
+            monsterKey: picked.monsterKey || (picked.type !== 'monster_card' ? picked.type : null),
+            name: picked.name || picked.monsterKey || picked.type,
+            iconUrl: picked.iconUrl || picked.icon_url || null,
             cardId: picked.cardId,
             cardRank: picked.cardRank !== undefined ? picked.cardRank : picked.rank
+        };
+
+        console.log('🧲 [DBG-CLIENT pickingUpEffects.push]', {
+            pickedRaw: picked,
+            effObj
         });
+
+        pickingUpEffects.push(effObj);
 
         // ② アイテム取得ログ（省略・維持）
         /*
@@ -3597,7 +3670,8 @@ function updateProfileEquipment(p) {
         { label: "マント", types: ["cloak", "cape"] },
         { label: "ペンダント", types: ["pendant", "necklace"] },
         { label: "指輪", types: ["ring"] },
-        { label: "ベルト", types: ["belt"] }
+        { label: "ベルト", types: ["belt"] },
+        { label: "アバター", types: ["avatar"] } // ← これを追加
     ];
 
     equipSlots.forEach(slot => {
@@ -4948,11 +5022,12 @@ function drawProfileHeaderInfo(startX, startY, p) {
 
 // 2カラム目：装備アイテムセクション（単独ボタン風パネル）
 function drawProfileEquipment(colX, topY, colWidth, p) {
+    const panelHeight = 145; // 2段目（y + 72前後）まで収まるように少し広げる
     ctx.fillStyle = "rgba(0, 0, 0, 0.25)";
-    ctx.fillRect(colX, topY, colWidth, 110);
+    ctx.fillRect(colX, topY, colWidth, panelHeight);
     ctx.strokeStyle = "rgba(255, 255, 255, 0.15)";
     ctx.lineWidth = 1;
-    ctx.strokeRect(colX, topY, colWidth, 110);
+    ctx.strokeRect(colX, topY, colWidth, panelHeight);
 
     ctx.font = "bold 11px Arial";
     ctx.fillStyle = "#f8fafc";
@@ -4966,11 +5041,13 @@ function drawProfileEquipment(colX, topY, colWidth, p) {
         { label: "マント", types: ["cloak", "cape"] },
         { label: "ペンダント", types: ["pendant", "necklace"] },
         { label: "指輪", types: ["ring"] },
-        { label: "ベルト", types: ["belt"] }
+        { label: "ベルト", types: ["belt"] },
+        { label: "アバター", types: ["avatar"] } // ← 7つ目を追加
     ];
 
     const slotSize = 30;
-    const slotGap = 10;
+    const slotGapX = 10;
+    const slotGapY = 12;
     const equipStartX = colX + 12;
     const equipStartY = topY + 26;
 
@@ -4978,9 +5055,10 @@ function drawProfileEquipment(colX, topY, colWidth, p) {
     let hoveredSlotInfo = null;
 
     equipSlots.forEach((slot, idx) => {
-        const col = idx % 6; 
-        const sx = equipStartX + col * (slotSize + slotGap);
-        const sy = equipStartY;
+        const col = idx % 6;
+        const row = Math.floor(idx / 6); // 0が1段目、1が2段目
+        const sx = equipStartX + col * (slotSize + slotGapX);
+        const sy = equipStartY + row * (slotSize + slotGapY);
 
         const isHover = (typeof mouseX !== 'undefined' && typeof mouseY !== 'undefined' &&
                          mouseX >= sx && mouseX <= sx + slotSize &&
@@ -7000,7 +7078,7 @@ function rejectTradeRequest() {
 }
 
 /**
- * ❌ 交換窓を閉じる（キャンセルする）ときの処理
+- ❌ 交換窓を閉じる（キャンセルする）ときの処理
  */
 function closeTradeWindow() {
 
@@ -7037,12 +7115,27 @@ function closeTradeWindow() {
         targetNameEl.innerText = "（待機中...）";
     }
 
-    // 🌟 2. 相手のアバター描画用キャンバスをクリアして空白にする
-    const oppAvatarCanvas = document.getElementById('trade-opponent-avatar-canvas');
-    if (oppAvatarCanvas) {
-        const ctx = oppAvatarCanvas.getContext('2d');
-        if (ctx) {
-            ctx.clearRect(0, 0, oppAvatarCanvas.width, oppAvatarCanvas.height);
+    // 🌟 2. 相手のアバター描画ループ停止・状態リセット・キャンバス消去
+    if (typeof clearOpponentTradeAvatar === 'function') {
+        clearOpponentTradeAvatar();
+    } else {
+        const oppAvatarCanvas = document.getElementById('trade-opponent-avatar-canvas');
+        if (oppAvatarCanvas) {
+            oppAvatarCanvas._latestOpponentData = null;
+            oppAvatarCanvas._isAnimLoopRunning = false;
+            if (oppAvatarCanvas._vendingAnimState) {
+                oppAvatarCanvas._vendingAnimState.lastCharKey = '';
+                oppAvatarCanvas._vendingAnimState.cache = [];
+                oppAvatarCanvas._vendingAnimState.internalFrame = 0;
+                oppAvatarCanvas._vendingAnimState.commonBox = null;
+            }
+            const ctx = oppAvatarCanvas.getContext('2d');
+            if (ctx) {
+                ctx.save();
+                ctx.setTransform(1, 0, 0, 1, 0, 0);
+                ctx.clearRect(0, 0, oppAvatarCanvas.width, oppAvatarCanvas.height);
+                ctx.restore();
+            }
         }
     }
 
@@ -9075,14 +9168,9 @@ ladders.forEach(l => {
 });
 }
 
-// ============================================================
-// :::DRAW_PLAYER_OBJ::: 👤 キャラクター描画の司令塔（自分・他者共通）
-// ============================================================
 function drawPlayerObj(p, isMe, id) {
     if (!p) return;
-	
-	//p.charVar = 1;   // スタイルIDを強制的に 1 にする
-	
+
     // 🌟 チャンネルチェックの門番
     if (!isMe && typeof hero !== 'undefined') {
         const myChan = hero.channel || 1;
@@ -9090,10 +9178,23 @@ function drawPlayerObj(p, isMe, id) {
         if (opChan !== myChan) return;
     }
 
-    // 1. 🎭 キャラクター設定の決定 (ここを model_id 優先に修正)
-    // サーバーから同期されている p.model_id を使用し、未定義ならグループID(p.group)へフォールバック
-    const g = isMe ? (typeof selectedGroup !== 'undefined' ? selectedGroup : 0) : (p.model_id !== undefined ? p.model_id : (p.group || 0));
-    const v = isMe ? (typeof selectedCharVar !== 'undefined' ? selectedCharVar : 1) : (p.charVar !== undefined ? p.charVar : 1);
+    // 1. 🎭 キャラクター設定の決定
+    let g = isMe ? (typeof selectedGroup !== 'undefined' ? selectedGroup : 0) : (p.model_id !== undefined ? p.model_id : (p.group || 0));
+    let v = isMe ? (typeof selectedCharVar !== 'undefined' ? selectedCharVar : 1) : (p.charVar !== undefined ? p.charVar : 1);
+
+    // 🌟 アバター装備中の見た目があれば g, v を優先上書き
+    const activeAvatarVisual = (p && p.avatarVisual)
+        ? p.avatarVisual
+        : ((isMe && typeof hero !== 'undefined' && hero.avatarVisual) ? hero.avatarVisual : null);
+
+    if (activeAvatarVisual) {
+        if (activeAvatarVisual.groupIndex !== null && activeAvatarVisual.groupIndex !== undefined) {
+            g = Number(activeAvatarVisual.groupIndex);
+        }
+        if (activeAvatarVisual.charIndex !== null && activeAvatarVisual.charIndex !== undefined) {
+            v = Number(activeAvatarVisual.charIndex);
+        }
+    }
 
     // 🌟 ロードチェック：g, v の組み合わせが未ロードなら実行
     if (!playerSprites[g] || !playerSprites[g][v]) {
@@ -9106,12 +9207,9 @@ function drawPlayerObj(p, isMe, id) {
     // 3. 🖼️ 表示する画像の決定
     const currentImg = getPlayerCurrentImg(p, g, v, frame, sprites, playerSprites, isMe);
 
-    // 4. 🖼️ 表示する画像の決定
+    // 4. 🖼️ 描画
     if (currentImg && !(p.invincible > 0 && Math.floor(frame / 4) % 2 === 0)) {
-        
-        // 実際の半透明・グロー処理は renderPlayerSprite 側に任せるためそのまま呼び出し
         renderPlayerSprite(ctx, p, currentImg, visualData);
-        
     } else if (!isMe) {
         ctx.fillStyle = "rgba(255,255,255,0.5)";
         ctx.fillText("Loading image...", p.x, p.y - 10);
@@ -10271,7 +10369,14 @@ function drawPickupEffects(hero, others) {
         const config = rawConfig || { name: eff.type, isAnimated: false };
 
         const numericEffId = Number(eff.item_id || eff.itemId || 0);
-        const isAvatarEffect = Boolean(
+        // 🌟 モンスターカードかどうかの厳密な判定（通常アイテムを誤判定しないように限定）
+        const isMonsterCard = Boolean(
+            eff.cardId ||
+            eff.type === 'monster_card' ||
+            eff.category === 'card' ||
+            (eff.type && String(eff.type).toLowerCase().startsWith('monster'))
+        );
+        const isAvatarEffect = !isMonsterCard && Boolean(
             eff.isCircleIcon ||
             eff.iconUrl ||
             eff.icon_url ||
@@ -10280,7 +10385,26 @@ function drawPickupEffects(hero, others) {
         );
         
         let img = null;
-        if (isAvatarEffect) {
+        if (isMonsterCard) {
+            const rawKey = eff.monsterKey
+                || (eff.name && eff.name !== 'monster_card' ? eff.name : null)
+                || (eff.type && eff.type !== 'monster_card' ? eff.type : null);
+            const mKey = rawKey ? String(rawKey) : null;
+            const capitalizedKey = mKey ? (mKey.charAt(0).toUpperCase() + mKey.slice(1)) : null;
+
+            const resolvedSrc = capitalizedKey ? `/card_assets/${capitalizedKey}.png` : null;
+
+            if (resolvedSrc) {
+                if (!window.itemImageCache) window.itemImageCache = {};
+                if (!window.itemImageCache[resolvedSrc]) {
+                    const cardImg = new Image();
+                    cardImg.crossOrigin = "anonymous";
+                    cardImg.src = resolvedSrc;
+                    window.itemImageCache[resolvedSrc] = cardImg;
+                }
+                img = window.itemImageCache[resolvedSrc];
+            }
+        } else if (isAvatarEffect) {
             const rawIconUrl = eff.iconUrl || eff.icon_url || (
                 numericEffId === 50001
                     ? '/char_assets/11/11/Idle/Characters-Character11-Idle_00.png'
@@ -10314,9 +10438,6 @@ function drawPickupEffects(hero, others) {
                             img.naturalHeight > 0;
 
         if (isImageSafe) {
-            // 🌟 モンスターカードかどうかの判定（フィールド側と完全に統一）
-            const isMonsterCard = eff.cardId || (eff.type && eff.type.toLowerCase().startsWith('monster'));
-
             if (isMonsterCard) {
                 // --- 🃏 吸い込み中のモンスターカード（図鑑＆フィールドと完全同一のランク別プレミアムデザイン） ---
                 ctx.imageSmoothingEnabled = false; // ドット絵をシャープに保つ
@@ -11485,17 +11606,21 @@ function drawItems(items, frame) {
         const pulse = 0.5 + 0.5 * Math.sin((frame || 0) * 0.08 + offset);
         const floatY = item.landed ? -Math.abs(Math.sin(frame * VIEW_CONFIG.item.floatSpeed + offset) * VIEW_CONFIG.item.floatAmplitude) : 0;
 
-        // 🌟 アバターアイテム判定（50000番台 / avatar_ / isCircleIcon / iconUrl）
+        // 🌟 カード＆アバターアイテム判定
         const numericItemId = Number(item.item_id || item.itemId || 0);
-        const isAvatarItem = Boolean(
+        const isMonsterCard = Boolean(
+            item.cardId ||
+            item.type === 'monster_card' ||
+            item.category === 'card' ||
+            (item.type && item.type.toLowerCase().startsWith('monster'))
+        );
+        const isAvatarItem = !isMonsterCard && Boolean(
             item.isCircleIcon ||
             item.iconUrl ||
             item.icon_url ||
             (numericItemId >= 50000 && numericItemId < 60000) ||
             String(item.type || '').startsWith('avatar_')
         );
-
-        const isMonsterCard = Boolean(item.cardId || (item.type && item.type.toLowerCase().startsWith('monster')));
 
         // 2. 座標とサイズの準備（アバターアイテムは地面でも大きめに表示）
         const baseDrawSize = VIEW_CONFIG.item.drawSize || 32; // 32
@@ -11527,7 +11652,40 @@ function drawItems(items, frame) {
         };
 
         let img = null;
-        if (isAvatarItem) {
+        if (isMonsterCard) {
+            const rawKey = item.monsterKey || item.name || (item.type !== 'monster_card' ? item.type : null);
+            const mKey = rawKey ? String(rawKey) : null;
+            const capitalizedKey = mKey ? (mKey.charAt(0).toUpperCase() + mKey.slice(1)) : null;
+
+            const primarySrc = capitalizedKey ? `/card_assets/${capitalizedKey}.png` : null;
+            const fallbackIcon = item.iconUrl || item.icon_url || null;
+            const fallbackSrc = fallbackIcon
+                ? ((String(fallbackIcon).startsWith('/') || String(fallbackIcon).startsWith('http'))
+                    ? String(fallbackIcon)
+                    : `/${fallbackIcon}`)
+                : null;
+
+            const resolvedSrc = primarySrc || fallbackSrc;
+
+            if (resolvedSrc) {
+                if (!window.itemImageCache) window.itemImageCache = {};
+                if (!window.itemImageCache[resolvedSrc]) {
+                    const cardImg = new Image();
+                    cardImg.crossOrigin = "anonymous";
+                    if (fallbackSrc && fallbackSrc !== resolvedSrc) {
+                        cardImg.onerror = () => {
+                            if (!cardImg._triedFallback) {
+                                cardImg._triedFallback = true;
+                                cardImg.src = fallbackSrc;
+                            }
+                        };
+                    }
+                    cardImg.src = resolvedSrc;
+                    window.itemImageCache[resolvedSrc] = cardImg;
+                }
+                img = window.itemImageCache[resolvedSrc];
+            }
+        } else if (isAvatarItem) {
             const rawIconUrl = item.iconUrl || item.icon_url || (
                 numericItemId === 50001
                     ? '/char_assets/11/11/Idle/Characters-Character11-Idle_00.png'
@@ -11561,173 +11719,173 @@ function drawItems(items, frame) {
                             img.naturalWidth > 0 && 
                             img.naturalHeight > 0;
 
-        if (isImageSafe) {
-            if (isMonsterCard) {
-                // --- 🃏 フィールド上のモンスターカード（図鑑ウィンドウと完全同一のランク別プレミアムデザイン） ---
-                ctx.imageSmoothingEnabled = false; // ドット絵をシャープに保つ
+        if (isMonsterCard) {
+            // --- 🃏 フィールド上のモンスターカード（画像未完了でも黄色四角にせずカード枠を描画） ---
+            ctx.imageSmoothingEnabled = false; // ドット絵をシャープに保つ
 
-                const cardW = 32;  
-                const cardH = 44;
+            const cardW = 32;  
+            const cardH = 44;
 
-                const cardX = -cardW / 2;
-                const cardY = -cardH / 2;
-                const cutSize = 5;  
-                const outerRadius = 2;  
+            const cardX = -cardW / 2;
+            const cardY = -cardH / 2;
+            const cutSize = 5;  
+            const outerRadius = 2;  
 
-                const makeRoundedBevelPath = (x, y, w, h, cut, r) => {
-                    ctx.beginPath();
-                    ctx.moveTo(x, y + cut);
-                    ctx.lineTo(x + cut, y);
-                    ctx.lineTo(x + w - r, y);
-                    ctx.arcTo(x + w, y, x + w, y + r, r);
-                    ctx.lineTo(x + w, y + h - r);
-                    ctx.arcTo(x + w, y + h, x + w - r, y + h, r);
-                    ctx.lineTo(x + r, y + h);
-                    ctx.arcTo(x, y + h, x, y + h - r, r);
-                    ctx.closePath();
-                };
+            const makeRoundedBevelPath = (x, y, w, h, cut, r) => {
+                ctx.beginPath();
+                ctx.moveTo(x, y + cut);
+                ctx.lineTo(x + cut, y);
+                ctx.lineTo(x + w - r, y);
+                ctx.arcTo(x + w, y, x + w, y + r, r);
+                ctx.lineTo(x + w, y + h - r);
+                ctx.arcTo(x + w, y + h, x + w - r, y + h, r);
+                ctx.lineTo(x + r, y + h);
+                ctx.arcTo(x, y + h, x, y + h - r, r);
+                ctx.closePath();
+            };
 
-                const rank = item.cardRank || 1;
+            const rank = Number(item.cardRank ?? item.rank ?? 1);
 
-                let theme = {
-                    glowColor: "#f59e0b",      
-                    lightBorder: "#fef08a",    
-                    gradTop: "#fde047",        
-                    gradMid: "#eab308",        
-                    gradBottom: "#a16207",     
-                    innerTop: "#fef3c7",       
-                    innerMid: "#fde68a",       
-                    innerBottom: "#d1c4a9",
+            let theme = {
+                glowColor: "#f59e0b",      
+                lightBorder: "#fef08a",    
+                gradTop: "#fde047",        
+                gradMid: "#eab308",        
+                gradBottom: "#a16207",     
+                innerTop: "#fef3c7",       
+                innerMid: "#fde68a",       
+                innerBottom: "#d1c4a9",
+                isDiamond: false,
+                isPlatinum: false,
+                isRainbow: false
+            };
+
+            if (rank === 1) {
+                theme = { glowColor: "#b45309", lightBorder: "#fed7aa", gradTop: "#fb923c", gradMid: "#c2410c", gradBottom: "#7c2d12", innerTop: "#ffedd5", innerMid: "#fed7aa", innerBottom: "#c2410c", isDiamond: false, isPlatinum: false, isRainbow: false };
+            } else if (rank === 2) {
+                theme = { glowColor: "#94a3b8", lightBorder: "#e2e8f0", gradTop: "#cbd5e1", gradMid: "#64748b", gradBottom: "#334155", innerTop: "#f1f5f9", innerMid: "#cbd5e1", innerBottom: "#64748b", isDiamond: false, isPlatinum: false, isRainbow: false };
+            } else if (rank === 3) {
+                theme = { glowColor: "#f59e0b", lightBorder: "#fef08a", gradTop: "#fde047", gradMid: "#eab308", gradBottom: "#a16207", innerTop: "#fef3c7", innerMid: "#fde68a", innerBottom: "#d1c4a9", isDiamond: false, isPlatinum: false, isRainbow: false };
+            } else if (rank === 4) {
+                theme = { glowColor: "#e2e8f0", lightBorder: "#ffffff", gradTop: "#ffffff", gradMid: "#cbd5e1", gradBottom: "#64748b", innerTop: "#ffffff", innerMid: "#e2e8f0", innerBottom: "#cbd5e1", isDiamond: false, isPlatinum: true, isRainbow: false };
+            } else if (rank === 5) {
+                theme = { glowColor: "#6ee7b7", lightBorder: "#ffffff", gradTop: "#7dd3fc", gradMid: "#0d9488", gradBottom: "#042f2e", innerTop: "#ffffff", innerMid: "#2dd4bf", innerBottom: "#0f766e", isDiamond: true, isPlatinum: false, isRainbow: false };
+            } else if (rank >= 6) {
+                const hue = ((frame || 0) * 3) % 360;
+                theme = {
+                    glowColor: `hsl(${hue}, 100%, 65%)`,
+                    lightBorder: "#ffffff",
+                    gradTop: `hsl(${hue}, 90%, 75%)`,
+                    gradMid: `hsl(${(hue + 60) % 360}, 90%, 50%)`,
+                    gradBottom: `hsl(${(hue + 120) % 360}, 90%, 30%)`,
+                    innerTop: "#ffffff",
+                    innerMid: `hsl(${hue}, 70%, 90%)`,
+                    innerBottom: `hsl(${(hue + 60) % 360}, 50%, 80%)`,
                     isDiamond: false,
                     isPlatinum: false,
-                    isRainbow: false
+                    isRainbow: true
                 };
+            }
 
-                if (rank === 1) {
-                    theme = { glowColor: "#b45309", lightBorder: "#fed7aa", gradTop: "#fb923c", gradMid: "#c2410c", gradBottom: "#7c2d12", innerTop: "#ffedd5", innerMid: "#fed7aa", innerBottom: "#c2410c", isDiamond: false, isPlatinum: false, isRainbow: false };
-                } else if (rank === 2) {
-                    theme = { glowColor: "#94a3b8", lightBorder: "#e2e8f0", gradTop: "#cbd5e1", gradMid: "#64748b", gradBottom: "#334155", innerTop: "#f1f5f9", innerMid: "#cbd5e1", innerBottom: "#64748b", isDiamond: false, isPlatinum: false, isRainbow: false };
-                } else if (rank === 3) {
-                    theme = { glowColor: "#f59e0b", lightBorder: "#fef08a", gradTop: "#fde047", gradMid: "#eab308", gradBottom: "#a16207", innerTop: "#fef3c7", innerMid: "#fde68a", innerBottom: "#d1c4a9", isDiamond: false, isPlatinum: false, isRainbow: false };
-                } else if (rank === 4) {
-                    theme = { glowColor: "#e2e8f0", lightBorder: "#ffffff", gradTop: "#ffffff", gradMid: "#cbd5e1", gradBottom: "#64748b", innerTop: "#ffffff", innerMid: "#e2e8f0", innerBottom: "#cbd5e1", isDiamond: false, isPlatinum: true, isRainbow: false };
-                } else if (rank === 5) {
-                    theme = { glowColor: "#6ee7b7", lightBorder: "#ffffff", gradTop: "#7dd3fc", gradMid: "#0d9488", gradBottom: "#042f2e", innerTop: "#ffffff", innerMid: "#2dd4bf", innerBottom: "#0f766e", isDiamond: true, isPlatinum: false, isRainbow: false };
-                } else if (rank >= 6) {
-                    const hue = ((frame || 0) * 3) % 360;
-                    theme = {
-                        glowColor: `hsl(${hue}, 100%, 65%)`,
-                        lightBorder: "#ffffff",
-                        gradTop: `hsl(${hue}, 90%, 75%)`,
-                        gradMid: `hsl(${(hue + 60) % 360}, 90%, 50%)`,
-                        gradBottom: `hsl(${(hue + 120) % 360}, 90%, 30%)`,
-                        innerTop: "#ffffff",
-                        innerMid: `hsl(${hue}, 70%, 90%)`,
-                        innerBottom: `hsl(${(hue + 60) % 360}, 50%, 80%)`,
-                        isDiamond: false,
-                        isPlatinum: false,
-                        isRainbow: true
-                    };
-                }
+            // 0. 外側の輝き・グロー演出
+            ctx.save();
+            ctx.strokeStyle = theme.glowColor;
+            ctx.lineWidth = 3.5;
+            ctx.globalAlpha = 0.35 + pulse * 0.12;
+            makeRoundedBevelPath(cardX - 1, cardY - 1, cardW + 2, cardH + 2, cutSize + 1, outerRadius + 1);
+            ctx.stroke();
 
-                // 0. 外側の輝き・グロー演出
-                ctx.save();
-                ctx.strokeStyle = theme.glowColor;
-                ctx.lineWidth = 3.5;
-                ctx.globalAlpha = 0.35 + pulse * 0.12;
-                makeRoundedBevelPath(cardX - 1, cardY - 1, cardW + 2, cardH + 2, cutSize + 1, outerRadius + 1);
-                ctx.stroke();
+            ctx.lineWidth = 2;
+            ctx.globalAlpha = 0.6 + pulse * 0.15;
+            makeRoundedBevelPath(cardX - 0.5, cardY - 0.5, cardW + 1, cardH + 1, cutSize, outerRadius);
+            ctx.stroke();
+            ctx.restore();
 
-                ctx.lineWidth = 2;
-                ctx.globalAlpha = 0.6 + pulse * 0.15;
-                makeRoundedBevelPath(cardX - 0.5, cardY - 0.5, cardW + 1, cardH + 1, cutSize, outerRadius);
-                ctx.stroke();
-                ctx.restore();
+            // 1. フレーム（枠）のグラデーション描画
+            const frameGrad = ctx.createLinearGradient(cardX, cardY, cardX, cardY + cardH);
+            if (theme.isRainbow) {
+                frameGrad.addColorStop(0.00, "rgba(255, 120, 120, 1.0)");
+                frameGrad.addColorStop(0.16, "rgba(255, 200, 90,  1.0)");
+                frameGrad.addColorStop(0.33, "rgba(255, 255, 120, 1.0)");
+                frameGrad.addColorStop(0.50, "rgba(90,  255, 150, 1.0)");
+                frameGrad.addColorStop(0.66, "rgba(90,  230, 255, 1.0)");
+                frameGrad.addColorStop(0.83, "rgba(200, 120, 255, 1.0)");
+                frameGrad.addColorStop(1.00, "rgba(255, 120, 210, 1.0)");
+            } else if (theme.isDiamond) {
+                frameGrad.addColorStop(0.00, "#7dd3fc");
+                frameGrad.addColorStop(0.50, "#0284c7");
+                frameGrad.addColorStop(1.00, "#0369a1");
+            } else {
+                frameGrad.addColorStop(0, theme.gradTop); 
+                frameGrad.addColorStop(0.5, theme.gradMid); 
+                frameGrad.addColorStop(1, theme.gradBottom); 
+            }
+            
+            ctx.fillStyle = frameGrad;
+            makeRoundedBevelPath(cardX, cardY, cardW, cardH, cutSize, outerRadius);
+            ctx.fill();
 
-                // 1. フレーム（枠）のグラデーション描画
-                const frameGrad = ctx.createLinearGradient(cardX, cardY, cardX, cardY + cardH);
-                if (theme.isRainbow) {
-                    frameGrad.addColorStop(0.00, "rgba(255, 120, 120, 1.0)");
-                    frameGrad.addColorStop(0.16, "rgba(255, 200, 90,  1.0)");
-                    frameGrad.addColorStop(0.33, "rgba(255, 255, 120, 1.0)");
-                    frameGrad.addColorStop(0.50, "rgba(90,  255, 150, 1.0)");
-                    frameGrad.addColorStop(0.66, "rgba(90,  230, 255, 1.0)");
-                    frameGrad.addColorStop(0.83, "rgba(200, 120, 255, 1.0)");
-                    frameGrad.addColorStop(1.00, "rgba(255, 120, 210, 1.0)");
-                } else if (theme.isDiamond) {
-                    frameGrad.addColorStop(0.00, "#7dd3fc");
-                    frameGrad.addColorStop(0.50, "#0284c7");
-                    frameGrad.addColorStop(1.00, "#0369a1");
+            ctx.lineWidth = 1.0;
+            ctx.strokeStyle = theme.lightBorder;
+            makeRoundedBevelPath(cardX, cardY, cardW, cardH, cutSize, outerRadius);
+            ctx.stroke();
+
+            // 2. 内側エリアの生成
+            const innerMargin = 1.5; 
+            const innerX = cardX + innerMargin;
+            const innerY = cardY + innerMargin;
+            const innerW = cardW - innerMargin * 2;
+            const innerH = cardH - innerMargin * 2;
+            const innerCut = Math.max(0, cutSize - innerMargin);
+            const innerRadius = Math.max(0, outerRadius - innerMargin);
+
+            const makeInnerRoundedBevelPath = (x, y, w, h, cut, r) => {
+                ctx.beginPath();
+                if (cut > 0) {
+                    ctx.moveTo(x, y + cut);
+                    ctx.lineTo(x + cut, y);
                 } else {
-                    frameGrad.addColorStop(0, theme.gradTop); 
-                    frameGrad.addColorStop(0.5, theme.gradMid); 
-                    frameGrad.addColorStop(1, theme.gradBottom); 
+                    ctx.moveTo(x, y);
                 }
-                
-                ctx.fillStyle = frameGrad;
-                makeRoundedBevelPath(cardX, cardY, cardW, cardH, cutSize, outerRadius);
-                ctx.fill();
+                ctx.lineTo(x + w - r, y);
+                if (r > 0) ctx.arcTo(x + w, y, x + w, y + r, r);
+                else ctx.lineTo(x+w,y);
+                ctx.lineTo(x + w, y + h - r);
+                if (r > 0) ctx.arcTo(x + w, y + h, x + w - r, y + h, r);
+                else ctx.lineTo(x+w,y+h);
+                ctx.lineTo(x + r, y + h);
+                if (r > 0) ctx.arcTo(x, y + h, x, y + h - r, r);
+                else ctx.lineTo(x,y+h);
+                ctx.closePath();
+            };
 
-                ctx.lineWidth = 1.0;
-                ctx.strokeStyle = theme.lightBorder;
-                makeRoundedBevelPath(cardX, cardY, cardW, cardH, cutSize, outerRadius);
-                ctx.stroke();
+            const innerGrad = ctx.createLinearGradient(innerX + innerW, innerY, innerX, innerY + innerH);
+            if (theme.isRainbow) {
+                innerGrad.addColorStop(0.00, "rgba(255, 120, 120, 1.0)");
+                innerGrad.addColorStop(0.16, "rgba(255, 200, 90,  1.0)");
+                innerGrad.addColorStop(0.33, "rgba(255, 255, 120, 1.0)");
+                innerGrad.addColorStop(0.50, "rgba(90,  255, 150, 1.0)");
+                innerGrad.addColorStop(0.66, "rgba(90,  230, 255, 1.0)");
+                innerGrad.addColorStop(0.83, "rgba(200, 120, 255, 1.0)");
+                innerGrad.addColorStop(1.00, "rgba(255, 120, 210, 1.0)");
+            } else if (theme.isDiamond) {
+                innerGrad.addColorStop(0.00, "#e0f2fe");
+                innerGrad.addColorStop(0.25, "#bae6fd");
+                innerGrad.addColorStop(0.50, "#38bdf8");
+                innerGrad.addColorStop(0.75, "#0284c7");
+                innerGrad.addColorStop(1.00, "#0369a1");
+            } else {
+                innerGrad.addColorStop(0, theme.innerTop); 
+                innerGrad.addColorStop(0.5, theme.innerMid); 
+                innerGrad.addColorStop(1, theme.innerBottom);    
+            }
+            
+            ctx.fillStyle = innerGrad;
+            makeInnerRoundedBevelPath(innerX, innerY, innerW, innerH, innerCut, innerRadius);
+            ctx.fill();
 
-                // 2. 内側エリアの生成
-                const innerMargin = 1.5; 
-                const innerX = cardX + innerMargin;
-                const innerY = cardY + innerMargin;
-                const innerW = cardW - innerMargin * 2;
-                const innerH = cardH - innerMargin * 2;
-                const innerCut = Math.max(0, cutSize - innerMargin);
-                const innerRadius = Math.max(0, outerRadius - innerMargin);
-
-                const makeInnerRoundedBevelPath = (x, y, w, h, cut, r) => {
-                    ctx.beginPath();
-                    if (cut > 0) {
-                        ctx.moveTo(x, y + cut);
-                        ctx.lineTo(x + cut, y);
-                    } else {
-                        ctx.moveTo(x, y);
-                    }
-                    ctx.lineTo(x + w - r, y);
-                    if (r > 0) ctx.arcTo(x + w, y, x + w, y + r, r);
-                    else ctx.lineTo(x+w,y);
-                    ctx.lineTo(x + w, y + h - r);
-                    if (r > 0) ctx.arcTo(x + w, y + h, x + w - r, y + h, r);
-                    else ctx.lineTo(x+w,y+h);
-                    ctx.lineTo(x + r, y + h);
-                    if (r > 0) ctx.arcTo(x, y + h, x, y + h - r, r);
-                    else ctx.lineTo(x,y+h);
-                    ctx.closePath();
-                };
-
-                const innerGrad = ctx.createLinearGradient(innerX + innerW, innerY, innerX, innerY + innerH);
-                if (theme.isRainbow) {
-                    innerGrad.addColorStop(0.00, "rgba(255, 120, 120, 1.0)");
-                    innerGrad.addColorStop(0.16, "rgba(255, 200, 90,  1.0)");
-                    innerGrad.addColorStop(0.33, "rgba(255, 255, 120, 1.0)");
-                    innerGrad.addColorStop(0.50, "rgba(90,  255, 150, 1.0)");
-                    innerGrad.addColorStop(0.66, "rgba(90,  230, 255, 1.0)");
-                    innerGrad.addColorStop(0.83, "rgba(200, 120, 255, 1.0)");
-                    innerGrad.addColorStop(1.00, "rgba(255, 120, 210, 1.0)");
-                } else if (theme.isDiamond) {
-                    innerGrad.addColorStop(0.00, "#e0f2fe");
-                    innerGrad.addColorStop(0.25, "#bae6fd");
-                    innerGrad.addColorStop(0.50, "#38bdf8");
-                    innerGrad.addColorStop(0.75, "#0284c7");
-                    innerGrad.addColorStop(1.00, "#0369a1");
-                } else {
-                    innerGrad.addColorStop(0, theme.innerTop); 
-                    innerGrad.addColorStop(0.5, theme.innerMid); 
-                    innerGrad.addColorStop(1, theme.innerBottom);    
-                }
-                
-                ctx.fillStyle = innerGrad;
-                makeInnerRoundedBevelPath(innerX, innerY, innerW, innerH, innerCut, innerRadius);
-                ctx.fill();
-
-                // 3. モンスター画像描画
+            // 3. モンスター画像描画（読込済みのときだけ描画）
+            if (isImageSafe) {
                 ctx.save();
                 makeInnerRoundedBevelPath(innerX, innerY, innerW, innerH, innerCut, innerRadius);
                 ctx.clip();
@@ -11763,71 +11921,103 @@ function drawItems(items, frame) {
                 );
 
                 ctx.restore();
+            }
 
-                if (theme.isDiamond) {
-                    ctx.save();
-                    makeInnerRoundedBevelPath(innerX, innerY, innerW, innerH, innerCut, innerRadius);
-                    ctx.clip();
-
-                    const shineGrad = ctx.createLinearGradient(innerX + innerW * 0.9, innerY + innerH * 0.1, innerX + innerW * 0.1, innerY + innerH * 0.9);
-                    shineGrad.addColorStop(0.00, "rgba(255, 255, 255, 0.0)");
-                    shineGrad.addColorStop(0.25, "rgba(255, 255, 255, 0.02)");
-                    shineGrad.addColorStop(0.40, "rgba(255, 255, 255, 0.30)"); 
-                    shineGrad.addColorStop(0.50, "rgba(255, 255, 255, 0.60)"); 
-                    shineGrad.addColorStop(0.60, "rgba(255, 255, 255, 0.30)"); 
-                    shineGrad.addColorStop(0.75, "rgba(255, 255, 255, 0.02)");
-                    shineGrad.addColorStop(1.00, "rgba(255, 255, 255, 0.0)");
-
-                    ctx.fillStyle = shineGrad;
-                    ctx.fillRect(innerX, innerY, innerW, innerH);
-                    ctx.restore();
-                }
-
-                if (theme.isRainbow) {
-                    ctx.save();
-                    ctx.shadowColor = "rgba(255, 255, 255, 0.7)"; 
-                    ctx.shadowBlur = 18;                          
-                    ctx.shadowOffsetX = 0;
-                    ctx.shadowOffsetY = 0;
-
-                    makeInnerRoundedBevelPath(innerX, innerY, innerW, innerH, innerCut, innerRadius);
-                    ctx.strokeStyle = "rgba(255, 255, 255, 0.45)"; 
-                    ctx.lineWidth = 1.0;
-                    ctx.stroke();
-                    ctx.restore();
-                }
-
-                if (theme.isPlatinum) {
-                    ctx.save();
-                    makeInnerRoundedBevelPath(innerX, innerY, innerW, innerH, innerCut, innerRadius);
-                    ctx.clip();
-
-                    const platShine = ctx.createLinearGradient(innerX, innerY, innerX + innerW, innerY + innerH);
-                    platShine.addColorStop(0.00, "rgba(255, 255, 255, 0.35)"); 
-                    platShine.addColorStop(0.35, "rgba(255, 255, 255, 0.45)"); 
-                    platShine.addColorStop(0.55, "rgba(255, 255, 255, 0.10)");
-                    platShine.addColorStop(1.00, "rgba(255, 255, 255, 0.0)");
-
-                    ctx.fillStyle = platShine;
-                    ctx.fillRect(innerX, innerY, innerW, innerH);
-                    ctx.restore();
-                }
-
-                // 4. カード表面のツヤ（ハイライト反射）
+            if (theme.isDiamond) {
                 ctx.save();
-                makeRoundedBevelPath(cardX, cardY, cardW, cardH, cutSize, outerRadius);
+                makeInnerRoundedBevelPath(innerX, innerY, innerW, innerH, innerCut, innerRadius);
                 ctx.clip();
 
-                const sheenGrad = ctx.createLinearGradient(cardX, cardY, cardX + cardW, cardY + cardH);
-                sheenGrad.addColorStop(0, "rgba(255, 255, 255, 0.40)"); 
-                sheenGrad.addColorStop(0.3, "rgba(255, 255, 255, 0.0)");
-                sheenGrad.addColorStop(1, "rgba(255, 255, 255, 0.0)");
+                const shineGrad = ctx.createLinearGradient(innerX + innerW * 0.9, innerY + innerH * 0.1, innerX + innerW * 0.1, innerY + innerH * 0.9);
+                shineGrad.addColorStop(0.00, "rgba(255, 255, 255, 0.0)");
+                shineGrad.addColorStop(0.25, "rgba(255, 255, 255, 0.02)");
+                shineGrad.addColorStop(0.40, "rgba(255, 255, 255, 0.30)"); 
+                shineGrad.addColorStop(0.50, "rgba(255, 255, 255, 0.60)"); 
+                shineGrad.addColorStop(0.60, "rgba(255, 255, 255, 0.30)"); 
+                shineGrad.addColorStop(0.75, "rgba(255, 255, 255, 0.02)");
+                shineGrad.addColorStop(1.00, "rgba(255, 255, 255, 0.0)");
 
-                ctx.fillStyle = sheenGrad;
-                ctx.fillRect(cardX, cardY, cardW, cardH);
+                ctx.fillStyle = shineGrad;
+                ctx.fillRect(innerX, innerY, innerW, innerH);
                 ctx.restore();
+            }
 
-            } else if (isAvatarItem) {
+            if (theme.isRainbow) {
+                ctx.save();
+                ctx.shadowColor = "rgba(255, 255, 255, 0.7)"; 
+                ctx.shadowBlur = 18;                          
+                ctx.shadowOffsetX = 0;
+                ctx.shadowOffsetY = 0;
+
+                makeInnerRoundedBevelPath(innerX, innerY, innerW, innerH, innerCut, innerRadius);
+                ctx.strokeStyle = "rgba(255, 255, 255, 0.45)"; 
+                ctx.lineWidth = 1.0;
+                ctx.stroke();
+                ctx.restore();
+            }
+
+            if (theme.isPlatinum) {
+                ctx.save();
+                makeInnerRoundedBevelPath(innerX, innerY, innerW, innerH, innerCut, innerRadius);
+                ctx.clip();
+
+                const platShine = ctx.createLinearGradient(innerX, innerY, innerX + innerW, innerY + innerH);
+                platShine.addColorStop(0.00, "rgba(255, 255, 255, 0.35)"); 
+                platShine.addColorStop(0.35, "rgba(255, 255, 255, 0.45)"); 
+                platShine.addColorStop(0.55, "rgba(255, 255, 255, 0.10)");
+                platShine.addColorStop(1.00, "rgba(255, 255, 255, 0.0)");
+
+                ctx.fillStyle = platShine;
+                ctx.fillRect(innerX, innerY, innerW, innerH);
+                ctx.restore();
+            }
+
+            // 4. カード表面のツヤ（ハイライト反射）
+            ctx.save();
+            makeRoundedBevelPath(cardX, cardY, cardW, cardH, cutSize, outerRadius);
+            ctx.clip();
+
+            const sheenGrad = ctx.createLinearGradient(cardX, cardY, cardX + cardW, cardY + cardH);
+            sheenGrad.addColorStop(0, "rgba(255, 255, 255, 0.40)"); 
+            sheenGrad.addColorStop(0.3, "rgba(255, 255, 255, 0.0)");
+            sheenGrad.addColorStop(1, "rgba(255, 255, 255, 0.0)");
+
+            ctx.fillStyle = sheenGrad;
+            ctx.fillRect(cardX, cardY, cardW, cardH);
+            ctx.restore();
+
+            // 🏷️ 2枚以上落ちているときは右下に小さな個数バッジを表示
+            const dropCount = Number(item.count || 1);
+            if (dropCount > 1) {
+                ctx.save();
+                const badgeText = `x${dropCount}`;
+                ctx.font = "bold 9px 'Segoe UI', sans-serif";
+                const textW = ctx.measureText(badgeText).width;
+                const bw = Math.max(18, textW + 8);
+                const bh = 13;
+                const bx = (cardW / 2) - bw + 2;
+                const by = (cardH / 2) - bh + 2;
+
+                ctx.fillStyle = "rgba(15, 23, 42, 0.88)";
+                ctx.strokeStyle = "rgba(251, 191, 36, 0.85)";
+                ctx.lineWidth = 1;
+                ctx.beginPath();
+                if (ctx.roundRect) {
+                    ctx.roundRect(bx, by, bw, bh, 3);
+                } else {
+                    ctx.rect(bx, by, bw, bh);
+                }
+                ctx.fill();
+                ctx.stroke();
+
+                ctx.fillStyle = "#fef08a";
+                ctx.textAlign = "center";
+                ctx.textBaseline = "middle";
+                ctx.fillText(badgeText, bx + bw / 2, by + bh / 2 + 0.5);
+                ctx.restore();
+            }
+        } else if (isImageSafe) {
+            if (isAvatarItem) {
                 // --- 🟢 フィールド上のアバターアイコン（丸枠＋アイテム感マシマシのメダリオン演出） ---
                 ctx.imageSmoothingEnabled = true;
                 ctx.imageSmoothingQuality = 'high';
@@ -11972,7 +12162,7 @@ function drawItems(items, frame) {
 
             // 🏷️ 2個以上落ちているときは右下に小さな個数バッジを表示
             const dropCount = Number(item.count || 1);
-            if (dropCount > 1 && !isMonsterCard) {
+            if (dropCount > 1) {
                 ctx.save();
                 const badgeText = `x${dropCount}`;
                 ctx.font = "bold 9px 'Segoe UI', sans-serif";
@@ -12028,7 +12218,7 @@ let _hotbarCacheCtx = null;
 let _lastHotbarStateKey = "";
 
 /**
-- 🎒 ホットバー／ショートカット用インベントリ描画（バッグ側と完全統一の高精細版）
+ * 🎒 ホットバー／ショートカット用インベントリ描画（バッグ側と完全統一の高精細版）
  */
 function drawInventoryGrid(ctx, inventory) {
     if (!ctx || !inventory) return;
@@ -12095,6 +12285,42 @@ function drawInventoryGrid(ctx, inventory) {
             window.itemImageCache[resolvedSrc] = img;
         }
         return window.itemImageCache[resolvedSrc];
+    };
+
+    // 🌟 スロット表示用画像の解決ヘルパー
+    const resolveHotbarSlotImage = (targetItem, isAvatarItem) => {
+        if (!targetItem || !targetItem.type) return null;
+        const type = targetItem.type;
+        let displayImg = null;
+
+        if (isAvatarItem) {
+            displayImg = resolveHotbarAvatarImage(targetItem);
+        }
+        if (!displayImg && targetItem.image) {
+            displayImg = targetItem.image;
+        } else if (!displayImg && typeof itemImages !== 'undefined' && itemImages[type]) {
+            displayImg = itemImages[type];
+        } else if (!displayImg && typeof ITEM_CONFIG !== 'undefined' && ITEM_CONFIG[type]) {
+            let config = ITEM_CONFIG[type];
+            displayImg = config.isAnimated ? (config.images ? config.images[0] : null) : config.image;
+
+            if (!displayImg && config.src) {
+                if (!config._tempImg) {
+                    config._tempImg = new Image();
+                    config._tempImg.crossOrigin = "anonymous";
+                    let baseSrc = config.src;
+                    if (typeof IMAGE_DOMAIN !== 'undefined' && IMAGE_DOMAIN !== "") {
+                        if (baseSrc.startsWith('/') && IMAGE_DOMAIN.endsWith('/')) {
+                            baseSrc = baseSrc.substring(1);
+                        }
+                        baseSrc = IMAGE_DOMAIN + baseSrc;
+                    }
+                    config._tempImg.src = baseSrc;
+                }
+                displayImg = config._tempImg;
+            }
+        }
+        return displayImg;
     };
 
     // 🌟 アバター丸アイコン判定＆クロップ設定取得ヘルパー
@@ -12175,18 +12401,32 @@ function drawInventoryGrid(ctx, inventory) {
         targetCtx.restore();
     };
 
-    // キャッシュキーの生成（アイテムの種類、個数、装備状態、レア度、アイコンURL、ホバー状態の変化を検知）
+    // キャッシュキーの生成（アイテムの種類、個数、装備状態、レア度、アイコンURL、画像読み込み完了状態、ホバー状態の変化を検知）
     let inventoryStateStr = "";
+    let imageReadyStr = "";
     for (let i = 0; i < totalSlots; i++) {
         let item = inventory[i];
         if (item && item.type) {
             const imgKey = item.iconUrl || item.icon_url || '';
             inventoryStateStr += `${i}:${item.type}_${item.item_id || item.id || ''}_${item.count || 0}_${item.isEquipped ? 1 : 0}_${item.totalALLStats || 0}_${imgKey},`;
+
+            const itemNumId = Number(item.item_id || item.itemId || item.id || 0);
+            const isAvatarItem = Boolean(
+                item.isCircleIcon ||
+                item.iconUrl ||
+                item.icon_url ||
+                (itemNumId >= 50000 && itemNumId < 60000) ||
+                String(item.type).startsWith('avatar_')
+            );
+            const candidateImg = resolveHotbarSlotImage(item, isAvatarItem);
+            const isImgReady = Boolean(candidateImg && candidateImg.complete && typeof candidateImg.naturalWidth === 'number' && candidateImg.naturalWidth > 0);
+            imageReadyStr += `${i}:${isImgReady ? 1 : 0},`;
         } else {
             inventoryStateStr += `${i}:empty,`;
+            imageReadyStr += `${i}:0,`;
         }
     }
-    let currentStateKey = `${inventoryStateStr}_${hoveredSlotIndex}`;
+    let currentStateKey = `${inventoryStateStr}|img:${imageReadyStr}|hover:${hoveredSlotIndex}`;
 
     let dpr = window.devicePixelRatio || 1;
     let gridWidth = totalSlots * slotSize + (totalSlots - 1) * padding + (slotPadding * 2); 
@@ -12275,34 +12515,7 @@ function drawInventoryGrid(ctx, inventory) {
                     }
 
                     if (!isDuplicateETC) {
-                        let displayImg = null;
-                        if (isAvatarItem) {
-                            displayImg = resolveHotbarAvatarImage(itemData);
-                        }
-                        if (!displayImg && itemData.image) {
-                            displayImg = itemData.image;
-                        } else if (!displayImg && typeof itemImages !== 'undefined' && itemImages[type]) {
-                            displayImg = itemImages[type];
-                        } else if (!displayImg && typeof ITEM_CONFIG !== 'undefined' && ITEM_CONFIG[type]) {
-                            let config = ITEM_CONFIG[type];
-                            displayImg = config.isAnimated ? (config.images ? config.images[0] : null) : config.image;
-
-                            if (!displayImg && config.src) {
-                                if (!config._tempImg) {
-                                    config._tempImg = new Image();
-                                    config._tempImg.crossOrigin = "anonymous";
-                                    let baseSrc = config.src;
-                                    if (typeof IMAGE_DOMAIN !== 'undefined' && IMAGE_DOMAIN !== "") {
-                                        if (baseSrc.startsWith('/') && IMAGE_DOMAIN.endsWith('/')) {
-                                            baseSrc = baseSrc.substring(1);
-                                        }
-                                        baseSrc = IMAGE_DOMAIN + baseSrc;
-                                    }
-                                    config._tempImg.src = baseSrc;
-                                }
-                                displayImg = config._tempImg;
-                            }
-                        }
+                        let displayImg = resolveHotbarSlotImage(itemData, isAvatarItem);
 
                         // アイテム画像の描画（🌟 アイテム自体のグロー発光＆丸切り抜きを維持）
                         if (displayImg && displayImg.complete && typeof displayImg.naturalWidth === 'number' && displayImg.naturalWidth > 0) {
@@ -13400,9 +13613,39 @@ function drawBagGrid() {
 }
 
 // ============================================================
-// :::INVENTORY_CANVAS_CONTROLLER::: 🖱️ インベントリキャンバス上の操作一括制御（ダブルクリック対応版 + ガチガチデバッグ版）
+// :::INVENTORY_CANVAS_CONTROLLER::: 🖱️ インベントリ操作一括制御（inventoryCanvas + window 両立版・DBG強化）
 // ============================================================
 const inventoryCanvas = document.getElementById('inventoryCanvas');
+
+const invDbgNow = () => {
+    try {
+        return new Date().toISOString().split('T')[1].replace('Z', '');
+    } catch (_) {
+        return '';
+    }
+};
+
+const invDbgSnapshot = (tag, extra = {}) => {
+    const c = document.getElementById('inventoryCanvas');
+    const wDom = document.getElementById('inventory-window');
+    const gWin = (typeof gameWindows !== 'undefined' && gameWindows) ? gameWindows.inventory : null;
+    console.log(`🔎 [${invDbgNow()}][INV_DBG][${tag}]`, {
+        readyState: document.readyState,
+        hasCanvas: !!c,
+        canvasRect: c ? c.getBoundingClientRect() : null,
+        canvasDims: c ? { attrW: c.getAttribute('width'), attrH: c.getAttribute('height'), propW: c.width, propH: c.height } : null,
+        hasWinDom: !!wDom,
+        winDomStyleDisplay: wDom ? wDom.style.display : null,
+        winDomComputedDisplay: wDom ? getComputedStyle(wDom).display : null,
+        hasGameWindows: typeof gameWindows !== 'undefined' && !!gameWindows,
+        gWin: gWin ? { isOpen: gWin.isOpen, x: gWin.x, y: gWin.y, w: gWin.w, h: gWin.h, scrollY: gWin.scrollY } : null,
+        hasHero: typeof hero !== 'undefined' && !!hero,
+        invLen: (typeof hero !== 'undefined' && hero && Array.isArray(hero.inventory)) ? hero.inventory.length : null,
+        selectedSlotIndex: (typeof selectedSlotIndex !== 'undefined') ? selectedSlotIndex : 'UNDEF',
+        isDisconnected: (typeof window !== 'undefined') ? window.isDisconnected : 'UNDEF',
+        ...extra
+    });
+};
 
 // ダブルクリック判定用の変数（重複定義を防ぐため typeof でガード）
 if (typeof lastBagClickTime === 'undefined') {
@@ -13411,34 +13654,145 @@ if (typeof lastBagClickTime === 'undefined') {
 }
 
 if (!inventoryCanvas) {
-    console.error("🛑 [INV_DBG] #inventoryCanvas が見つかりません（DOM生成前またはID相違の可能性）");
+    console.error(`🛑 [${invDbgNow()}][INV_DBG][00_NO_CANVAS] #inventoryCanvas が見つかりません（DOM生成前またはID相違の可能性）`);
+    invDbgSnapshot('00_NO_CANVAS_DETAIL');
 }
 
 if (inventoryCanvas) {
-    console.log("✅ [INV_DBG] #inventoryCanvas にリスナーを登録します", {
+    console.log(`✅ [${invDbgNow()}][INV_DBG][00_REGISTERED] #inventoryCanvas（mousemove/mouseleave）＆ window（mousedown）を登録します`, {
         widthAttr: inventoryCanvas.getAttribute('width'),
         heightAttr: inventoryCanvas.getAttribute('height'),
         rect: inventoryCanvas.getBoundingClientRect()
     });
+    invDbgSnapshot('00_INIT_SNAPSHOT');
 
-    // 🌟 mousedown を inventoryCanvas に紐付け
-    inventoryCanvas.addEventListener('mousedown', (event) => {
-        console.log("🖱️ [INV_DBG][01_START] mousedown 発火", {
+    // 🌟 1. ホバー・ポップアップ追尾は inventoryCanvas 側の mousemove / mouseleave で担当
+    inventoryCanvas.addEventListener('mousemove', (event) => {
+        const win = (typeof gameWindows !== 'undefined' && gameWindows) ? gameWindows.inventory : null;
+        const winX = (win && typeof win.x === 'number') ? win.x : 0;
+        const winY = (win && typeof win.y === 'number') ? win.y : 0;
+        const rect = inventoryCanvas.getBoundingClientRect();
+
+        mouseX = event.clientX - rect.left + winX;
+        mouseY = event.clientY - rect.top + winY;
+
+        const stageCanvas = document.getElementById('stage');
+        if (stageCanvas) {
+            const stageRect = stageCanvas.getBoundingClientRect();
+            window.rawClientX = event.clientX - stageRect.left;
+            window.rawClientY = event.clientY - stageRect.top;
+        } else {
+            window.rawClientX = event.clientX + window.scrollX;
+            window.rawClientY = event.clientY + window.scrollY;
+        }
+
+        if (typeof drawBagGrid === 'function') {
+            drawBagGrid();
+        }
+    });
+
+    inventoryCanvas.addEventListener('mouseleave', () => {
+        mouseX = -1;
+        mouseY = -1;
+        window.rawClientX = undefined;
+        window.rawClientY = undefined;
+        window.hoveredItemForTooltip = null;
+
+        if (typeof drawBagGrid === 'function') {
+            drawBagGrid();
+        }
+    });
+
+    // 🌟 2. クリック・ダブルクリック・掴み・スワップ・ドロップは window 側で担当（mousedown は1つに集約）
+    window.addEventListener('mousedown', (event) => {
+        const targetCanvas = document.getElementById('inventoryCanvas');
+        if (!targetCanvas) {
+            console.warn(`🛑 [${invDbgNow()}][INV_DBG][01_NO_TARGET_CANVAS] mousedown時に #inventoryCanvas が見つかりません`);
+            return;
+        }
+
+        const win = (typeof gameWindows !== 'undefined' && gameWindows) ? gameWindows.inventory : null;
+        const invDom = document.getElementById('inventory-window');
+        const isDomVisible = !invDom || invDom.style.display !== 'none';
+        const computedDisplay = invDom ? getComputedStyle(invDom).display : 'NO_DOM';
+
+        if (!win || !win.isOpen || !isDomVisible) {
+            console.log(`⏭️ [${invDbgNow()}][INV_DBG][01_GUARD_CLOSED] バッグ非表示/未初期化のため通過`, {
+                hasWin: !!win,
+                winIsOpen: win ? win.isOpen : undefined,
+                isDomVisible,
+                invDomStyleDisplay: invDom ? invDom.style.display : undefined,
+                computedDisplay,
+                clientX: event.clientX,
+                clientY: event.clientY
+            });
+            return;
+        }
+
+        const rect = targetCanvas.getBoundingClientRect();
+        if (rect.width <= 0 || rect.height <= 0) {
+            console.warn(`🛑 [${invDbgNow()}][INV_DBG][01_GUARD_ZERO_RECT] rectサイズが0以下`, {
+                rect,
+                computedDisplay
+            });
+            return;
+        }
+
+        const isInsideCanvasRect =
+            event.clientX >= rect.left &&
+            event.clientX <= rect.right &&
+            event.clientY >= rect.top &&
+            event.clientY <= rect.bottom;
+
+        const hasGrabbedItem = (typeof selectedSlotIndex !== 'undefined' && selectedSlotIndex !== -1);
+
+        // 🌟 10スロット（画面上部固定枠）のクリックは canvas 側の制御に委ね、ここで誤ドロップしない
+        const stageCanvas = document.getElementById('stage') || document.querySelector('canvas');
+        if (stageCanvas && !isInsideCanvasRect) {
+            const stageRect = stageCanvas.getBoundingClientRect();
+            const rawX = event.clientX - stageRect.left;
+            const rawY = event.clientY - stageRect.top;
+            const topBarIndex = Math.floor((rawX - 20) / 48);
+            const isTopBarClick = (rawY >= 130 && rawY <= 170 && topBarIndex >= 0 && topBarIndex < 10);
+            if (isTopBarClick) {
+                console.log(`⏭️ [${invDbgNow()}][INV_DBG][01_TOPBAR_DELEGATE] 10スロット領域のため委譲`, {
+                    rawX, rawY, topBarIndex, hasGrabbedItem
+                });
+                return;
+            }
+        }
+
+        if (!isInsideCanvasRect && !hasGrabbedItem) {
+            console.log(`⏭️ [${invDbgNow()}][INV_DBG][01_OUTSIDE_NO_GRAB] canvas外かつ掴みアイテムなし`, {
+                clientX: event.clientX, clientY: event.clientY, rect
+            });
+            return;
+        }
+
+        if (event.target && event.target.closest && event.target.closest('#trade-quantity-modal, #vending-window')) {
+            console.log(`⏭️ [${invDbgNow()}][INV_DBG][01_MODAL_BLOCK] モーダル/露店ウィンドウ内のため通過`, {
+                targetId: event.target.id
+            });
+            return;
+        }
+
+        console.log(`🖱️ [${invDbgNow()}][INV_DBG][01_START] mousedown 発火`, {
             button: event.button,
             buttons: event.buttons,
             clientX: event.clientX,
             clientY: event.clientY,
+            targetTag: event.target && event.target.tagName,
             targetId: event.target && event.target.id,
+            isInsideCanvasRect,
+            hasGrabbedItem,
             isDisconnected: window.isDisconnected
         });
 
         if (window.isDisconnected) {
-            console.warn("🛑 [INV_DBG][01_STOP] window.isDisconnected が true のため終了");
+            console.warn(`🛑 [${invDbgNow()}][INV_DBG][01_STOP] window.isDisconnected が true のため終了`);
             return;
         }
 
-        const rect = inventoryCanvas.getBoundingClientRect();
-        const win = gameWindows && gameWindows.inventory;
         const winX = (win && typeof win.x === 'number') ? win.x : 0;
         const winY = (win && typeof win.y === 'number') ? win.y : 0;
 
@@ -13451,23 +13805,11 @@ if (inventoryCanvas) {
             rectTop: rect.top,
             rectWidth: rect.width,
             rectHeight: rect.height,
-            canvasWidthAttr: inventoryCanvas.width,
-            canvasHeightAttr: inventoryCanvas.height,
+            canvasWidthAttr: targetCanvas.width,
+            canvasHeightAttr: targetCanvas.height,
             winX,
             winY
         });
-
-        // インベントリウィンドウが開いているか確認
-        if (!win || !win.isOpen) {
-            const invDom = document.getElementById('inventory-window');
-            console.warn("🛑 [INV_DBG][02_STOP] win が存在しないか win.isOpen が false です", {
-                hasGameWindows: typeof gameWindows !== 'undefined',
-                hasWin: !!win,
-                winIsOpen: win ? win.isOpen : undefined,
-                invDomDisplay: invDom ? invDom.style.display : 'DOMなし'
-            });
-            return;
-        }
 
         let bagX = win.x;
         let bagY = win.y;
@@ -13487,7 +13829,7 @@ if (inventoryCanvas) {
 
         let alreadyCheckedETC = new Set();
 
-        console.log("📐 [INV_DBG][03_GRID] スロット判定パラメータ", {
+        console.log(`📐 [${invDbgNow()}][INV_DBG][03_GRID] スロット判定パラメータ`, {
             bagX, bagY, startX, startY, slotSize, spacing,
             scrollRow, startIndex, endIndex,
             hasHero: typeof hero !== 'undefined' && !!hero,
@@ -13495,35 +13837,44 @@ if (inventoryCanvas) {
             inventoryLen: (typeof hero !== 'undefined' && hero && hero.inventory) ? hero.inventory.length : -1
         });
 
-        for (let i = 0; i < maxTotalSlots; i++) {
-            let item = (typeof hero !== 'undefined' && hero && hero.inventory) ? hero.inventory[i] : null;
+        if (isInsideCanvasRect) {
+            for (let i = 0; i < maxTotalSlots; i++) {
+                let item = (typeof hero !== 'undefined' && hero && hero.inventory) ? hero.inventory[i] : null;
 
-            if (i < startIndex || i >= endIndex) {
-                continue;
-            }
+                if (i < startIndex || i >= endIndex) {
+                    continue;
+                }
 
-            let col = drawnIndex % cols;
-            let row = Math.floor(drawnIndex / cols);
-            let x = startX + col * (slotSize + spacing);
-            let y = startY + row * (slotSize + spacing);
+                let col = drawnIndex % cols;
+                let row = Math.floor(drawnIndex / cols);
+                let x = startX + col * (slotSize + spacing);
+                let y = startY + row * (slotSize + spacing);
 
-            if (clickX >= x && clickX <= x + slotSize && clickY >= y && clickY <= y + slotSize) {
-                if (item && item.type) {
-                    let category = (typeof itemCategories !== 'undefined') ? itemCategories[item.type] : null;
-                    if (category === 'ETC') {
-                        if (!alreadyCheckedETC.has(item.type)) {
-                            alreadyCheckedETC.add(item.type);
+                if (clickX >= x && clickX <= x + slotSize && clickY >= y && clickY <= y + slotSize) {
+                    if (item && item.type) {
+                        let category = (typeof itemCategories !== 'undefined') ? itemCategories[item.type] : null;
+                        if (category === 'ETC') {
+                            if (!alreadyCheckedETC.has(item.type)) {
+                                alreadyCheckedETC.add(item.type);
+                            }
                         }
                     }
+                    clickedSlotIndex = i;
+                    console.log(`🎯 [${invDbgNow()}][INV_DBG][04_HIT] スロットヒット`, {
+                        clickedSlotIndex, col, row, x, y,
+                        xMax: x + slotSize, yMax: y + slotSize, item
+                    });
+                    break;
                 }
-                clickedSlotIndex = i;
-                console.log("🎯 [INV_DBG][04_HIT] スロットヒット", {
-                    clickedSlotIndex, col, row, x, y,
-                    xMax: x + slotSize, yMax: y + slotSize, item
-                });
-                break;
+                drawnIndex++;
             }
-            drawnIndex++;
+            if (clickedSlotIndex === -1) {
+                console.log(`❌ [${invDbgNow()}][INV_DBG][04_MISS] スロット判定ミス（枠外または座標ズレ）`, {
+                    clickX, clickY, startX, startY,
+                    gridRight: startX + cols * (slotSize + spacing),
+                    gridBottom: startY + maxVisibleRows * (slotSize + spacing)
+                });
+            }
         }
 
         // バッグ内のスロットがクリックされた場合
@@ -13534,7 +13885,7 @@ if (inventoryCanvas) {
             const vendingWin = document.getElementById('vending-window');
             const isVendingOpen = vendingWin && vendingWin.style.display === 'block';
 
-            console.log("📦 [INV_DBG][05_SLOT_DETAIL] クリック対象アイテム状態", {
+            console.log(`📦 [${invDbgNow()}][INV_DBG][05_SLOT_DETAIL] クリック対象アイテム状態`, {
                 clickedSlotIndex,
                 hasItem: !!item,
                 item,
@@ -13553,7 +13904,7 @@ if (inventoryCanvas) {
                 const myOverlay = document.getElementById('my-trade-overlay');
                 const isMyLocked = myOverlay && myOverlay.style.display === 'block';
 
-                console.log("🤝 [INV_DBG][06_TRADE_GUARD] トレード状態チェック", {
+                console.log(`🤝 [${invDbgNow()}][INV_DBG][06_TRADE_GUARD] トレード状態チェック`, {
                     isTradeOpen, nameText, hasOpponent, isMyLocked
                 });
 
@@ -13576,7 +13927,7 @@ if (inventoryCanvas) {
 
             // 🌟 露店出品モード（共通関数を呼び出し！）
             if (item && isVendingOpen) {
-                console.log("🏪 [INV_DBG][07_VENDING] 露店数量モーダル起動", { item, clickedSlotIndex });
+                console.log(`🏪 [${invDbgNow()}][INV_DBG][07_VENDING] 露店数量モーダル起動`, { item, clickedSlotIndex });
                 openVendingQuantityModal(item, item.count || 1, clickedSlotIndex);
                 return;
             }
@@ -13587,7 +13938,7 @@ if (inventoryCanvas) {
             const currentTime = Date.now();
             const timeDiff = currentTime - lastBagClickTime;
 
-            console.log("⏱️ [INV_DBG][08_DBLCLICK_CHECK] ダブルクリック判定値", {
+            console.log(`⏱️ [${invDbgNow()}][INV_DBG][08_DBLCLICK_CHECK] ダブルクリック判定値`, {
                 currentTime, lastBagClickTime, timeDiff,
                 lastBagClickIndex, clickedSlotIndex
             });
@@ -13596,7 +13947,7 @@ if (inventoryCanvas) {
                 console.log(`[Doubleclick] バッグスロット ${clickedSlotIndex} のダブルクリックを検知！`);
 
                 if (!item) {
-                    console.warn("🛑 [INV_DBG][08_DBL_STOP] ダブルクリック時 item が空のため終了");
+                    console.warn(`🛑 [${invDbgNow()}][INV_DBG][08_DBL_STOP] ダブルクリック時 item が空のため終了`);
                     lastBagClickTime = 0;
                     lastBagClickIndex = -1;
                     return;
@@ -13654,7 +14005,6 @@ if (inventoryCanvas) {
                     const totalOwned = item.count || 1;
 
                     if (totalOwned <= 1) {
-                        // 🌟 【修正箇所】1個しかない場合でも最新の空きスロットインデックスを再取得して安全に追加
                         const directEmptyCheck = myTradeSlots.findIndex(slot => slot === null);
                         if (directEmptyCheck === -1) {
                             console.log("⚠️ トレードスロットがいっぱいです（最大9個まで）！");
@@ -13673,7 +14023,6 @@ if (inventoryCanvas) {
                             targetId: window._currentTradePartnerId || null
                         });
                     } else {
-                        // 🌟 トレード専用モーダルを使用
                         const modal = document.getElementById('trade-quantity-modal');
                         const qInput = document.getElementById('trade-modal-quantity-input');
                         const confirmBtn = document.getElementById('trade-modal-confirm-btn');
@@ -13683,7 +14032,7 @@ if (inventoryCanvas) {
                             document.getElementById('trade-modal-item-name').innerText = item.name || item.type || "アイテム";
                             document.getElementById('trade-modal-max-quantity').innerText = totalOwned;
                             
-                            qInput.value = totalOwned; // 初期値として全数セット
+                            qInput.value = totalOwned;
                             qInput.disabled = false;
                             modal.style.display = 'block';
 
@@ -13758,13 +14107,12 @@ if (inventoryCanvas) {
                 selectedSlotIndex = -1;
                 lastBagClickTime = 0;
                 lastBagClickIndex = -1;
-                inventoryCanvas.style.cursor = "grab";
+                targetCanvas.style.cursor = "grab";
                 return;
             } else {
-                // 1回目のクリックとして記録
                 lastBagClickTime = currentTime;
                 lastBagClickIndex = clickedSlotIndex;
-                console.log("📝 [INV_DBG][08_FIRST_CLICK] 1回目クリック記録", {
+                console.log(`📝 [${invDbgNow()}][INV_DBG][08_FIRST_CLICK] 1回目クリック記録`, {
                     lastBagClickTime, lastBagClickIndex
                 });
             }
@@ -13772,30 +14120,29 @@ if (inventoryCanvas) {
 
             // 🌟 アイテムを掴む・スワップするロジック
             if (typeof selectedSlotIndex !== 'undefined' && selectedSlotIndex !== -1 && selectedSlotIndex !== clickedSlotIndex) {
-                console.log("🔄 [INV_DBG][09_SWAP] スワップ送信", { from: selectedSlotIndex, to: clickedSlotIndex });
+                console.log(`🔄 [${invDbgNow()}][INV_DBG][09_SWAP] スワップ送信`, { from: selectedSlotIndex, to: clickedSlotIndex });
                 socket.emit('swapItems', { from: selectedSlotIndex, to: clickedSlotIndex });
                 if (typeof playDropSound === 'function') playDropSound();
                 selectedSlotIndex = -1;
-                inventoryCanvas.style.cursor = "grab"; 
+                targetCanvas.style.cursor = "grab"; 
             } else if (typeof selectedSlotIndex !== 'undefined' && selectedSlotIndex === clickedSlotIndex) {
-                console.log("↩️ [INV_DBG][09_DESELECT] 同一スロット再クリックで選択解除", { clickedSlotIndex });
+                console.log(`↩️ [${invDbgNow()}][INV_DBG][09_DESELECT] 同一スロット再クリックで選択解除`, { clickedSlotIndex });
                 selectedSlotIndex = -1; 
-                inventoryCanvas.style.cursor = "grab";
+                targetCanvas.style.cursor = "grab";
                 if (typeof playDropSound === 'function') playDropSound();
             } else if (item) {
                 selectedSlotIndex = clickedSlotIndex; 
-                inventoryCanvas.style.cursor = "grabbing"; 
-                console.log("✊ [INV_DBG][09_GRAB] アイテム選択（掴み）", { selectedSlotIndex, item });
+                targetCanvas.style.cursor = "grabbing"; 
+                console.log(`✊ [${invDbgNow()}][INV_DBG][09_GRAB] アイテム選択（掴み）`, { selectedSlotIndex, item });
                 if (typeof playHoverSound === 'function') playHoverSound();
             } else {
-                console.log("⬜ [INV_DBG][09_EMPTY_SLOT] 空スロットをクリック（何もしない）", {
+                console.log(`⬜ [${invDbgNow()}][INV_DBG][09_EMPTY_SLOT] 空スロットをクリック（何もしない）`, {
                     clickedSlotIndex,
                     selectedSlotIndex: (typeof selectedSlotIndex !== 'undefined') ? selectedSlotIndex : 'UNDEF'
                 });
             }
             return;
-        } else {
-            // インベントリの枠外をクリックした場合
+        } else if (isInsideCanvasRect) {
             lastBagClickIndex = -1;
 
             let isInsideBagWindow = false;
@@ -13808,52 +14155,34 @@ if (inventoryCanvas) {
                 }
             }
 
-            console.log("🌐 [INV_DBG][10_OUTSIDE_SLOT] スロット外クリック判定", {
+            console.log(`🌐 [${invDbgNow()}][INV_DBG][10_OUTSIDE_SLOT] スロット外クリック判定`, {
                 clickX, clickY, bagX, bagY, isInsideBagWindow,
                 selectedSlotIndex: (typeof selectedSlotIndex !== 'undefined') ? selectedSlotIndex : 'UNDEF'
             });
 
             if (!isInsideBagWindow && typeof selectedSlotIndex !== 'undefined' && selectedSlotIndex !== -1) {
                 const item = (typeof hero !== 'undefined' && hero && hero.inventory) ? hero.inventory[selectedSlotIndex] : null;
-                console.log("🗑️ [INV_DBG][10_DROP_CHECK] ドロップフォーム判定", {
+                console.log(`🗑️ [${invDbgNow()}][INV_DBG][10_DROP_CHECK] ドロップフォーム判定`, {
                     selectedSlotIndex, item, hasOpenDropForm: typeof openDropForm === 'function'
                 });
                 if (item && typeof openDropForm === 'function') {
                     openDropForm(selectedSlotIndex, item);
                     selectedSlotIndex = -1;
-                    inventoryCanvas.style.cursor = "grab";
+                    targetCanvas.style.cursor = "grab";
                     return;
                 }
             }
+        } else if (hasGrabbedItem) {
+            const item = (typeof hero !== 'undefined' && hero && hero.inventory) ? hero.inventory[selectedSlotIndex] : null;
+            console.log(`🗑️ [${invDbgNow()}][INV_DBG][11_OUTSIDE_CANVAS_DROP] canvas外クリックでドロップ判定`, {
+                selectedSlotIndex, item, hasOpenDropForm: typeof openDropForm === 'function'
+            });
+            if (item && typeof openDropForm === 'function') {
+                openDropForm(selectedSlotIndex, item);
+            }
+            selectedSlotIndex = -1;
+            targetCanvas.style.cursor = "grab";
         }
-    });
-
-    inventoryCanvas.addEventListener('mousemove', (event) => {
-        const rect = inventoryCanvas.getBoundingClientRect();
-        
-        mouseX = event.clientX - rect.left + gameWindows.inventory.x;
-        mouseY = event.clientY - rect.top + gameWindows.inventory.y;
-        
-        const stageCanvas = document.getElementById('stage');
-        if (stageCanvas) {
-            const stageRect = stageCanvas.getBoundingClientRect();
-            window.rawClientX = event.clientX - stageRect.left;
-            window.rawClientY = event.clientY - stageRect.top;
-        } else {
-            window.rawClientX = event.clientX + window.scrollX;
-            window.rawClientY = event.clientY + window.scrollY;
-        }
-        
-        drawBagGrid();
-    });
-
-    inventoryCanvas.addEventListener('mouseleave', () => {
-        mouseX = -1;
-        mouseY = -1;
-        window.rawClientX = undefined;
-        window.rawClientY = undefined;
-        window.hoveredItemForTooltip = null; 
-        drawBagGrid();
     });
 }
 
@@ -14471,10 +14800,13 @@ const EQUIPMENT_SLOTS = [
     { x: 62,  y: 44,  type: 'shield',  label: '盾', name: '盾' },
     { x: 110, y: 44,  type: 'cape',    label: 'マ', name: 'マント' },
     
-    // 下段：アクセサリー系（ペンダント・指輪・帯）
+    // 中段：アクセサリー系（ペンダント・指輪・帯）
     { x: 14,  y: 92,  type: 'pendant', label: 'ペ', name: 'ペンダント' },
     { x: 62,  y: 92,  type: 'ring',    label: '指', name: '指輪' },
-    { x: 110, y: 92,  type: 'belt',    label: '帯', name: 'ベルト' }
+    { x: 110, y: 92,  type: 'belt',    label: '帯', name: 'ベルト' },
+
+    // 下段：アバター系
+    { x: 14,  y: 140, type: 'avatar',  label: 'ア', name: 'アバター' }
 ];
 
 // 🌟 レア度カラー算出関数（パフォーマンスとスコープの観点から外側に配置）
@@ -14600,8 +14932,22 @@ function drawEquipmentWindow() {
     // ホバーされた未装備スロットのテキストを保持
     let hoveredSlotName = null;
 
+    // 現在装備中のアバターアイテムをインベントリから探すヘルパー
+    const equippedAvatarInv = (hero && Array.isArray(hero.inventory))
+        ? hero.inventory.find(inv => {
+            if (!inv || !inv.isEquipped) return false;
+            const k = String(inv.name || inv.type || inv.avatar_key || '').toLowerCase();
+            return k.startsWith('avatar_');
+        })
+        : null;
+
+    const equippedAvatarKey = equippedAvatarInv
+        ? (equippedAvatarInv.name || equippedAvatarInv.type || equippedAvatarInv.avatar_key)
+        : (hero && (hero.equippedAvatar || hero.avatarKey) ? (hero.equippedAvatar || hero.avatarKey) : null);
+
     EQUIPMENT_SLOTS.forEach(slot => {
         const { x, y, type, label, name } = slot;
+        const isAvatarSlot = (type === 'avatar') || (label === 'あ');
 
         targetCtx.fillStyle = "rgba(20, 27, 40, 0.7)";
         targetCtx.strokeStyle = "rgba(255, 255, 255, 0.2)";
@@ -14609,11 +14955,13 @@ function drawEquipmentWindow() {
         
         const isHover = mouseX >= win.x + x && mouseX <= win.x + x + slotSize &&
                         mouseY >= win.y + y && mouseY <= win.y + y + slotSize;
+
+        const displayTarget = isAvatarSlot ? equippedAvatarKey : heroEquips[type];
         
         if (isHover) {
             targetCtx.fillStyle = "rgba(255, 255, 255, 0.15)";
             targetCtx.strokeStyle = "#fbbf24";
-            if (!heroEquips[type]) {
+            if (!displayTarget) {
                 hoveredSlotName = name;
             }
         }
@@ -14628,8 +14976,7 @@ function drawEquipmentWindow() {
             targetCtx.strokeRect(x, y, slotSize, slotSize);
         }
 
-        const itemType = heroEquips[type];
-        if (!itemType) {
+        if (!displayTarget) {
             targetCtx.fillStyle = "rgba(255, 255, 255, 0.35)";
             targetCtx.font = "10px 'Segoe UI', sans-serif";
             targetCtx.textAlign = "center";
@@ -14637,20 +14984,25 @@ function drawEquipmentWindow() {
             targetCtx.fillText(label, x + slotSize/2, y + slotSize/2);
         } else {
             let equippedItemData = null;
-            if (hero.inventory && Array.isArray(hero.inventory)) {
+            if (isAvatarSlot) {
+                equippedItemData = equippedAvatarInv || null;
+            } else if (hero.inventory && Array.isArray(hero.inventory)) {
                 equippedItemData = hero.inventory.find(inv => 
-                    inv && inv.isEquipped && (inv.type === itemType || inv.slotType === type)
+                    inv && inv.isEquipped && (inv.type === displayTarget || inv.slotType === type)
                 );
             }
 
-            let img = (typeof itemImages !== 'undefined') ? itemImages[itemType] : null;
+            let img = (typeof itemImages !== 'undefined') ? itemImages[displayTarget] : null;
+            if (!img && typeof sprites !== 'undefined' && sprites.items && sprites.items[displayTarget]) {
+                img = Array.isArray(sprites.items[displayTarget]) ? sprites.items[displayTarget][0] : sprites.items[displayTarget];
+            }
 
             if (img && img.complete && img.naturalWidth > 0) {
                 const padding = 4;
                 const imgW = slotSize - padding * 2;
                 const imgH = slotSize - padding * 2;
                 
-                const glowCol = getEquipGlowColor(equippedItemData);
+                const glowCol = (typeof getEquipGlowColor === 'function') ? getEquipGlowColor(equippedItemData) : null;
 
                 targetCtx.save();
                 if (glowCol) {
@@ -14668,7 +15020,27 @@ function drawEquipmentWindow() {
                     targetCtx.shadowColor = "rgba(0,0,0,0.4)";
                 }
 
-                targetCtx.drawImage(img, x + padding, y + padding, imgW, imgH);
+                if (isAvatarSlot) {
+                    // アバターアイコンは丸型クロップ（cropX / cropY / cropScale があれば反映）
+                    const cx = x + slotSize / 2;
+                    const cy = y + slotSize / 2;
+                    const radius = imgW / 2;
+                    const cropX = (equippedItemData && equippedItemData.cropX !== undefined) ? equippedItemData.cropX : 0.5;
+                    const cropY = (equippedItemData && equippedItemData.cropY !== undefined) ? equippedItemData.cropY : 0.25;
+                    const cropScale = (equippedItemData && equippedItemData.cropScale !== undefined) ? equippedItemData.cropScale : 1.5;
+
+                    targetCtx.beginPath();
+                    targetCtx.arc(cx, cy, radius, 0, Math.PI * 2);
+                    targetCtx.clip();
+
+                    const drawW = imgW * cropScale;
+                    const drawH = imgH * cropScale;
+                    const drawX = (x + padding) + imgW * 0.5 - drawW * cropX;
+                    const drawY = (y + padding) + imgH * 0.5 - drawH * cropY;
+                    targetCtx.drawImage(img, drawX, drawY, drawW, drawH);
+                } else {
+                    targetCtx.drawImage(img, x + padding, y + padding, imgW, imgH);
+                }
                 targetCtx.restore();
             }
         }
@@ -15020,14 +15392,27 @@ const makeRoundedBevelPath = (c, x, y, w, h, cut, r) => {
 };
 
 // ============================================================
-// :::DRAW_BOOK_WINDOW::: 📕 モンスター図鑑（キー完全同期・マウス操作対応版）
+// :::DRAW_BOOK_WINDOW::: 📕 モンスター図鑑（キー完全同期・クリック掴み対応版）
 // ============================================================
 const _staticMonsterKeys = Array.from({ length: 102 }, (_, i) => `monster${i + 1}`);
 
-// マウス操作用の状態管理変数
-let isDraggingBookScroll = false;
-let bookScrollDragStartY = 0;
-let bookScrollStartScrollY = 0;
+// マウススクロール操作用の状態管理変数
+if (typeof isDraggingBookScroll === 'undefined') {
+    var isDraggingBookScroll = false;
+    var bookScrollDragStartY = 0;
+    var bookScrollStartScrollY = 0;
+}
+
+// 取得済みカード「クリック掴み」用の状態管理変数
+if (typeof grabbedBookCard === 'undefined') {
+    var grabbedBookCard = null; // { monsterKey, rank, count, displayName, cardW, cardH, theme }
+}
+if (typeof _bookCardHitBoxes === 'undefined') {
+    var _bookCardHitBoxes = [];
+}
+if (typeof _bookPointer === 'undefined') {
+    var _bookPointer = { x: 0, y: 0, hasPointer: false };
+}
 
 const _bookCardPath = (c, x, y, w, h, cut, r) => {
     c.beginPath();
@@ -15045,6 +15430,72 @@ const _bookCardPath = (c, x, y, w, h, cut, r) => {
     c.closePath();
 };
 
+// デバッグ用：コンソールで window._bookCursorDbg = true にすると毎フレームの判定を出せます
+    if (typeof window._bookCursorDbg === 'undefined') {
+        window._bookCursorDbg = false;
+    }
+
+    // 取得済みカードの上にカーソルが乗っているか判定するヘルパー
+    const _isHoveringBookCard = (mouseX, mouseY) => {
+        if (typeof gameWindows === 'undefined' || !gameWindows.book || !gameWindows.book.isOpen) {
+            return false;
+        }
+        if (typeof _bookCardHitBoxes === 'undefined' || !Array.isArray(_bookCardHitBoxes)) {
+            return false;
+        }
+        for (let i = _bookCardHitBoxes.length - 1; i >= 0; i--) {
+            const box = _bookCardHitBoxes[i];
+            if (mouseX >= box.x && mouseX <= box.x + box.w && mouseY >= box.y && mouseY <= box.y + box.h) {
+                return true;
+            }
+        }
+        return false;
+    };
+	
+if (typeof window._bookLastHoveringCard === 'undefined') {
+        window._bookLastHoveringCard = false;
+    }
+
+    // 掴み状態・オンマウス状態に応じてカーソルを一貫管理するヘルパー
+    const _syncBookGrabCursor = (canvasEl, isHoveringCard = false) => {
+        const isBookOpen = (typeof gameWindows !== 'undefined' && gameWindows.book && gameWindows.book.isOpen);
+        const activeHover = isBookOpen ? Boolean(isHoveringCard) : false;
+        window._bookLastHoveringCard = activeHover;
+
+        const targetCanvas = canvasEl || ((typeof canvas !== 'undefined' && canvas)
+            ? canvas
+            : (document.getElementById('stage') || document.querySelector('canvas')));
+
+        let desiredCursor = '';
+        if (typeof grabbedBookCard !== 'undefined' && grabbedBookCard && isBookOpen) {
+            desiredCursor = 'grabbing';
+        } else if (activeHover) {
+            desiredCursor = 'grab';
+        }
+
+        const isTenSlotGrabbing = (typeof selectedSlotIndex !== 'undefined' && selectedSlotIndex !== -1) ||
+            Boolean(window._tenSlotCursorMode === 'grabbing');
+        const isTenSlotGrab = Boolean(window._tenSlotCursorMode === 'grab');
+
+        if (desiredCursor) {
+            if (targetCanvas && targetCanvas.style.cursor !== desiredCursor) {
+                targetCanvas.style.cursor = desiredCursor;
+            }
+            if (document.body && document.body.style.cursor !== desiredCursor) {
+                document.body.style.cursor = desiredCursor;
+            }
+        } else {
+            // 10スロット側で "grab" / "grabbing" を設定中のときは空文字で消さない
+            if (!isTenSlotGrabbing && !isTenSlotGrab) {
+                if (targetCanvas && (targetCanvas.style.cursor === 'grabbing' || targetCanvas.style.cursor === 'grab')) {
+                    targetCanvas.style.cursor = '';
+                }
+            }
+            if (document.body && (document.body.style.cursor === 'grabbing' || document.body.style.cursor === 'grab')) {
+                document.body.style.cursor = '';
+            }
+        }
+    };
 
 // ==========================================
 // カードBOOKキャッシュ用変数（ファイル上部の適切な位置に置いてください）
@@ -15054,7 +15505,7 @@ let _bookCacheLastDataHash = "";
 
 function drawBookWindow() {
 
-    console.log("📖 カードBOOK描画中...");
+    //console.log("📖 カードBOOK描画中...");
     
     const win = gameWindows.book;
     if (!win.isOpen) return;
@@ -15063,10 +15514,44 @@ function drawBookWindow() {
         return;
     }
 
+    // 毎フレームの取得済みカード当たり判定をリセット
+    _bookCardHitBoxes = [];
+
     // 1. ベースウィンドウ
     drawHeavyBookWindow("📕 Monster Collection Book", win.x, win.y, win.w, win.h);
 
     ctx.save();
+	
+	// 1.1 ヘッダー右上の閉じるボタン（×）描画
+    const bookHeaderH = 40;
+    const closeBtnSize = 20;
+    const closeBtnX = win.x + win.w - closeBtnSize - 10;
+    const closeBtnY = win.y + Math.round((bookHeaderH - closeBtnSize) / 2);
+
+    ctx.save();
+    ctx.fillStyle = "rgba(35, 24, 16, 0.92)";
+    ctx.strokeStyle = "rgba(212, 181, 114, 0.65)";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    if (typeof ctx.roundRect === 'function') {
+        ctx.roundRect(closeBtnX, closeBtnY, closeBtnSize, closeBtnSize, 4);
+    } else {
+        ctx.rect(closeBtnX, closeBtnY, closeBtnSize, closeBtnSize);
+    }
+    ctx.fill();
+    ctx.stroke();
+
+    ctx.strokeStyle = "#fde047";
+    ctx.lineWidth = 1.8;
+    ctx.lineCap = "round";
+    const pad = 5;
+    ctx.beginPath();
+    ctx.moveTo(closeBtnX + pad, closeBtnY + pad);
+    ctx.lineTo(closeBtnX + closeBtnSize - pad, closeBtnY + closeBtnSize - pad);
+    ctx.moveTo(closeBtnX + closeBtnSize - pad, closeBtnY + pad);
+    ctx.lineTo(closeBtnX + pad, closeBtnY + closeBtnSize - pad);
+    ctx.stroke();
+    ctx.restore();
 
     // 2. レイアウト計算 ＆ スクロールバー領域の確保
     const paddingX = 12;
@@ -15257,10 +15742,8 @@ function drawBookWindow() {
                     };
 
                     if (rank === 1) {
-                        // ブロンズ（銅）
                         theme = { glowColor: "#b45309", lightBorder: "#fed7aa", gradTop: "#fb923c", gradMid: "#c2410c", gradBottom: "#7c2d12", innerTop: "#ffedd5", innerMid: "#fed7aa", innerBottom: "#c2410c", isDiamond: false, isRainbow: false };
                     } else if (rank === 2) {
-                        // シルバー（銀）
                         theme = { 
                             glowColor: "#94a3b8", 
                             lightBorder: "#e2e8f0", 
@@ -15274,52 +15757,48 @@ function drawBookWindow() {
                             isRainbow: false 
                         };
                     } else if (rank === 3) {
-                        // ゴールド（金）
                         theme = { glowColor: "#f59e0b", lightBorder: "#fef08a", gradTop: "#fde047", gradMid: "#eab308", gradBottom: "#a16207", innerTop: "#fef3c7", innerMid: "#fde68a", innerBottom: "#d1c4a9", isDiamond: false, isRainbow: false };
                     } else if (rank === 4) {
-                        // 【プラチナ】シルバーよりワントーン明るい、気品のあるプラチナホワイト
                         theme = { 
                             glowColor: "#e2e8f0", 
                             lightBorder: "#ffffff", 
-                            gradTop: "#ffffff",   // 一番上をピュアホワイトに近づける
-                            gradMid: "#cbd5e1",   // 中間を明るいシルバー
-                            gradBottom: "#64748b",// 下部を引き締める
+                            gradTop: "#ffffff",
+                            gradMid: "#cbd5e1",
+                            gradBottom: "#64748b",
                             innerTop: "#ffffff",  
                             innerMid: "#e2e8f0",  
-                            innerBottom: "#cbd5e1", // インナーも全体的に少しトーンを明るく
+                            innerBottom: "#cbd5e1",
                             isDiamond: false, 
                             isPlatinum: true, 
                             isRainbow: false 
                         };
                     } else if (rank === 5) {
-    // 【高光量・ダイヤモンド】発光感とまばゆさを強めたハイエンドテーマ
-    theme = { 
-        glowColor: "#6ee7b7", // 発光感を強めた明るいミントシアンの光彩
-        lightBorder: "#ffffff", // 縁取りを眩しい純白にしてハイライト感を強調
-        gradTop: "#7dd3fc",   // 上部はより明るく輝くスカイブルー
-        gradMid: "#0d9488",   // 深みのある青緑で奥行きをキープ
-        gradBottom: "#042f2e",// 重厚なダークカラーで光のコントラストを最大化
-        innerTop: "#ffffff",  // 内部のトップも純白で強い発光を表現
-        innerMid: "#2dd4bf",  // 鮮やかなシアンの輝き
-        innerBottom: "#0f766e", // 奥行きを感じさせる深い青緑
-        isDiamond: true,  
-        isRainbow: false 
-    };
-} else if (rank === 6) {
-    // 【高光量・レインボー】眩い輝きとあふれるオーラをまとった最高レアテーマ
-    theme = { 
-        glowColor: "#ffeedd", // 暖かみと強烈な発光感を感じさせるホワイトゴールド・レインボーの光彩
-        lightBorder: "#ffffff", // 眩い純白の縁取りで最高峰のハイライトを表現
-        gradTop: "#ffffff",   // 頂点からまばゆい純白の光があふれ出す
-        gradMid: "#ff77ff",   // 鮮やかさを増したマゼンタ・パープル・シアンのグラデーション
-        gradBottom: "#220044",// 深みのあるダークパープルで光のコントラストを極限まで引き立てる
-        innerTop: "#ffffff",  // 内部の起点も強烈な白発光
-        innerMid: "#00ffff",  // 鮮烈なシアン（青緑）の輝きをプラス
-        innerBottom: "#ffdd00",// 底部に向かってリッチなゴールド〜イエローへ変化
-        isDiamond: false,  
-        isRainbow: true       // レインボーアニメーション／特殊描画フラグ
-    };
-}
+                        theme = { 
+                            glowColor: "#6ee7b7",
+                            lightBorder: "#ffffff",
+                            gradTop: "#7dd3fc",
+                            gradMid: "#0d9488",
+                            gradBottom: "#042f2e",
+                            innerTop: "#ffffff",
+                            innerMid: "#2dd4bf",
+                            innerBottom: "#0f766e",
+                            isDiamond: true,  
+                            isRainbow: false 
+                        };
+                    } else if (rank === 6) {
+                        theme = { 
+                            glowColor: "#ffeedd",
+                            lightBorder: "#ffffff",
+                            gradTop: "#ffffff",
+                            gradMid: "#ff77ff",
+                            gradBottom: "#220044",
+                            innerTop: "#ffffff",
+                            innerMid: "#00ffff",
+                            innerBottom: "#ffdd00",
+                            isDiamond: false,  
+                            isRainbow: true
+                        };
+                    }
 
                     c.strokeStyle = theme.glowColor;
                     c.lineWidth = 3.5;
@@ -15335,18 +15814,15 @@ function drawBookWindow() {
                     c.globalAlpha = 1.0;
 
                     const frameGrad = c.createLinearGradient(cardDrawX, cardDrawY, cardDrawX, cardDrawY + cardH);
-                    // ==========================================
-// ★ フレーム（枠）側のレインボー
-// ==========================================
-if (theme.isRainbow) {
-    frameGrad.addColorStop(0.00, "rgba(255, 120, 120, 1.0)");
-    frameGrad.addColorStop(0.16, "rgba(255, 200, 90,  1.0)");
-    frameGrad.addColorStop(0.33, "rgba(255, 255, 120, 1.0)");
-    frameGrad.addColorStop(0.50, "rgba(90,  255, 150, 1.0)");
-    frameGrad.addColorStop(0.66, "rgba(90,  230, 255, 1.0)");
-    frameGrad.addColorStop(0.83, "rgba(200, 120, 255, 1.0)");
-    frameGrad.addColorStop(1.00, "rgba(255, 120, 210, 1.0)");
-} else if (theme.isDiamond) {
+                    if (theme.isRainbow) {
+                        frameGrad.addColorStop(0.00, "rgba(255, 120, 120, 1.0)");
+                        frameGrad.addColorStop(0.16, "rgba(255, 200, 90,  1.0)");
+                        frameGrad.addColorStop(0.33, "rgba(255, 255, 120, 1.0)");
+                        frameGrad.addColorStop(0.50, "rgba(90,  255, 150, 1.0)");
+                        frameGrad.addColorStop(0.66, "rgba(90,  230, 255, 1.0)");
+                        frameGrad.addColorStop(0.83, "rgba(200, 120, 255, 1.0)");
+                        frameGrad.addColorStop(1.00, "rgba(255, 120, 210, 1.0)");
+                    } else if (theme.isDiamond) {
                         frameGrad.addColorStop(0.00, "#7dd3fc");
                         frameGrad.addColorStop(0.50, "#0284c7");
                         frameGrad.addColorStop(1.00, "#0369a1");
@@ -15373,19 +15849,15 @@ if (theme.isRainbow) {
                     const innerRadius = Math.max(0, outerRadius - innerMargin);
 
                     const innerGrad = c.createLinearGradient(innerX + innerW, innerY, innerX, innerY + innerH);
-                    // ==========================================
-// ★ フレーム（枠）側のレインボー
-// ==========================================
-if (theme.isRainbow) {
-    frameGrad.addColorStop(0.00, "rgba(255, 120, 120, 1.0)");
-    frameGrad.addColorStop(0.16, "rgba(255, 200, 90,  1.0)");
-    frameGrad.addColorStop(0.33, "rgba(255, 255, 120, 1.0)");
-    frameGrad.addColorStop(0.50, "rgba(90,  255, 150, 1.0)");
-    frameGrad.addColorStop(0.66, "rgba(90,  230, 255, 1.0)");
-    frameGrad.addColorStop(0.83, "rgba(200, 120, 255, 1.0)");
-    frameGrad.addColorStop(1.00, "rgba(255, 120, 210, 1.0)");
-} else if (theme.isDiamond) {
-                        // ダイヤモンド用：深みと透明感のあるリッチなブルーグラデーション
+                    if (theme.isRainbow) {
+                        frameGrad.addColorStop(0.00, "rgba(255, 120, 120, 1.0)");
+                        frameGrad.addColorStop(0.16, "rgba(255, 200, 90,  1.0)");
+                        frameGrad.addColorStop(0.33, "rgba(255, 255, 120, 1.0)");
+                        frameGrad.addColorStop(0.50, "rgba(90,  255, 150, 1.0)");
+                        frameGrad.addColorStop(0.66, "rgba(90,  230, 255, 1.0)");
+                        frameGrad.addColorStop(0.83, "rgba(200, 120, 255, 1.0)");
+                        frameGrad.addColorStop(1.00, "rgba(255, 120, 210, 1.0)");
+                    } else if (theme.isDiamond) {
                         innerGrad.addColorStop(0.00, "#e0f2fe");
                         innerGrad.addColorStop(0.25, "#bae6fd");
                         innerGrad.addColorStop(0.50, "#38bdf8");
@@ -15456,23 +15928,17 @@ if (theme.isRainbow) {
                         }
                     }
 
-                    // ==========================================
-                    // ★ ダイヤモンド専用：太くまろやかに広がる光の帯
-                    // ==========================================
                     if (theme.isDiamond) {
                         c.save();
                         _bookCardPath(c, innerX, innerY, innerW, innerH, innerCut, innerRadius);
                         c.clip();
 
-                        // 斜めのグラデーション範囲
                         const shineGrad = c.createLinearGradient(innerX + innerW * 0.9, innerY + innerH * 0.1, innerX + innerW * 0.1, innerY + innerH * 0.9);
-                        
-                        // 中央の「光の帯の幅」を広く取るグラデーション
                         shineGrad.addColorStop(0.00, "rgba(255, 255, 255, 0.0)");
                         shineGrad.addColorStop(0.25, "rgba(255, 255, 255, 0.02)");
-                        shineGrad.addColorStop(0.40, "rgba(255, 255, 255, 0.30)"); // 光の帯の入り口
-                        shineGrad.addColorStop(0.50, "rgba(255, 255, 255, 0.60)"); // 中央の強いピーク
-                        shineGrad.addColorStop(0.60, "rgba(255, 255, 255, 0.30)"); // 光の帯の出口（幅を太くキープ）
+                        shineGrad.addColorStop(0.40, "rgba(255, 255, 255, 0.30)");
+                        shineGrad.addColorStop(0.50, "rgba(255, 255, 255, 0.60)");
+                        shineGrad.addColorStop(0.60, "rgba(255, 255, 255, 0.30)");
                         shineGrad.addColorStop(0.75, "rgba(255, 255, 255, 0.02)");
                         shineGrad.addColorStop(1.00, "rgba(255, 255, 255, 0.0)");
 
@@ -15481,41 +15947,28 @@ if (theme.isRainbow) {
                         c.restore();
                     }
 					
-					// ==========================================
-// ★ ランク6（レインボー）専用：十字を使わない、ほんのりと気高い最高峰オーラ
-// ==========================================
-if (theme.isRainbow) {
-    c.save();
-    
-    // 1. 他のランク（ダイヤモンド等）よりも一回り大きく、ふんわりと広がる上品な外周オーラ
-    // （シアンやゴールドの優しい光を広い半径でぼかす）
-    c.shadowColor = "rgba(255, 255, 255, 0.7)"; // 純白と虹色が混ざり合う柔らかい光
-    c.shadowBlur = 18;                         // ランク5よりも広めに、かつ優しくぼかす
-    c.shadowOffsetX = 0;
-    c.shadowOffsetY = 0;
+                    if (theme.isRainbow) {
+                        c.save();
+                        c.shadowColor = "rgba(255, 255, 255, 0.7)";
+                        c.shadowBlur = 18;
+                        c.shadowOffsetX = 0;
+                        c.shadowOffsetY = 0;
 
-    // 2. カードの輪郭に沿って、主張しすぎない「極薄のプレミアムエッジ」を重ねる
-    // 完全に真っ白にするのではなく、ほんのり虹色のニュアンスを含んだ光のフチ
-    _bookCardPath(c, innerX, innerY, innerW, innerH, innerCut, innerRadius);
-    c.strokeStyle = "rgba(255, 255, 255, 0.45)"; // 主張を抑え、下地の色と完全に調和させる
-    c.lineWidth = 1.0;
-    c.stroke();
-
-    c.restore();
-}
+                        _bookCardPath(c, innerX, innerY, innerW, innerH, innerCut, innerRadius);
+                        c.strokeStyle = "rgba(255, 255, 255, 0.45)";
+                        c.lineWidth = 1.0;
+                        c.stroke();
+                        c.restore();
+                    }
 					
-					// ==========================================
-                    // ★ プラチナ専用：ほんのちょっぴり白い上品な光沢
-                    // ==========================================
                     if (theme.isPlatinum) {
                         c.save();
                         _bookCardPath(c, innerX, innerY, innerW, innerH, innerCut, innerRadius);
                         c.clip();
 
-                        // シルバーと差別化しつつ、白飛びさせない絶妙な白のグラデーション
                         const platShine = c.createLinearGradient(innerX, innerY, innerX + innerW, innerY + innerH);
-                        platShine.addColorStop(0.00, "rgba(255, 255, 255, 0.35)"); // 少しだけ白の存在感をアップ
-                        platShine.addColorStop(0.35, "rgba(255, 255, 255, 0.45)"); // ふんわり明るいハイライト
+                        platShine.addColorStop(0.00, "rgba(255, 255, 255, 0.35)");
+                        platShine.addColorStop(0.35, "rgba(255, 255, 255, 0.45)");
                         platShine.addColorStop(0.55, "rgba(255, 255, 255, 0.10)");
                         platShine.addColorStop(1.00, "rgba(255, 255, 255, 0.0)");
 
@@ -15603,6 +16056,61 @@ if (theme.isRainbow) {
             0, srcY, contentW, contentH,
             contentX, contentY, contentW, contentH
         );
+
+        // 現在のスクロール位置で表示されている「取得済みカード」の画面座標を記録
+        monsterKeys.forEach((monsterKey, globalIndex) => {
+            if (monsterKey.startsWith('empty_slot_')) return;
+            const ranks = playerCardCollection[monsterKey];
+            if (!ranks) return;
+
+            const blockY = startY + (globalIndex * blockTotalHeight);
+            const slotsStartY = blockY + blockPadTop;
+            const blockX = startX;
+            const firstSlotX = blockX + blockPadX;
+            const slotNumber = globalIndex + 1;
+
+            let displayName = `No. ${slotNumber}`;
+            if (typeof SERVER_ITEM_NAMES !== 'undefined' && SERVER_ITEM_NAMES[monsterKey]) {
+                displayName = SERVER_ITEM_NAMES[monsterKey].replace('カード', '').trim();
+            } else if (typeof getMonsterDisplayName === 'function') {
+                displayName = getMonsterDisplayName(monsterKey);
+            } else {
+                displayName = monsterKey;
+            }
+
+            for (let rankIndex = 0; rankIndex < 6; rankIndex++) {
+                const rank = rankIndex + 1;
+                const rankCard = ranks[rank];
+                if (!rankCard || !rankCard.unlocked) continue;
+
+                const slotX = firstSlotX + rankIndex * (baseItemSize + hGap);
+                const cardDrawX = slotX + (baseItemSize - cardW) / 2;
+                const cardDrawY = slotsStartY + (baseItemSize - cardH) / 2;
+
+                const screenX = contentX + cardDrawX;
+                const screenY = contentY + cardDrawY - srcY;
+
+                if (
+                    screenY + cardH >= contentY &&
+                    screenY <= contentY + contentH &&
+                    screenX + cardW >= contentX &&
+                    screenX <= contentX + contentW
+                ) {
+                    _bookCardHitBoxes.push({
+                        monsterKey,
+                        rank,
+                        count: rankCard.count || 1,
+                        displayName,
+                        x: screenX,
+                        y: screenY,
+                        w: cardW,
+                        h: cardH,
+                        cutSize,
+                        outerRadius
+                    });
+                }
+            }
+        });
     }
 
     // クリッピングを解除してUI（スクロールバー・フッター）を描画
@@ -15682,6 +16190,59 @@ if (theme.isRainbow) {
     ctx.textAlign = "center";
     ctx.textBaseline = "middle";
     ctx.fillText(counterText, footerX + footerW / 2, footerY + 11);
+
+    // ==========================================
+    // 6. 掴んでいる図鑑カードのカーソル追従描画
+    // ==========================================
+    if (grabbedBookCard && _bookPointer && _bookPointer.hasPointer) {
+        const gW = grabbedBookCard.w || cardW;
+        const gH = grabbedBookCard.h || cardH;
+        const gCut = grabbedBookCard.cutSize || cutSize;
+        const gRad = grabbedBookCard.outerRadius || outerRadius;
+        const drawX = Math.round(_bookPointer.x - gW / 2);
+        const drawY = Math.round(_bookPointer.y - gH / 2);
+
+        ctx.save();
+        ctx.globalAlpha = 0.9;
+        ctx.shadowColor = "rgba(253, 224, 71, 0.55)";
+        ctx.shadowBlur = 12;
+
+        ctx.fillStyle = "rgba(28, 20, 14, 0.96)";
+        ctx.strokeStyle = "#fde047";
+        ctx.lineWidth = 1.5;
+        _bookCardPath(ctx, drawX, drawY, gW, gH, gCut, gRad);
+        ctx.fill();
+        ctx.stroke();
+
+        ctx.shadowBlur = 0;
+        const spriteName = grabbedBookCard.monsterKey;
+        if (typeof sprites !== 'undefined' && sprites.items && sprites.items[spriteName]) {
+            const img = sprites.items[spriteName];
+            if (img && img.complete && img.naturalWidth > 0) {
+                ctx.save();
+                _bookCardPath(ctx, drawX + 2, drawY + 2, gW - 4, gH - 4, Math.max(0, gCut - 1), Math.max(0, gRad - 1));
+                ctx.clip();
+                ctx.translate(Math.round(drawX + gW / 2), Math.round(drawY + gH / 2));
+                ctx.scale(-1, 1);
+                ctx.drawImage(img, -Math.round((gW - 8) / 2), -Math.round((gH - 8) / 2), gW - 8, gH - 8);
+                ctx.restore();
+            }
+        }
+
+        ctx.fillStyle = "#fde047";
+        ctx.font = "bold 9px sans-serif";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "bottom";
+        ctx.fillText(`★${grabbedBookCard.rank}`, drawX + gW / 2, drawY + gH - 2);
+        ctx.restore();
+    }
+	
+	if (typeof _syncBookGrabCursor === 'function') {
+        const hoverNow = (typeof _isHoveringBookCard === 'function' && typeof _bookPointer !== 'undefined' && _bookPointer && _bookPointer.hasPointer)
+            ? _isHoveringBookCard(_bookPointer.x, _bookPointer.y)
+            : Boolean(window._bookLastHoveringCard);
+        _syncBookGrabCursor(null, hoverNow);
+    }
 }
 
 function _drawSparkle(c, x, y, color) {
@@ -15696,7 +16257,7 @@ function _drawSparkle(c, x, y, color) {
 }
 
 // ------------------------------------------------------------
-// 📚 重厚なアンティーク手帳ウィンドウ背景描画ヘルパー
+// 📚 重厚なアンティーク手帳ウィンドウ背景描画ヘルパー（クリック掴み状態表示対応版）
 // ------------------------------------------------------------
 function drawHeavyBookWindow(title, x, y, w, h) {
     ctx.save();
@@ -15756,160 +16317,518 @@ function drawHeavyBookWindow(title, x, y, w, h) {
     ctx.fillStyle = "#fde047";
     ctx.font = "bold 13px 'Arial Black', Gadget, sans-serif";
     ctx.textAlign = "left";
-    ctx.fillText(title, innerX + 16, innerY + 22);
+    ctx.textBaseline = "middle";
+    ctx.fillText(title, innerX + 16, innerY + 21);
+
+    // 掴んでいるカードがあるとき、タイトルバー右側に状態バッジを表示
+    if (typeof grabbedBookCard !== 'undefined' && grabbedBookCard) {
+        const badgeText = `✊ ${grabbedBookCard.displayName || grabbedBookCard.monsterKey} ★${grabbedBookCard.rank}`;
+        ctx.font = "bold 10px sans-serif";
+        const badgeW = Math.min(130, ctx.measureText(badgeText).width + 12);
+        const badgeH = 18;
+        const badgeX = innerX + innerW - badgeW - 12;
+        const badgeY = innerY + 12;
+
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = "rgba(253, 224, 71, 0.18)";
+        ctx.strokeStyle = "rgba(253, 224, 71, 0.75)";
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        if (typeof ctx.roundRect === 'function') {
+            ctx.roundRect(badgeX, badgeY, badgeW, badgeH, 3);
+        } else {
+            ctx.rect(badgeX, badgeY, badgeW, badgeH);
+        }
+        ctx.fill();
+        ctx.stroke();
+
+        ctx.fillStyle = "#fef08a";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        ctx.fillText(badgeText, badgeX + badgeW / 2, badgeY + badgeH / 2 + 0.5, badgeW - 6);
+    }
 
     ctx.restore();
 }
 
 // ============================================================
-// 📚 BOOK用スクロール設定（ホイール・マウス操作・スピード調整版）
+// 📚 BOOK用スクロール設定＋ウィンドウ移動＋カードクリック掴み操作（背後貫通防止・DBG強化版）
 // ============================================================
-if (typeof window !== 'undefined' && !window._bookScrollInitialized) {
-    window._bookScrollInitialized = true;
-    
-    // ホイールの蓄積量を記憶する変数
+if (typeof window !== 'undefined') {
     if (typeof window._bookScrollAccumulator === 'undefined') {
         window._bookScrollAccumulator = 0;
     }
-    
-    // ホイールスクロール（ブラウザスクロール抑制対応版）
-    window.addEventListener('wheel', (e) => {
-        if (typeof gameWindows !== 'undefined' && gameWindows.book && gameWindows.book.isOpen) {
-            const win = gameWindows.book;
-            
-            // マウスカーソルがBOOKウィンドウの範囲内にあるか判定
-            const mouseX = e.offsetX !== undefined ? e.offsetX : (e.clientX - (typeof canvas !== 'undefined' ? canvas.getBoundingClientRect().left : 0));
-            const mouseY = e.offsetY !== undefined ? e.offsetY : (e.clientY - (typeof canvas !== 'undefined' ? canvas.getBoundingClientRect().top : 0));
 
-            const isInsideBook = (mouseX >= win.x && mouseX <= win.x + win.w && mouseY >= win.y && mouseY <= win.y + win.h);
+    let isDraggingBookWindow = false;
+    let bookWindowDragOffsetX = 0;
+    let bookWindowDragOffsetY = 0;
 
-            if (isInsideBook) {
-                // BOOK上でのホイール操作時は、背後のブラウザスクロールを完全に防ぐ
-                e.preventDefault();
+    const _bookDbgNow = () => {
+        try {
+            return new Date().toISOString().split('T')[1].replace('Z', '');
+        } catch (_) {
+            return '';
+        }
+    };
 
-                if (typeof win.scrollY === 'undefined') win.scrollY = 0;
-                
-                // 最大スクロール値の計算
-                const blockTotalHeight = (typeof drawSize !== 'undefined' ? drawSize : 40) * 1.15 + 26 + 14 + 12;
-                const headerH = 40;
-                const footerH = 30;
-                const contentH = win.h - headerH - footerH - 6;
-                const totalContentHeight = 102 * blockTotalHeight;
-                const maxScrollY = Math.max(0, Math.ceil((totalContentHeight - contentH) / blockTotalHeight));
+    const _getBookCanvasPos = (e) => {
+        const stageEl = (typeof canvas !== 'undefined' && canvas)
+            ? canvas
+            : (document.getElementById('stage') || document.querySelector('canvas'));
+        if (!stageEl) {
+            return { x: e.clientX, y: e.clientY, canvasEl: null, scaleX: 1, scaleY: 1, rect: null };
+        }
+        const rect = stageEl.getBoundingClientRect();
+        // drawBookWindow() の win.x / win.y / win.w / win.h と同じCSSピクセル座標系で判定する
+        const cssX = e.clientX - rect.left;
+        const cssY = e.clientY - rect.top;
+        return {
+            x: cssX,
+            y: cssY,
+            canvasEl: stageEl,
+            scaleX: 1,
+            scaleY: 1,
+            rect
+        };
+    };
 
-                // 🌟 【スピード調整ポイント】感度のしきい値（インベントリと同じ「40」に設定）
-                // 数値が大きいほど重く、小さいほど軽くなります
-                const scrollThreshold = 40;
-                window._bookScrollAccumulator += e.deltaY;
+    const _isInsideBookWindow = (mouseX, mouseY) => {
+        if (typeof gameWindows === 'undefined' || !gameWindows.book || !gameWindows.book.isOpen) {
+            return false;
+        }
+        const win = gameWindows.book;
+        return (mouseX >= win.x && mouseX <= win.x + win.w && mouseY >= win.y && mouseY <= win.y + win.h);
+    };
 
-                if (window._bookScrollAccumulator >= scrollThreshold) {
-                    // 下に1行（または1ブロック）進める
-                    win.scrollY = Math.min(maxScrollY, win.scrollY + 1);
-                    window._bookScrollAccumulator = 0; // リセット
-                } else if (window._bookScrollAccumulator <= -scrollThreshold) {
-                    // 上に1行（または1ブロック）戻す
-                    win.scrollY = Math.max(0, win.scrollY - 1);
-                    window._bookScrollAccumulator = 0; // リセット
+    const _stopEventPropagation = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (typeof e.stopImmediatePropagation === 'function') {
+            e.stopImmediatePropagation();
+        }
+    };
+
+    if (!window._bookWheelBound) {
+        window._bookWheelBound = true;
+        window.addEventListener('wheel', (e) => {
+            if (typeof gameWindows !== 'undefined' && gameWindows.book && gameWindows.book.isOpen) {
+                const win = gameWindows.book;
+                const pos = _getBookCanvasPos(e);
+                const mouseX = pos.x;
+                const mouseY = pos.y;
+
+                if (_isInsideBookWindow(mouseX, mouseY)) {
+                    _stopEventPropagation(e);
+
+                    if (typeof win.scrollY === 'undefined') win.scrollY = 0;
+                    const blockTotalHeight = (typeof drawSize !== 'undefined' ? drawSize : 40) * 1.15 + 26 + 14 + 12;
+                    const headerH = 40;
+                    const footerH = 30;
+                    const contentH = win.h - headerH - footerH - 6;
+                    const totalContentHeight = 102 * blockTotalHeight;
+                    const maxScrollY = Math.max(0, Math.ceil((totalContentHeight - contentH) / blockTotalHeight));
+
+                    const scrollThreshold = 40;
+                    window._bookScrollAccumulator += e.deltaY;
+
+                    if (window._bookScrollAccumulator >= scrollThreshold) {
+                        win.scrollY = Math.min(maxScrollY, win.scrollY + 1);
+                        window._bookScrollAccumulator = 0;
+                    } else if (window._bookScrollAccumulator <= -scrollThreshold) {
+                        win.scrollY = Math.max(0, win.scrollY - 1);
+                        window._bookScrollAccumulator = 0;
+                    }
                 }
             }
-        }
-    }, { passive: false }); // passive: false にすることで e.preventDefault() を有効化
+        }, { passive: false, capture: true });
+    }
 
-    // マウスダウン（スクロールバーのクリック・ドラッグ開始）
-    window.addEventListener('mousedown', (e) => {
-        if (typeof gameWindows === 'undefined' || !gameWindows.book || !gameWindows.book.isOpen) return;
-        
-        const mouseX = e.offsetX !== undefined ? e.offsetX : (e.clientX - (typeof canvas !== 'undefined' ? canvas.getBoundingClientRect().left : 0));
-        const mouseY = e.offsetY !== undefined ? e.offsetY : (e.clientY - (typeof canvas !== 'undefined' ? canvas.getBoundingClientRect().top : 0));
-        
+    const _discardGrabbedBookCard = (canvasEl, mouseX, mouseY) => {
+        if (typeof grabbedBookCard === 'undefined' || !grabbedBookCard) return false;
+
+        const targetCard = grabbedBookCard;
+        const { monsterKey, rank, displayName } = targetCard;
+
+        let currentCount = targetCard.count || 1;
+        if (typeof playerCardCollection !== 'undefined' && playerCardCollection?.[monsterKey]?.[rank]) {
+            const entry = playerCardCollection[monsterKey][rank];
+            currentCount = typeof entry.count === 'number' ? entry.count : (entry.unlocked ? 1 : 0);
+        }
+
+        // 掴み状態解除＆カーソル復帰
+        grabbedBookCard = null;
+        window._bookDiscardCursorGuardUntil = Date.now() + 200;
+        if (canvasEl) canvasEl.style.cursor = '';
+        if (document.body) document.body.style.cursor = '';
+        const hoverNow = (typeof _isHoveringBookCard === 'function')
+            ? _isHoveringBookCard(mouseX, mouseY)
+            : false;
+        _syncBookGrabCursor(canvasEl, hoverNow);
+        if (typeof playDropSound === 'function') playDropSound();
+
+        if (currentCount > 1 && typeof openDropForm === 'function') {
+            openDropForm(-1, { count: currentCount, name: displayName }, {
+                isCard: true,
+                onConfirmDrop: (amount) => {
+                    emitDropBookCard({ monsterKey, rank, displayName, amount, mouseX, mouseY });
+                },
+                onClose: () => {
+                    if (typeof drawBookWindow === 'function') drawBookWindow();
+                }
+            });
+        } else {
+            emitDropBookCard({ monsterKey, rank, displayName, amount: 1, mouseX, mouseY });
+        }
+
+        return true;
+    };
+
+    // 以前のバブル側・キャプチャ側ハンドラが残っていれば解除
+    if (window._bookMouseDownHandler) {
+        window.removeEventListener('mousedown', window._bookMouseDownHandler, false);
+        window.removeEventListener('mousedown', window._bookMouseDownHandler, true);
+    }
+
+    window._bookMouseDownHandler = (e) => {
+        const pos = _getBookCanvasPos(e);
+        const mouseX = pos.x;
+        const mouseY = pos.y;
+        const isBookOpen = Boolean(typeof gameWindows !== 'undefined' && gameWindows.book && gameWindows.book.isOpen);
+        const hasGrabbed = Boolean(typeof grabbedBookCard !== 'undefined' && grabbedBookCard);
+        const isInside = isBookOpen ? _isInsideBookWindow(mouseX, mouseY) : false;
+
+        if (isBookOpen || hasGrabbed) {
+            console.log(`🖱️ [${_bookDbgNow()}][BOOK_GRAB_DBG][00_ENTRY]`, {
+                button: e.button,
+                isBookOpen,
+                hasGrabbed,
+                isInside,
+                mouseX: Math.round(mouseX),
+                mouseY: Math.round(mouseY),
+                win: gameWindows && gameWindows.book ? {
+                    x: gameWindows.book.x,
+                    y: gameWindows.book.y,
+                    w: gameWindows.book.w,
+                    h: gameWindows.book.h
+                } : null
+            });
+        }
+
+        if (e.button !== 0) return;
+
+        // 掴み中に図鑑ウィンドウ外をクリックした場合はカードを破棄
+        if (hasGrabbed && (!isBookOpen || !isInside)) {
+            _stopEventPropagation(e);
+            _discardGrabbedBookCard(pos.canvasEl, mouseX, mouseY);
+            return;
+        }
+
+        if (!isBookOpen || !isInside) {
+            return;
+        }
+
+        // 図鑑ウィンドウ内のクリックは背後（スロット・ボタン・他リスナー）へ抜けないよう遮断
+        _stopEventPropagation(e);
+
+        if (typeof _bookPointer !== 'undefined' && _bookPointer) {
+            _bookPointer.x = mouseX;
+            _bookPointer.y = mouseY;
+            _bookPointer.hasPointer = true;
+        }
+
         const win = gameWindows.book;
         const paddingX = 12;
-        const headerH = 40;  
-        const footerH = 30;  
-        const scrollbarW = 12; 
-        
+        const headerH = 40;
+        const footerH = 30;
+        const scrollbarW = 12;
+		
+		const _isOnBookCloseButton = (win, mouseX, mouseY, headerH = 40) => {
+        if (!win) return false;
+        const closeBtnSize = 20;
+        const closeBtnX = win.x + win.w - closeBtnSize - 10;
+        const closeBtnY = win.y + Math.round((headerH - closeBtnSize) / 2);
+        return (
+            mouseX >= closeBtnX &&
+            mouseX <= closeBtnX + closeBtnSize &&
+            mouseY >= closeBtnY &&
+            mouseY <= closeBtnY + closeBtnSize
+        );
+    };
+	
+	// ヘッダー右上の閉じるボタン（×）クリック時はウィンドウを閉じてリセット
+        if (_isOnBookCloseButton(win, mouseX, mouseY, headerH)) {
+            isDraggingBookWindow = false;
+            isDraggingBookScroll = false;
+            if (typeof grabbedBookCard !== 'undefined') {
+                grabbedBookCard = null;
+            }
+            win.isOpen = false;
+            if (pos.canvasEl) pos.canvasEl.style.cursor = '';
+            if (document.body) document.body.style.cursor = '';
+            if (typeof _syncBookGrabCursor === 'function') {
+                _syncBookGrabCursor(pos.canvasEl, false);
+            }
+            if (typeof playDropSound === 'function') playDropSound();
+            return;
+        }
+
+        // ヘッダー領域ドラッグでウィンドウ移動を開始
+        const isOnHeader = (mouseX >= win.x && mouseX <= win.x + win.w && mouseY >= win.y && mouseY <= win.y + headerH);
+        if (isOnHeader) {
+            isDraggingBookWindow = true;
+            bookWindowDragOffsetX = mouseX - win.x;
+            bookWindowDragOffsetY = mouseY - win.y;
+            if (typeof _syncBookGrabCursor === 'function') {
+                _syncBookGrabCursor(pos.canvasEl, false);
+            }
+            return;
+        }
+
         const contentX = win.x + paddingX;
         const contentY = win.y + headerH;
-        const contentW = win.w - (paddingX * 2) - scrollbarW - 6; 
-        const contentH = win.h - headerH - footerH - 6; 
+        const contentW = win.w - (paddingX * 2) - scrollbarW - 6;
+        const contentH = win.h - headerH - footerH - 6;
 
         const sbX = contentX + contentW + 6;
         const sbY = contentY;
         const sbH = contentH;
         const btnSize = 14;
 
-        if (mouseX < sbX || mouseX > sbX + scrollbarW || mouseY < sbY || mouseY > sbY + sbH) {
+        console.log(`📕 [${_bookDbgNow()}][BOOK_GRAB_DBG][01_DOWN] 図鑑ウィンドウ内のクリック`, {
+            clientX: e.clientX,
+            clientY: e.clientY,
+            canvasMouseX: Math.round(mouseX),
+            canvasMouseY: Math.round(mouseY),
+            scaleX: pos.scaleX,
+            scaleY: pos.scaleY,
+            win: { x: win.x, y: win.y, w: win.w, h: win.h, scrollY: win.scrollY },
+            contentRect: { contentX, contentY, contentW, contentH },
+            hitBoxCount: (typeof _bookCardHitBoxes !== 'undefined' && Array.isArray(_bookCardHitBoxes)) ? _bookCardHitBoxes.length : -1,
+            sampleBoxes: (typeof _bookCardHitBoxes !== 'undefined' && Array.isArray(_bookCardHitBoxes)) ? _bookCardHitBoxes.slice(0, 3) : []
+        });
+
+        const isOnScrollbar = (mouseX >= sbX && mouseX <= sbX + scrollbarW && mouseY >= sbY && mouseY <= sbY + sbH);
+        if (isOnScrollbar) {
+            const blockTotalHeight = (typeof drawSize !== 'undefined' ? drawSize : 40) * 1.15 + 26 + 14 + 12;
+            const totalContentHeight = 102 * blockTotalHeight;
+            const maxScrollY = Math.max(0, Math.ceil((totalContentHeight - contentH) / blockTotalHeight));
+
+            if (mouseY >= sbY && mouseY <= sbY + btnSize) {
+                win.scrollY = Math.max(0, win.scrollY - 1);
+                return;
+            }
+            if (mouseY >= sbY + sbH - btnSize && mouseY <= sbY + sbH) {
+                win.scrollY = Math.min(maxScrollY, win.scrollY + 1);
+                return;
+            }
+
+            const trackStartY = sbY + btnSize + 2;
+            const trackHeight = sbH - (btnSize * 2) - 4;
+
+            if (maxScrollY > 0) {
+                const thumbH = Math.max(20, trackHeight * (contentH / totalContentHeight));
+                const scrollRatio = maxScrollY > 0 ? win.scrollY / maxScrollY : 0;
+                const thumbY = trackStartY + (trackHeight - thumbH) * scrollRatio;
+
+                if (mouseY >= thumbY && mouseY <= thumbY + thumbH) {
+                    isDraggingBookScroll = true;
+                    bookScrollDragStartY = mouseY;
+                    bookScrollStartScrollY = win.scrollY;
+                } else {
+                    const clickRatio = Math.max(0, Math.min(1, (mouseY - trackStartY - thumbH / 2) / (trackHeight - thumbH)));
+                    win.scrollY = Math.round(clickRatio * maxScrollY);
+                }
+            }
             return;
         }
 
-        // スクロールバー操作時はテキスト選択などのブラウザデフォルト挙動を防ぐ
-        e.preventDefault();
-
-        const blockTotalHeight = (typeof drawSize !== 'undefined' ? drawSize : 40) * 1.15 + 26 + 14 + 12;
-        const totalContentHeight = 102 * blockTotalHeight;
-        const maxScrollY = Math.max(0, Math.ceil((totalContentHeight - contentH) / blockTotalHeight));
-
-        // ▲ボタン
-        if (mouseY >= sbY && mouseY <= sbY + btnSize) {
-            win.scrollY = Math.max(0, win.scrollY - 1);
-            return;
-        }
-        // ▼ボタン
-        if (mouseY >= sbY + sbH - btnSize && mouseY <= sbY + sbH) {
-            win.scrollY = Math.min(maxScrollY, win.scrollY + 1);
-            return;
-        }
-
-        const trackStartY = sbY + btnSize + 2;
-        const trackHeight = sbH - (btnSize * 2) - 4;
-        
-        if (maxScrollY > 0) {
-            const thumbH = Math.max(20, trackHeight * (contentH / totalContentHeight));
-            const scrollRatio = maxScrollY > 0 ? win.scrollY / maxScrollY : 0;
-            const thumbY = trackStartY + (trackHeight - thumbH) * scrollRatio;
-
-            if (mouseY >= thumbY && mouseY <= thumbY + thumbH) {
-                isDraggingBookScroll = true;
-                bookScrollDragStartY = mouseY;
-                bookScrollStartScrollY = win.scrollY;
-            } else {
-                const clickRatio = Math.max(0, Math.min(1, (mouseY - trackStartY - thumbH / 2) / (trackHeight - thumbH)));
-                win.scrollY = Math.round(clickRatio * maxScrollY);
+        let hitCard = null;
+        if (typeof _bookCardHitBoxes !== 'undefined' && Array.isArray(_bookCardHitBoxes)) {
+            for (let i = _bookCardHitBoxes.length - 1; i >= 0; i--) {
+                const box = _bookCardHitBoxes[i];
+                if (mouseX >= box.x && mouseX <= box.x + box.w && mouseY >= box.y && mouseY <= box.y + box.h) {
+                    hitCard = box;
+                    break;
+                }
             }
         }
-    });
 
-    // マウスムーブ（ドラッグ中のスクロール移動）
-    window.addEventListener('mousemove', (e) => {
-        if (!isDraggingBookScroll) return;
-        const win = gameWindows.book;
-        if (!win || !win.isOpen) return;
+        if (hitCard) {
+            const isSameCard =
+                grabbedBookCard &&
+                grabbedBookCard.monsterKey === hitCard.monsterKey &&
+                grabbedBookCard.rank === hitCard.rank;
 
-        e.preventDefault();
+            if (isSameCard) {
+                grabbedBookCard = null;
+                _syncBookGrabCursor(pos.canvasEl, _isHoveringBookCard(mouseX, mouseY));
+                console.log(`↩️ [${_bookDbgNow()}][BOOK_GRAB_DBG][02_RELEASE] 同一カード再クリックで掴み解除`, hitCard);
+                if (typeof playDropSound === 'function') playDropSound();
+            } else {
+                grabbedBookCard = {
+                    monsterKey: hitCard.monsterKey,
+                    rank: hitCard.rank,
+                    count: hitCard.count,
+                    displayName: hitCard.displayName,
+                    w: hitCard.w,
+                    h: hitCard.h,
+                    cutSize: hitCard.cutSize,
+                    outerRadius: hitCard.outerRadius
+                };
+                _syncBookGrabCursor(pos.canvasEl, true);
+                console.log(`✊ [${_bookDbgNow()}][BOOK_GRAB_DBG][02_GRAB] カード掴み成功！`, grabbedBookCard);
+                if (typeof playHoverSound === 'function') playHoverSound();
+            }
 
-        const mouseY = e.offsetY !== undefined ? e.offsetY : (e.clientY - (typeof canvas !== 'undefined' ? canvas.getBoundingClientRect().top : 0));
-        const contentH = win.h - 40 - 30 - 6;
-        const blockTotalHeight = (typeof drawSize !== 'undefined' ? drawSize : 40) * 1.15 + 26 + 14 + 12;
-        const totalContentHeight = 102 * blockTotalHeight;
-        const maxScrollY = Math.max(0, Math.ceil((totalContentHeight - contentH) / blockTotalHeight));
-
-        const btnSize = 14;
-        const trackHeight = contentH - (btnSize * 2) - 4;
-        const thumbH = Math.max(20, trackHeight * (contentH / totalContentHeight));
-        const effectiveTrackHeight = trackHeight - thumbH;
-
-        if (effectiveTrackHeight > 0) {
-            const deltaY = mouseY - bookScrollDragStartY;
-            const deltaScrollRatio = deltaY / effectiveTrackHeight;
-            const newScrollY = bookScrollStartScrollY + (deltaScrollRatio * maxScrollY);
-            win.scrollY = Math.max(0, Math.min(maxScrollY, Math.round(newScrollY)));
+            if (typeof drawBookWindow === 'function') {
+                drawBookWindow();
+            }
+            return;
         }
-    });
 
-    // マウスアップ（ドラッグ終了）
-    window.addEventListener('mouseup', () => {
-        isDraggingBookScroll = false;
-    });
+        console.log(`❌ [${_bookDbgNow()}][BOOK_GRAB_DBG][02_MISS] カードヒットせず`, {
+            canvasMouseX: Math.round(mouseX),
+            canvasMouseY: Math.round(mouseY),
+            hitBoxCount: (typeof _bookCardHitBoxes !== 'undefined' && Array.isArray(_bookCardHitBoxes)) ? _bookCardHitBoxes.length : -1
+        });
+
+        if (grabbedBookCard) {
+            grabbedBookCard = null;
+            _syncBookGrabCursor(pos.canvasEl, _isHoveringBookCard(mouseX, mouseY));
+            console.log(`↩️ [${_bookDbgNow()}][BOOK_GRAB_DBG][03_INSIDE_RELEASE] 図鑑内のカード外クリックで掴み解除`);
+            if (typeof playDropSound === 'function') playDropSound();
+            if (typeof drawBookWindow === 'function') {
+                drawBookWindow();
+            }
+        }
+    };
+    // キャプチャフェーズ（true）で登録し、背後のリスナーより先に図鑑内クリックを処理＆遮断
+    window.addEventListener('mousedown', window._bookMouseDownHandler, true);
+
+    // 図鑑ウィンドウ内の click イベントもキャプチャフェーズで背後に抜けないよう遮断
+    if (window._bookClickBlockHandler) {
+        document.removeEventListener('click', window._bookClickBlockHandler, true);
+    }
+    window._bookClickBlockHandler = (e) => {
+        if (e.button !== undefined && e.button !== 0) return;
+        const pos = _getBookCanvasPos(e);
+        if (_isInsideBookWindow(pos.x, pos.y) || (typeof grabbedBookCard !== 'undefined' && grabbedBookCard)) {
+            _stopEventPropagation(e);
+        }
+    };
+    document.addEventListener('click', window._bookClickBlockHandler, true);
+
+    if (window._bookMouseMoveHandler) {
+        window.removeEventListener('mousemove', window._bookMouseMoveHandler, false);
+        window.removeEventListener('mousemove', window._bookMouseMoveHandler, true);
+    }
+    window._bookMouseMoveHandler = (e) => {
+        const pos = _getBookCanvasPos(e);
+        const mouseX = pos.x;
+        const mouseY = pos.y;
+        if (typeof _bookPointer !== 'undefined' && _bookPointer) {
+            _bookPointer.x = mouseX;
+            _bookPointer.y = mouseY;
+            _bookPointer.hasPointer = true;
+        }
+
+        const isBookOpen = Boolean(typeof gameWindows !== 'undefined' && gameWindows.book && gameWindows.book.isOpen);
+        if (grabbedBookCard && !isBookOpen) {
+            grabbedBookCard = null;
+            _syncBookGrabCursor(pos.canvasEl, false);
+        }
+
+        if (isDraggingBookWindow) {
+            const win = gameWindows.book;
+            if (!win || !win.isOpen) {
+                isDraggingBookWindow = false;
+                return;
+            }
+            _stopEventPropagation(e);
+
+            const rect = pos.rect;
+            const maxX = rect ? Math.max(0, rect.width - 60) : 2000;
+            const maxY = rect ? Math.max(0, rect.height - 40) : 2000;
+            const minX = rect ? -(win.w - 60) : -1000;
+
+            win.x = Math.max(minX, Math.min(maxX, Math.round(mouseX - bookWindowDragOffsetX)));
+            win.y = Math.max(0, Math.min(maxY, Math.round(mouseY - bookWindowDragOffsetY)));
+            return;
+        }
+
+        if (isDraggingBookScroll) {
+            const win = gameWindows.book;
+            if (!win || !win.isOpen) return;
+
+            _stopEventPropagation(e);
+
+            const contentH = win.h - 40 - 30 - 6;
+            const blockTotalHeight = (typeof drawSize !== 'undefined' ? drawSize : 40) * 1.15 + 26 + 14 + 12;
+            const totalContentHeight = 102 * blockTotalHeight;
+            const maxScrollY = Math.max(0, Math.ceil((totalContentHeight - contentH) / blockTotalHeight));
+
+            const btnSize = 14;
+            const trackHeight = contentH - (btnSize * 2) - 4;
+            const thumbH = Math.max(20, trackHeight * (contentH / totalContentHeight));
+            const effectiveTrackHeight = trackHeight - thumbH;
+
+            if (effectiveTrackHeight > 0) {
+                const deltaY = mouseY - bookScrollDragStartY;
+                const deltaScrollRatio = deltaY / effectiveTrackHeight;
+                const newScrollY = bookScrollStartScrollY + (deltaScrollRatio * maxScrollY);
+                win.scrollY = Math.max(0, Math.min(maxScrollY, Math.round(newScrollY)));
+            }
+            return;
+        }
+
+        const hoveringCard = isBookOpen ? _isHoveringBookCard(mouseX, mouseY) : false;
+
+        if (window._bookCursorDbg && isBookOpen) {
+            const nowMs = Date.now();
+            if (!window._bookLastDbgMs || nowMs - window._bookLastDbgMs > 250) {
+                window._bookLastDbgMs = nowMs;
+                console.log('📍 [BOOK_MOVE_DBG]', {
+                    mouseX: Math.round(mouseX),
+                    mouseY: Math.round(mouseY),
+                    hoveringCard,
+                    hitBoxLen: (typeof _bookCardHitBoxes !== 'undefined' && Array.isArray(_bookCardHitBoxes)) ? _bookCardHitBoxes.length : -1,
+                    firstBox: (typeof _bookCardHitBoxes !== 'undefined' && Array.isArray(_bookCardHitBoxes) && _bookCardHitBoxes[0]) ? _bookCardHitBoxes[0] : null,
+                    targetTag: e.target ? e.target.tagName : null,
+                    targetId: e.target ? e.target.id : null
+                });
+            }
+        }
+
+        _syncBookGrabCursor(pos.canvasEl, hoveringCard);
+
+        if (grabbedBookCard && isBookOpen) {
+            if (typeof drawBookWindow === 'function') {
+                drawBookWindow();
+            }
+        }
+    };
+    window.addEventListener('mousemove', window._bookMouseMoveHandler, true);
+
+    if (window._bookMouseUpHandler) {
+        window.removeEventListener('mouseup', window._bookMouseUpHandler, false);
+        window.removeEventListener('mouseup', window._bookMouseUpHandler, true);
+    }
+    window._bookMouseUpHandler = (e) => {
+        if (isDraggingBookWindow) {
+            isDraggingBookWindow = false;
+            _stopEventPropagation(e);
+            return;
+        }
+        if (isDraggingBookScroll) {
+            isDraggingBookScroll = false;
+            return;
+        }
+        const pos = _getBookCanvasPos(e);
+        if (_isInsideBookWindow(pos.x, pos.y)) {
+            _stopEventPropagation(e);
+        }
+    };
+    window.addEventListener('mouseup', window._bookMouseUpHandler, true);
 }
 
 // キャッシュ生成用関数群
@@ -16036,7 +16955,102 @@ function getUnopenedCardImage(w, h, cut, r) {
 
 socket.on('card_collection_update', (collectionData) => {
     playerCardCollection = collectionData;
+    grabbedBookCard = null;
+    _bookCacheLastDataHash = "";
 });
+
+// ==========================================
+// カードBOOKウィンドウ ドラッグ移動制御
+// ==========================================
+(() => {
+    if (window._bookWindowDragInitialized) return;
+    window._bookWindowDragInitialized = true;
+
+    const BOOK_HEADER_H = 40;
+    const dragState = {
+        active: false,
+        offsetX: 0,
+        offsetY: 0
+    };
+    window._bookWindowDragState = dragState;
+
+    const getCanvasPoint = (e, targetCanvas) => {
+        const rect = targetCanvas.getBoundingClientRect();
+        const scaleX = rect.width ? (targetCanvas.width / rect.width) : 1;
+        const scaleY = rect.height ? (targetCanvas.height / rect.height) : 1;
+        const dpr = window.devicePixelRatio || 1;
+        return {
+            x: ((e.clientX - rect.left) * scaleX) / dpr,
+            y: ((e.clientY - rect.top) * scaleY) / dpr
+        };
+    };
+
+    const resolveTargetCanvas = () => {
+        if (typeof canvas !== 'undefined' && canvas && canvas.getBoundingClientRect) return canvas;
+        return document.getElementById('stage') || document.querySelector('canvas');
+    };
+
+    window.addEventListener('mousedown', (e) => {
+        if (e.button !== 0) return;
+        if (typeof gameWindows === 'undefined' || !gameWindows.book || !gameWindows.book.isOpen) return;
+
+        const targetCanvas = resolveTargetCanvas();
+        if (!targetCanvas || e.target !== targetCanvas) return;
+
+        const win = gameWindows.book;
+        const pt = getCanvasPoint(e, targetCanvas);
+
+        const inHeader =
+            pt.x >= win.x &&
+            pt.x <= win.x + win.w &&
+            pt.y >= win.y &&
+            pt.y <= win.y + BOOK_HEADER_H;
+			
+		console.log('[BOOK_DRAG_CHK]', { pt, win: { x: win.x, y: win.y, w: win.w, h: win.h } });
+
+        if (inHeader) {
+            dragState.active = true;
+            dragState.offsetX = pt.x - win.x;
+            dragState.offsetY = pt.y - win.y;
+            e.stopImmediatePropagation();
+        }
+    }, true);
+
+    window.addEventListener('mousemove', (e) => {
+        if (!dragState.active) return;
+        if (typeof gameWindows === 'undefined' || !gameWindows.book || !gameWindows.book.isOpen) {
+            dragState.active = false;
+            return;
+        }
+
+        const targetCanvas = resolveTargetCanvas();
+        if (!targetCanvas) return;
+
+        const win = gameWindows.book;
+        const pt = getCanvasPoint(e, targetCanvas);
+
+        const logicalW = targetCanvas.width / (window.devicePixelRatio || 1);
+        const logicalH = targetCanvas.height / (window.devicePixelRatio || 1);
+
+        let nextX = pt.x - dragState.offsetX;
+        let nextY = pt.y - dragState.offsetY;
+
+        // 画面外に消えないように範囲制限
+        nextX = Math.max(-win.w + 60, Math.min(logicalW - 60, nextX));
+        nextY = Math.max(0, Math.min(logicalH - BOOK_HEADER_H, nextY));
+
+        win.x = Math.round(nextX);
+        win.y = Math.round(nextY);
+
+        e.stopImmediatePropagation();
+    }, true);
+
+    window.addEventListener('mouseup', () => {
+        if (dragState.active) {
+            dragState.active = false;
+        }
+    }, true);
+})();
 
 // --- 👥 ソーシャル・コミュニティ系 ---
 function drawGuildWindow() {
@@ -17420,6 +18434,220 @@ socket.on('request_char_select2', (data) => {
     }
 });
 
+socket.on('avatar_equipped', (data) => {
+    console.log('🎭 [Client] avatar_equipped 受信:', data);
+
+    // 1. サーバーから届いた見た目情報を優先し、無ければ既存情報で補完
+    const appearance = (data && (data.avatarAppearance || data.avatarVisual)) || {
+        key: data ? data.avatarKey : null,
+        displayName: data ? data.displayName : null,
+        iconUrl: data ? data.iconUrl : null,
+        assetBaseDir: data ? data.assetBaseDir : null,
+        groupIndex: data ? data.groupIndex : null,
+        charIndex: data ? data.charIndex : null,
+        cropX: (data && data.cropX !== undefined) ? data.cropX : 0.5,
+        cropY: (data && data.cropY !== undefined) ? data.cropY : 0.6,
+        cropScale: (data && data.cropScale !== undefined) ? data.cropScale : 3
+    };
+
+    const incomingSocketId = data ? data.socketId : null;
+    const incomingPlayerId = data ? data.playerId : null;
+    const incomingDbId = data ? data.dbId : null;
+
+    // 識別子がない場合は自分向けイベントとみなす
+    const isSelf =
+        (!incomingSocketId && !incomingPlayerId && !incomingDbId) ||
+        (typeof myId !== 'undefined' && (incomingSocketId === myId || incomingPlayerId === myId)) ||
+        (typeof hero !== 'undefined' && incomingDbId !== null && (hero.dbId === incomingDbId || hero.db_id === incomingDbId));
+
+    // 2. 自分の操作キャラ（hero）に反映
+    if (isSelf && typeof hero !== 'undefined') {
+        hero.equippedAvatar = appearance.key;
+        hero.avatarKey = appearance.key;
+        hero.avatarAppearance = appearance;
+        hero.avatarVisual = appearance;
+    }
+
+    // 3. players オブジェクト/配列から該当プレイヤー（自分・他者）を探して反映
+    if (typeof players !== 'undefined' && players) {
+        if (!Array.isArray(players) && incomingSocketId && players[incomingSocketId]) {
+            players[incomingSocketId].equippedAvatar = appearance.key;
+            players[incomingSocketId].avatarKey = appearance.key;
+            players[incomingSocketId].avatarAppearance = appearance;
+            players[incomingSocketId].avatarVisual = appearance;
+        }
+
+        const list = Array.isArray(players) ? players : Object.values(players);
+        list.forEach((p) => {
+            if (!p) return;
+            const matched =
+                (isSelf && typeof myId !== 'undefined' && (p === players[myId] || p.id === myId || p.socketId === myId)) ||
+                (incomingSocketId && (p.socketId === incomingSocketId || p.id === incomingSocketId)) ||
+                (incomingPlayerId && (p.id === incomingPlayerId || p.socketId === incomingPlayerId)) ||
+                (incomingDbId && (p.dbId === incomingDbId || p.db_id === incomingDbId));
+
+            if (matched) {
+                p.equippedAvatar = appearance.key;
+                p.avatarKey = appearance.key;
+                p.avatarAppearance = appearance;
+                p.avatarVisual = appearance;
+            }
+        });
+    }
+
+    // 4. 自分のときだけ自キャラ専用ヘルパーを呼ぶ（描画自体は drawPlayerObj が p.avatarVisual を見て行う）
+    if (isSelf && typeof applyAvatarVisualToHero === 'function') {
+        applyAvatarVisualToHero(appearance);
+    }
+});
+
+socket.on('avatar_unequipped', () => {
+    if (typeof hero !== 'undefined') {
+        hero.equippedAvatar = null;
+        hero.avatarKey = null;
+        hero.avatarAppearance = null;
+    }
+    if (typeof players !== 'undefined' && typeof myId !== 'undefined' && players[myId]) {
+        players[myId].equippedAvatar = null;
+        players[myId].avatarKey = null;
+        players[myId].avatarAppearance = null;
+    }
+
+    if (typeof clearAvatarVisualFromHero === 'function') {
+        clearAvatarVisualFromHero();
+    }
+});
+
+// 🌟 アバター見た目を hero / players[myId] に反映する
+function applyAvatarVisualToHero(appearance) {
+    if (!appearance) return;
+
+    const groupIndex = (appearance.groupIndex !== null && appearance.groupIndex !== undefined)
+        ? Number(appearance.groupIndex)
+        : null;
+    const charIndex = (appearance.charIndex !== null && appearance.charIndex !== undefined)
+        ? Number(appearance.charIndex)
+        : null;
+
+    let baseDir = appearance.assetBaseDir;
+    if (!baseDir && groupIndex !== null && charIndex !== null) {
+        const gStr = String(groupIndex).padStart(2, '0');
+        const cStr = String(charIndex).padStart(2, '0');
+        baseDir = `char_assets/${gStr}/${cStr}`;
+    }
+
+    const domain = (typeof IMAGE_DOMAIN !== 'undefined') ? IMAGE_DOMAIN : '';
+    const previewUrl = appearance.iconUrl
+        ? (appearance.iconUrl.startsWith('http') ? appearance.iconUrl : `${domain}${appearance.iconUrl}`)
+        : (baseDir ? `${domain}${baseDir}/Idle/Characters-Character${String(charIndex || 1).padStart(2, '0')}-Idle_00.png` : null);
+
+    const visualState = {
+        key: appearance.key,
+        displayName: appearance.displayName,
+        baseDir: baseDir,
+        groupIndex: groupIndex,
+        charIndex: charIndex,
+        previewUrl: previewUrl,
+        cropX: appearance.cropX ?? 0.5,
+        cropY: appearance.cropY ?? 0.6,
+        cropScale: appearance.cropScale ?? 3
+    };
+
+    // 🌟 1. 該当グループ・キャラのスプライトフレームを playerSprites にロード
+    if (typeof loadCharFrames === 'function' && groupIndex !== null && charIndex !== null) {
+        loadCharFrames(groupIndex, charIndex);
+    }
+
+    // 🌟 2. hero / players[myId] に見た目を反映
+    if (typeof hero !== 'undefined') {
+        hero.avatarVisual = visualState;
+        if (groupIndex !== null) {
+            if (hero._prevModelId === undefined) hero._prevModelId = hero.model_id;
+            hero.model_id = groupIndex;
+            hero.group = groupIndex;
+        }
+        if (charIndex !== null) {
+            if (hero._prevStyleId === undefined) hero._prevStyleId = hero.styleId;
+            hero.styleId = charIndex;
+            hero.variantIndex = charIndex;
+        }
+    }
+
+    if (typeof players !== 'undefined' && typeof myId !== 'undefined' && players[myId]) {
+        players[myId].avatarVisual = visualState;
+        if (groupIndex !== null) {
+            players[myId].model_id = groupIndex;
+            players[myId].group = groupIndex;
+        }
+        if (charIndex !== null) {
+            players[myId].styleId = charIndex;
+            players[myId].variantIndex = charIndex;
+        }
+    }
+
+    console.log('🐾 [AvatarVisual] 見た目を反映しました:', visualState);
+}
+
+// 🌟 アバター見た目を解除して元の状態へ戻す
+function clearAvatarVisualFromHero() {
+    if (typeof hero !== 'undefined') {
+        hero.avatarVisual = null;
+        hero.equippedAvatar = null;
+        hero.avatarKey = null;
+        hero.avatarAppearance = null;
+
+        if (hero._prevModelId !== undefined) {
+            hero.model_id = hero._prevModelId;
+            delete hero._prevModelId;
+        }
+        if (hero._prevStyleId !== undefined) {
+            hero.styleId = hero._prevStyleId;
+            delete hero._prevStyleId;
+        }
+    }
+
+    if (typeof players !== 'undefined' && typeof myId !== 'undefined' && players[myId]) {
+        players[myId].avatarVisual = null;
+        players[myId].equippedAvatar = null;
+        players[myId].avatarKey = null;
+        players[myId].avatarAppearance = null;
+    }
+
+    console.log('🐾 [AvatarVisual] 見た目を元に戻しました');
+}
+
+function resolveAvatarStyleFromData(data) {
+    const appearance = (data && data.avatarAppearance) || data || {};
+    const key = String(appearance.avatarKey || appearance.key || '');
+    const iconUrl = String(appearance.iconUrl || '');
+
+    // 1. avatar_x00_y12 形式から抽出を試みる
+    const keyMatch = key.match(/^avatar_x(\d+)_y(\d+)$/i);
+    if (keyMatch) {
+        return {
+            modelId: Number(keyMatch[1]),
+            styleId: Number(keyMatch[2]),
+            iconUrl: iconUrl || null
+        };
+    }
+
+    // 2. iconUrl (char_assets/00/12/...) から抽出を試みる
+    const pathMatch = iconUrl.match(/char_assets\/(\d+)\/(\d+)\//);
+    if (pathMatch) {
+        return {
+            modelId: Number(pathMatch[1]),
+            styleId: Number(pathMatch[2]),
+            iconUrl: iconUrl
+        };
+    }
+
+    return {
+        modelId: appearance.groupIndex ?? null,
+        styleId: appearance.charIndex ?? null,
+        iconUrl: iconUrl || null
+    };
+}
+
 // view.js の一番下に記述
 socket.onAny((event, ...args) => {
     window.lastReceivedTime = Date.now();
@@ -17735,18 +18963,22 @@ canvas.addEventListener('mousemove', (e) => {
     }
 
     if (isDiscarding) {
+        window._tenSlotCursorMode = 'default';
         canvas.style.cursor = "default";
     } else if (selectedSlotIndex !== -1) {
+        window._tenSlotCursorMode = 'grabbing';
         canvas.style.cursor = "grabbing";
-    } 
-    else if (!isAnyWindowCovering && mouseY >= 130 && mouseY <= 170) {
+    } else if (!isAnyWindowCovering && mouseY >= 130 && mouseY <= 170) {
         const hoverIndex = Math.floor((mouseX - 20) / 48);
         if (hoverIndex >= 0 && hoverIndex < 10 && inventoryVisualBuffer && inventoryVisualBuffer[hoverIndex]) {
+            window._tenSlotCursorMode = 'grab';
             canvas.style.cursor = "grab";
         } else {
+            window._tenSlotCursorMode = 'default';
             canvas.style.cursor = "default";
         }
     } else {
+        window._tenSlotCursorMode = 'default';
         canvas.style.cursor = "default";
     }
 });

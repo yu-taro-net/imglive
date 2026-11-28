@@ -1646,7 +1646,7 @@ socket.on('request_users_data', async () => {
 // ==========================================
 
 // ============================================================
-// :::JOIN::: --- 参加処理（DBチャンネル完全取得・露店描画完全対応版 + isEditingデータベース完全連動版） ---
+// :::JOIN::: --- 参加処理（DBチャンネル完全取得・露店描画完全対応版 + isEditingデータベース完全連動版 + 装備中アバター復元版） ---
 // ============================================================
 socket.on('join', data => {
     try {
@@ -1675,8 +1675,9 @@ socket.on('join', data => {
 
             // 🌟 【超重要】処理の順番を確実に保証するため、非同期処理をすべて await で待機させる！
             (async () => {
+                const playerDbId = Number(p.dbId || p.user_id || p.id);
+
                 try {
-                    const playerDbId = Number(p.dbId || p.user_id || p.id);
                     console.log(`🔍 [DEBUG JOIN START] ユーザー: ${userName} (DB_ID: ${playerDbId}), 要求チャンネル: ${channel}`);
                     
                     // 1. データベースの全露店を正確にロードし、active_venders に展開する
@@ -1797,6 +1798,76 @@ socket.on('join', data => {
                         }
                     }
 
+                    // 3. 🎭 ログインした本人の装備中アバター（is_equipped = 1）を復元
+                    if (playerDbId) {
+                        const dbConn = (typeof connection !== 'undefined' && connection) ? connection : pool;
+                        let equippedAvatarKey = null;
+
+                        // (a) まずメモリ上の p.inventory から装備中(isEquipped / is_equipped)を探す
+                        if (Array.isArray(p.inventory)) {
+                            const eqItem = p.inventory.find((invItem) => {
+                                if (!invItem) return false;
+                                const key = String(invItem.name || invItem.type || invItem.avatar_key || '').toLowerCase();
+                                const isEq = Boolean(invItem.isEquipped || invItem.is_equipped);
+                                return isEq && key.startsWith('avatar_');
+                            });
+                            if (eqItem) {
+                                equippedAvatarKey = String(eqItem.name || eqItem.type || eqItem.avatar_key || '').toLowerCase();
+                            }
+                        }
+
+                        // (b) 見つからなければ DB の user_inventory から直接検索
+                        if (!equippedAvatarKey) {
+                            const [eqRows] = await dbConn.query(
+                                `SELECT * FROM user_inventory
+                                 WHERE user_id = ? AND is_equipped = 1 AND LOWER(item_type) LIKE ?
+                                 ORDER BY slot_index ASC LIMIT 1`,
+                                [playerDbId, 'avatar_%']
+                            );
+                            if (eqRows && eqRows.length > 0) {
+                                equippedAvatarKey = String(eqRows[0].item_type || eqRows[0].name || eqRows[0].avatar_key || '').toLowerCase();
+                            }
+                        }
+
+                        // (c) 装備中アバターがあれば avatar_item_catalog から見た目情報を取得して p にセット
+                        if (equippedAvatarKey) {
+                            const [catRows] = await dbConn.query(
+                                'SELECT * FROM avatar_item_catalog WHERE LOWER(avatar_key) = ? OR CAST(item_id AS CHAR) = ? LIMIT 1',
+                                [equippedAvatarKey, equippedAvatarKey]
+                            );
+
+                            if (catRows && catRows.length > 0) {
+                                const avatarAppearance = (typeof parseAvatarAppearance === 'function')
+                                    ? parseAvatarAppearance(catRows[0], equippedAvatarKey)
+                                    : {
+                                        itemId: catRows[0].item_id,
+                                        key: catRows[0].avatar_key || equippedAvatarKey,
+                                        displayName: catRows[0].display_name || equippedAvatarKey,
+                                        iconUrl: catRows[0].icon_url || null,
+                                        assetBaseDir: null,
+                                        groupIndex: null,
+                                        charIndex: null,
+                                        cropX: catRows[0].crop_x ?? 0.5,
+                                        cropY: catRows[0].crop_y ?? 0.6,
+                                        cropScale: catRows[0].crop_scale ?? 3
+                                    };
+
+                                p.equippedAvatar = avatarAppearance.key;
+                                p.avatarKey = avatarAppearance.key;
+                                p.avatarAppearance = avatarAppearance;
+                                p.avatarVisual = avatarAppearance;
+                                p._restoredAvatarAppearance = avatarAppearance;
+
+                                console.log(`🎭 [JOIN AVATAR] (${p.name}) の装備中アバターを復元しました: ${avatarAppearance.displayName} (${avatarAppearance.key})`);
+                            }
+                        } else {
+                            p.equippedAvatar = null;
+                            p.avatarKey = null;
+                            p.avatarAppearance = null;
+                            p.avatarVisual = null;
+                        }
+                    }
+
                 } catch (goldErr) {
                     console.error("❌ [VENDING_ERROR] ログイン時のデータ復元に失敗しました:", goldErr.message, goldErr.stack);
                     p.unclaimed_gold = 0;
@@ -1818,6 +1889,29 @@ socket.on('join', data => {
                 });
                 
                 emitPlayerList();
+
+                // 🎭 復元した装備中アバターがあればログイン直後の自キャラ見た目を同期
+                if (p && p._restoredAvatarAppearance) {
+                    const restored = p._restoredAvatarAppearance;
+                    const restoredPayload = {
+                        playerId: p.id || p.dbId || p.user_id || socket.id,
+                        socketId: socket.id,
+                        dbId: playerDbId || null,
+                        avatarKey: restored.key,
+                        displayName: restored.displayName,
+                        iconUrl: restored.iconUrl,
+                        assetBaseDir: restored.assetBaseDir,
+                        groupIndex: restored.groupIndex,
+                        charIndex: restored.charIndex,
+                        cropX: restored.cropX,
+                        cropY: restored.cropY,
+                        cropScale: restored.cropScale,
+                        avatarAppearance: restored,
+                        avatarVisual: restored
+                    };
+                    socket.emit('avatar_equipped', restoredPayload);
+                    delete p._restoredAvatarAppearance;
+                }
                 
                 if (p && typeof active_venders !== 'undefined') {
                     console.log(`🔍 [DEBUG SEND START] active_venders 総数: ${Object.keys(active_venders).length}, プレイヤー参加チャンネル: ${channel}`);
@@ -1879,7 +1973,6 @@ socket.on('join', data => {
 
                 // 不在時売上の処理
                 try {
-                    const playerDbId = Number(p.dbId || p.user_id || p.id);
                     if (playerDbId) {
                         // 🌟 【修正】l.* の中に created_at が含まれていますが、確実に取得できるように修正
                         const [salesLogs] = await pool.query(
@@ -2136,12 +2229,17 @@ socket.on('request_zukan_data', async () => {
 socket.on('sendTradeRequest', (data) => {
     if (data.targetId) {
         const senderPlayer = players[socket.id];
+        const senderAvatar = senderPlayer
+            ? (senderPlayer.avatarVisual || senderPlayer.avatarAppearance || null)
+            : null;
 
         io.to(data.targetId).emit('receiveTradeRequest', {
             senderId: socket.id,
             senderName: senderPlayer ? senderPlayer.name : (data.senderName || "プレイヤー"),
             model_id: senderPlayer ? senderPlayer.model_id : (data.model_id || 0),
-            charVar: senderPlayer ? senderPlayer.charVar : (data.charVar || 1)
+            charVar: senderPlayer ? senderPlayer.charVar : (data.charVar || 1),
+            avatarVisual: senderAvatar,
+            avatarAppearance: senderAvatar
         });
     }
 });
@@ -2151,6 +2249,9 @@ socket.on('acceptTradeRequest', (data) => {
     if (data.targetId) {
         const acceptingPlayer = players[socket.id]; // 承諾した人（自分）
         const requesterSocketId = data.targetId;    // 招待を送った人（相手）
+        const acceptingAvatar = acceptingPlayer
+            ? (acceptingPlayer.avatarVisual || acceptingPlayer.avatarAppearance || null)
+            : null;
 
         // お互いをトレードパートナーとして記憶させる
         tradePartners[socket.id] = requesterSocketId;
@@ -2162,7 +2263,9 @@ socket.on('acceptTradeRequest', (data) => {
             partnerId: socket.id, // 🌟 ここを追加！招待した側も相手のIDを把握できるようにする
             name: acceptingPlayer ? acceptingPlayer.name : "相手",
             model_id: acceptingPlayer ? acceptingPlayer.model_id : 0,
-            charVar: acceptingPlayer ? acceptingPlayer.charVar : 1
+            charVar: acceptingPlayer ? acceptingPlayer.charVar : 1,
+            avatarVisual: acceptingAvatar,
+            avatarAppearance: acceptingAvatar
         });
         
         // 2. 承諾した側（自分）に対しても「トレードが始まったよ」と通知を送る
@@ -3175,6 +3278,168 @@ socket.on('dropItem', async (data) => {
             debugChat(`❌ dropItemエラー: ${e.message}`, 'error');
         } else {
             console.error(`❌ dropItemエラー: ${e.message}`);
+        }
+    }
+});
+
+// ============================================================
+// :::DROP_BOOK_CARD::: 🃏 モンスターカード廃棄・地面ドロップ処理（DB同期）
+// ============================================================
+socket.on('dropBookCard', async (data) => {
+    try {
+        const player = players[socket.id];
+        if (!player || !player.dbId) return;
+
+        const monsterKey = data && data.monsterKey ? String(data.monsterKey) : null;
+        const rank = (data && data.rank !== undefined && data.rank !== null) ? Number(data.rank) : 1;
+        const requestedAmount = (data && typeof data.amount === 'number') ? data.amount : 1;
+
+        if (!monsterKey) return;
+
+        const chId = player.channel || 1;
+
+        // 1. monster_card_catalog からカードマスタ情報を取得
+        let catalogRow = null;
+        if (typeof cardCatalogByKey !== 'undefined' && cardCatalogByKey && cardCatalogByKey[monsterKey]) {
+            catalogRow = cardCatalogByKey[monsterKey];
+        } else if (typeof pool !== 'undefined' && pool) {
+            const [catRows] = await pool.query(
+                'SELECT item_id, monster_key, display_name, description, icon_url FROM monster_card_catalog WHERE monster_key = ? LIMIT 1',
+                [monsterKey]
+            );
+            if (Array.isArray(catRows) && catRows.length > 0) {
+                catalogRow = catRows[0];
+            }
+        }
+
+        // 2. DBから現在の player_monster_cards 所持数を取得（サーバー権威）
+        let dbCount = null;
+        if (typeof pool !== 'undefined' && pool) {
+            const [cardRows] = await pool.query(
+                'SELECT id, count, unlocked FROM player_monster_cards WHERE user_id = ? AND monster_id = ? AND card_rank = ? LIMIT 1',
+                [player.dbId, monsterKey, rank]
+            );
+            if (Array.isArray(cardRows) && cardRows.length > 0) {
+                dbCount = Number(cardRows[0].count || 0);
+            } else {
+                dbCount = 0;
+            }
+        }
+
+        // サーバーメモリ側の所持数も参照
+        const cardCollection = player.cardCollection || player.monsterCards || null;
+        const cardEntry = cardCollection && cardCollection[monsterKey] && cardCollection[monsterKey][rank];
+        const memCount = cardEntry
+            ? (typeof cardEntry.count === 'number' ? cardEntry.count : (cardEntry.unlocked ? 1 : 0))
+            : null;
+
+        const maxCount = (dbCount !== null) ? dbCount : (memCount !== null ? memCount : 0);
+        if (maxCount <= 0) {
+            return;
+        }
+
+        const actualDropCount = Math.min(Math.max(1, requestedAmount), maxCount);
+        const nextCount = Math.max(0, maxCount - actualDropCount);
+
+        // 3. player_monster_cards テーブルを更新
+        if (typeof pool !== 'undefined' && pool) {
+            if (nextCount <= 0) {
+                // 履歴を残したい場合は DELETE ではなく UPDATE player_monster_cards SET count = 0, unlocked = 0 ... に変更してください
+                await pool.query(
+                    'DELETE FROM player_monster_cards WHERE user_id = ? AND monster_id = ? AND card_rank = ?',
+                    [player.dbId, monsterKey, rank]
+                );
+            } else {
+                await pool.query(
+                    'UPDATE player_monster_cards SET count = count - ? WHERE user_id = ? AND monster_id = ? AND card_rank = ?',
+                    [actualDropCount, player.dbId, monsterKey, rank]
+                );
+            }
+        }
+
+        // 4. サーバーメモリ上の所持数も更新
+        if (cardCollection && cardCollection[monsterKey]) {
+            if (nextCount <= 0) {
+                delete cardCollection[monsterKey][rank];
+            } else if (cardEntry) {
+                cardEntry.count = nextCount;
+                cardEntry.unlocked = true;
+            }
+        }
+
+        const baseDisplayName = (catalogRow && catalogRow.display_name)
+            || (data && data.displayName)
+            || (cardEntry && cardEntry.displayName)
+            || `${monsterKey}カード`;
+
+        const cardLabel = rank ? `${baseDisplayName} (Rank ${rank})` : baseDisplayName;
+        const dropLogMsg = actualDropCount >= 2
+            ? `${cardLabel}を${actualDropCount}枚捨てました`
+            : `${cardLabel}を捨てました`;
+
+        const rawIconUrl = (catalogRow && catalogRow.icon_url) || `images/monsters/${monsterKey}.png`;
+        const normalizedIconUrl = String(rawIconUrl).startsWith('/')
+            ? String(rawIconUrl)
+            : `/${String(rawIconUrl)}`;
+
+        const catalogItemId = catalogRow && catalogRow.item_id ? Number(catalogRow.item_id) : null;
+
+        // 5. フィールドにドロップするカードオブジェクト(newItem)作成
+        const newItem = {
+            id: Math.floor(Math.random() * 1000000),
+            item_id: catalogItemId ? String(catalogItemId) : null,
+            itemId: catalogItemId ? String(catalogItemId) : null,
+            type: 'monster_card',
+            category: 'card',
+            isCard: true,
+            monsterKey,
+            rank,
+            cardRank: rank,
+            name: monsterKey,
+            displayName: cardLabel,
+            display_name: cardLabel,
+            description: (catalogRow && catalogRow.description) || null,
+            iconUrl: normalizedIconUrl,
+            icon_url: normalizedIconUrl,
+            x: player.x,
+            y: player.y + 12,
+            vx: 0,
+            vy: -12,
+            landed: false,
+            ch: chId,
+            count: actualDropCount,
+            value: 10,
+            isStatic: true,
+            angle: 0,
+            rotateSpeed: 0.15,
+            isTradeable: true
+        };
+
+        if (typeof droppedItems !== 'undefined' && droppedItems[chId]) {
+            droppedItems[chId].push(newItem);
+            socket.emit('chat', {
+                id: 'SYSTEM_LOG',
+                name: '🗑️ 廃棄',
+                text: `[${new Date().toLocaleTimeString('ja-JP', { timeZone: 'Asia/Tokyo', hour: '2-digit', minute: '2-digit' })}] ${dropLogMsg}`
+            });
+            io.to(`channel_${chId}`).emit('item_spawned', newItem);
+        }
+
+        if (cardCollection) {
+            socket.emit('card_collection_update', cardCollection);
+        }
+        if (typeof sendState === 'function') sendState();
+
+        if (typeof LOG !== 'undefined' && LOG.DB) {
+            LOG.DB(`カードドロップ完了(DB同期済み): ${player.name} が ${cardLabel} x ${actualDropCount} を捨てました。`);
+        } else {
+            console.log(`[CARD_DROP_DONE] ${player.name} が ${cardLabel} x ${actualDropCount} を捨てました。`);
+        }
+    } catch (e) {
+        if (typeof debugChat === 'function') {
+            debugChat(`❌ dropBookCardエラー: ${e.message}`, 'error');
+        } else {
+            console.error(`❌ dropBookCardエラー: ${e.message}`);
         }
     }
 });
@@ -6189,31 +6454,45 @@ socket.on('useConsumableItem', async (data) => {
 
             // 🌟 1. データベースの各カタログに存在するか、名前やIDで柔軟に順次チェック
             let catalogItem = null;
+            let catalogSource = null;
             
             // 消費アイテムカタログを検索 (name, display_name, item_id のいずれかに一致するか)
             let [rows] = await connection.query(
-                'SELECT * FROM item_consume_catalog WHERE name = ? OR display_name = ? OR item_id = ?', 
+                'SELECT * FROM item_consume_catalog WHERE LOWER(name) = ? OR LOWER(display_name) = ? OR CAST(item_id AS CHAR) = ?', 
                 [requestedItemName, requestedItemName, requestedItemName]
             );
             
             if (rows.length > 0) {
                 catalogItem = rows[0];
+                catalogSource = 'consume';
             } else {
                 // 見つからなければ ETCカタログを検索
                 [rows] = await connection.query(
-                    'SELECT * FROM item_etc_catalog WHERE name = ? OR display_name = ? OR item_id = ?', 
+                    'SELECT * FROM item_etc_catalog WHERE LOWER(name) = ? OR LOWER(display_name) = ? OR CAST(item_id AS CHAR) = ?', 
                     [requestedItemName, requestedItemName, requestedItemName]
                 );
                 if (rows.length > 0) {
                     catalogItem = rows[0];
+                    catalogSource = 'etc';
                 } else {
                     // それでも見つからなければ 装備カタログも検索
                     [rows] = await connection.query(
-                        'SELECT * FROM item_equip_catalog WHERE name = ? OR display_name = ? OR item_id = ?', 
+                        'SELECT * FROM item_equip_catalog WHERE LOWER(name) = ? OR LOWER(display_name) = ? OR CAST(item_id AS CHAR) = ?', 
                         [requestedItemName, requestedItemName, requestedItemName]
                     );
                     if (rows.length > 0) {
                         catalogItem = rows[0];
+                        catalogSource = 'equip';
+                    } else {
+                        // 🌟 最後に アバターカタログ (avatar_item_catalog) を検索
+                        [rows] = await connection.query(
+                            'SELECT * FROM avatar_item_catalog WHERE LOWER(avatar_key) = ? OR LOWER(display_name) = ? OR CAST(item_id AS CHAR) = ?', 
+                            [requestedItemName, requestedItemName, requestedItemName]
+                        );
+                        if (rows.length > 0) {
+                            catalogItem = rows[0];
+                            catalogSource = 'avatar';
+                        }
                     }
                 }
             }
@@ -6224,6 +6503,8 @@ socket.on('useConsumableItem', async (data) => {
                 await connection.rollback();
                 return;
             }
+
+            const isAvatarItem = (catalogSource === 'avatar') || requestedItemName.startsWith('avatar_');
             
             let summonItemId = 2080;
 
@@ -6235,13 +6516,32 @@ socket.on('useConsumableItem', async (data) => {
                     }
                     console.log(`[Server] プレイヤーが sweets を使用してHPが回復しました。`);
 					
-					// 🌟 クライアント（画面側）に「HPが回復したよ！」というイベントとデータを送信する
-    // ※お使いの通信方式（io.to(...) や socket.emit 等）に合わせて変数名は調整してください
-    socket.emit('player_healed', {
-        hp: player.hp,
-        healAmount: 50
-    });
+                    socket.emit('player_healed', {
+                        hp: player.hp,
+                        healAmount: 50
+                    });
 	
+                    break;
+					
+				case 'exp':
+                    console.log(`[Server] プレイヤーが exp アイテムを使用しました。`);
+
+                    if (player) {
+                        const expGainAmount = 100;
+                        if (typeof addExperience === 'function') {
+                            addExperience(player, expGainAmount, socket);
+                        } else {
+                            player.exp = (Number(player.exp) || 0) + expGainAmount;
+                            socket.emit('player_exp_updated', {
+                                exp: player.exp,
+                                gainedExp: expGainAmount
+                            });
+                        }
+
+                        if (typeof LOG !== 'undefined' && LOG.SUCCESS) {
+                            LOG.SUCCESS(`✨ ${player.name || 'プレイヤー'} は経験値アイテムで EXP +${expGainAmount} を獲得した！`);
+                        }
+                    }
                     break;
 
                 case 'pouch':
@@ -6263,13 +6563,11 @@ socket.on('useConsumableItem', async (data) => {
                 case 'pouch_slime':
                     console.log(`[Server] プレイヤーが スライムの包み を開けました！`);
                     
-                    // 🌟 召喚したいモンスターIDのリスト
                     const summonItemIds = [2080, 2090, 2100, 2110, 2120];
 
                     if (typeof executeSummon === 'function') {
                         (async () => {
                             try {
-                                // リストのIDを順番にすべて召喚する
                                 for (const id of summonItemIds) {
                                     await executeSummon(socket, id);
                                 }
@@ -6288,7 +6586,6 @@ socket.on('useConsumableItem', async (data) => {
                     }
                     console.log(`[Server] プレイヤーが 絶品ミルクティー を使用しました。`);
                     
-                    // 🌟 クライアントにHP回復を通知する
                     socket.emit('player_healed', {
                         hp: player.hp,
                         healAmount: 100
@@ -6301,7 +6598,6 @@ socket.on('useConsumableItem', async (data) => {
                     break;
                     
                 case 'avatar':
-                    // 🌟 アバター変更チケット使用時にキャラ選択画面を起動
                     const targetModelId = player.model_id || player.group || 8;
                     if (typeof LOG !== 'undefined' && LOG.SUCCESS) {
                         LOG.SUCCESS(`🎭 ${player.name} (ModelID: ${targetModelId}) のキャラ選択画面を呼び出します`);
@@ -6314,7 +6610,6 @@ socket.on('useConsumableItem', async (data) => {
                     break;
                     
                 case 'freemarket':
-                    // 🌟 フリーマーケット（露店）開設UIを呼び出し
                     console.log(`--- [Vending] ${player.name || socket.id} が露店アイテムを使用 ---`);
                     socket.emit('request_open_vending_ui');
                     if (typeof LOG !== 'undefined' && LOG.SUCCESS) {
@@ -6327,13 +6622,9 @@ socket.on('useConsumableItem', async (data) => {
                     console.log(`[Server] プレイヤーが levelup アイテムを使用しました。`);
                     
                     if (player) {
-                        // 1. 現在のレベルに必要な経験値を取得
                         const requiredExp = LEVEL_TABLE[player.level] || (player.level * 100);
-                        
-                        // 2. addExperience を使って必要分を一気に加算（これで自動的にレベルアップ処理が走ります）
                         addExperience(player, requiredExp, socket);
 
-                        // 3. 成功ログやクライアントへの通知
                         if (typeof LOG !== 'undefined' && LOG.SUCCESS) {
                             LOG.SUCCESS(`🆙 ${player.name || 'プレイヤー'} はレベルアップアイテムの効果で Lv.${player.level} に上がった！`);
                         }
@@ -6362,21 +6653,20 @@ socket.on('useConsumableItem', async (data) => {
                     (async () => {
                         try {
                             const gachaPool = [
-                                { id: 213, category: 'consume' }, // 経験値の書
-                                { id: 214, category: 'consume' }, // レベルアップのカギ
-                                { id: 215, category: 'consume' }, // 透明の薬
-                                { id: 216, category: 'consume' }, // スピードアップの羽
-                                { id: 217, category: 'consume' }, // まろやかミルクコーヒー
-                                { id: 218, category: 'consume' }, // スライムの包み
-                                { id: '101', category: 'sword' },   // マニアックソード（装備品）
-                                { id: '102', category: 'shield' },  // トリシールド（装備品）
-                              ];
+                                { id: 213, category: 'consume' },
+                                { id: 214, category: 'consume' },
+                                { id: 215, category: 'consume' },
+                                { id: 216, category: 'consume' },
+                                { id: 217, category: 'consume' },
+                                { id: 218, category: 'consume' },
+                                { id: '101', category: 'sword' },
+                                { id: '102', category: 'shield' },
+                            ];
 
                             const randomPick = gachaPool[Math.floor(Math.random() * gachaPool.length)];
                             let wonItem = null;
                             let isEquipment = false;
 
-                            // 🍎 消費アイテムの場合
                             if (randomPick.category === 'consume') {
                                 const [rows] = await pool.query('SELECT * FROM item_consume_catalog WHERE item_id = ?', [randomPick.id]);
                                 if (rows.length > 0) {
@@ -6391,85 +6681,75 @@ socket.on('useConsumableItem', async (data) => {
                                     };
                                 }
                             } 
-                            // ⚔️ 装備品の場合
-else if (randomPick.category === 'sword' || randomPick.category === 'shield') {
-    isEquipment = true;
-    const isSword = randomPick.category === 'sword';
-    const catalogId = isSword ? 101 : 102;
+                            else if (randomPick.category === 'sword' || randomPick.category === 'shield') {
+                                isEquipment = true;
+                                const isSword = randomPick.category === 'sword';
+                                const catalogId = isSword ? 101 : 102;
 
-    // 💡 1. データベースからカタログの「もともとのベース値」を取得するクエリを追加
-    const [catalogRows] = await pool.query('SELECT * FROM item_equip_catalog WHERE item_id = ?', [catalogId]);
-    const dbCatalog = catalogRows.length > 0 ? catalogRows[0] : null;
+                                const [catalogRows] = await pool.query('SELECT * FROM item_equip_catalog WHERE item_id = ?', [catalogId]);
+                                const dbCatalog = catalogRows.length > 0 ? catalogRows[0] : null;
+                                const catalogBase = dbCatalog || ((typeof ITEM_CATALOG !== 'undefined' && ITEM_CATALOG[catalogId]) ? ITEM_CATALOG[catalogId] : null);
 
-    // メモリ上の ITEM_CATALOG と DBのカタログをフォールバックとして安全に扱う
-    const catalogBase = dbCatalog || ((typeof ITEM_CATALOG !== 'undefined' && ITEM_CATALOG[catalogId]) ? ITEM_CATALOG[catalogId] : null);
+                                const stats = typeof identifyItem === 'function' ? identifyItem(randomPick.category) : {
+                                    qualityLabel: "", itemColor: "#ffffff",
+                                    atk: 0, def: 0, matk: 0, str: 0, dex: 0, int: 0, luk: 0, maxHp: 0, maxMp: 0
+                                };
 
-    const stats = typeof identifyItem === 'function' ? identifyItem(randomPick.category) : {
-        qualityLabel: "", itemColor: "#ffffff",
-        atk: 0, def: 0, matk: 0, str: 0, dex: 0, int: 0, luk: 0, maxHp: 0, maxMp: 0
-    };
+                                const finalAtk = (stats.atk !== undefined) ? stats.atk : (catalogBase ? catalogBase.atk : (isSword ? 15 : 0));
+                                const finalDef = (stats.def !== undefined) ? stats.def : (catalogBase ? catalogBase.def : (isSword ? 0 : 10));
+                                const finalMatk = (stats.matk !== undefined) ? stats.matk : (catalogBase ? catalogBase.matk : 0);
+                                const finalStr = (stats.str !== undefined) ? stats.str : (catalogBase ? catalogBase.str : Math.floor(Math.random() * 3));
+                                const finalDex = (stats.dex !== undefined) ? stats.dex : (catalogBase ? catalogBase.dex : Math.floor(Math.random() * 3));
+                                const finalInt = (stats.int !== undefined) ? stats.int : (catalogBase ? catalogBase.int : 0);
+                                const finalLuk = (stats.luk !== undefined) ? stats.luk : (catalogBase ? catalogBase.luk : 0);
+                                const finalMaxHp = (stats.maxHp !== undefined) ? stats.maxHp : (catalogBase ? catalogBase.maxHp : 10);
+                                const finalMaxMp = (stats.maxMp !== undefined) ? stats.maxMp : (catalogBase ? catalogBase.maxMp : 10);
+                                
+                                const baseAtk = catalogBase ? (catalogBase.atk || 0) : 0;
+                                const baseDef = catalogBase ? (catalogBase.def || 0) : 0;
+                                const baseMatk = catalogBase ? (catalogBase.matk || 0) : 0;
+                                const baseStr = catalogBase ? (catalogBase.str || 0) : 0;
+                                const baseDex = catalogBase ? (catalogBase.dex || 0) : 0;
+                                const baseInt = catalogBase ? (catalogBase.int || 0) : 0;
+                                const baseLuk = catalogBase ? (catalogBase.luk || 0) : 0;
+                                const baseMaxHp = catalogBase ? (catalogBase.maxHp || 0) : 0;
+                                const baseMaxMp = catalogBase ? (catalogBase.maxMp || 0) : 0;
 
-    // 実際の最終ステータス（ランダム強化や補正後）
-    const finalAtk = (stats.atk !== undefined) ? stats.atk : (catalogBase ? catalogBase.atk : (isSword ? 15 : 0));
-    const finalDef = (stats.def !== undefined) ? stats.def : (catalogBase ? catalogBase.def : (isSword ? 0 : 10));
-    const finalMatk = (stats.matk !== undefined) ? stats.matk : (catalogBase ? catalogBase.matk : 0);
-    const finalStr = (stats.str !== undefined) ? stats.str : (catalogBase ? catalogBase.str : Math.floor(Math.random() * 3));
-    const finalDex = (stats.dex !== undefined) ? stats.dex : (catalogBase ? catalogBase.dex : Math.floor(Math.random() * 3));
-    const finalInt = (stats.int !== undefined) ? stats.int : (catalogBase ? catalogBase.int : 0);
-    const finalLuk = (stats.luk !== undefined) ? stats.luk : (catalogBase ? catalogBase.luk : 0);
-    const finalMaxHp = (stats.maxHp !== undefined) ? stats.maxHp : (catalogBase ? catalogBase.maxHp : 10);
-    const finalMaxMp = (stats.maxMp !== undefined) ? stats.maxMp : (catalogBase ? catalogBase.maxMp : 10);
-    
-    // 🌟 【変更①】もともとのカタログ値（初期値）の合計を計算する
-    const baseAtk = catalogBase ? (catalogBase.atk || 0) : 0;
-    const baseDef = catalogBase ? (catalogBase.def || 0) : 0;
-    const baseMatk = catalogBase ? (catalogBase.matk || 0) : 0;
-    const baseStr = catalogBase ? (catalogBase.str || 0) : 0;
-    const baseDex = catalogBase ? (catalogBase.dex || 0) : 0;
-    const baseInt = catalogBase ? (catalogBase.int || 0) : 0;
-    const baseLuk = catalogBase ? (catalogBase.luk || 0) : 0;
-    const baseMaxHp = catalogBase ? (catalogBase.maxHp || 0) : 0;
-    const baseMaxMp = catalogBase ? (catalogBase.maxMp || 0) : 0;
+                                const totalFirstStats = baseAtk + baseDef + baseMatk + baseStr + baseDex + baseInt + baseLuk + Math.floor(baseMaxHp / 10) + Math.floor(baseMaxMp / 10);
+                                const sumAllStats = finalAtk + finalDef + finalMatk + finalStr + finalDex + finalInt + finalLuk + Math.floor(finalMaxHp / 10) + Math.floor(finalMaxMp / 10);
 
-    const totalFirstStats = baseAtk + baseDef + baseMatk + baseStr + baseDex + baseInt + baseLuk + Math.floor(baseMaxHp / 10) + Math.floor(baseMaxMp / 10);
-
-    // 🌟 【変更②】現在（変動後）の全ステータス合計
-    const sumAllStats = finalAtk + finalDef + finalMatk + finalStr + finalDex + finalInt + finalLuk + Math.floor(finalMaxHp / 10) + Math.floor(finalMaxMp / 10);
-
-    wonItem = {
-        item_id: String(catalogId),
-        type: isSword ? 'sword' : 'shield',
-        name: isSword ? 'sword' : 'shield',
-        displayName: isSword ? "マニアックソード" : "トリシールド",
-        imageName: isSword ? "sword" : "shield",
-        count: 1,
-        isEquipped: 0,
-        lv: (catalogBase && catalogBase.lv !== undefined) ? catalogBase.lv : 50,
-        category: isSword ? 'sword' : 'shield',
-        totalUpgrade: 7,
-        star: 0,
-        successCount: 0,
-        failCount: 0,
-        atk: finalAtk, def: finalDef, matk: finalMatk, 
-        str: finalStr, dex: finalDex, int: finalInt, luk: finalLuk, 
-        maxHp: finalMaxHp, maxMp: finalMaxMp,
-        totalFirstStats: totalFirstStats, // ← ここにもともとのカタログ値の合計を設定
-        totalALLStats: sumAllStats      // ← ここに現在の合計を設定
-    };
-}
+                                wonItem = {
+                                    item_id: String(catalogId),
+                                    type: isSword ? 'sword' : 'shield',
+                                    name: isSword ? 'sword' : 'shield',
+                                    displayName: isSword ? "マニアックソード" : "トリシールド",
+                                    imageName: isSword ? "sword" : "shield",
+                                    count: 1,
+                                    isEquipped: 0,
+                                    lv: (catalogBase && catalogBase.lv !== undefined) ? catalogBase.lv : 50,
+                                    category: isSword ? 'sword' : 'shield',
+                                    totalUpgrade: 7,
+                                    star: 0,
+                                    successCount: 0,
+                                    failCount: 0,
+                                    atk: finalAtk, def: finalDef, matk: finalMatk, 
+                                    str: finalStr, dex: finalDex, int: finalInt, luk: finalLuk, 
+                                    maxHp: finalMaxHp, maxMp: finalMaxMp,
+                                    totalFirstStats: totalFirstStats,
+                                    totalALLStats: sumAllStats
+                                };
+                            }
 
                             if (!wonItem) return;
 
-                          // 🌟 【変更点】DB保存・読み込みの前に、ここで先にログとコンソール出力を実行する
-console.log(`🎁 [Treasure Gacha] ${player.name || socket.id} が宝箱から「${wonItem.displayName}」を手に入れました！`);
-if (typeof LOG !== 'undefined' && LOG.GRAY) {
-    LOG.GRAY(`🎁 宝箱を開けたら ${wonItem.displayName} が出てきた！`);
-}
+                            console.log(`🎁 [Treasure Gacha] ${player.name || socket.id} が宝箱から「${wonItem.displayName}」を手に入れました！`);
+                            if (typeof LOG !== 'undefined' && LOG.GRAY) {
+                                LOG.GRAY(`🎁 宝箱を開けたら ${wonItem.displayName} が出てきた！`);
+                            }
 
                             if (!player.inventory) player.inventory = {};
                             const targetDbId = player.dbId || player.id;
 
-                            // 🌟 【超強力なスタック判定】
                             let existingStackSlot = -1;
                             if (!isEquipment) {
                                 const targetIdStr = String(randomPick.id);
@@ -6485,99 +6765,96 @@ if (typeof LOG !== 'undefined' && LOG.GRAY) {
                                             existingStackSlot = i;
                                             break;
                                         }
+                                    }
                                 }
                             }
-                      }
 
-                        let targetSlot = -1;
+                            let targetSlot = -1;
 
-                        if (!isEquipment && existingStackSlot !== -1) {
-                            targetSlot = existingStackSlot;
-                            const slotItem = player.inventory[targetSlot];
-                            slotItem.count = (Number(slotItem.count) || 1) + wonItem.count;
+                            if (!isEquipment && existingStackSlot !== -1) {
+                                targetSlot = existingStackSlot;
+                                const slotItem = player.inventory[targetSlot];
+                                slotItem.count = (Number(slotItem.count) || 1) + wonItem.count;
 
-                            await pool.query('UPDATE user_inventory SET quantity = quantity + ? WHERE user_id = ? AND slot_index = ?', [wonItem.count, targetDbId, targetSlot]);
-                    } else {
-                        const isBoxConsumingLastOne = (usedSlotIndex !== -1 && player.inventory[usedSlotIndex] && (Number(player.inventory[usedSlotIndex].count || 1) <= 1));
+                                await pool.query('UPDATE user_inventory SET quantity = quantity + ? WHERE user_id = ? AND slot_index = ?', [wonItem.count, targetDbId, targetSlot]);
+                            } else {
+                                const isBoxConsumingLastOne = (usedSlotIndex !== -1 && player.inventory[usedSlotIndex] && (Number(player.inventory[usedSlotIndex].count || 1) <= 1));
 
-                        if (isBoxConsumingLastOne && usedSlotIndex !== -1) {
-                            targetSlot = usedSlotIndex; 
-                  } else {
-                            for (let i = 0; i < 50; i++) {
-                                if (!player.inventory[i]) {
-                                    targetSlot = i;
-                                    break;
+                                if (isBoxConsumingLastOne && usedSlotIndex !== -1) {
+                                    targetSlot = usedSlotIndex; 
+                                } else {
+                                    for (let i = 0; i < 50; i++) {
+                                        if (!player.inventory[i]) {
+                                            targetSlot = i;
+                                            break;
+                                        }
+                                    }
                                 }
-                          }
-                    }
 
-                    if (targetSlot !== -1) {
-                        if (isEquipment) {
-                            const [eqResult] = await pool.query(`
-                                INSERT INTO equipment_instances (
-                                    player_id, item_id, name, display_name, image_name, category,
-                                    lv, str, dex, \`int\`, luk, maxHp, maxMp, atk, matk, def,
-                                    moveSpeed, jumpPower, atkSpeed, star, maxStar,
-                                    totalUpgrade, successCount, failCount,
-                                    totalFirstStats, totalALLStats
-                                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-                            `, [
-                                targetDbId, wonItem.item_id, wonItem.name, wonItem.displayName, wonItem.imageName, wonItem.category,
-                                wonItem.lv || 0, wonItem.str || 0, wonItem.dex || 0, wonItem.int || 0, wonItem.luk || 0,
-                                wonItem.maxHp || 0, wonItem.maxMp || 0, wonItem.atk || 0, wonItem.matk || 0, wonItem.def || 0,
-                                0, 0, 1, 0, 7, wonItem.totalUpgrade || 7, 0, 0,
-                                wonItem.totalFirstStats, wonItem.totalALLStats
-                            ]);
+                                if (targetSlot !== -1) {
+                                    if (isEquipment) {
+                                        const [eqResult] = await pool.query(`
+                                            INSERT INTO equipment_instances (
+                                                player_id, item_id, name, display_name, image_name, category,
+                                                lv, str, dex, \`int\`, luk, maxHp, maxMp, atk, matk, def,
+                                                moveSpeed, jumpPower, atkSpeed, star, maxStar,
+                                                totalUpgrade, successCount, failCount,
+                                                totalFirstStats, totalALLStats
+                                            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                                        `, [
+                                            targetDbId, wonItem.item_id, wonItem.name, wonItem.displayName, wonItem.imageName, wonItem.category,
+                                            wonItem.lv || 0, wonItem.str || 0, wonItem.dex || 0, wonItem.int || 0, wonItem.luk || 0,
+                                            wonItem.maxHp || 0, wonItem.maxMp || 0, wonItem.atk || 0, wonItem.matk || 0, wonItem.def || 0,
+                                            0, 0, 1, 0, 7, wonItem.totalUpgrade || 7, 0, 0,
+                                            wonItem.totalFirstStats, wonItem.totalALLStats
+                                        ]);
 
-                            wonItem.equipment_id = eqResult.insertId;
-                            wonItem.slot_index = targetSlot;
-                            player.inventory[targetSlot] = wonItem;
+                                        wonItem.equipment_id = eqResult.insertId;
+                                        wonItem.slot_index = targetSlot;
+                                        player.inventory[targetSlot] = wonItem;
 
-                            await pool.query(`
-                                INSERT INTO user_inventory (user_id, item_type, slot_index, item_id, quantity, is_equipped, equipment_id) 
-                                VALUES (?, ?, ?, ?, 1, 0, ?)
-                            `, [targetDbId, wonItem.type, targetSlot, wonItem.item_id, eqResult.insertId]);
+                                        await pool.query(`
+                                            INSERT INTO user_inventory (user_id, item_type, slot_index, item_id, quantity, is_equipped, equipment_id) 
+                                            VALUES (?, ?, ?, ?, 1, 0, ?)
+                                        `, [targetDbId, wonItem.type, targetSlot, wonItem.item_id, eqResult.insertId]);
 
-                        } else {
-                            wonItem.slot_index = targetSlot;
-                            player.inventory[targetSlot] = wonItem;
+                                    } else {
+                                        wonItem.slot_index = targetSlot;
+                                        player.inventory[targetSlot] = wonItem;
 
-                            await pool.query(`
-                                INSERT INTO user_inventory (user_id, item_type, slot_index, item_id, quantity, is_equipped) 
-                                VALUES (?, ?, ?, ?, ?, 0)
-                                ON DUPLICATE KEY UPDATE 
-                                    quantity = quantity + VALUES(quantity),
-                                    item_id = VALUES(item_id),
-                                    item_type = VALUES(item_type)
-                `, [targetDbId, wonItem.type, targetSlot, wonItem.item_id, wonItem.count]);
-                    }
-                  }
-          }
+                                        await pool.query(`
+                                            INSERT INTO user_inventory (user_id, item_type, slot_index, item_id, quantity, is_equipped) 
+                                            VALUES (?, ?, ?, ?, ?, 0)
+                                            ON DUPLICATE KEY UPDATE 
+                                                quantity = quantity + VALUES(quantity),
+                                                item_id = VALUES(item_id),
+                                                item_type = VALUES(item_type)
+                                        `, [targetDbId, wonItem.type, targetSlot, wonItem.item_id, wonItem.count]);
+                                    }
+                                }
+                            }
 
-            if (targetSlot !== -1) {
-                // 元々あったログ出力位置（ここは不要になるので削除または整理）
-                
-                const fixedInventoryArray = typeof loadUserInventory === 'function' ? await loadUserInventory(targetDbId) : null;
-                if (fixedInventoryArray) {
-                    const fixedInventory = Array(50).fill(null);
-                    fixedInventoryArray.forEach((invItem) => {
-                        if (invItem.slot_index >= 0 && invItem.slot_index < 50) {
-                            fixedInventory[invItem.slot_index] = invItem;
+                            if (targetSlot !== -1) {
+                                const fixedInventoryArray = typeof loadUserInventory === 'function' ? await loadUserInventory(targetDbId) : null;
+                                if (fixedInventoryArray) {
+                                    const fixedInventory = Array(50).fill(null);
+                                    fixedInventoryArray.forEach((invItem) => {
+                                        if (invItem.slot_index >= 0 && invItem.slot_index < 50) {
+                                            fixedInventory[invItem.slot_index] = invItem;
+                                        }
+                                    });
+                                    player.inventory = fixedInventory;
+                                }
+
+                                socket.emit('inventory_update', player.inventory);
+                            } else {
+                                console.log(`⚠️ [Treasure Gacha] インベントリがいっぱいでアイテムを入手できませんでした。`);
+                            }
+                        } catch (err) {
+                            console.error("❌ 宝箱ガチャ処理エラー:", err);
                         }
-                });
-                    player.inventory = fixedInventory;
-                }
-
-                socket.emit('inventory_update', player.inventory);
-                // 以前ここにあった LOG.SUCCESS は上に移動済み
-            } else {
-                console.log(`⚠️ [Treasure Gacha] インベントリがいっぱいでアイテムを入手できませんでした。`);
-            }
-        } catch (err) {
-            console.error("❌ 宝箱ガチャ処理エラー:", err);
-        }
-    })();
-    break;
+                    })();
+                    break;
                     
                 case 'speed':
                     console.log(`[Server] プレイヤーが speed アイテムを使用しました。`);
@@ -6601,37 +6878,204 @@ if (typeof LOG !== 'undefined' && LOG.GRAY) {
                     break;
 
                 default:
-                    console.log(`[Server] 消費アイテムを使用しました: ${catalogItem.display_name || requestedItemName}`);
+                    if (isAvatarItem) {
+    const avatarKey = catalogItem.avatar_key || requestedItemName;
+    const displayName = catalogItem.display_name || avatarKey;
+    const isCurrentlyEquipped = Boolean(item.isEquipped || item.is_equipped);
+
+	// 🌟 装備しようとするとき（外すとき以外）にアニマル一致をチェック
+        if (!isCurrentlyEquipped) {
+            const avatarAppearancePreview = typeof parseAvatarAppearance === 'function'
+                ? parseAvatarAppearance(catalogItem, avatarKey)
+                : null;
+
+            const currentAnimal =
+                (player.model_id !== undefined && player.model_id !== null)
+                    ? Number(player.model_id)
+                    : (player.group !== undefined && player.group !== null)
+                        ? Number(player.group)
+                        : null;
+
+            let targetAnimal = null;
+            if (catalogItem.group_index !== undefined && catalogItem.group_index !== null) {
+                targetAnimal = Number(catalogItem.group_index);
+            } else if (catalogItem.groupIndex !== undefined && catalogItem.groupIndex !== null) {
+                targetAnimal = Number(catalogItem.groupIndex);
+            } else if (catalogItem.model_id !== undefined && catalogItem.model_id !== null) {
+                targetAnimal = Number(catalogItem.model_id);
+            } else if (avatarAppearancePreview && avatarAppearancePreview.groupIndex !== undefined && avatarAppearancePreview.groupIndex !== null) {
+                targetAnimal = Number(avatarAppearancePreview.groupIndex);
+            } else if (avatarKey) {
+                const match = String(avatarKey).match(/x(\d+)/i);
+                if (match) {
+                    targetAnimal = Number(match[1]);
+                }
+            }
+
+            if (currentAnimal !== null && !Number.isNaN(currentAnimal) &&
+                targetAnimal !== null && !Number.isNaN(targetAnimal) &&
+                currentAnimal !== targetAnimal) {
+                const denyMsg = `🚫 ${player.name || socket.id} はアニマル不一致のためアバター「${displayName}」を装備できませんでした`;
+                if (typeof LOG !== 'undefined' && typeof LOG.WARN === 'function') {
+                    LOG.WARN(denyMsg);
+                } else if (typeof LOG !== 'undefined' && typeof LOG.ERROR === 'function') {
+                    LOG.ERROR(denyMsg);
+                } else {
+                    console.log(denyMsg);
+                }
+
+                await connection.rollback();
+                socket.emit('avatar_equip_failed', {
+                    message: `このアバター「${displayName}」は現在のアニマルでは装備できません。`,
+                    avatarKey: avatarKey,
+                    slotIndex: slotIndex
+                });
+                return;
+            }
+        }
+	
+    // 🌟 他プレイヤー側で対象を特定するための識別子
+    const targetPlayerId = player.id || player.dbId || player.db_id || socket.id;
+    const targetRoom = player.roomId || player.channel || null;
+
+    if (isCurrentlyEquipped) {
+        // 外すとき（見た目情報をクリアして通知）
+        item.isEquipped = 0;
+        item.is_equipped = 0;
+        player.equippedAvatar = null;
+        player.avatarKey = null;
+        player.avatarAppearance = null;
+        player.avatarVisual = null;
+
+        await connection.query(
+            'UPDATE user_inventory SET is_equipped = 0 WHERE user_id = ? AND slot_index = ?',
+            [userId, slotIndex]
+        );
+
+        if (typeof LOG !== 'undefined' && LOG.SUCCESS) {
+            LOG.SUCCESS(`🎭 ${player.name || socket.id} がアバター「${displayName}」を外しました`);
+        } else {
+            console.log(`🎭 ${player.name || socket.id} がアバター「${displayName}」を外しました`);
+        }
+
+        const unequipPayload = {
+            playerId: targetPlayerId,
+            socketId: socket.id,
+            dbId: userId,
+            avatarKey: avatarKey,
+            displayName: displayName,
+            slotIndex: slotIndex,
+            avatarAppearance: null,
+            avatarVisual: null
+        };
+
+        // 1. 本人へ通知
+        socket.emit('avatar_unequipped', unequipPayload);
+
+        // 2. 他ユーザーへ通知
+        if (targetRoom) {
+            socket.to(targetRoom).emit('avatar_unequipped', unequipPayload);
+        } else {
+            socket.broadcast.emit('avatar_unequipped', unequipPayload);
+        }
+    } else {
+        // 付けるとき（見た目情報をセットして通知）
+        const avatarAppearance = parseAvatarAppearance(catalogItem, avatarKey);
+
+        player.equippedAvatar = avatarKey;
+        player.avatarKey = avatarKey;
+        player.avatarAppearance = avatarAppearance;
+        player.avatarVisual = avatarAppearance;
+
+        if (Array.isArray(player.inventory)) {
+            player.inventory.forEach((invItem, idx) => {
+                if (!invItem) return;
+                const invKey = String(invItem.name || invItem.type || invItem.avatar_key || '').toLowerCase();
+                if (invKey.startsWith('avatar_')) {
+                    const flag = (idx === slotIndex) ? 1 : 0;
+                    invItem.isEquipped = flag;
+                    invItem.is_equipped = flag;
+                }
+            });
+        }
+        item.isEquipped = 1;
+        item.is_equipped = 1;
+
+        await connection.query(
+            'UPDATE user_inventory SET is_equipped = 0 WHERE user_id = ? AND LOWER(item_type) LIKE ?',
+            [userId, 'avatar_%']
+        );
+        await connection.query(
+            'UPDATE user_inventory SET is_equipped = 1 WHERE user_id = ? AND slot_index = ?',
+            [userId, slotIndex]
+        );
+
+        if (typeof LOG !== 'undefined' && LOG.SUCCESS) {
+            LOG.SUCCESS(`🎭 ${player.name || socket.id} がアバター「${displayName}」を装備しました`);
+        } else {
+            console.log(`🎭 ${player.name || socket.id} がアバター「${displayName}」を装備しました`);
+        }
+
+        const equipPayload = {
+            playerId: targetPlayerId,
+            socketId: socket.id,
+            dbId: userId,
+            avatarKey: avatarKey,
+            displayName: displayName,
+            slotIndex: slotIndex,
+            iconUrl: avatarAppearance.iconUrl,
+            assetBaseDir: avatarAppearance.assetBaseDir,
+            groupIndex: avatarAppearance.groupIndex,
+            charIndex: avatarAppearance.charIndex,
+            cropX: avatarAppearance.cropX,
+            cropY: avatarAppearance.cropY,
+            cropScale: avatarAppearance.cropScale,
+            avatarAppearance: avatarAppearance,
+            avatarVisual: avatarAppearance
+        };
+
+        // 1. 本人へ通知
+        socket.emit('avatar_equipped', equipPayload);
+
+        // 2. 他ユーザーへ通知
+        if (targetRoom) {
+            socket.to(targetRoom).emit('avatar_equipped', equipPayload);
+        } else {
+            socket.broadcast.emit('avatar_equipped', equipPayload);
+        }
+    }
+}
                     break;
             }
             
-            // 🌟 プレイヤー側で複数の使用中アイテムを管理する配列を初期化
-            if (!player.activeItems) {
-                player.activeItems = [];
-            }
+            if (!isAvatarItem) {
+                if (!player.activeItems) {
+                    player.activeItems = [];
+                }
 
-            const newItem = {
-                name: catalogItem.name,
-                displayName: catalogItem.display_name || catalogItem.name
-            };
+                const resolvedName = catalogItem.name || catalogItem.avatar_key || requestedItemName;
+                const newItem = {
+                    name: resolvedName,
+                    displayName: catalogItem.display_name || resolvedName
+                };
 
-            player.activeItems.push(newItem);
-            player.activeItem = newItem; 
+                player.activeItems.push(newItem);
+                player.activeItem = newItem; 
 
-            // 3. 個数（count または quantity）を減らす
-            item.count = (item.count || item.quantity || 1) - 1;
+                item.count = (item.count || item.quantity || 1) - 1;
 
-            if (item.count > 0) {
-                await connection.query(
-                    'UPDATE user_inventory SET quantity = ? WHERE user_id = ? AND slot_index = ?',
-                    [item.count, userId, slotIndex]
-                );
-            } else {
-                await connection.query(
-                    'DELETE FROM user_inventory WHERE user_id = ? AND slot_index = ?',
-                    [userId, slotIndex]
-                );
-                player.inventory[slotIndex] = null;
+                if (item.count > 0) {
+                    await connection.query(
+                        'UPDATE user_inventory SET quantity = ? WHERE user_id = ? AND slot_index = ?',
+                        [item.count, userId, slotIndex]
+                    );
+                } else {
+                    await connection.query(
+                        'DELETE FROM user_inventory WHERE user_id = ? AND slot_index = ?',
+                        [userId, slotIndex]
+                    );
+                    player.inventory[slotIndex] = null;
+                }
             }
 
             await connection.commit();
@@ -6660,6 +7104,36 @@ if (typeof LOG !== 'undefined' && LOG.GRAY) {
         debugChat(`🚨 Socket接続処理で重大な不具合: ${globalError.message}`, 'error');
     }
 });
+
+/**
+ * avatar_item_catalog の行データから見た目情報を組み立てる
+ */
+function parseAvatarAppearance(catalogItem, fallbackKey) {
+    const avatarKey = catalogItem.avatar_key || fallbackKey || '';
+    const iconUrl = catalogItem.icon_url || '';
+
+    // 例: "avatar_x00_y01" から x=0, y=1 を抽出（取れなければ null）
+    const keyMatch = avatarKey.match(/^avatar_x(\d+)_y(\d+)$/i);
+    const groupIndex = keyMatch ? Number(keyMatch[1]) : null;
+    const charIndex = keyMatch ? Number(keyMatch[2]) : null;
+
+    // 例: "char_assets/00/01/Idle/Characters-Character01-Idle_00.png" からベースディレクトリを抽出
+    const assetDirMatch = iconUrl.match(/^(char_assets\/\d+\/\d+)\//);
+    const assetBaseDir = assetDirMatch ? assetDirMatch[1] : null;
+
+    return {
+        itemId: catalogItem.item_id,
+        key: avatarKey,
+        displayName: catalogItem.display_name || avatarKey,
+        iconUrl: iconUrl || null,
+        assetBaseDir: assetBaseDir,
+        groupIndex: groupIndex,
+        charIndex: charIndex,
+        cropX: catalogItem.crop_x ?? 0.5,
+        cropY: catalogItem.crop_y ?? 0.6,
+        cropScale: catalogItem.crop_scale ?? 3
+    };
+}
 
 // 📌 自分とフレンド関係の人たち全員に「リストを更新して！」と伝える関数
 async function notifyFriendsToRefresh(userId) {
@@ -7184,8 +7658,10 @@ async function loadItemCatalogFromDB() {
                 ...row,
                 name: row.name || avatarKey,
                 displayName: row.display_name || avatarKey,
-                mainCategory: 'AVATAR',
-                isTradeable: true,
+                mainCategory: 'EQUIP',   // 🌟 装備分類に統一
+                subCategory: 'AVATAR',   // 元の種別も残しておくと区別しやすい
+                isAvatar: true,
+                isTradeable: row.isTradeable !== undefined ? Boolean(row.isTradeable) : true,
                 isCircleIcon: true,
                 cropX: row.crop_x ?? 0.5,
                 cropY: row.crop_y ?? 0.25,
@@ -7194,9 +7670,11 @@ async function loadItemCatalogFromDB() {
 
             if (row.display_name) {
                 newAvatarNames[avatarKey] = row.display_name;
+                // もし装備名簿にも含めたい場合は下を有効化
+                // newEquipNames[avatarKey] = row.display_name;
             }
 
-            newItemCategories[avatarKey] = "ETC";
+            newItemCategories[avatarKey] = "EQUIP"; // 🌟 インベントリ・種別判定を EQUIP に
             newItemImages[avatarKey] = normalizedUrl;
             newItemDescriptions[avatarKey] = row.description || "キャラクターの頭部を丸く切り抜いたアバターアイテム。";
         });
@@ -7306,8 +7784,8 @@ async function loadItemCatalogFromDB() {
 
         Object.keys(ITEM_CATALOG).forEach(id => {
             const item = ITEM_CATALOG[id];
-            
-            if (item.mainCategory === 'EQUIP') {
+
+            if (item.mainCategory === 'EQUIP' && !item.isAvatar) {
                 const sum = targetKeys.reduce((acc, key) => {
                     let val = (item[key] || 0);
                     if (key === 'maxHp' || key === 'maxMp') {
@@ -7315,7 +7793,7 @@ async function loadItemCatalogFromDB() {
                     }
                     return acc + val;
                 }, 0);
-                
+
                 item.totalFirstStats = sum;
             } else {
                 item.totalFirstStats = 0;
@@ -7625,7 +8103,7 @@ const DROP_DATABASE = {
 };
 
 const DROP_CHANCE_TABLES = {
-  "Drop_Monster1": { "drop_rate": 100, "scroll30": 80, "proof_monster1": 80, "avatar_x11_y11": 80, "avatar_x11_y12": 80, "scroll60": 50, "normal_gold": 70, "avatar": 10, "pouch": 10 }, // 50%でドロップ、そのうち20%で金塊
+  "Drop_Monster1": { "drop_rate": 100, "exp": 80, "scroll30": 80, "proof_monster1": 80, "avatar_x11_y15": 80, "avatar_x07_y12": 80, "scroll60": 50, "normal_gold": 70, "avatar": 10, "pouch": 10 }, // 50%でドロップ、そのうち20%で金塊
   "Drop_Monster2": { "drop_rate": 100, "normal_gold": 70, "shield": 5,　"sword": 5 },
   "Drop_Monster3": { "drop_rate": 100, "normal_gold": 50 },
   "Drop_Monster4": { "drop_rate": 100, "normal_gold": 80, "treasure": 80, "sweets": 80, "shield": 20 },
@@ -9899,12 +10377,13 @@ async function handlePickup(socket) {
 
             if (isMonsterCard) {
                 // 🌟 正しくプレイヤー自身のデータベースID（dbId または id）を特定する
-const dbUserId = player.dbId || player.db_id || player.userId || (typeof player.id === 'number' ? player.id : null);
+                const dbUserId = player.dbId || player.db_id || player.userId || (typeof player.id === 'number' ? player.id : null);
 
-if (!dbUserId) {
-    console.error("❌ [Pickup Error] プレイヤーのデータベースIDが特定できません:", player.name);
-    return;
-}
+                if (!dbUserId) {
+                    console.error("❌ [Pickup Error] プレイヤーのデータベースIDが特定できません:", player.name);
+                    return;
+                }
+
                 // 🌟 【自動復元セーフガード】
                 if (!player.cardCollection || typeof player.cardCollection !== 'object' || Object.keys(player.cardCollection).length === 0) {
                     // 停止 2026-9-24
@@ -9941,11 +10420,19 @@ if (!dbUserId) {
 
                 const monsterKey = removedItem.monsterKey || removedItem.type.toLowerCase();
 
-                // 🌟 1〜6のランクを等確率で決定
-                const cardRank = removedItem.cardRank || (Math.floor(Math.random() * 6) + 1);
-                
+                // 🌟 落ちているカードに指定されたランクがあれば維持（新規ドロップ等未指定時のみ1〜6を等確率抽選）
+                const rawRank = (removedItem.cardRank !== undefined && removedItem.cardRank !== null)
+                    ? removedItem.cardRank
+                    : ((removedItem.rank !== undefined && removedItem.rank !== null) ? removedItem.rank : null);
+                const parsedRank = rawRank !== null ? Number(rawRank) : NaN;
+                const cardRank = (!Number.isNaN(parsedRank) && parsedRank >= 1 && parsedRank <= 6)
+                    ? parsedRank
+                    : (Math.floor(Math.random() * 6) + 1);
+
+                const pickupCount = Math.max(1, Number(removedItem.count || removedItem.amount || 1));
+
                 const rankNames = { 1: 'ブロンズ', 2: 'シルバー', 3: 'ゴールド', 4: 'プラチナ', 5: 'ダイヤモンド', 6: '虹' };
-                const rankName = rankNames[cardRank];
+                const rankName = rankNames[cardRank] || `Rank ${cardRank}`;
 
                 if (!player.cardCollection[monsterKey]) {
                     player.cardCollection[monsterKey] = {};
@@ -9957,40 +10444,55 @@ if (!dbUserId) {
                         firstAcquiredTime: Date.now()
                     };
                 }
-                player.cardCollection[monsterKey][cardRank].count = (player.cardCollection[monsterKey][cardRank].count || 0) + 1;
+                player.cardCollection[monsterKey][cardRank].count =
+                    (player.cardCollection[monsterKey][cardRank].count || 0) + pickupCount;
                 player.cardCollection[monsterKey][cardRank].unlocked = true;
-                
+
                 // データベースへ保存する処理
                 if (typeof saveMonsterCardToDB === 'function') {
-                    await saveMonsterCardToDB(player, monsterKey, cardRank);
+                    await saveMonsterCardToDB(player, monsterKey, cardRank, pickupCount);
                 } else {
                     const nowTime = Date.now();
                     await pool.query(`
                         INSERT INTO player_monster_cards 
                         (user_id, monster_key, card_rank, count, unlocked, first_acquired_time, last_acquired_time) 
-                        VALUES (?, ?, ?, 1, 1, ?, ?)
+                        VALUES (?, ?, ?, ?, 1, ?, ?)
                         ON DUPLICATE KEY UPDATE 
-                        count = count + 1, 
+                        count = count + ?, 
+                        unlocked = 1,
                         last_acquired_time = VALUES(last_acquired_time)
-                    `, [dbUserId, monsterKey, cardRank, nowTime, nowTime]).catch(err => {
+                    `, [dbUserId, monsterKey, cardRank, pickupCount, nowTime, nowTime, pickupCount]).catch(err => {
                         console.error("❌ カードDB保存エラー:", err);
                     });
                 }
 
                 const totalRankCount = player.cardCollection[monsterKey][cardRank].count;
-                console.log(`[Card Pickup] 🃏 ${player.name || socket.id} が ${monsterKey} の 【${rankName}】 を取得！ (当該ランク所持数: ${totalRankCount})`);
+                console.log(`[Card Pickup] 🃏 ${player.name || socket.id} が ${monsterKey} の 【${rankName}】 を ${pickupCount}枚 取得！ (当該ランク所持数: ${totalRankCount})`);
 
                 if (typeof lastPickedItems !== 'undefined') {
+                    const resolvedMonsterKey = monsterKey || removedItem.monsterKey || removedItem.name || null;
+                    const resolvedCardName = removedItem.name || resolvedMonsterKey || removedItem.type;
+                    const resolvedIconUrl = removedItem.iconUrl || removedItem.icon_url || (
+                        resolvedMonsterKey
+                            ? `/card_assets/${String(resolvedMonsterKey).charAt(0).toUpperCase() + String(resolvedMonsterKey).slice(1)}.png`
+                            : null
+                    );
+
                     lastPickedItems.push({
                         type: removedItem.type,
+                        monsterKey: resolvedMonsterKey,
+                        name: resolvedCardName,
+                        iconUrl: resolvedIconUrl,
+                        icon_url: resolvedIconUrl,
                         x: (removedItem.x && removedItem.x !== 0) ? removedItem.x : player.x,
                         y: (removedItem.y && removedItem.y !== 0) ? removedItem.y : player.y,
                         pickerId: socket.id,
                         totalALLStats: removedItem.totalALLStats || 0,
                         totalFirstStats: removedItem.totalFirstStats || 0,
                         ch: chId,
-                        // 🌟 【ここを追加】ここでカードのランクとIDをエフェクト側に引き渡す！
+                        // 🌟 ここでカードのランク・ID・モンスター識別情報をエフェクト側に引き渡す！
                         cardRank: cardRank,
+                        rank: cardRank,
                         cardId: removedItem.cardId || true
                     });
                 }
@@ -10000,15 +10502,16 @@ if (!dbUserId) {
                 socket.emit('chat', {
                     id: 'SYSTEM_LOG',
                     name: '🃏 図鑑',
-                    text: `${removedItem.name || 'モンスターカード'} [${rankName}] をMonster Bookに登録しました！（累計: ${totalRankCount}枚）`
+                    text: `${removedItem.name || 'モンスターカード'} [${rankName}]${pickupCount > 1 ? ` x${pickupCount}` : ''} をMonster Bookに登録しました！（累計: ${totalRankCount}枚）`
                 });
-				
+
 				// 🌟 【新規追加】画面上のフローティングログ等で使える専用ログイベントを送信
                 socket.emit('card_pickup_log', {
                     monsterName: removedItem.name || 'モンスターカード',
                     rankName: rankName,
                     cardRank: cardRank,
-                    count: totalRankCount
+                    count: totalRankCount,
+                    pickedCount: pickupCount
                 });
 
                 if (typeof sendState === 'function') sendState();
@@ -10033,8 +10536,13 @@ if (!dbUserId) {
             }
 
             if (typeof lastPickedItems !== 'undefined') {
+                const resolvedIconUrl = removedItem.iconUrl || removedItem.icon_url || null;
                 lastPickedItems.push({
                     type: removedItem.type,
+                    monsterKey: removedItem.monsterKey || null,
+                    name: removedItem.name || removedItem.type,
+                    iconUrl: resolvedIconUrl,
+                    icon_url: resolvedIconUrl,
                     x: (removedItem.x && removedItem.x !== 0) ? removedItem.x : player.x,
                     y: (removedItem.y && removedItem.y !== 0) ? removedItem.y : player.y,
                     pickerId: socket.id,
@@ -10211,13 +10719,13 @@ if (!dbUserId) {
     }
 }
 
-// 🃏 カードの取得・所持数をデータベースに保存（UPSERT）する関数（ランク対応版）
-async function saveMonsterCardToDB(playerOrUserId, monsterKey, cardRank) {
+// 🃏 カードの取得・所持数をデータベースに保存（UPSERT）する関数（ランク・複数枚対応版）
+async function saveMonsterCardToDB(playerOrUserId, monsterKey, cardRank, amount = 1) {
     try {
         let userId = null;
 
         if (typeof playerOrUserId === 'object' && playerOrUserId !== null) {
-            userId = playerOrUserId.dbId || playerOrUserId.db_id;
+            userId = playerOrUserId.dbId || playerOrUserId.db_id || playerOrUserId.userId || (typeof playerOrUserId.id === 'number' ? playerOrUserId.id : null);
         } else if (typeof playerOrUserId === 'number') {
             userId = playerOrUserId;
         } else if (typeof playerOrUserId === 'string') {
@@ -10225,7 +10733,7 @@ async function saveMonsterCardToDB(playerOrUserId, monsterKey, cardRank) {
                 userId = parseInt(playerOrUserId, 10);
             } else if (typeof players !== 'undefined' && players[playerOrUserId]) {
                 const p = players[playerOrUserId];
-                userId = p.dbId || p.db_id;
+                userId = p.dbId || p.db_id || p.userId || (typeof p.id === 'number' ? p.id : null);
             }
         }
 
@@ -10233,14 +10741,16 @@ async function saveMonsterCardToDB(playerOrUserId, monsterKey, cardRank) {
             for (const socketId in players) {
                 const p = players[socketId];
                 if (socketId === playerOrUserId || p.id === playerOrUserId) {
-                    userId = p.dbId || p.db_id;
+                    userId = p.dbId || p.db_id || p.userId || (typeof p.id === 'number' ? p.id : null);
                     break;
                 }
             }
         }
 
+        const addCount = Math.max(1, Number(amount) || 1);
+
         // 🌟 【超重要】ここで実際にどんな値が渡され、何に解決されたかを出力する！
-        console.log(`🔍 [DEBUG saveMonsterCard] 渡された引数:`, playerOrUserId, `→ 決定された userId:`, userId, `(モンスター: ${monsterKey}, ランク: ${cardRank})`);
+        console.log(`🔍 [DEBUG saveMonsterCard] 渡された引数:`, playerOrUserId, `→ 決定された userId:`, userId, `(モンスター: ${monsterKey}, ランク: ${cardRank}, 枚数: ${addCount})`);
 
         if (!userId || typeof userId !== 'number' || isNaN(userId)) {
             console.error("❌ カードDB保存エラー: 有効な数値のuser_idを特定できませんでした。渡された値:", playerOrUserId);
@@ -10248,18 +10758,19 @@ async function saveMonsterCardToDB(playerOrUserId, monsterKey, cardRank) {
         }
 
         const now = Date.now();
-        
+
         const query = `
             INSERT INTO player_monster_cards 
             (user_id, monster_id, card_rank, count, unlocked, first_acquired_time, last_acquired_time) 
-            VALUES (?, ?, ?, 1, 1, ?, ?)
+            VALUES (?, ?, ?, ?, 1, ?, ?)
             ON DUPLICATE KEY UPDATE 
-            count = count + 1, 
+            count = count + VALUES(count), 
+            unlocked = 1,
             last_acquired_time = VALUES(last_acquired_time)
         `;
-        
-        await pool.query(query, [userId, monsterKey, cardRank, now, now]);
-        console.log(`[DB] ユーザー ${userId} のカード (${monsterKey} / ランク:${cardRank}) をデータベースに保存/更新しました。`);
+
+        await pool.query(query, [userId, monsterKey, cardRank, addCount, now, now]);
+        console.log(`[DB] ユーザー ${userId} のカード (${monsterKey} / ランク:${cardRank} / +${addCount}枚) をデータベースに保存/更新しました。`);
     } catch (error) {
         console.error("❌ カードのDB保存エラー:", error);
     }
@@ -10862,18 +11373,24 @@ function sendState() {
 
         // 🌟 1番から5番のチャンネルに対して送信
         for (let i = 1; i <= 5; i++) {
-            // 🌟 【修正ポイント】join時と同じ名前 `room_ch_数字` にします
             const roomName = `channel_${i}`;
 
             // 👥 そのチャンネルにいるプレイヤーだけを抽出
             const roomPlayers = {};
             for (let id in players) {
                 if (players[id].channel === i) {
-                    // 🌟 元のデータをコピーしつつ、model_id と style_id が絶対に undefined にならないようガード！
+                    const p = players[id];
+                    const avatarVisual = p.avatarVisual || p.avatarAppearance || null;
+
+                    // 🌟 元のデータをコピーしつつ、model_id / style_id とアバター見た目情報を同期
                     roomPlayers[id] = {
-                        ...players[id],
-                        model_id: players[id].model_id !== undefined ? players[id].model_id : 6, // ← 抜け落ちていたら 11 などを維持
-                        style_id: players[id].style_id !== undefined ? players[id].style_id : 1
+                        ...p,
+                        model_id: p.model_id !== undefined ? p.model_id : 6,
+                        style_id: p.style_id !== undefined ? p.style_id : 1,
+                        equippedAvatar: p.equippedAvatar || (avatarVisual ? avatarVisual.key : null),
+                        avatarKey: p.avatarKey || (avatarVisual ? avatarVisual.key : null),
+                        avatarVisual: avatarVisual,
+                        avatarAppearance: avatarVisual
                     };
                 }
             }
@@ -10884,24 +11401,20 @@ function sendState() {
             // 💎 そのチャンネルのドロップアイテムを取得（なければ空配列）
             const channelDrops = droppedItems[i] || [];
 
-            // ✨ 🌟 【新規追加】そのチャンネルで発生したエフェクトだけを抽出
-            // handlePickup側で lastPickedItems.push({ ..., ch: chId }) している前提です
+            // ✨ 🌟 そのチャンネルで発生したエフェクトだけを抽出
             const roomPickedItems = lastPickedItems.filter(item => item.ch === i);
 
             // 📡 この部屋（roomName）に入っている人だけに、足場や敵の情報を送る
             io.to(roomName).emit('state', {
                 players: roomPlayers,
-                // 🌟 修正：全体の箱ではなく、そのチャンネルのアイテムを送る
                 items: channelDrops, 
-                // 🌟 修正：全体の箱ではなく、そのチャンネルの敵をmapする
                 enemies: channelEnemies.map(en => ({
                     ...en,
                     jumpY: en.jumpY || 0,
                     isJumping: (en.jumpY || 0) !== 0
                 })),
-                platforms: MAP_DATA.platforms, // 🧱 これで足場が復活します
-                ladders: MAP_DATA.ladders,     // 🪜 これでハシゴが復活します
-                // ✨ 🌟 修正：全体ではなく、このチャンネルのエフェクトだけを送る
+                platforms: MAP_DATA.platforms,
+                ladders: MAP_DATA.ladders,
                 lastPickedItems: roomPickedItems
             });
         }

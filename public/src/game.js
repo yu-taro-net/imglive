@@ -4341,280 +4341,83 @@ function handleLoginError(message) {
     }
 }
 
-function handleLoginSuccess(data) {
-    // 1. トークン保存
-    if (data.token) {
-        localStorage.setItem('game_token', data.token);
-    }
-
-    myId = socket.id;
-    
-    // 2. UIリセット
-    const loginError = document.getElementById('login-error');
-    const passwordInput = document.getElementById('user-pass-input');
-    const nameInput = document.getElementById('user-name-input');
-    if (loginError) loginError.innerText = "";
-    if (nameInput) nameInput.style.border = "1px solid #ccc";
-    if (passwordInput) passwordInput.style.border = "1px solid #ccc";
-
-    // 3. 画面遷移（キャラ選択）
-    if (!window.isGameStarted) {
-        const loginOverlay = document.getElementById('login-overlay');
-        if (loginOverlay) loginOverlay.style.display = 'none';
-        createCharSelector();
-    }
-
-    // 4. データ同期 (heroへの代入)
-    if (typeof hero !== 'undefined') {
-        hero.name = data.username;
-        if (data.stats) {
-            Object.assign(hero, {
-                level: data.stats.level || 1,
-                hp: data.stats.hp || 100,
-                mp: data.stats.mp || 50,
-                gold: data.stats.gold || 0,
-                x: data.stats.x || 100,
-                y: data.stats.y || 400,
-                jobId: data.stats.job_id || 0
-            });
-        }
-        hero.channel = data.channel || (typeof selectedChannel !== 'undefined' ? selectedChannel : 1);
-        if (typeof updateChannelUI === 'function') updateChannelUI(hero.channel);
-    }
-
-    // 5. ゲーム開始後の処理
-    if (window.isGameStarted) {
-		// 2026-8-28停止
-        //socket.emit('join', { name: data.username, channel: hero.channel, group: hero.group, x: hero.x, y: hero.y });
-        socket.emit('get_account_info');
-
-        if (typeof audioCtx !== 'undefined' && audioCtx.state === 'suspended') audioCtx.resume();		
-        if (typeof playBGM === 'function') playBGM();
-        if (typeof update === 'function') update();
-    }
-}
-
 // :::ON_AUTH_RESPONSE::: 🔒 ログイン認証のみ（詳細データ未着）
 socket.on('auth_response', (data) => {
-    console.log("🔒 認証成功。キャラクター選択画面へ");
-	
-	//alert(data.model_id);
-    
-    // ログインパネルを隠す
+    console.log("🔒 認証成功。キャラクター選択画面へ", data);
+
+    // すでにゲーム開始済み、または login_data 側で処理される場合は重複実行を防止
+    if (window.isGameStarted) {
+        console.log("ℹ️ すでにゲーム開始済みのため auth_response の重複遷移をスキップ");
+        return;
+    }
+
+    // ログインパネルを隠す（!important 対策）
     const loginOverlay = document.getElementById('login-overlay');
-    if (loginOverlay) loginOverlay.style.display = 'none';
+    if (loginOverlay) {
+        loginOverlay.style.opacity = '0';
+        loginOverlay.style.pointerEvents = 'none';
+        loginOverlay.style.setProperty('display', 'none', 'important');
+    }
 
     // 🚀 【救出処理・同期】
     const tCanvas = document.getElementById('tooltip-layer');
     const stageCanvas = document.getElementById('stage');
     if (tCanvas && stageCanvas) {
-        stageCanvas.parentElement.appendChild(tCanvas); 
+        stageCanvas.parentElement.appendChild(tCanvas);
     }
 
-	if (data.model_id !== -1) {
-        selectCharacterAndLogin(data.model_id, data.style_id);
+    if (data && data.model_id !== -1 && data.model_id !== undefined) {
+        if (typeof selectCharacterAndLogin === 'function') {
+            selectCharacterAndLogin(data.model_id, data.style_id);
+        }
     } else {
         // -1 なら選択画面を出す
-        createCharSelector();
+        if (typeof createCharSelector === 'function') {
+            createCharSelector();
+        }
     }
-	
-    // キャラクター選択画面を呼び出す
-    //createCharSelector();
 });
 
 window.isGameLoopRunning = false; // ループが動いているかを管理するフラグ
 
-// ============================================================
-// :::ON_LOGIN_DATA::: 🚀 本番ログインデータ受信・ゲーム開始・状態遷移
-// ============================================================
-socket.on('login_data', (data) => {
-
-    // 💡 受信データ全体をログに出す
-    console.log("📥 [Debug] 受信した login_data:", data);
-    
-    // 💡 特定のキーが存在するか確認してログに出す
-    console.log("🔎 is_linked は含まれているか?:", 'is_linked' in data);
-    console.log("🔎 is_online は含まれているか?:", 'is_online' in data);
-    
-    // 💡 もし含まれていなければ、送られてきた全キーをリストアップする
-    if (!('is_linked' in data)) {
-        console.warn("⚠️ 警告: is_linked が見当たりません。送られてきたキー一覧:", Object.keys(data));
-    }
-
-    console.log("🏁 [重要] login_data 到着:", data);
-    
-    // 💡 ログイン判定が完了したので、読み込みカバーを強制的に非表示にする
-	//const loadingCover = document.getElementById('loading-cover');
-    //if (loadingCover) loadingCover.style.display = 'none';
-
-    const loginError = document.getElementById('login-error');
-    const loginOverlay = document.getElementById('login-overlay');
-    
-    // 💡 ログイン失敗時の処理
-    if (!data.success) {
-        if (loginError) loginError.innerText = data.message;
-        
-        // 失敗した場合はログイン画面を再表示（CSSのimportantを上書き）
-        if (loginOverlay) loginOverlay.style.setProperty('display', 'flex', 'important');
-        
-        // 不要になったトークンは削除
-        localStorage.removeItem('game_token');
+(() => {
+    const el = document.getElementById('login-overlay');
+    if (!el) {
+        console.warn("⚠️ [LOGIN_WATCH] #login-overlay がまだ存在しません");
         return;
     }
 
-    // 💡 トークン保存
-    if (data.token) localStorage.setItem('game_token', data.token);
-    myId = socket.id;
+    // 初期状態で隠す（auto_login 判定が終わるまで）
+    el.style.setProperty('display', 'none', 'important');
+    el.style.opacity = '0';
+    el.style.pointerEvents = 'none';
 
-    // 💡 モデルIDが -1 以外なら選択画面をスキップして即開始
-    if (data.stats && data.stats.model_id !== -1) {
-        console.log("🌟 キャラクター選択済み (ModelID: " + data.stats.model_id + ")。自動開始します。");
-        window.isGameStarted = true;
-        selectedGroup = data.stats.model_id;
-        selectedCharVar = data.stats.style_id;
-        
-        // ログインパネルを隠す（CSSのimportantを上書きして非表示）
-        if (loginOverlay) loginOverlay.style.setProperty('display', 'none', 'important');
-    } else {
-        // キャラクター未選択の場合、ログインパネルは出したままにする
-        console.log("👤 キャラクター選択が必要です。");
-    }
-
-    // 💡 hero やグローバルへのデータ退避
-    const userName = data.username;
-    if (typeof hero !== 'undefined') {
-        hero.name = userName;
-        
-        // 🌟 サーバーから送られてきた連携・オンライン状態を即時反映
-        hero.isLinked = data.is_linked;
-        hero.isOnline = data.is_online;
-        
-        // 🌟 【追加】hero に人気度（popularity）を反映
-        hero.popularity = data.popularity !== undefined ? data.popularity : (data.stats && data.stats.popularity !== undefined ? data.stats.popularity : 0);
-        
-        console.log("【ログイン処理】受け取ったデータ:", data);
-        console.log("【ログイン処理】更新後のhero:", hero);
-        
-        // 描画ループが参照している players[socket.id] にも値をセットする
-        if (typeof players !== 'undefined' && players[socket.id]) {
-            players[socket.id].isLinked = data.is_linked;
-            players[socket.id].isOnline = data.is_online;
-            
-            // 🌟 【追加】players[socket.id] にも人気度（popularity）を反映
-            players[socket.id].popularity = hero.popularity;
-            
-            if (data.stats) {
-                players[socket.id].speed = data.stats.speed || 5.0;
-                players[socket.id].jumpPower = data.stats.jumpPower || 10.0;
-                players[socket.id].atk = data.stats.atk || 13;
-                players[socket.id].baseAtk = data.stats.baseAtk || 13;
-                players[socket.id].weaponAtk = data.stats.weaponAtk || 0;
-            }
-            console.log("✅ players[socket.id] を同期しました:", players[socket.id].isLinked);
+    // style.display や style.setProperty が呼ばれた瞬間を監視
+    const origSetProperty = el.style.setProperty.bind(el.style);
+    el.style.setProperty = function(prop, val, priority) {
+        if (prop === 'display' && val !== 'none') {
+            console.error("🚨 [LOGIN_WATCH] display が non-none に変更されました:", val, new Error().stack);
         }
-        
-        if (data.stats) {
-            hero.level = data.stats.level || 1;
-            hero.exp   = data.stats.exp || 0;
-            hero.requiredExp = data.stats.requiredExp || 100; // 💡 次のレベルに必要な経験値
-            hero.hp    = data.stats.hp || 100;
-            hero.maxHp = data.stats.max_hp || 100;
-            
-            // 🌟 サーバーから送られてきたHP/MPのベース値とボーナス値を hero に反映
-            hero.baseMaxHp = data.stats.baseMaxHp !== undefined ? data.stats.baseMaxHp : hero.maxHp;
-            hero.bonusMaxHp = data.stats.bonusMaxHp !== undefined ? data.stats.bonusMaxHp : 0;
+        return origSetProperty(prop, val, priority);
+    };
 
-            hero.mp    = data.stats.mp || 50;
-            hero.maxMp = data.stats.max_mp || 50;
-
-            hero.baseMaxMp = data.stats.baseMaxMp !== undefined ? data.stats.baseMaxMp : hero.maxMp;
-            hero.bonusMaxMp = data.stats.bonusMaxMp !== undefined ? data.stats.bonusMaxMp : 0;
-
-            hero.gold  = data.stats.gold || 0;
-            hero.x     = data.stats.x || 100;
-            hero.y     = data.stats.y || 400;
-            hero.jobId = data.stats.job_id || 0;
-            
-            // 🌟 サーバーから送られてきた攻撃力の詳細を hero に反映
-            hero.atk = data.stats.atk || 13;
-            hero.baseAtk = data.stats.baseAtk || 13;
-            hero.weaponAtk = data.stats.weaponAtk || 0;
-
-            // 🌟 サーバーから送られてきた移動速度とジャンプ力を hero に反映
-            hero.speed = data.stats.speed || 5.0;
-            hero.jumpPower = data.stats.jumpPower || 10.0;
-
-            // 🌟 ログイン時にデータベースから素のステータスを受け取る
-            hero.baseStr = data.stats.baseStr !== undefined ? data.stats.baseStr : (data.stats.str || 4);
-            hero.baseDex = data.stats.baseDex !== undefined ? data.stats.baseDex : (data.stats.dex || 4);
-            hero.baseLuk = data.stats.baseLuk !== undefined ? data.stats.baseLuk : (data.stats.luk || 4);
-            hero.ap      = data.stats.ap !== undefined ? data.stats.ap : 0;
-
-            // 🌟 装備品のボーナスを再計算して `〇〇(〇+〇)` の形式に反映させる関数を呼び出す
-            if (typeof recalcPlayerStats === 'function') {
-                recalcPlayerStats();
-            } else {
-                hero.str = hero.baseStr;
-                hero.dex = hero.baseDex;
-                hero.luk = hero.baseLuk;
+    const desc = Object.getOwnPropertyDescriptor(CSSStyleDeclaration.prototype, 'display');
+    if (desc && desc.set) {
+        Object.defineProperty(el.style, 'display', {
+            configurable: true,
+            enumerable: true,
+            get() {
+                return desc.get.call(this);
+            },
+            set(val) {
+                if (val !== 'none') {
+                    console.error("🚨 [LOGIN_WATCH] style.display =", val, new Error().stack);
+                }
+                return desc.set.call(this, val);
             }
-        }
-        hero.channel = data.channel || 1;
-        if (typeof updateChannelUI === 'function') updateChannelUI(hero.channel);
-    }
-
-    // 🌟 ゲーム開始処理
-    if (window.isGameStarted) {
-        socket.emit('join', { 
-            name: userName, 
-            channel: hero.channel,
-            group: selectedGroup,
-            charVar: selectedCharVar,
-            x: hero.x,
-            y: hero.y
         });
-        
-        socket.emit('get_account_info');
-        
-        // 🌟 ログインしてゲームが始まった瞬間にフレンドリストも要求する！
-        socket.emit('get_friend_list');
-
-        if (typeof audioCtx !== 'undefined' && audioCtx.state === 'suspended') audioCtx.resume();
-        if (typeof playBGM === 'function') playBGM();
-
-        // すでにループが動いていなければ、1回だけ起動する
-        if (typeof update === 'function' && !window.isGameLoopRunning) {
-            window.isGameLoopRunning = true; 
-            update(); 
-            console.log("✅ ゲームループを1回だけ起動しました");
-        } else {
-            console.log("⚠️ すでにループは動いています");
-        }
-        
-        console.log("✅ ゲームセッションを開始しました");
     }
-
-    // ==========================================
-    // 🌟 ログイン時にキーコンフィグを復元する処理
-    // ==========================================
-    if (data.keyConfig) {
-        currentKeyConfig = data.keyConfig;
-        console.log("📂 サーバーからキーコンフィグを復元しました:", currentKeyConfig);
-    } else if (data.stats && data.stats.keyConfig) {
-        currentKeyConfig = data.stats.keyConfig;
-        console.log("📂 サーバー(stats)からキーコンフィグを復元しました:", currentKeyConfig);
-    }
-
-    // 🔄 復元した設定をゲーム側の keyMap に即座に反映させる！
-    if (typeof updateKeyMapFromConfig === 'function') {
-        updateKeyMapFromConfig();
-    }
-
-    // もしキーコンフィグ画面のUIなどが定義されていれば再描画
-    if (typeof renderKeyboard === 'function') {
-        renderKeyboard();
-    }
-});
+})();
 
 // ============================================================
 // :::UPDATE_CHANNEL_BUTTONS::: 📺 チャンネルボタンのアクティブ表示管理
@@ -11062,7 +10865,7 @@ function initTradeSlots() {
 }
 
 // ============================================================
-// ⛺ トレード画面用の自キャラ描画関数（完全静止・重心固定版）
+// ⛺ トレード画面用の自キャラ描画関数（完全静止・重心固定版 + アバター装備連動）
 // ============================================================
 function drawMyTradeAvatar() {
     const canvas = document.getElementById('trade-my-avatar-canvas');
@@ -11094,11 +10897,24 @@ function drawMyTradeAvatar() {
             }
 
             if (typeof hero !== 'undefined' && hero) {
+                // 🌟 装備中アバターの見た目情報を優先取得
+                const activeAvatar = hero.avatarVisual || hero.avatarAppearance || null;
+
                 // モデルIDとスタイルID（charVar）の取得
-                const g = typeof selectedGroup !== 'undefined' ? selectedGroup : (hero.model_id !== undefined ? hero.model_id : 11);
-                const v = typeof selectedCharVar !== 'undefined' ? selectedCharVar : (hero.charVar !== undefined ? hero.charVar : (hero.style_id !== undefined ? hero.style_id : 1));
-                
-                const charKey = `${g}_${v}`;
+                let g = typeof selectedGroup !== 'undefined' ? selectedGroup : (hero.model_id !== undefined ? hero.model_id : 11);
+                let v = typeof selectedCharVar !== 'undefined' ? selectedCharVar : (hero.charVar !== undefined ? hero.charVar : (hero.style_id !== undefined ? hero.style_id : 1));
+
+                if (activeAvatar) {
+                    if (activeAvatar.groupIndex !== null && activeAvatar.groupIndex !== undefined) {
+                        g = activeAvatar.groupIndex;
+                    }
+                    if (activeAvatar.charIndex !== null && activeAvatar.charIndex !== undefined) {
+                        v = activeAvatar.charIndex;
+                    }
+                }
+
+                const avatarTag = activeAvatar && activeAvatar.key ? `_${activeAvatar.key}` : '';
+                const charKey = `${g}_${v}${avatarTag}`;
 
                 // キャラクターやスタイル変更時は Idle 画像キャッシュを再構築
                 if (animState.lastCharKey !== charKey || animState.cache.length === 0) {
@@ -11115,6 +10931,12 @@ function drawMyTradeAvatar() {
                     if (!styleNum) styleNum = "1";
                     const paddedStyleNum = String(parseInt(styleNum, 10)).padStart(2, '0');
 
+                    // 🌟 assetBaseDir / baseDir があれば優先（例: "char_assets/11/11"）、なければ標準パスを組み立て
+                    const rawBaseDir = (activeAvatar && activeAvatar.assetBaseDir) || (activeAvatar && activeAvatar.baseDir) || `char_assets/${paddedNum}/${paddedStyleNum}`;
+                    const cleanBaseDir = String(rawBaseDir).replace(/^\/+|\/+$/g, '');
+                    const cleanDomain = String(baseDomain).replace(/\/+$/, '');
+                    const prefix = cleanDomain ? `${cleanDomain}/` : '';
+
                     const totalFrames = 20; // 20コマのIdleアニメーション
                     let loadedCount = 0;
                     const tempImages = [];
@@ -11124,7 +10946,7 @@ function drawMyTradeAvatar() {
                         const img = new Image();
                         img.crossOrigin = "anonymous";
                         
-                        img.src = `${baseDomain}/char_assets/${paddedNum}/${paddedStyleNum}/Idle/Characters-Character${paddedStyleNum}-Idle_${frameNum}.png`;
+                        img.src = `${prefix}${cleanBaseDir}/Idle/Characters-Character${paddedStyleNum}-Idle_${frameNum}.png`;
                         
                         img.onload = () => {
                             loadedCount++;
@@ -11257,7 +11079,7 @@ function calculateTradeCommonBoundingBox(animState, images) {
 }
 
 // ============================================================
-// 🏪 露店入店中エリアへの自キャラ描画関数（完全静止・重心固定版・CORS対策済）
+// 🏪 露店入店中エリアへの自キャラ描画関数（完全静止・重心固定版・CORS対策済 + アバター装備連動）
 // ============================================================
 function drawOtherVendingMyAvatar() {
     const canvas = document.getElementById('other-vending-my-avatar-canvas');
@@ -11294,11 +11116,23 @@ function drawOtherVendingMyAvatar() {
             }
 
             if (typeof hero !== 'undefined' && hero) {
-                // モデルIDとスタイルID（charVar）の取得
-                const g = typeof selectedGroup !== 'undefined' ? selectedGroup : (hero.model_id !== undefined ? hero.model_id : 11);
-                const v = typeof selectedCharVar !== 'undefined' ? selectedCharVar : (hero.charVar !== undefined ? hero.charVar : (hero.style_id !== undefined ? hero.style_id : 1));
-                
-                const charKey = `${g}_${v}`;
+                // 🌟 装備中アバターの見た目情報を優先取得
+                const activeAvatar = hero.avatarVisual || hero.avatarAppearance || null;
+
+                let g = typeof selectedGroup !== 'undefined' ? selectedGroup : (hero.model_id !== undefined ? hero.model_id : 11);
+                let v = typeof selectedCharVar !== 'undefined' ? selectedCharVar : (hero.charVar !== undefined ? hero.charVar : (hero.style_id !== undefined ? hero.style_id : 1));
+
+                if (activeAvatar) {
+                    if (activeAvatar.groupIndex !== null && activeAvatar.groupIndex !== undefined) {
+                        g = activeAvatar.groupIndex;
+                    }
+                    if (activeAvatar.charIndex !== null && activeAvatar.charIndex !== undefined) {
+                        v = activeAvatar.charIndex;
+                    }
+                }
+
+                const avatarTag = activeAvatar && activeAvatar.key ? `_${activeAvatar.key}` : '';
+                const charKey = `${g}_${v}${avatarTag}`;
 
                 // キャラクターやスタイル変更時は Idle 画像キャッシュを再構築
                 if (animState.lastCharKey !== charKey || animState.cache.length === 0) {
@@ -11315,6 +11149,12 @@ function drawOtherVendingMyAvatar() {
                     if (!styleNum) styleNum = "1";
                     const paddedStyleNum = String(parseInt(styleNum, 10)).padStart(2, '0');
 
+                    // 🌟 assetBaseDir があれば優先（例: "char_assets/11/11"）、なければ標準パスを組み立て
+                    const rawBaseDir = (activeAvatar && activeAvatar.assetBaseDir) || (activeAvatar && activeAvatar.baseDir) || `char_assets/${paddedNum}/${paddedStyleNum}`;
+                    const cleanBaseDir = String(rawBaseDir).replace(/^\/+|\/+$/g, '');
+                    const cleanDomain = String(baseDomain).replace(/\/+$/, '');
+                    const prefix = cleanDomain ? `${cleanDomain}/` : '';
+
                     const totalFrames = 20; // 20コマ
                     
                     let loadedCount = 0;
@@ -11327,8 +11167,7 @@ function drawOtherVendingMyAvatar() {
                         // 🌟 CORS制限を回避するため anonymous を指定
                         img.crossOrigin = "anonymous";
                         
-                        // 💡 もしこれでも汚染される場合は、URL末尾にダミーのタイムスタンプ等を付与してキャッシュ起因のCORSバグを防ぐことも有効です
-                        img.src = `${baseDomain}/char_assets/${paddedNum}/${paddedStyleNum}/Idle/Characters-Character${paddedStyleNum}-Idle_${frameNum}.png`;
+                        img.src = `${prefix}${cleanBaseDir}/Idle/Characters-Character${paddedStyleNum}-Idle_${frameNum}.png`;
                         
                         img.onload = () => {
                             loadedCount++;
@@ -12043,6 +11882,10 @@ function renderImageToCanvas(canvas, ctx, currentImg) {
 
 // 🌟 相手がトレードに入室・承諾したときに呼び出す関数
 function setupOpponentTrade(opponentData) {
+
+	console.log('🔍 [TRADE DEBUG] opponentData:', opponentData);
+	console.log('🔍 [TRADE DEBUG] players:', typeof players !== 'undefined' ? players : null);
+
     if (!opponentData) return;
 
     // 1. 相手の名前をセット（senderName を優先、なければ name を使うフォールバックに）
@@ -12058,7 +11901,7 @@ function setupOpponentTrade(opponentData) {
 }
 
 // ============================================================
-// 🤝 トレード画面用の相手アバター描画関数（Idleアニメ・重心固定・右向き版）
+// 🤝 トレード画面用の相手アバター描画関数（Idleアニメ・重心固定・右向き版 + アバター装備連動）
 // ============================================================
 function drawOpponentTradeAvatar(opponentData) {
     const canvas = document.getElementById('trade-opponent-avatar-canvas');
@@ -12148,15 +11991,49 @@ function drawOpponentTradeAvatar(opponentData) {
 
             const latestData = canvas._latestOpponentData;
             if (latestData) {
-                // 相手のモデルIDとバリエーションを取得（なければデフォルト）
-                const rawModel = (latestData.model_id !== undefined && latestData.model_id !== null)
-                    ? latestData.model_id
-                    : ((latestData.groupId !== undefined && latestData.groupId !== null) ? latestData.groupId : 0);
-                const rawVar = (latestData.charVar !== undefined && latestData.charVar !== null)
-                    ? latestData.charVar
-                    : ((latestData.style_id !== undefined && latestData.style_id !== null) ? latestData.style_id : 1);
+                // 🌟 players 側から同じ相手プレイヤーの最新状態も参照
+                let livePlayer = latestData;
+                if (typeof players !== 'undefined' && players) {
+                    const opSocketId = latestData.socketId || latestData.id;
+                    const opDbId = latestData.dbId || latestData.db_id || latestData.user_id;
 
-                const charKey = `${rawModel}_${rawVar}`;
+                    if (!Array.isArray(players) && opSocketId && players[opSocketId]) {
+                        livePlayer = players[opSocketId];
+                    } else {
+                        const list = Array.isArray(players) ? players : Object.values(players);
+                        const found = list.find(p => p && (
+                            (opSocketId && (p.socketId === opSocketId || p.id === opSocketId)) ||
+                            (opDbId && (p.dbId === opDbId || p.db_id === opDbId || p.user_id === opDbId))
+                        ));
+                        if (found) livePlayer = found;
+                    }
+                }
+
+                // 🌟 相手の装備中アバター見た目情報を優先取得
+                const activeAvatar =
+                    (livePlayer && (livePlayer.avatarVisual || livePlayer.avatarAppearance)) ||
+                    (latestData && (latestData.avatarVisual || latestData.avatarAppearance)) ||
+                    null;
+
+                // 相手のモデルIDとバリエーションを取得（なければデフォルト）
+                let rawModel = (livePlayer.model_id !== undefined && livePlayer.model_id !== null)
+                    ? livePlayer.model_id
+                    : ((livePlayer.groupId !== undefined && livePlayer.groupId !== null) ? livePlayer.groupId : (livePlayer.group ?? 0));
+                let rawVar = (livePlayer.charVar !== undefined && livePlayer.charVar !== null)
+                    ? livePlayer.charVar
+                    : ((livePlayer.style_id !== undefined && livePlayer.style_id !== null) ? livePlayer.style_id : 1);
+
+                if (activeAvatar) {
+                    if (activeAvatar.groupIndex !== null && activeAvatar.groupIndex !== undefined) {
+                        rawModel = activeAvatar.groupIndex;
+                    }
+                    if (activeAvatar.charIndex !== null && activeAvatar.charIndex !== undefined) {
+                        rawVar = activeAvatar.charIndex;
+                    }
+                }
+
+                const avatarTag = activeAvatar && activeAvatar.key ? `_${activeAvatar.key}` : '';
+                const charKey = `${rawModel}_${rawVar}${avatarTag}`;
 
                 // キャラクターやスタイル変更時は Idle 画像キャッシュを再構築
                 if (animState.lastCharKey !== charKey || animState.cache.length === 0) {
@@ -12173,6 +12050,10 @@ function drawOpponentTradeAvatar(opponentData) {
                     if (!styleNum) styleNum = "1";
                     const paddedStyleNum = String(parseInt(styleNum, 10)).padStart(2, '0');
 
+                    const rawBaseDir = (activeAvatar && (activeAvatar.assetBaseDir || activeAvatar.baseDir)) || `char_assets/${paddedNum}/${paddedStyleNum}`;
+                    const cleanBaseDir = String(rawBaseDir).replace(/^\/+|\/+$/g, '');
+                    const prefix = baseDomain ? `${baseDomain}/` : '';
+
                     const totalFrames = 20; // 20コマのIdleアニメーション
                     let loadedCount = 0;
                     const tempImages = [];
@@ -12181,7 +12062,7 @@ function drawOpponentTradeAvatar(opponentData) {
                         const frameNum = String(i).padStart(2, '0');
                         const img = new Image();
                         img.crossOrigin = "anonymous";
-                        img.src = `${baseDomain}/char_assets/${paddedNum}/${paddedStyleNum}/Idle/Characters-Character${paddedStyleNum}-Idle_${frameNum}.png`;
+                        img.src = `${prefix}${cleanBaseDir}/Idle/Characters-Character${paddedStyleNum}-Idle_${frameNum}.png`;
 
                         img.onload = () => {
                             loadedCount++;
@@ -12692,73 +12573,329 @@ socket.onAny((event, ...args) => {
 });
 */
 
-window.addEventListener('load', () => {
-    // キー名を 'game_token' に統一
-    const savedToken = localStorage.getItem('game_token'); 
-    const loadingCover = document.getElementById('loading-cover');
-    const loginOverlay = document.getElementById('login-overlay');
-    const mainContainer = document.getElementById('main-container'); // 🌟 ゲーム画面本体
-    const uiContainer = document.getElementById('ui-container');      // 🌟 UI操作エリア（チャット等）
+// 保存済みトークンがあれば、最初は「オートログイン待ち」としてスタート
+window._isAutoLoginPending = Boolean(localStorage.getItem('game_token'));
 
-    // ★最初からログインオーバーレイは透明にして操作を無効化（チラつき完全防止）
+function showLoginOverlay() {
+    if (window.isGameStarted) {
+        return;
+    }
+    if (window._isAutoLoginPending) {
+        console.log("🛡️ オートログイン処理中のためログインフォームの表示をブロックしました");
+        return;
+    }
+
+    const loginOverlay = document.getElementById('login-overlay');
+    if (loginOverlay) {
+        loginOverlay.style.opacity = '1';
+        loginOverlay.style.pointerEvents = 'auto';
+        loginOverlay.style.setProperty('display', 'flex', 'important');
+    }
+}
+
+function hideLoginOverlay() {
+    const loginOverlay = document.getElementById('login-overlay');
     if (loginOverlay) {
         loginOverlay.style.opacity = '0';
         loginOverlay.style.pointerEvents = 'none';
+        loginOverlay.style.setProperty('display', 'none', 'important');
     }
+}
+
+function handleLoginSuccess(data) {
+    // 1. トークン保存
+    if (data.token) {
+        localStorage.setItem('game_token', data.token);
+    }
+
+    myId = socket.id;
+    
+    // 2. UIリセット
+    const loginError = document.getElementById('login-error');
+    const passwordInput = document.getElementById('user-pass-input');
+    const nameInput = document.getElementById('user-name-input');
+    if (loginError) loginError.innerText = "";
+    if (nameInput) nameInput.style.border = "1px solid #ccc";
+    if (passwordInput) passwordInput.style.border = "1px solid #ccc";
+
+    // 3. 画面遷移（キャラ選択）
+    if (!window.isGameStarted) {
+        const loginOverlay = document.getElementById('login-overlay');
+        if (loginOverlay) {
+            loginOverlay.style.opacity = '0';
+            loginOverlay.style.pointerEvents = 'none';
+            loginOverlay.style.setProperty('display', 'none', 'important');
+        }
+        createCharSelector();
+    }
+
+    // 4. データ同期 (heroへの代入)
+    if (typeof hero !== 'undefined') {
+        hero.name = data.username;
+        if (data.stats) {
+            Object.assign(hero, {
+                level: data.stats.level || 1,
+                hp: data.stats.hp || 100,
+                mp: data.stats.mp || 50,
+                gold: data.stats.gold || 0,
+                x: data.stats.x || 100,
+                y: data.stats.y || 400,
+                jobId: data.stats.job_id || 0
+            });
+        }
+        hero.channel = data.channel || (typeof selectedChannel !== 'undefined' ? selectedChannel : 1);
+        if (typeof updateChannelUI === 'function') updateChannelUI(hero.channel);
+    }
+
+    // 5. ゲーム開始後の処理
+    if (window.isGameStarted) {
+        socket.emit('get_account_info');
+
+        if (typeof audioCtx !== 'undefined' && audioCtx.state === 'suspended') audioCtx.resume();		
+        if (typeof playBGM === 'function') playBGM();
+        if (typeof update === 'function') update();
+    }
+}
+
+// ============================================================
+// :::ON_LOGIN_DATA::: 🚀 本番ログインデータ受信・ゲーム開始・状態遷移
+// ============================================================
+socket.on('login_data', (data) => {
+    if (window._autoLoginTimeoutTimer) {
+        clearTimeout(window._autoLoginTimeoutTimer);
+        window._autoLoginTimeoutTimer = null;
+    }
+    window._isAutoLoginPending = false;
+
+    // 💡 受信データ全体をログに出す
+    console.log("📥 [Debug] 受信した login_data:", data);
+    
+    // 💡 特定のキーが存在するか確認してログに出す
+    console.log("🔎 is_linked は含まれているか?:", 'is_linked' in data);
+    console.log("🔎 is_online は含まれているか?:", 'is_online' in data);
+    
+    // 💡 もし含まれていなければ、送られてきた全キーをリストアップする
+    if (!('is_linked' in data)) {
+        console.warn("⚠️ 警告: is_linked が見当たりません。送られてきたキー一覧:", Object.keys(data));
+    }
+
+    console.log("🏁 [重要] login_data 到着:", data);
+
+    const loginError = document.getElementById('login-error');
+    const mainContainer = document.getElementById('main-container');
+    const uiContainer = document.getElementById('ui-container');
+    const loadingCover = document.getElementById('loading-cover');
+    
+    // 💡 ログイン失敗時の処理
+    if (!data.success) {
+        if (loginError) loginError.innerText = data.message;
+        
+        // 不要になったトークンは削除してからログイン画面を表示
+        localStorage.removeItem('game_token');
+        showLoginOverlay();
+        return;
+    }
+
+    // 💡 トークン保存
+    if (data.token) localStorage.setItem('game_token', data.token);
+    myId = socket.id;
+
+    // 💡 モデルIDが -1 以外なら選択画面をスキップして即開始
+    if (data.stats && data.stats.model_id !== -1) {
+        console.log("🌟 キャラクター選択済み (ModelID: " + data.stats.model_id + ")。自動開始します。");
+        window.isGameStarted = true;
+        selectedGroup = data.stats.model_id;
+        selectedCharVar = data.stats.style_id;
+        
+        // ログインパネルを隠す
+        hideLoginOverlay();
+        if (mainContainer) mainContainer.style.display = 'flex';
+        if (uiContainer) uiContainer.style.display = 'flex';
+    } else {
+        // キャラクター未選択の場合、ログインパネルを表示
+        console.log("👤 キャラクター選択が必要です。");
+        showLoginOverlay();
+    }
+
+    // 💡 hero やグローバルへのデータ退避
+    const userName = data.username;
+    if (typeof hero !== 'undefined') {
+        hero.name = userName;
+        
+        // 🌟 サーバーから送られてきた連携・オンライン状態を即時反映
+        hero.isLinked = data.is_linked;
+        hero.isOnline = data.is_online;
+        
+        // 🌟 【追加】hero に人気度（popularity）を反映
+        hero.popularity = data.popularity !== undefined ? data.popularity : (data.stats && data.stats.popularity !== undefined ? data.stats.popularity : 0);
+        
+        console.log("【ログイン処理】受け取ったデータ:", data);
+        console.log("【ログイン処理】更新後のhero:", hero);
+        
+        // 描画ループが参照している players[socket.id] にも値をセットする
+        if (typeof players !== 'undefined' && players[socket.id]) {
+            players[socket.id].isLinked = data.is_linked;
+            players[socket.id].isOnline = data.is_online;
+            
+            // 🌟 【追加】players[socket.id] にも人気度（popularity）を反映
+            players[socket.id].popularity = hero.popularity;
+            
+            if (data.stats) {
+                players[socket.id].speed = data.stats.speed || 5.0;
+                players[socket.id].jumpPower = data.stats.jumpPower || 10.0;
+                players[socket.id].atk = data.stats.atk || 13;
+                players[socket.id].baseAtk = data.stats.baseAtk || 13;
+                players[socket.id].weaponAtk = data.stats.weaponAtk || 0;
+            }
+            console.log("✅ players[socket.id] を同期しました:", players[socket.id].isLinked);
+        }
+        
+        if (data.stats) {
+            hero.level = data.stats.level || 1;
+            hero.exp   = data.stats.exp || 0;
+            hero.requiredExp = data.stats.requiredExp || 100; // 💡 次のレベルに必要な経験値
+            hero.hp    = data.stats.hp || 100;
+            hero.maxHp = data.stats.max_hp || 100;
+            
+            // 🌟 サーバーから送られてきたHP/MPのベース値とボーナス値を hero に反映
+            hero.baseMaxHp = data.stats.baseMaxHp !== undefined ? data.stats.baseMaxHp : hero.maxHp;
+            hero.bonusMaxHp = data.stats.bonusMaxHp !== undefined ? data.stats.bonusMaxHp : 0;
+
+            hero.mp    = data.stats.mp || 50;
+            hero.maxMp = data.stats.max_mp || 50;
+
+            hero.baseMaxMp = data.stats.baseMaxMp !== undefined ? data.stats.baseMaxMp : hero.maxMp;
+            hero.bonusMaxMp = data.stats.bonusMaxMp !== undefined ? data.stats.bonusMaxMp : 0;
+
+            hero.gold  = data.stats.gold || 0;
+            hero.x     = data.stats.x || 100;
+            hero.y     = data.stats.y || 400;
+            hero.jobId = data.stats.job_id || 0;
+            
+            // 🌟 サーバーから送られてきた攻撃力の詳細を hero に反映
+            hero.atk = data.stats.atk || 13;
+            hero.baseAtk = data.stats.baseAtk || 13;
+            hero.weaponAtk = data.stats.weaponAtk || 0;
+
+            // 🌟 サーバーから送られてきた移動速度とジャンプ力を hero に反映
+            hero.speed = data.stats.speed || 5.0;
+            hero.jumpPower = data.stats.jumpPower || 10.0;
+
+            // 🌟 ログイン時にデータベースから素のステータスを受け取る
+            hero.baseStr = data.stats.baseStr !== undefined ? data.stats.baseStr : (data.stats.str || 4);
+            hero.baseDex = data.stats.baseDex !== undefined ? data.stats.baseDex : (data.stats.dex || 4);
+            hero.baseLuk = data.stats.baseLuk !== undefined ? data.stats.baseLuk : (data.stats.luk || 4);
+            hero.ap      = data.stats.ap !== undefined ? data.stats.ap : 0;
+
+            // 🌟 装備品のボーナスを再計算して `〇〇(〇+〇)` の形式に反映させる関数を呼び出す
+            if (typeof recalcPlayerStats === 'function') {
+                recalcPlayerStats();
+            } else {
+                hero.str = hero.baseStr;
+                hero.dex = hero.baseDex;
+                hero.luk = hero.baseLuk;
+            }
+        }
+        hero.channel = data.channel || 1;
+        if (typeof updateChannelUI === 'function') updateChannelUI(hero.channel);
+    }
+
+    // 🌟 ゲーム開始処理
+    if (window.isGameStarted) {
+        socket.emit('join', { 
+            name: userName, 
+            channel: hero.channel,
+            group: selectedGroup,
+            charVar: selectedCharVar,
+            x: hero.x,
+            y: hero.y
+        });
+        
+        socket.emit('get_account_info');
+        
+        // 🌟 ログインしてゲームが始まった瞬間にフレンドリストも要求する！
+        socket.emit('get_friend_list');
+
+        if (typeof audioCtx !== 'undefined' && audioCtx.state === 'suspended') audioCtx.resume();
+        if (typeof playBGM === 'function') playBGM();
+
+        // すでにループが動いていなければ、1回だけ起動する
+        if (typeof update === 'function' && !window.isGameLoopRunning) {
+            window.isGameLoopRunning = true; 
+            update(); 
+            console.log("✅ ゲームループを1回だけ起動しました");
+        } else {
+            console.log("⚠️ すでにループは動いています");
+        }
+        
+        console.log("✅ ゲームセッションを開始しました");
+    }
+
+    if (loadingCover) {
+        requestAnimationFrame(() => {
+            setTimeout(() => {
+                loadingCover.style.transition = 'opacity 0.3s ease';
+                loadingCover.style.opacity = '0';
+                setTimeout(() => {
+                    loadingCover.style.display = 'none';
+                    loadingCover.style.opacity = '1';
+                }, 300);
+            }, 50);
+        });
+    }
+
+    // ==========================================
+    // 🌟 ログイン時にキーコンフィグを復元する処理
+    // ==========================================
+    if (data.keyConfig) {
+        currentKeyConfig = data.keyConfig;
+        console.log("📂 サーバーからキーコンフィグを復元しました:", currentKeyConfig);
+    } else if (data.stats && data.stats.keyConfig) {
+        currentKeyConfig = data.stats.keyConfig;
+        console.log("📂 サーバー(stats)からキーコンフィグを復元しました:", currentKeyConfig);
+    }
+
+    // 🔄 復元した設定をゲーム側の keyMap に即座に反映させる！
+    if (typeof updateKeyMapFromConfig === 'function') {
+        updateKeyMapFromConfig();
+    }
+
+    // もしキーコンフィグ画面のUIなどが定義されていれば再描画
+    if (typeof renderKeyboard === 'function') {
+        renderKeyboard();
+    }
+});
+
+const AUTO_LOGIN_TIMEOUT_MS = 10000; // オートログイン応答待ちの制限時間（ms）
+
+window.addEventListener('load', () => {
+    // キー名を 'game_token' に統一
+    const savedToken = localStorage.getItem('game_token'); 
+    const mainContainer = document.getElementById('main-container'); // 🌟 ゲーム画面本体
+    const uiContainer = document.getElementById('ui-container');      // 🌟 UI操作エリア（チャット等）
+
+    // ★最初からログインオーバーレイは非表示＆透明にして操作を無効化（チラつき完全防止）
+    hideLoginOverlay();
 
     // ★最初からゲーム画面とUIエリアも完全に隠しておく（リロード時のチラつき防止）
     if (mainContainer) mainContainer.style.display = 'none';
     if (uiContainer) uiContainer.style.display = 'none';
 
-    // タイムアウト設定：5秒経っても反応がなければ強制的にログイン画面を表示
-    const timeoutTimer = setTimeout(() => {
-        console.log("⏰ サーバー応答なし：タイムアウトしました");
-        //if (loadingCover) loadingCover.style.display = 'none';
-        
-        if (loginOverlay) {
-            loginOverlay.style.opacity = '1';
-            loginOverlay.style.pointerEvents = 'auto';
-            loginOverlay.style.setProperty('display', 'flex', 'important');
-        }
-    }, 5000); 
-
-    // 【重要】サーバーから返事が来たら（自動ログイン成功！）共通の処理を関数化
-    const handleLoginSuccess = (userData) => {
-        clearTimeout(timeoutTimer); // タイムアウトをキャンセル
-        console.log("✨ 自動ログイン成功！", userData);
-
-        if (loginOverlay) {
-            loginOverlay.style.opacity = '0';
-            loginOverlay.style.pointerEvents = 'none';
-        }
-
-        // 🌟 ゲーム画面とUIエリアを出現させる！
-        if (mainContainer) mainContainer.style.display = 'flex';
-        if (uiContainer) uiContainer.style.display = 'flex';
-
-        // ==========================================================
-        // 🌟 【ここ！】ゲーム画面とUIエリアが出現したのをトリガーにしてカバーを外す
-        // ==========================================================
-        if (loadingCover) {
-            // requestAnimationFrame を使って「画面の表示が確定した直後」に安全に消す
-            requestAnimationFrame(() => {
-                setTimeout(() => {
-                    loadingCover.style.transition = 'opacity 0.3s ease';
-                    loadingCover.style.opacity = '0';
-                    setTimeout(() => {
-                        loadingCover.style.display = 'none';
-                        loadingCover.style.opacity = '1'; // 次回のために戻す
-                    }, 300); // 0.3秒かけてフワッと消す
-                }, 50); // わずかな描画待ちの猶予
-            });
-        }
-    };
-
-    // 予め 'login_data' のリスナーを登録しておく
-    socket.once('login_data', handleLoginSuccess);
+    if (window._autoLoginTimeoutTimer) {
+        clearTimeout(window._autoLoginTimeoutTimer);
+        window._autoLoginTimeoutTimer = null;
+    }
 
     if (savedToken) {
+        window._isAutoLoginPending = true;
         console.log("⏳ 自動ログイン試行中...");
+
+        // サーバー応答待ち（AUTO_LOGIN_TIMEOUT_MS 経過でタイムアウト）
+        window._autoLoginTimeoutTimer = setTimeout(() => {
+            console.log(`⏰ サーバー応答なし（${AUTO_LOGIN_TIMEOUT_MS / 1000}秒）：タイムアウトしました`);
+            window._isAutoLoginPending = false;
+            showLoginOverlay();
+        }, AUTO_LOGIN_TIMEOUT_MS);
 
         // 🌟 【修正】すでに接続済みなら即座に送信、未接続なら connect を待つ
         if (socket.connected) {
@@ -12771,15 +12908,9 @@ window.addEventListener('load', () => {
             });
         }
     } else {
-        clearTimeout(timeoutTimer); // トークン不要なので解除
+        window._isAutoLoginPending = false;
         console.log("⚠️ トークンなし、ログイン画面を表示");
-        //if (loadingCover) loadingCover.style.display = 'none';
-        
-        if (loginOverlay) {
-            loginOverlay.style.opacity = '1';
-            loginOverlay.style.pointerEvents = 'auto';
-            loginOverlay.style.setProperty('display', 'flex', 'important');
-        }
+        showLoginOverlay();
     }
 });
 
@@ -12867,24 +12998,77 @@ const ENEMY_CATALOG = {
 };
 
 // ============================================================
-// 🔍 ガチガチ・デバッグ監視システム
+// 🔍 ガチガチ・デバッグ監視システム（INVENTORY_CANVAS_CONTROLLER 統合版）
 // ============================================================
 (function() {
     console.log("🛡️ デバッグ監視システムが有効化されました。操作を行ってください。");
 
-    // 1. currentKeyConfig の書き換わりを完全に監視する Proxy
-    let _debugConfigProxy = new Proxy(currentKeyConfig, {
-        set(target, property, value) {
-            console.warn(`🚨 [CONFIG変更] "${property}" が書き換えられました:`, value, new Error().stack);
-            target[property] = value;
-            return true;
+    const dbgNow = () => {
+        try {
+            return new Date().toISOString().split('T')[1].replace('Z', '');
+        } catch (_) {
+            return '';
         }
-    });
+    };
+
+    const dbgSnapshot = (tag, extra = {}) => {
+        const c = document.getElementById('inventoryCanvas');
+        const wDom = document.getElementById('inventory-window');
+        const gWin = (typeof gameWindows !== 'undefined' && gameWindows) ? gameWindows.inventory : null;
+        console.log(`🔎 [${dbgNow()}][INV_DBG][${tag}]`, {
+            readyState: document.readyState,
+            hasCanvas: !!c,
+            canvasRect: c ? c.getBoundingClientRect() : null,
+            canvasDims: c ? { attrW: c.getAttribute('width'), attrH: c.getAttribute('height'), propW: c.width, propH: c.height } : null,
+            hasWinDom: !!wDom,
+            winDomStyleDisplay: wDom ? wDom.style.display : null,
+            winDomComputedDisplay: wDom ? getComputedStyle(wDom).display : null,
+            hasGameWindows: typeof gameWindows !== 'undefined' && !!gameWindows,
+            gWin: gWin ? { isOpen: gWin.isOpen, x: gWin.x, y: gWin.y, w: gWin.w, h: gWin.h, scrollY: gWin.scrollY } : null,
+            hasHero: typeof hero !== 'undefined' && !!hero,
+            invLen: (typeof hero !== 'undefined' && hero && Array.isArray(hero.inventory)) ? hero.inventory.length : null,
+            selectedSlotIndex: (typeof selectedSlotIndex !== 'undefined') ? selectedSlotIndex : 'UNDEF',
+            isDisconnected: (typeof window !== 'undefined') ? window.isDisconnected : 'UNDEF',
+            ...extra
+        });
+    };
+
+    // 1. currentKeyConfig の書き換わりを完全に監視する Proxy
+    if (typeof currentKeyConfig !== 'undefined' && currentKeyConfig) {
+        let _debugConfigProxy = new Proxy(currentKeyConfig, {
+            set(target, property, value) {
+                console.warn(`🚨 [CONFIG変更] "${property}" が書き換えられました:`, value, new Error().stack);
+                target[property] = value;
+                return true;
+            }
+        });
+    }
 
     // 2. クリックイベントやマウスアップの暴発を監視する大元キャッチャー
     document.addEventListener('click', (e) => {
-        console.log("🖱️ [GLOBAL CLICK] ターゲット:", e.target, " / 親要素にキャンセル処理がないか確認");
+        const isInvCanvas = e.target && (e.target.id === 'inventoryCanvas' || (e.target.closest && e.target.closest('#inventoryCanvas')));
+        console.log("🖱️ [GLOBAL CLICK] ターゲット:", e.target, " / 親要素にキャンセル処理がないか確認", {
+            isInvCanvas,
+            defaultPrevented: e.defaultPrevented
+        });
+        if (isInvCanvas) {
+            dbgSnapshot('CLICK_ON_INV_CANVAS', { clientX: e.clientX, clientY: e.clientY });
+        }
     }, true /* キャプチャフェーズで最速検知 */);
+
+    // mousedown もキャプチャフェーズで最速監視（伝播停止の有無を確認）
+    document.addEventListener('mousedown', (e) => {
+        const isInvCanvas = e.target && (e.target.id === 'inventoryCanvas' || (e.target.closest && e.target.closest('#inventoryCanvas')));
+        if (isInvCanvas) {
+            console.log(`🧲 [${dbgNow()}][INV_DBG][CAP_MOUSEDOWN] inventoryCanvas 系 mousedown キャプチャ`, {
+                clientX: e.clientX,
+                clientY: e.clientY,
+                targetId: e.target && e.target.id,
+                defaultPrevented: e.defaultPrevented
+            });
+            dbgSnapshot('CAP_MOUSEDOWN_SNAP');
+        }
+    }, true);
 
     // 3. cancelGrab が呼ばれた瞬間にスタックトレース（どこから呼ばれたか）を出す
     const _origCancelGrab = window.cancelGrab;
@@ -12902,5 +13086,33 @@ const ENEMY_CATALOG = {
             console.log(`🎯 [PLACE 実行] キー "${targetKeyName}" へ配置を試みます。activeDragging:`, activeDragging);
             return _origPlaceAction.apply(this, arguments);
         };
+    }
+
+    // 5. INVENTORY_CANVAS_CONTROLLER 状態・登録確認
+    const registerInvDbgController = () => {
+        const inventoryCanvas = document.getElementById('inventoryCanvas');
+        dbgSnapshot('00_DBG_SYS_CHECK');
+
+        if (!inventoryCanvas) {
+            console.error(`🛑 [${dbgNow()}][INV_DBG][00_NO_CANVAS] 監視システム実行時点で #inventoryCanvas が見つかりません`);
+            return;
+        }
+
+        if (inventoryCanvas._invDbgHooked) {
+            return;
+        }
+        inventoryCanvas._invDbgHooked = true;
+
+        console.log(`✅ [${dbgNow()}][INV_DBG][00_HOOKED] 監視システムから #inventoryCanvas を検知`, {
+            widthAttr: inventoryCanvas.getAttribute('width'),
+            heightAttr: inventoryCanvas.getAttribute('height'),
+            rect: inventoryCanvas.getBoundingClientRect()
+        });
+    };
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', registerInvDbgController);
+    } else {
+        registerInvDbgController();
     }
 })();
